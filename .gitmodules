@@ -1,0 +1,3 @@
+[submodule "mpxj"]
+	path = mpxj
+	url = https://github.com/joniles/mpxj.git
