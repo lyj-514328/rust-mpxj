@@ -36,13 +36,13 @@ impl SlackHelper {
                 zero_slack
             };
 
-            task.set_start_slack(start_slack);
-            task.set_finish_slack(finish_slack);
-            task.set_total_slack(total_slack);
+            task.set_start_slack(Some(start_slack));
+            task.set_finish_slack(Some(finish_slack));
+            task.set_total_slack(Some(total_slack));
         } else {
-            task.set_start_slack(zero_slack);
-            task.set_finish_slack(zero_slack);
-            task.set_total_slack(zero_slack);
+            task.set_start_slack(Some(zero_slack));
+            task.set_finish_slack(Some(zero_slack));
+            task.set_total_slack(Some(zero_slack));
         }
     }
 }
