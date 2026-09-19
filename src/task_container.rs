@@ -105,10 +105,12 @@
 //!     `mapID` / `unmapID` 回调；父文件被借用时该回调退化为「不维护索引」，不 panic。
 //!   - 本文件**自身**的父文件访问（[`TaskContainer::custom_field_container`] /
 //!     [`TaskContainer::sequence`]）一律使用 `try_borrow` 退化处理，不 panic。
-//!   - 仍需注意：`Task::new_in_file` 使用 `borrow()` / `borrow_mut()`，因此
-//!     [`TaskContainer::add`] / [`crate::ProjectFile::add_task`] 要求调用方不持有
-//!     `ProjectFile` 借用（免借用入口见 `crate::ProjectFile::add_task_shared`）。
-
+//!   - [`TaskContainer::add`] 建任务所需的配置、序号与顶层任务计数分别取自
+//!     `ProjectContext` 与容器自身（见 [`TaskContainer::creation_context`]），
+//!     因此同样可以在调用方持有 `ProjectFile` 借用时调用。
+//!   - `Task::new_in_file`（读父文件的便捷入口）改用 `try_borrow`：父文件被借用时
+//!     退化为「不做自动赋值」而不 panic；持有借用时应改用
+//!     `Task::new_in_file_with_context` 并传入 [`TaskCreationContext`]。
 //! - **`updateStructure` 中的排序**：Java 用 `Collections.sort(this)`（`Task.compareTo`
 //!   按任务 ID 比较）；Rust 侧用 [`TaskContainer::sort`]（按 `Task::get_id()`），结果一致。
 //! - **`removed` 中的递归删除**：Java 用 `while (true) { ... remove(childTaskList.get(0)); }`，
@@ -162,7 +164,7 @@ use crate::custom_field_container::CustomFieldContainer;
 use crate::field_key::FieldKey;
 use crate::field_type_class::FieldTypeClass;
 use crate::project_file::ProjectFile;
-use crate::task::Task;
+use crate::task::{Task, TaskCreationContext};
 // `ProjectFile` 可能以「实现本 trait」或「提供同签名固有方法」两种形式给出（见文件头
 // 「接口假设」）；前者需要本导入，后者不会用到它，故显式允许未使用。
 #[allow(unused_imports)]
@@ -205,6 +207,15 @@ pub struct TaskContainer {
     /// 对应 Java 字段: `private final ProjectFile m_projectFile;`
     /// （同时是基类的序号生成器提供者 `m_sequenceProvider`）
     context: Weak<RefCell<ProjectFile>>,
+
+    /// 项目上下文（弱引用）。
+    ///
+    /// Rust 特有：Java 的 `TaskContainer` 只持 `m_projectFile`，经它间接访问上下文。
+    /// Rust 侧单独记一份，是为了让「新建任务」所需的 `ProjectConfig` 与 unique ID 序号
+    /// 能在**不借用 `ProjectFile`** 的前提下读到 —— `ProjectContext` 是独立的 `RefCell`，
+    /// 因此调用方持有 `ProjectFile` 借用时也能安全访问（见
+    /// [`TaskContainer::creation_context`]）。
+    project_context: Weak<RefCell<crate::project_context::ProjectContext>>,
 }
 
 impl TaskContainer {
@@ -221,6 +232,7 @@ impl TaskContainer {
             id_sequence: ObjectSequence::new(1),
             unique_id_clash_list: Vec::new(),
             context: Weak::new(),
+            project_context: Weak::new(),
         }
     }
 
@@ -229,6 +241,12 @@ impl TaskContainer {
     /// 对应 Java: 构造方法中的 `m_projectFile = projectFile;` 与基类的 `super(projectFile)`
     pub(crate) fn set_context(&mut self, project_file: &Rc<RefCell<ProjectFile>>) {
         self.context = Rc::downgrade(project_file);
+
+        // Rust 特有：同时记下 `ProjectContext`（见字段说明）。
+        self.project_context = match project_file.try_borrow() {
+            Ok(file_ref) => Rc::downgrade(&file_ref.get_project_context()),
+            Err(_) => Weak::new(),
+        };
     }
 
     /// 取父项目文件（未接线时返回 `None`）。
@@ -236,6 +254,54 @@ impl TaskContainer {
     /// 对应 Java: `private final ProjectFile m_projectFile;`
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.context.upgrade()
+    }
+
+    /// 读取「新建任务」所需的上下文快照（Rust 特有）。
+    ///
+    /// 对应 Java: `Task` 构造方法内部直接读取的 `ProjectConfig` 开关、
+    /// `file.getUniqueIdObjectSequence(Task.class).getNext()`、
+    /// `file.getTasks().getNextID()`，以及 `generateWBS(null)` 需要的
+    /// `file.getChildTasks().size()`。
+    ///
+    /// Rust 侧这些值分别来自 `ProjectContext`（配置与 unique ID 序号生成器）与容器自身
+    /// （ID 序号、顶层任务数），**均不经过 `ProjectFile`** —— 因此本方法可在调用方持有
+    /// `ProjectFile` 借用时安全调用。
+    fn creation_context(&self) -> TaskCreationContext {
+        let mut creation = TaskCreationContext::default();
+
+        if let Some(project_context) = self.project_context.upgrade() {
+            // Java: ProjectConfig config = file.getProjectConfig();（这五个自动开关）
+            if let Ok(project_context_ref) = project_context.try_borrow() {
+                let config = project_context_ref.get_project_config();
+                creation.auto_task_unique_id = config.get_auto_task_unique_id();
+                creation.auto_task_id = config.get_auto_task_id();
+                creation.auto_wbs = config.get_auto_wbs();
+                creation.auto_outline_number = config.get_auto_outline_number();
+                creation.auto_outline_level = config.get_auto_outline_level();
+            }
+
+            if creation.auto_task_unique_id {
+                // Java: file.getUniqueIdObjectSequence(Task.class).getNext();
+                // （序号生成器内部用 Cell，取到 Rc 后即可推进，无需再持上下文借用）
+                if let Ok(mut project_context_ref) = project_context.try_borrow_mut() {
+                    creation.next_unique_id =
+                        crate::unique_id_object_sequence_provider::get_unique_id_object_sequence::<
+                            Task,
+                        >(&mut *project_context_ref)
+                        .get_next();
+                }
+            }
+        }
+
+        if creation.auto_task_id {
+            // Java: file.getTasks().getNextID(); —— 即本容器自身的 ID 序号生成器
+            creation.next_id = self.get_next_id();
+        }
+
+        // Java: file.getChildTasks().size();（此刻当前任务尚未登记进 child_tasks）
+        creation.top_level_task_count = self.child_tasks.len();
+
+        creation
     }
 
     /// 取项目顶层任务列表。
@@ -266,6 +332,13 @@ impl TaskContainer {
             task_ref.set_self_reference(&task);
         }
 
+        // Java: `Task` 构造方法里的 `setID(...)` 会立即 `mapID(...)`；Rust 侧构造时
+        // 尚拿不到 `Rc<RefCell<Task>>`（`set_self_reference` 需要它），那次回调会落空，
+        // 故在此补做一次登记 —— 与 Java 的最终状态等价（入容器即登记当前 ID）。
+        if let Some(id) = read_task(&task, |task| task.get_id()).flatten() {
+            self.map_id(id, Rc::clone(&task));
+        }
+
         self.items.push(Rc::clone(&task));
         self.added(&task);
     }
@@ -275,11 +348,21 @@ impl TaskContainer {
     /// 对应 Java: `public Task add()`（`ChildTaskContainer.addTask()` 的实现体）
     pub fn add(&mut self) -> Rc<RefCell<Task>> {
         // Java: Task task = new Task(m_projectFile, null);
-        let task = Rc::new(RefCell::new(match self.context.upgrade() {
-            Some(project_file) => Task::new_in_file(&project_file, None),
+        let task = match self.context.upgrade() {
+            Some(project_file) => {
+                // Rust 特有：先读好建任务所需的上下文快照（取自 `ProjectContext` 与
+                // 容器自身，**不触碰 `ProjectFile`**），再构造任务 —— 因此本方法可以在
+                // 调用方持有 `ProjectFile` 借用时调用（Java 无此限制）。
+                let creation = self.creation_context();
+                Rc::new(RefCell::new(Task::new_in_file_with_context(
+                    &project_file,
+                    None,
+                    creation,
+                )))
+            }
             // Java 中 m_projectFile 必然存在；Rust 侧未接线时退化为无父文件的任务（见文件头）
-            None => Task::new(),
-        }));
+            None => Rc::new(RefCell::new(Task::new())),
+        };
 
         self.add_task(Rc::clone(&task));
 
@@ -1265,6 +1348,32 @@ mod tests {
                 Some("3".to_owned())
             ]
         );
+    }
+
+    #[test]
+    fn add_is_safe_while_the_file_is_borrowed() {
+        // 回归：修复前 `TaskContainer::add` 会经 `Task::new_in_file` 借用父文件，而调用方
+        // （`ProjectFile::add_task`）必然持有 `ProjectFile` 的可变借用 → 必然 panic。
+        // 此测试直接复现该调用姿势。
+        let (container, project_file) = container();
+        *project_file.borrow_mut().get_tasks_mut() = container;
+
+        let first = project_file.borrow_mut().add_task();
+        let second = project_file.borrow_mut().add_task();
+
+        // 自动赋值确实发生了（而不是因借用失败被静默跳过）
+        assert!(first.borrow().get_unique_id().is_some());
+        assert!(second.borrow().get_unique_id().is_some());
+        assert_ne!(first.borrow().get_id(), None);
+        assert_ne!(second.borrow().get_id(), None);
+
+        // 顶层任务的 WBS 依次递增
+        assert_eq!(first.borrow().get_wbs(), Some("1".to_owned()));
+        assert_eq!(second.borrow().get_wbs(), Some("2".to_owned()));
+
+        // 自动分配的任务 ID 已登记进索引
+        let first_id = first.borrow().get_id();
+        assert!(project_file.borrow().get_task_by_id(first_id).is_some());
     }
 
     #[test]

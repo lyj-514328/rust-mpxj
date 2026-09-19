@@ -223,6 +223,40 @@ use crate::time_unit::TimeUnit;
 //
 // 反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`：`Task` 中未出现，无跳过。
 
+/// 新建任务所需的「父文件上下文快照」（Rust 特有）。
+///
+/// 对应 Java: `Task(ProjectFile file, Task parent)` 构造方法内部**直接读取**的
+/// 那些值 —— `ProjectConfig` 的五个自动赋值开关、
+/// `file.getUniqueIdObjectSequence(Task.class).getNext()`、
+/// `file.getTasks().getNextID()`，以及 `generateWBS(null)` / `generateOutlineNumber(null)`
+/// 需要的 `file.getChildTasks().size()`。
+///
+/// Rust 侧因借用规则把这些读取外提：由调用方（[`crate::TaskContainer`]）在不持有
+/// `ProjectFile` 借用的前提下读好快照，再交给 [`Task::new_in_file_with_context`]，
+/// 使「新建任务」这条路径完全不回调父文件。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TaskCreationContext {
+    /// 对应 Java: `ProjectConfig.autoTaskUniqueID`
+    pub auto_task_unique_id: bool,
+    /// 对应 Java: `ProjectConfig.autoTaskID`
+    pub auto_task_id: bool,
+    /// 对应 Java: `ProjectConfig.autoWBS`
+    pub auto_wbs: bool,
+    /// 对应 Java: `ProjectConfig.autoOutlineNumber`
+    pub auto_outline_number: bool,
+    /// 对应 Java: `ProjectConfig.autoOutlineLevel`
+    pub auto_outline_level: bool,
+    /// 对应 Java: `file.getUniqueIdObjectSequence(Task.class).getNext()`
+    /// （仅在 `auto_task_unique_id` 为真时被消费）
+    pub next_unique_id: i32,
+    /// 对应 Java: `file.getTasks().getNextID()`
+    /// （仅在 `auto_task_id` 为真时被消费）
+    pub next_id: i32,
+    /// 对应 Java: `file.getChildTasks().size()`
+    /// （仅在 `auto_wbs` / `auto_outline_number` 且无父任务时被消费）
+    pub top_level_task_count: usize,
+}
+
 /// 任务记录。
 ///
 /// 对应 Java: `public final class Task extends AbstractFieldContainer<Task>
@@ -298,60 +332,107 @@ impl Task {
     /// Java 在构造方法中按 `ProjectConfig` 的开关自动生成 unique ID、ID、WBS、
     /// 大纲编号与大纲级别；Rust 侧保持一致。
     ///
+    /// 本入口会读取父文件的 `ProjectConfig`、unique ID 序号与下一个任务 ID，
+    /// 因此**要求调用方不持有 `ProjectFile` 借用**（读取使用 `try_borrow`，被借用时
+    /// 会退化为「不做任何自动赋值」）。持有借用时请改用
+    /// [`Task::new_in_file_with_context`] 并传入事先读好的快照。
+    ///
     /// 方法名 `new_in_file` 为 Rust 侧命名（Java 的构造方法名与类名相同），
     /// 供 `crate::task_container::TaskContainer::add` 等调用方使用。
     pub fn new_in_file(
         file: &Rc<RefCell<ProjectFile>>,
         parent: Option<&Rc<RefCell<Task>>>,
     ) -> Self {
+        let creation = Self::read_creation_context(file);
+        Self::new_in_file_with_context(file, parent, creation)
+    }
+
+    /// 用调用方读好的上下文快照构造任务 —— **完全不回调父文件**。
+    ///
+    /// 对应 Java: `Task(ProjectFile file, Task parent)`，其中构造方法内部读取的
+    /// `ProjectConfig` 开关、unique ID 序号、下一个任务 ID 与顶层任务数改由
+    /// [`TaskCreationContext`] 传入。
+    ///
+    /// 因为不回调父文件，本入口可以在调用方持有 `ProjectFile` 借用时使用
+    /// （[`crate::TaskContainer::add`] 即如此）。
+    pub fn new_in_file_with_context(
+        file: &Rc<RefCell<ProjectFile>>,
+        parent: Option<&Rc<RefCell<Task>>>,
+        creation: TaskCreationContext,
+    ) -> Self {
         let mut task = Self::new();
         task.parent_file = Rc::downgrade(file);
         task.parent = parent.map_or_else(Weak::new, Rc::downgrade);
 
-        // Java: ProjectConfig config = file.getProjectConfig();
-        let (auto_task_unique_id, auto_task_id, auto_wbs, auto_outline_number, auto_outline_level) = {
-            let file_ref = file.borrow();
-            let config = file_ref.get_project_config();
-            (
-                config.get_auto_task_unique_id(),
-                config.get_auto_task_id(),
-                config.get_auto_wbs(),
-                config.get_auto_outline_number(),
-                config.get_auto_outline_level(),
-            )
-        };
-
-        if auto_task_unique_id {
+        if creation.auto_task_unique_id {
             // Java: setUniqueID(file.getUniqueIdObjectSequence(Task.class).getNext());
-            let sequence = file
-                .borrow_mut()
-                .get_unique_id_object_sequence(std::any::TypeId::of::<Task>());
-            task.set_unique_id(Some(sequence.get_next()));
+            task.set_unique_id(Some(creation.next_unique_id));
         }
 
-        if auto_task_id {
+        if creation.auto_task_id {
             // Java: setID(file.getTasks().getNextID());
-            let next_id = file.borrow().get_tasks().get_next_id();
-            task.set_id(Some(next_id));
+            task.set_id(Some(creation.next_id));
         }
 
-        if auto_wbs {
-            task.generate_wbs(parent);
+        if creation.auto_wbs {
+            // Java: generateWBS(parent) —— 顶层任务计数由调用方提供
+            task.generate_wbs_with_count(parent, creation.top_level_task_count);
         }
 
-        if auto_outline_number {
-            task.generate_outline_number(parent);
+        if creation.auto_outline_number {
+            // Java: generateOutlineNumber(parent)
+            task.generate_outline_number_with_count(parent, creation.top_level_task_count);
         }
 
-        if auto_outline_level {
+        if creation.auto_outline_level {
             let outline_level = match parent {
                 None => 1,
-                Some(parent) => NumberHelper::get_int(parent.borrow().get_outline_level().map(f64::from)) + 1,
+                Some(parent) => {
+                    NumberHelper::get_int(parent.borrow().get_outline_level().map(f64::from)) + 1
+                }
             };
             task.set_outline_level(Some(outline_level));
         }
 
         task
+    }
+
+    /// 从父文件读取「新建任务」所需的上下文快照（Rust 特有）。
+    ///
+    /// 对应 Java: `Task` 构造方法内部直接读取的这些值。
+    ///
+    /// 读取一律使用 `try_borrow`：父文件正被借用时退化为默认快照（即不做任何自动
+    /// 赋值），不 panic。需要精确行为时请用 [`Task::new_in_file_with_context`]。
+    fn read_creation_context(file: &Rc<RefCell<ProjectFile>>) -> TaskCreationContext {
+        let mut creation = TaskCreationContext::default();
+
+        if let Ok(file_ref) = file.try_borrow() {
+            let config = file_ref.get_project_config();
+            creation.auto_task_unique_id = config.get_auto_task_unique_id();
+            creation.auto_task_id = config.get_auto_task_id();
+            creation.auto_wbs = config.get_auto_wbs();
+            creation.auto_outline_number = config.get_auto_outline_number();
+            creation.auto_outline_level = config.get_auto_outline_level();
+
+            // Java: generateWBS(null) 读取 file.getChildTasks().size()
+            creation.top_level_task_count = file_ref.get_child_tasks().len();
+        }
+
+        if creation.auto_task_unique_id {
+            if let Ok(mut file_ref) = file.try_borrow_mut() {
+                creation.next_unique_id = file_ref
+                    .get_unique_id_object_sequence(std::any::TypeId::of::<Task>())
+                    .get_next();
+            }
+        }
+
+        if creation.auto_task_id {
+            if let Ok(file_ref) = file.try_borrow() {
+                creation.next_id = file_ref.get_tasks().get_next_id();
+            }
+        }
+
+        creation
     }
 
     /// 取当前任务所属的项目文件（弱引用升级；文件已释放时返回 `None`）。

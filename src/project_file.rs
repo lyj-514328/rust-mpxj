@@ -325,19 +325,19 @@ impl ProjectFile {
     ///
     /// 对应 Java: `@Override public Task addTask()`
     ///
-    /// 注意重入借用限制，优先使用 [`ProjectFile::add_task_shared`]（见文件头）。
+    /// 与 Java 一致，可在持有 `ProjectFile` 借用时调用 —— 容器侧建任务所需的配置与序号
+    /// 取自 `ProjectContext`，不会回调父文件（见 [`crate::TaskContainer::add`]）。
     pub fn add_task(&mut self) -> Rc<RefCell<Task>> {
         // Java: return m_tasks.add();
         self.tasks.add()
     }
 
-    /// 新建一个任务并加入文件（Rust 特有：免借用入口）。
+    /// 新建一个任务并加入文件（Rust 特有：只持有文件句柄时的入口）。
     ///
     /// 对应 Java: `@Override public Task addTask()`
     ///
-    /// 与 [`ProjectFile::add_task`] 行为一致，但接收文件句柄，在创建
-    /// [`Task`]（需要 `file.borrow()`）之后再短暂借用文件写入容器，
-    /// 因此可以在持有 `Rc<RefCell<ProjectFile>>` 的场景下使用（见文件头）。
+    /// 与 [`ProjectFile::add_task`] 行为一致，区别只是接收 `Rc<RefCell<ProjectFile>>`
+    /// 而非 `&mut ProjectFile`，便于在只有共享句柄的场景下使用。
     pub fn add_task_shared(file: &Rc<RefCell<ProjectFile>>) -> Rc<RefCell<Task>> {
         // Java: Task task = new Task(m_projectFile, null);
         let task = Rc::new(RefCell::new(Task::new_in_file(file, None)));
