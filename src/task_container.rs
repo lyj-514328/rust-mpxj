@@ -94,16 +94,21 @@
 //!   `Task` 的构造方法（`new_in_file`）与 `Task.generateWBS` / `generateOutlineNumber` /
 //!   `addChildTask` 都会读取父文件的任务数、配置或序号生成器；而 `updateStructure` /
 //!   `synchronizeTaskIDToHierarchy` / `renumberIDs` 又由 `ProjectFile` 发起。
-//!   在 Rust 中若调用方正可变借用 `ProjectFile`（例如
-//!   `project_file.borrow_mut().update_structure()`），上述任务方法内部再借父文件会失败。
-//!   本文件**自身**的父文件访问（[`TaskContainer::auto_flags`] /
-//!   [`TaskContainer::custom_field_container`] / [`TaskContainer::sequence`]）一律使用
-//!   `try_borrow` 退化处理，不 panic；但 `crate::task` 中
-//!   `Task::new_in_file` / `Task::generate_wbs` / `Task::add_child_task` 使用
-//!   `borrow()` / `borrow_mut()`，因此 [`TaskContainer::add`] 与
-//!   [`TaskContainer::update_structure`] 需要调用方不持有 `ProjectFile` 的可变借用
-//!   （Java 无此限制）。集成时建议 `ProjectFile` 侧把任务容器临时移出自身字段再处理，
-//!   或让 `Task` 的上述方法改用 `try_borrow` 退化（本文件不改动他人模块，仅记录）。
+//!   在 Rust 中若调用方正可变借用 `ProjectFile`，上述任务方法内部再借父文件会失败。
+//!   处理方式：
+//!   - [`TaskContainer::update_structure`] 需要的三个自动编号开关改由调用方
+//!     [`crate::ProjectFile::update_structure`] 传入（`ProjectConfig` 在 `ProjectContext`
+//!     的 `RefCell` 中，读取它与持有 `ProjectFile` 借用不冲突），WBS / 大纲编号所需的
+//!     任务计数则由容器自身提供；`Task::add_child_task_with_auto_outline_level` 同理。
+//!     因此整条 `update_structure` 路径**完全不回调父文件**，可在持有借用时原地调用。
+//!   - [`TaskContainer::add_task`] 登记任务自身的弱引用，`Task::set_id` 据此还原
+//!     `mapID` / `unmapID` 回调；父文件被借用时该回调退化为「不维护索引」，不 panic。
+//!   - 本文件**自身**的父文件访问（[`TaskContainer::custom_field_container`] /
+//!     [`TaskContainer::sequence`]）一律使用 `try_borrow` 退化处理，不 panic。
+//!   - 仍需注意：`Task::new_in_file` 使用 `borrow()` / `borrow_mut()`，因此
+//!     [`TaskContainer::add`] / [`crate::ProjectFile::add_task`] 要求调用方不持有
+//!     `ProjectFile` 借用（免借用入口见 `crate::ProjectFile::add_task_shared`）。
+
 //! - **`updateStructure` 中的排序**：Java 用 `Collections.sort(this)`（`Task.compareTo`
 //!   按任务 ID 比较）；Rust 侧用 [`TaskContainer::sort`]（按 `Task::get_id()`），结果一致。
 //! - **`removed` 中的递归删除**：Java 用 `while (true) { ... remove(childTaskList.get(0)); }`，
@@ -388,7 +393,20 @@ impl TaskContainer {
     /// 依据任务的 `outlineLevel` 字段重建项目的层级结构（父 / 子任务、WBS、大纲编号）。
     ///
     /// 对应 Java: `void updateStructure()`
-    pub(crate) fn update_structure(&mut self) {
+    ///
+    /// Java 在本方法内部回调 `m_projectFile.getProjectConfig()` 读取三个自动编号开关；
+    /// Rust 侧改由调用方 [`crate::ProjectFile::update_structure`] 显式传入 ——
+    /// `ProjectConfig` 存放在 `ProjectContext` 的 `RefCell` 中，调用方读取它不会与
+    /// 「持有 `ProjectFile` 借用」冲突，而容器自身在被可变借用时无法安全回调父文件。
+    ///
+    /// 因此本方法**完全不回调父文件**：可以在 `ProjectFile` 已被借用的情况下直接对
+    /// 容器取可变借用执行，无需把容器临时移出 `ProjectFile`。
+    pub(crate) fn update_structure(
+        &mut self,
+        auto_wbs: bool,
+        auto_outline_number: bool,
+        auto_outline_level: bool,
+    ) {
         if self.items.len() <= 1 {
             return;
         }
@@ -399,10 +417,6 @@ impl TaskContainer {
         // Java: m_projectFile.getChildTasks().clear();
         // ProjectFile.getChildTasks() 即本容器的 m_childTasks（见文件头）
         self.child_tasks.clear();
-
-        // Java: boolean autoWbs = m_projectFile.getProjectConfig().getAutoWBS();
-        //       boolean autoOutlineNumber = m_projectFile.getProjectConfig().getAutoOutlineNumber();
-        let (auto_wbs, auto_outline_number) = self.auto_flags();
 
         let mut last_task: Option<Rc<RefCell<Task>>> = None;
         let mut last_level: i32 = -1;
@@ -485,8 +499,11 @@ impl TaskContainer {
             //       else { parent.addChildTask(task); }
             match parent {
                 // Java: parent.addChildTask(task);
-                // （`Task::add_child_task` 为以 `this` 为首参的关联函数）
-                Some(parent) => Task::add_child_task(&parent, &task),
+                // （`Task::add_child_task` 为以 `this` 为首参的关联函数；
+                //   这里传入已读取好的 `autoOutlineLevel`，避免回调父文件）
+                Some(parent) => {
+                    Task::add_child_task_with_auto_outline_level(&parent, &task, auto_outline_level)
+                }
                 // Java: m_projectFile.getChildTasks().add(task);
                 None => self.child_tasks.push(Rc::clone(&task)),
             }
@@ -845,27 +862,6 @@ impl TaskContainer {
             })
             .map(Rc::clone)
     }
-
-    /// 取 `ProjectConfig` 中与层级结构生成相关的两个开关。
-    ///
-    /// 对应 Java: `m_projectFile.getProjectConfig().getAutoWBS()` /
-    /// `getAutoOutlineNumber()`
-    ///
-    /// 父文件未接线或已被借用时退化为 `ProjectConfig` 的默认值（均为 `true`）。
-    fn auto_flags(&self) -> (bool, bool) {
-        let Some(project_file) = self.context.upgrade() else {
-            return (true, true);
-        };
-
-        let flags = match project_file.try_borrow() {
-            Ok(project_file) => {
-                let config = project_file.get_project_config();
-                (config.get_auto_wbs(), config.get_auto_outline_number())
-            }
-            Err(_) => (true, true),
-        };
-        flags
-    }
 }
 
 impl Default for TaskContainer {
@@ -1133,7 +1129,7 @@ mod tests {
         let grandchild = add_task(&mut container, &project_file, 3, 2);
         let second_root = add_task(&mut container, &project_file, 4, 0);
 
-        container.update_structure();
+        container.update_structure(true, true, true);
 
         // 顶层任务：root 与 second_root
         let root_tasks = container.get_child_tasks();
@@ -1163,7 +1159,7 @@ mod tests {
 
         let wbs_before = read_task(&only, |task| task.get_wbs()).flatten();
 
-        container.update_structure();
+        container.update_structure(true, true, true);
 
         assert_eq!(container.len(), 1);
         assert_eq!(container.get_child_tasks().len(), 0);
@@ -1190,7 +1186,7 @@ mod tests {
             tasks.push(task);
         }
 
-        container.update_structure();
+        container.update_structure(true, true, true);
 
         let wbs: Vec<Option<String>> = tasks
             .iter()
@@ -1234,6 +1230,44 @@ mod tests {
     }
 
     #[test]
+    fn update_structure_is_safe_while_the_file_is_borrowed() {
+        // 回归：修复前 `TaskContainer::update_structure` 会经
+        // `Task::generate_wbs` / `Task::add_child_task` 重入借用父文件，若调用方正持有
+        // `ProjectFile` 的可变借用就会 panic，调用方只能把任务容器临时移出文件再处理
+        // （代价是顶层任务计数丢失、WBS 恒为 1）。此测试直接复现该调用姿势。
+        let (mut container, project_file) = container();
+
+        for id in 1..=3 {
+            let task = add_task(&mut container, &project_file, id, 0);
+            let mut task_ref = task.borrow_mut();
+            // 模拟「文件里没有 WBS / 大纲编号列」
+            task_ref.set_wbs(None);
+            task_ref.set_outline_number(None);
+        }
+
+        // 把容器装回父文件，然后**持有其可变借用**原地调用
+        *project_file.borrow_mut().get_tasks_mut() = container;
+        project_file.borrow_mut().update_structure();
+
+        let file = project_file.borrow();
+        let wbs: Vec<Option<String>> = file
+            .get_tasks()
+            .as_slice()
+            .iter()
+            .map(|task| task.borrow().get_wbs())
+            .collect();
+
+        assert_eq!(
+            wbs,
+            vec![
+                Some("1".to_owned()),
+                Some("2".to_owned()),
+                Some("3".to_owned())
+            ]
+        );
+    }
+
+    #[test]
     fn synchronize_task_id_to_hierarchy_renumbers_depth_first() {
         let (mut container, project_file) = container();
 
@@ -1242,7 +1276,7 @@ mod tests {
         let child = add_task(&mut container, &project_file, 6, 1);
         let grandchild = add_task(&mut container, &project_file, 7, 2);
 
-        container.update_structure();
+        container.update_structure(true, true, true);
         container.synchronize_task_id_to_hierarchy();
 
         // Java: currentID 从 firstUniqueID()（1）开始，深度优先依次编号

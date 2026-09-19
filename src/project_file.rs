@@ -594,7 +594,24 @@ impl ProjectFile {
     /// 对应 Java: `public void updateStructure()`
     pub fn update_structure(&mut self) {
         // Java: m_tasks.updateStructure(); m_context.getResources().updateStructure();
-        self.tasks.update_structure();
+        //
+        // Rust 侧的重入借用限制：Java 的 `TaskContainer.updateStructure()` 内部会回调
+        // `m_projectFile` 读取 `ProjectConfig` 的自动编号开关。`ProjectConfig` 存放在
+        // `ProjectContext` 的 `RefCell` 中（与调用方持有的 `ProjectFile` 借用互不冲突），
+        // 故先把三个开关读出来、再以参数形式传给容器；容器侧因此不再回调父文件，
+        // 无需把任务容器临时移出 `ProjectFile`。
+        let (auto_wbs, auto_outline_number, auto_outline_level) = {
+            let config = self.get_project_config();
+            (
+                config.get_auto_wbs(),
+                config.get_auto_outline_number(),
+                config.get_auto_outline_level(),
+            )
+        };
+
+        self.tasks
+            .update_structure(auto_wbs, auto_outline_number, auto_outline_level);
+
         self.context
             .borrow_mut()
             .get_resources_mut()

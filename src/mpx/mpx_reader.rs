@@ -154,17 +154,13 @@
 //! 13. **关系字符串的切分**：Java 用 `String.indexOf(char, int)` / `substring`（UTF-16 索引），
 //!     Rust 侧用字节索引（`str::find` / 切片），对 ASCII 分隔符与 ASCII 关系串二者等价
 //!     （`index + 2` 处改用「取两个 `char`」，对增补平面字符也安全）。
-//! 14. **`m_projectFile.updateStructure()` 的调用方式**：Rust 侧把任务容器临时移出
-//!     `ProjectFile`（`std::mem::take(file.borrow_mut().get_tasks_mut())`）后再调用
-//!     `TaskContainer::update_structure`，最后放回 —— 因为 `update_structure` 内部会经
-//!     `Task::add_child_task` 等**再次借用父文件**，调用方若持有 `ProjectFile` 的可变借用
-//!     会 panic（Java 无此限制，见 [`crate::task_container`] 文件头「重入借用」一节给出的
-//!     建议）。资源侧（Java 的 `m_context.getResources().updateStructure()`）内部用
-//!     `try_borrow` 退化处理，原地调用即可。
-//!     「第几个顶层任务」的计数**不再受容器临时移出影响**：
-//!     [`crate::TaskContainer::update_structure`] 会把自己的 `child_tasks.len()` 显式传给
-//!     `Task::generate_wbs_with_count` / `generate_outline_number_with_count`，其取值与
-//!     Java 读取 `getChildTasks().size()` 的时机和结果完全一致。
+//! 14. **`m_projectFile.updateStructure()` 的调用方式**：与 Java 一致，原地调用
+//!     [`crate::ProjectFile::update_structure`]。原先「把任务容器临时移出 `ProjectFile`
+//!     再重建」的绕法已移除 —— `TaskContainer::update_structure` 现在接收
+//!     调用方传入的自动编号开关，`Task::add_child_task_with_auto_outline_level` 同理，
+//!     容器侧不再回调父文件，因此持有 `ProjectFile` 可变借用调用不会重入借用冲突。
+//!     WBS / 大纲编号的「第几个顶层任务」计数由容器把自己的 `child_tasks.len()` 传入，
+//!     取值与 Java 读取 `getChildTasks().size()` 的时机和结果完全一致。
 //! 15. **任务 ID → 任务映射的接线**：[`crate::Task::set_id`] 与 Java 的 `Task.setID` 一致，
 //!     会回调 [`crate::TaskContainer`] 的 `unmap_id` / `map_id`（该回调依赖
 //!     `Task::set_self_reference` 在任务入容器时接线），因此本类无需额外补偿。任务尚未
@@ -682,25 +678,10 @@ impl MPXReader {
 
         // Java: m_projectFile.updateStructure();
         //
-        // Rust 侧的重入借用限制（见 [`crate::task_container`] 文件头「重入借用」一节）：
-        // `TaskContainer::update_structure` 内部会经 `Task::generate_wbs` /
-        // `Task::add_child_task` 再次借用父文件，若调用方正持有 `ProjectFile` 的可变借用
-        // 会 panic（Java 无此限制）。故按该文件头的建议，把任务容器**临时移出**
-        // `ProjectFile` 再重建层级；资源侧（Java 的 `m_context.getResources().updateStructure()`）
-        // 内部使用 `try_borrow` 退化处理，可原地调用。
-        {
-            let mut tasks = std::mem::take(file.borrow_mut().get_tasks_mut());
-            tasks.update_structure();
-            *file.borrow_mut().get_tasks_mut() = tasks;
-        }
-
-        {
-            file.borrow()
-                .get_project_context()
-                .borrow_mut()
-                .get_resources_mut()
-                .update_structure();
-        }
+        // 与 Java 一致地原地调用：[`crate::ProjectFile::update_structure`] 会先从
+        // `ProjectContext` 读出自动编号开关、再以参数形式传给任务容器，容器侧不再回调
+        // 父文件，因此调用方持有 `ProjectFile` 的可变借用也不会重入借用冲突。
+        file.borrow_mut().update_structure();
 
         // Java: m_projectConfig.setAutoCalendarUniqueID(false);
         {

@@ -1517,17 +1517,34 @@ impl Task {
     ///
     /// 对应 Java: `public void addChildTask(Task child)`
     pub fn add_child_task(this: &Rc<RefCell<Task>>, child: &Rc<RefCell<Task>>) {
+        // Java: boolean autoOutlineLevel = m_parentFile.getProjectConfig().getAutoOutlineLevel();
+        //
+        // 读取改用 `try_borrow`：调用方可能正持有 `ProjectFile` 的借用，此时按默认
+        // `true` 处理而不 panic（Java 无此限制）。
+        let auto_outline_level = match this.borrow().parent_file.upgrade() {
+            Some(file) => match file.try_borrow() {
+                Ok(file) => file.get_project_config().get_auto_outline_level(),
+                Err(_) => true,
+            },
+            None => false,
+        };
+
+        Task::add_child_task_with_auto_outline_level(this, child, auto_outline_level);
+    }
+
+    /// 关联一个子任务，`autoOutlineLevel` 开关由调用方显式传入。
+    ///
+    /// 对应 Java: `public void addChildTask(Task child)`，其中从 `ProjectConfig` 读取的
+    /// `autoOutlineLevel` 改由参数传入 —— 这样本方法不回调父文件，可在 `ProjectFile`
+    /// 已被借用时调用（[`crate::TaskContainer::update_structure`] 即如此）。
+    pub fn add_child_task_with_auto_outline_level(
+        this: &Rc<RefCell<Task>>,
+        child: &Rc<RefCell<Task>>,
+        auto_outline_level: bool,
+    ) {
         child.borrow_mut().parent = Rc::downgrade(this);
         this.borrow_mut().children.push(Rc::clone(child));
         this.borrow_mut().set_summary(true);
-
-        let auto_outline_level = this
-            .borrow()
-            .parent_file
-            .upgrade()
-            .map_or(false, |file| {
-                file.borrow().get_project_config().get_auto_outline_level()
-            });
 
         if auto_outline_level {
             let outline_level =
