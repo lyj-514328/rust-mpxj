@@ -157,19 +157,18 @@
 //! 14. **`m_projectFile.updateStructure()` 的调用方式**：Rust 侧把任务容器临时移出
 //!     `ProjectFile`（`std::mem::take(file.borrow_mut().get_tasks_mut())`）后再调用
 //!     `TaskContainer::update_structure`，最后放回 —— 因为 `update_structure` 内部会经
-//!     `Task::generate_wbs` / `Task::add_child_task` **再次借用父文件**，调用方若持有
-//!     `ProjectFile` 的可变借用会 panic（Java 无此限制，见 [`crate::task_container`]
-//!     文件头「重入借用」一节给出的建议）。资源侧（Java 的
-//!     `m_context.getResources().updateStructure()`）内部用 `try_borrow` 退化处理，原地调用即可。
-//!     已知影响：容器被移出期间 `ProjectFile::get_child_tasks()` 为空，因此当文件**没有** WBS 列
-//!     时 `Task::generate_wbs(None)` 统计出的「第几个顶层任务」恒为 1（Java 为 1、2、3…）；
-//!     含有 WBS 列的文件（如样本 `sample.mpx`）不触发该生成逻辑，行为与 Java 一致。
-//! 15. **任务 ID → 任务映射的接线**：Java 的 `Task.setID` 会回调
-//!     `m_projectFile.getTasks().mapID(...)` / `unmapID(...)`，Rust 的 [`crate::Task::set_id`]
-//!     未做该回调，导致 [`crate::ProjectFile::get_task_by_id`]（本类解析
-//!     `TaskField.PREDECESSORS` 关系时使用）找不到任务。故 `populate_task` 结束时按 Java 的
-//!     行为把任务 ID 登记进 [`crate::TaskContainer`] 的 ID → 任务映射（见
-//!     [`crate::TaskContainer::map_id`]）；`update_structure` 不会重编号任务，故该映射保持有效。
+//!     `Task::add_child_task` 等**再次借用父文件**，调用方若持有 `ProjectFile` 的可变借用
+//!     会 panic（Java 无此限制，见 [`crate::task_container`] 文件头「重入借用」一节给出的
+//!     建议）。资源侧（Java 的 `m_context.getResources().updateStructure()`）内部用
+//!     `try_borrow` 退化处理，原地调用即可。
+//!     「第几个顶层任务」的计数**不再受容器临时移出影响**：
+//!     [`crate::TaskContainer::update_structure`] 会把自己的 `child_tasks.len()` 显式传给
+//!     `Task::generate_wbs_with_count` / `generate_outline_number_with_count`，其取值与
+//!     Java 读取 `getChildTasks().size()` 的时机和结果完全一致。
+//! 15. **任务 ID → 任务映射的接线**：[`crate::Task::set_id`] 与 Java 的 `Task.setID` 一致，
+//!     会回调 [`crate::TaskContainer`] 的 `unmap_id` / `map_id`（该回调依赖
+//!     `Task::set_self_reference` 在任务入容器时接线），因此本类无需额外补偿。任务尚未
+//!     接线、或父文件正被借用时，该回调退化为「不维护 ID 索引」而不 panic。
 //! 16. **未映射的 MPX 字段号**：任务记录里 Java 显式判 `taskField == null` 后跳过；资源记录里
 //!     Java 未判（`MPXResourceField.getMpxjField` 返回 null 时落到 `default` 分支并 NPE）。
 //!     Rust 侧两种情况都跳过该字段（不 panic）。
@@ -2020,21 +2019,10 @@ impl MPXReader {
         SlackHelper::infer_slack(&mut task.borrow_mut());
 
         //
-        // Rust 侧接线：把任务的 ID 登记进容器的「ID → 任务」映射。
+        // Java 无额外动作：`Task.setID` 自身已负责把 ID 登记进容器的「ID → 任务」映射。
+        // Rust 的 [`crate::Task::set_id`] 现在同样会回调 `TaskContainer::map_id` /
+        // `unmap_id`（见该方法文档与文件头差异第 15 条），故此处不再需要补偿。
         //
-        // Java 的 `Task.setID` 会回调 `m_projectFile.getTasks().mapID(...)`（见
-        // [`crate::task_container`] 文件头「重入借用」一节），Rust 的
-        // [`crate::Task::set_id`] 未做该回调，导致 `ProjectFile::get_task_by_id` 找不到任务，
-        // 进而使 [`TaskField::Predecessors`] 的关系无法解析（见文件头差异第 15 条）。
-        // 本类在任务填充完毕后按 Java 的行为补上这一步。
-        //
-        if let Some(id) = task.borrow().get_id() {
-            if let Some(file) = self.m_project_file.as_ref() {
-                if let Ok(mut file_ref) = file.try_borrow_mut() {
-                    file_ref.get_tasks_mut().map_id(id, Rc::clone(task));
-                }
-            }
-        }
 
         Ok(())
     }

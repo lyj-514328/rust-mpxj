@@ -255,6 +255,12 @@ impl TaskContainer {
     /// `m_projectFile.getChildTasks().add(task)`），需要该行为时用
     /// [`TaskContainer::get_child_tasks_mut`]。
     pub fn add_task(&mut self, task: Rc<RefCell<Task>>) {
+        // Rust 特有：登记任务自身的共享句柄，供 `Task::set_id` 还原 Java
+        // `setID` 中 `mapID(val, this)` 的回调（见 `Task::set_self_reference`）。
+        if let Ok(mut task_ref) = task.try_borrow_mut() {
+            task_ref.set_self_reference(&task);
+        }
+
         self.items.push(Rc::clone(&task));
         self.added(&task);
     }
@@ -451,17 +457,26 @@ impl TaskContainer {
                 last_level = level;
 
                 // Java: if (autoWbs || task.getWBS() == null) { task.generateWBS(parent); }
+                //
+                // Java 的 `generateWBS(null)` 读取 `m_projectFile.getChildTasks().size()`；
+                // 本方法正是该计数的权威来源（`TaskContainer.child_tasks` 即
+                // `ProjectFile.getChildTasks()`），且此刻调用方可能正持有 `ProjectFile`
+                // 的借用而无法安全回调，故显式传入（与 Java 取值完全一致：当前任务尚未
+                // 登记进 child_tasks，因此 len() 即「前面已登记的顶层任务数」）。
                 let has_wbs = read_task(&task, |task| task.get_wbs().is_some()).unwrap_or(false);
                 if auto_wbs || !has_wbs {
                     if let Ok(mut task_ref) = task.try_borrow_mut() {
-                        task_ref.generate_wbs(parent.as_ref());
+                        task_ref.generate_wbs_with_count(parent.as_ref(), self.child_tasks.len());
                     }
                 }
 
                 // Java: if (autoOutlineNumber) { task.generateOutlineNumber(parent); }
                 if auto_outline_number {
                     if let Ok(mut task_ref) = task.try_borrow_mut() {
-                        task_ref.generate_outline_number(parent.as_ref());
+                        task_ref.generate_outline_number_with_count(
+                            parent.as_ref(),
+                            self.child_tasks.len(),
+                        );
                     }
                 }
             }
@@ -1156,6 +1171,65 @@ mod tests {
         assert_eq!(
             read_task(&only, |task| task.get_wbs()).flatten(),
             wbs_before
+        );
+    }
+
+    #[test]
+    fn update_structure_generates_sequential_wbs_for_top_level_tasks() {
+        let (mut container, project_file) = container();
+        let mut tasks = Vec::new();
+
+        // 模拟「文件里没有 WBS / 大纲编号列」：清掉构造时自动生成的值
+        for id in 1..=3 {
+            let task = add_task(&mut container, &project_file, id, 0);
+            {
+                let mut task_ref = task.borrow_mut();
+                task_ref.set_wbs(None);
+                task_ref.set_outline_number(None);
+            }
+            tasks.push(task);
+        }
+
+        container.update_structure();
+
+        let wbs: Vec<Option<String>> = tasks
+            .iter()
+            .map(|task| read_task(task, |task| task.get_wbs()).flatten())
+            .collect();
+        let outline: Vec<Option<String>> = tasks
+            .iter()
+            .map(|task| read_task(task, |task| task.get_outline_number()).flatten())
+            .collect();
+
+        // Java: 顶层任务按调用时刻的 getChildTasks().size() + 1 依次得到 1、2、3
+        assert_eq!(
+            wbs,
+            vec![
+                Some("1".to_owned()),
+                Some("2".to_owned()),
+                Some("3".to_owned())
+            ]
+        );
+        assert_eq!(outline, wbs);
+    }
+
+    #[test]
+    fn set_id_registers_the_task_in_the_parent_file_index() {
+        let (mut container, project_file) = container();
+        let task = add_task(&mut container, &project_file, 7, 0);
+
+        // ID 变更发生在任务入容器之后 —— 此时 `Task::set_self_reference` 已接线，
+        // `set_id` 应像 Java 的 `setID` 一样回调容器的 map_id / unmap_id
+        task.borrow_mut().set_id(Some(9));
+
+        let file = project_file.borrow();
+        assert!(
+            file.get_task_by_id(Some(9)).is_some(),
+            "新 ID 应登记进父文件的任务索引"
+        );
+        assert!(
+            file.get_task_by_id(Some(7)).is_none(),
+            "旧 ID 应从父文件的任务索引中解除"
         );
     }
 

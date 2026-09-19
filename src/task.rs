@@ -254,6 +254,16 @@ pub struct Task {
     /// Java 的依赖清理递归地走 `set`（进而触发 `handleFieldChange`），因此本标志
     /// 需要在 `Task` 侧维护一份（`AbstractFieldContainer` 的同名标志同时保持同步）。
     clear_dependent_fields_enabled: bool,
+
+    /// 任务自身的共享句柄（Rust 特有）。
+    ///
+    /// 对应 Java: 无（Java 处处可用 `this` 作 `Task` 引用）。
+    ///
+    /// Java 的 `Task.setID` 会回调 `m_parentFile.getTasks().mapID(val, this)`，
+    /// 需要把 `this` 作为 `Task` 引用交给容器；Rust 的 `&mut self` 无法产出
+    /// `Rc<RefCell<Task>>`，故用弱引用自持句柄还原该回调。由
+    /// [`crate::TaskContainer::add_task`] 在任务入容器时接线。
+    self_ref: Weak<RefCell<Task>>,
 }
 
 impl Default for Task {
@@ -277,6 +287,7 @@ impl Task {
             children: Vec::new(),
             fields: AbstractFieldContainer::new(),
             clear_dependent_fields_enabled: true,
+            self_ref: Weak::new(),
         }
     }
 
@@ -348,6 +359,16 @@ impl Task {
     /// 对应 Java: `public ProjectFile getParentFile()`
     pub fn get_parent_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.parent_file.upgrade()
+    }
+
+    /// 接线任务自身的共享句柄（Rust 特有）。
+    ///
+    /// 对应 Java: 无（Java 处处可用 `this` 作 `Task` 引用）。
+    ///
+    /// 由 [`crate::TaskContainer::add_task`] 在任务入容器时登记，供
+    /// [`Task::set_id`] 还原 Java `setID` 中 `mapID(val, this)` 的回调。
+    pub fn set_self_reference(&mut self, task: &Rc<RefCell<Task>>) {
+        self.self_ref = Rc::downgrade(task);
     }
 
     /// 取当前任务所属的 `ProjectContext`（Rust 特有便捷入口）。
@@ -1320,15 +1341,29 @@ impl Task {
     /// Java 在 `parent.getWBS()` 为 `null` 时会抛 `NullPointerException`；
     /// Rust 侧按空串处理（不 panic）。
     pub fn generate_wbs(&mut self, parent: Option<&Rc<RefCell<Task>>>) {
+        let top_level_count = self.top_level_task_count(parent);
+        self.generate_wbs_with_count(parent, top_level_count);
+    }
+
+    /// 生成 WBS，并显式传入「当前已登记的顶层任务数」。
+    ///
+    /// 对应 Java: `public void generateWBS(Task parent)`，其中 `parent == null`
+    /// 分支读取的是 `m_parentFile.getChildTasks().size()`。
+    ///
+    /// [`crate::TaskContainer::update_structure`] 在构造任务层级的过程中调用本方法：
+    /// 它无法安全地回调 `ProjectFile`（重入借用），而它自身正是该计数的权威来源
+    /// （`TaskContainer.child_tasks` 即 `ProjectFile.getChildTasks()`），故显式传入。
+    pub fn generate_wbs_with_count(
+        &mut self,
+        parent: Option<&Rc<RefCell<Task>>>,
+        top_level_count: usize,
+    ) {
         let wbs = match parent {
             None => {
                 if NumberHelper::get_int(self.get_unique_id().map(f64::from)) == 0 {
                     "0".to_owned()
                 } else {
-                    let count = self
-                        .get_parent_file()
-                        .map_or(0, |file| file.borrow().get_child_tasks().len());
-                    (count + 1).to_string()
+                    (top_level_count + 1).to_string()
                 }
             }
             Some(parent) => {
@@ -1351,15 +1386,25 @@ impl Task {
     ///
     /// 对应 Java: `public void generateOutlineNumber(Task parent)`
     pub fn generate_outline_number(&mut self, parent: Option<&Rc<RefCell<Task>>>) {
+        let top_level_count = self.top_level_task_count(parent);
+        self.generate_outline_number_with_count(parent, top_level_count);
+    }
+
+    /// 生成大纲编号，并显式传入「当前已登记的顶层任务数」。
+    ///
+    /// 对应 Java: `public void generateOutlineNumber(Task parent)`，语义与取值来源
+    /// 同 [`Task::generate_wbs_with_count`]。
+    pub fn generate_outline_number_with_count(
+        &mut self,
+        parent: Option<&Rc<RefCell<Task>>>,
+        top_level_count: usize,
+    ) {
         let outline = match parent {
             None => {
                 if NumberHelper::get_int(self.get_unique_id().map(f64::from)) == 0 {
                     "0".to_owned()
                 } else {
-                    let count = self
-                        .get_parent_file()
-                        .map_or(0, |file| file.borrow().get_child_tasks().len());
-                    (count + 1).to_string()
+                    (top_level_count + 1).to_string()
                 }
             }
             Some(parent) => {
@@ -1380,6 +1425,21 @@ impl Task {
         };
 
         self.set_outline_number(Some(outline));
+    }
+
+    /// 读取「当前已登记的顶层任务数」，等价 Java 的
+    /// `m_parentFile.getChildTasks().size()`。
+    ///
+    /// 仅 `parent == None` 时才有意义；`parent` 非空时返回 `0`（该分支不使用）。
+    /// 父文件缺失或正被可变借用时退化为 `0`（不 panic）。
+    fn top_level_task_count(&self, parent: Option<&Rc<RefCell<Task>>>) -> usize {
+        if parent.is_some() {
+            return 0;
+        }
+
+        self.get_parent_file()
+            .and_then(|file| file.try_borrow().ok().map(|file| file.get_child_tasks().len()))
+            .unwrap_or(0)
     }
 }
 
@@ -2084,9 +2144,32 @@ impl Task {
     ///
     /// 对应 Java: `@Override public void setID(Integer val)`
     ///
-    /// Java 还会调用 `TaskContainer` 的 `unmapID` / `mapID` 维护 ID 索引，
-    /// 该动作需要实体自身的共享引用，Rust 侧改由容器负责（见文件头说明第 3 条）。
+    /// 与 Java 一致地维护 [`crate::TaskContainer`] 的 ID 索引：先 `unmap_id` 旧 ID，
+    /// 再 `map_id` 新 ID。该回调需要任务自身的共享引用，由 [`Task::set_self_reference`]
+    /// 在任务入容器时接线；任务尚未接线、或父文件正被借用时，退化为「不维护索引」而不 panic。
     pub fn set_id(&mut self, val: Option<i32>) {
+        // Java:
+        //   Integer previous = getID();
+        //   if (previous != null) { m_parentFile.getTasks().unmapID(previous); }
+        //   m_parentFile.getTasks().mapID(val, this);
+        //   set(TaskField.ID, val);
+        let previous = self.get_id();
+        if let Some(task) = self.self_ref.upgrade() {
+            if let Some(file) = self.get_parent_file() {
+                // 调用方可能正持有 `ProjectFile` 的借用（例如容器在自身方法里批量改 ID），
+                // 此时退化为「不维护 ID 索引」而不 panic。
+                if let Ok(mut file_ref) = file.try_borrow_mut() {
+                    let tasks = file_ref.get_tasks_mut();
+                    if let Some(previous) = previous {
+                        tasks.unmap_id(Some(previous));
+                    }
+                    if let Some(val) = val {
+                        tasks.map_id(val, Rc::clone(&task));
+                    }
+                }
+            }
+        }
+
         self.put_integer(TaskField::Id, val);
     }
 
