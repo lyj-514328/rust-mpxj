@@ -17,6 +17,11 @@ pub mod fix_fix;
 pub mod fixed_data;
 pub mod fixed_meta;
 pub mod fixed_meta_item_size_provider;
+pub mod field_map;
+// 下列模块依赖尚未落地的 `common::mpp_*_field` 映射表，待其完成后启用：
+// pub mod field_map9;
+// pub mod field_map12;
+// pub mod field_map14;
 pub mod mpp_bit_flag;
 pub mod mpp_component;
 pub mod mpp_utility;
