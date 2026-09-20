@@ -75,6 +75,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | `84df880` · 四 | `project_calendar` / `project_calendar_container` / `external_project_container` / `project_properties` / `project_file` 等处过期措辞订正 |
 | `6a6ed58` · 三 | `format_optional_display` 族收敛：`font_style` / `grid_lines` / `table_font_style` / `timescale_tier` 的 4 份拷贝，以及 `gantt_bar_common_style` 的 `format_option` / `format_field`、`table_font_style` 的 `format_field_type`，全部改为 [`mpp_utility::format_optional_display`]；`format_color` 转调它 |
 | `b66f7cd` · 四 | 四-节所列 14 个文件的过期措辞订正完毕（`mpp8/9/12/14_reader`、`mpp_variant_reader`、`shift_container`、`shift_period_container`、`unit_of_measure_container`、`shift_period`、`work_contour`、`work_contour_container`、`notes_topic`、`slack_calculator`、`mpx/task_model`、`mpx/resource_model`）。**同时发现**：`UserDefinedFieldMap` 其实**已落地**（`src/mpp/user_defined_field_map.rs`），原判「未移植」有误；`WorkContour` 的 `impl ProjectEntityWithUniqueID` 写在容器文件里（原注释称「为避免并行冲突」） |
+| `dedfa4d` · 四 | 再订正约 25 处残留「并行 / 本批」措辞（`resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs`、`mpp/custom_field_value_reader14.rs` 等 30 个文件），纯注释、`git diff -U0` 自检确认未动代码行 |
 
 ### ⬜ 仍欠
 
@@ -83,7 +84,9 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败 | 已核实，非债 |
 | 三 | ~~`format_optional_display` 族 4 份拷贝~~ | ✅ `6a6ed58` 已收敛 |
 | 四 | ~~白名单外仍有过期措辞的文件（14 个）~~ | ✅ `b66f7cd` 已订正 |
-| 四 | **新发现**：另有约 25 处残留「并行 / 本批」措辞（审计清单未覆盖），出现在 `resource.rs`、`resource_container.rs`、`resource_assignment.rs`、`task.rs`、`field_container.rs`、`event_manager.rs`、`notes_topic_container.rs`、`view_state.rs`、`mpx/mpx_task_field.rs`、`mpx/mpx_resource_field.rs`、`mpp/props.rs`、`mpp/var2_data.rs`、`mpp/mpp_reader.rs`、`mpp/mpp_utility.rs`、`mpp/comp_obj.rs`、`mpp/abstract_calendar_factory.rs`、`mpp/fix_defer_fix.rs`、`mpp/custom_field_reader12/14.rs`、`mpp/custom_field_value_reader12/14.rs`、`mpp/encrypted_document_input_stream.rs`、`mpp/{double,string,timestamp}_var_data_field_reader.rs`、`mpp/var_data_field_reader.rs`、`mpp/mpp_bit_flag.rs` | 待订正 |
+| 四 | 约 25 处残留「并行 / 本批」措辞（审计清单未覆盖，含 `resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs` 等 30 个文件） | ✅ `dedfa4d` 已订正（纯注释，已用 `git diff -U0` 自检确认未动任何代码行） |
+| 二 | **新发现**：`ProjectContext::shared()` 未接线 `resources.set_context(&context)`（`project_context.rs:186-201` 只接线了日历容器与序号提供者适配器）⇒ `ResourceContainer` 的上下文弱引用为空 | 待接线 |
+| 六 | `mpp/fix_defer_fix.rs` 的 `copy_bytes` / `get_unicode_string` 与 `MPPUtility::get_byte_array` / `get_unicode_string` 是**重复实现**且语义略有差异（本文件越界返回 `None`，`MPPUtility` 版静默不复制）——现已在注释中如实说明，但是否合流需先定调 | 待定调 |
 | 六 | `mpp/custom_field_value_reader14.rs:16` 的私有常量 `PROJECT_2010` 与已落地的 `crate::mpp::application_version::ApplicationVersion::PROJECT_2010` **取值相同但重复定义**，应改为引用 | 待接线 |
 | 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 仍未移植（需新增该类型 + 容器的 `get_populated_fields`） | 待接线 |
 | 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类：`ProjectCalendar` 现已实现所需 trait，但基类 `new` 要求**构造时**就有序号提供者，而容器在上下文成型前构造 —— 需先重构 `ProjectContext::shared` 的接线顺序 | 待定调 |

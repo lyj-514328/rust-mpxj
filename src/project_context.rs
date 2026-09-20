@@ -191,6 +191,10 @@ impl ProjectContext {
             // Java: `new ProjectCalendarContainer(this)` —— 由本方法补上反向引用接线。
             context_ref.calendars.set_context(&context);
 
+            // Java: `new ResourceContainer(this)` —— 同上（`ResourceContainer` 的序号生成器
+            // 提供者也需要上下文才能与 Java 一样共享同一套 `ObjectSequence`）。
+            context_ref.resources.set_context(&context);
+
             // Java: `new WorkContourContainer(this)` / `new NotesTopicContainer(this)`
             // —— 把序号生成器提供者适配器接到本上下文（只写入弱引用，不会再借用上下文）。
             let sequence_provider = Rc::clone(&context_ref.sequence_provider);

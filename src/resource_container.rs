@@ -16,9 +16,8 @@
 //! - **构造方法**：Java 为 `ResourceContainer(ProjectContext context)`。Rust 侧
 //!   [`ResourceContainer::new`] 无参数（[`crate::project_context::ProjectContext::new`] 调用它时
 //!   上下文尚未构建），再由 [`ResourceContainer::set_context`] 接线；
-//!   `ProjectContext::shared()` 目前只接线日历容器与序号提供者适配器，
-//!   **接线时需要在其中补一次 `resources.set_context(&context)`**（本文件不修改
-//!   `project_context.rs`，接线点即 [`crate::project_context::ProjectContext::shared`]）。
+//!   [`crate::project_context::ProjectContext::shared`] 会完成该接线
+//!   （与日历容器、序号提供者适配器一同）。
 //! - **序号生成器提供者**：Java 把 `ProjectContext` 自身（实现了
 //!   `UniqueIdObjectSequenceProvider`）交给基类。Rust 侧若强引用上下文会形成 `Rc` 循环，
 //!   故本文件内定义只持弱引用的 `ResourceSequenceProvider`（与 `project_context.rs` 内
