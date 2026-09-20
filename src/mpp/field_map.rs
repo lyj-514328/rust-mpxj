@@ -42,10 +42,9 @@
 //!
 //! ## 已知功能缺口
 //!
-//! * **自定义字段无法写进容器**：`FieldContainer::set` 只接受 [`FieldKey`]（没有「自定义」变体），
-//!   而 Java 的 `populateItem` 会用 `UserDefinedField` 作键写入。Rust 侧 [`FieldMap::populate_item`]
-//!   对自定义字段**只读取字段位置信息，不写入容器**（容器本身也存不下自定义字段键，
-//!   这是 `FieldKey` / `FieldValue` 的既有设计限制，不是本文件可以绕过的）。
+//! * **自定义字段的名称无法从键还原**：[`FieldKey::Custom`] 是 `Copy` 的等价键，
+//!   只承载 unique ID 与字段类型/数据类型，不承载动态名称；需要真实名称时请直接读
+//!   `UserDefinedField`。
 //! * **未知字段被跳过**：Java 的 `FieldTypeHelper.getInstance` 会为无法识别的字段号生成一个
 //!   占位 `FieldType`（`FieldTypeClass.UNKNOWN`、`getDataType()` 为 `null`）并写入 `m_map`；
 //!   Rust 侧 [`FieldMap::get_field_type`] 只能返回 `None`，`createFieldMap` 随之跳过该条记录
@@ -1407,11 +1406,9 @@ impl FieldMap {
         let value = item.read(self, id, fixed_data, var_data);
 
         // Java: container.set(item.getType(), value);
-        // Rust 侧 FieldContainer::set 只接受内置字段键，自定义字段无法写入容器
-        // （见文件头「已知功能缺口」）。
-        if let Some(key) = item.get_type().as_builtin() {
-            container.set(key, value);
-        }
+        // 内置字段用其 `FieldKey`，自定义字段转成 `FieldKey::Custom`
+        // （以 unique ID 为等价依据，与 Java `UserDefinedField.equals` 一致）。
+        container.set(item.get_type().to_field_key(), value);
     }
 
     /// 取定长数据块的最大偏移。

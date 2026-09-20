@@ -470,9 +470,13 @@ impl Task {
     ///
     /// 对应 Java: `@Override public void set(FieldType field, Object value)`
     pub fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
-        // Java 对 null 的 field 直接返回；Task 只接收 TaskField。
-        if let FieldKey::Task(task_field) = field {
-            self.set_task_field(task_field, value);
+        // 对应 Java: `Task.set(FieldType, Object)`
+        // TaskField 走自己的处理；其余键（含自定义字段 `UserDefinedField`）
+        // 落入 `super.set(field, value)`，即写进字段表。
+        // 此前这里对非 TaskField 的键直接丢弃，导致自定义字段实际写不进去。
+        match field {
+            FieldKey::Task(task_field) => self.set_task_field(task_field, value),
+            _ => self.fields.set(field, value),
         }
     }
 
@@ -483,7 +487,11 @@ impl Task {
         if let FieldKey::Task(task_field) = field {
             return self.get_task_field(task_field);
         }
-        None
+
+        // 对应 Java: `Task.get(FieldType)` 对非 TaskField 的键落入 `super.get(field)`，
+        // 即只从字段表里取值 —— 自定义字段（`UserDefinedField`）正是走这条路。
+        // 此前这里直接返回 `None`，导致写入容器的自定义字段读不出来。
+        self.get_cached_value(field).cloned()
     }
 
     /// 只读取已保存的字段值，不触发计算。

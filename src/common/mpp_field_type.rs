@@ -43,6 +43,21 @@ impl MppFieldType {
         }
     }
 
+    /// 转成字段容器使用的键。
+    ///
+    /// 对应 Java: `container.set(item.getType(), value)` —— Java 直接把
+    /// `FieldType` 当键；Rust 侧内置字段用其 [`FieldKey`]，自定义字段转成
+    /// [`FieldKey::Custom`]（以 unique ID 为等价依据，与 Java
+    /// `UserDefinedField.equals` 一致，见 [`CustomFieldKey`]）。
+    pub fn to_field_key(&self) -> FieldKey {
+        match self {
+            MppFieldType::Builtin(key) => *key,
+            MppFieldType::Custom(field) => {
+                FieldKey::Custom(crate::field_key::CustomFieldKey::from_field(field))
+            }
+        }
+    }
+
     /// 是否为内置字段。
     pub fn is_builtin(&self) -> bool {
         matches!(self, MppFieldType::Builtin(_))
