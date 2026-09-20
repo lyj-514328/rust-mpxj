@@ -13,13 +13,17 @@
 //!
 //! # 与 Java 的差异（结构性）
 //!
-//! - **父日历反向引用**：Java 用强引用 `ProjectCalendar m_parent`，且 `setParent`
-//!   会用 `calendar != this` 排除「把自己设为父日历」的畸形数据。Rust 侧按本项目
+//! - **父日历反向引用**：Java 用强引用 `ProjectCalendar m_parent`；Rust 侧按本项目
 //!   的既定做法（见 `crate::shift` / `crate::shift_period`）改用
 //!   `Weak<RefCell<ProjectCalendar>>`，避免与容器中的强引用形成循环而导致内存泄漏；
-//!   [`ProjectCalendar::get_parent`] 在父日历已释放时返回 `None`。由于 Rust 的
-//!   `self` 不在 `Rc` 中，无法表达 Java 的 `calendar != this` 同一性检查，
-//!   该守卫由调用方保证（正常情况下不会把日历设为自己的父日历）。
+//!   [`ProjectCalendar::get_parent`] 在父日历已释放时返回 `None`。Java `setParent` 中
+//!   `calendar != this` 的守卫（丢弃「把自己设为父日历」的畸形数据，见 Java 源码注释
+//!   「I've seen a malformed MSPDI file which sets the parent calendar to itself」）
+//!   按**地址同一性**还原：本类型的实例总是位于 `Rc<RefCell<ProjectCalendar>>` 中
+//!   （容器只存该形态），因此 `calendar.as_ptr() == self as *const ProjectCalendar`
+//!   与 Java 的引用同一性等价（写法与
+//!   [`crate::project_calendar_container::ProjectCalendarContainer::remove`] 用
+//!   `RefCell::as_ptr` 做指针同一性比较一致）。
 //! - **上下文反向引用**：`m_context` 同样改为 `Weak<RefCell<ProjectContext>>`
 //!   （Java 为强引用），[`ProjectCalendar::get_project_context`] 返回
 //!   `Option<Rc<RefCell<ProjectContext>>>`。
@@ -43,28 +47,41 @@
 //!   `get_ranges(LocalDate)`、`get_hours(DayOfWeek)`、`add_calendar_exception(from, to)`。
 //! - **空值语义**：Java 多处直接解引用可能为 `null` 的日期/时间（会抛 NPE），
 //!   Rust 侧不 panic，退化为「跳过」或返回空集合，具体见各方法注释。
-//! - **`TemporaryCalendar` / `ProjectCalendarHelper`**：这两个 Java 类尚未移植。
-//!   `TemporaryCalendar` 只是把 `ProjectCalendar(context, temporaryCalendar = true)`
-//!   的子类，故 [`ProjectCalendar::get_expanded_calendar_exceptions_with_work_weeks`]
-//!   直接构造 `temporary_calendar = true` 的 [`ProjectCalendar`]；
-//!   `ProjectCalendarHelper.mergeExceptions` 的两个重载在本文件内以私有函数
-//!   `merge_exceptions_*` 忠实复刻。
+//! - **`TemporaryCalendar` / `ProjectCalendarHelper`**：本仓**就地复刻、未单独成模块**
+//!   ——见下节说明。
 //!
-//! # 跳过的 Java 方法及原因
+//! # `TemporaryCalendar` / `ProjectCalendarHelper`（就地复刻）
 //!
-//! - 构造方法 `ProjectCalendar(ProjectFile file)`：`ProjectFile` 不在本批已移植模块中。
-//!   Rust 侧提供 [`ProjectCalendar::new`]（对应 Java 的 protected 构造方法）。
-//! - `getTasks()` / `getResources()` / `getResourceCount()`：返回 `Task` / `Resource`
-//!   列表，这两个类型不在本批已移植模块中（`getResourceCount` 的计数逻辑完全依赖
-//!   `Resource`）。
-//! - `getDerivedCalendarsForProject(ProjectFile project)`：依赖 `ProjectFile` /
-//!   `ProjectProperties`，同样不在本批已移植模块中。
-//! - Java 特有机制（反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`）：
-//!   本类中未出现，无需跳过。
+//! Java 的这两个类都在 `org.mpxj` 根包：`TemporaryCalendar` 只是
+//! `ProjectCalendar(context, temporaryCalendar = true)` 的子类（除构造方法外没有成员），
+//! `ProjectCalendarHelper.mergeExceptions` 也只有一个调用点。本仓因此**不单独成模块**，
+//! 而是就地复刻：
 //!
-//! # 对并行翻译模块（`ProjectContext` / `ProjectCalendarContainer`）的接口假设
+//! - [`ProjectCalendar::get_expanded_calendar_exceptions_with_work_weeks`] 直接构造
+//!   `temporary_calendar = true` 的本类型实例（等价于 `new TemporaryCalendar(m_context)`）；
+//! - `ProjectCalendarHelper.mergeExceptions` 的两个重载合并为本文件内的私有函数
+//!   `merge_exceptions`（Rust 无重载；`mergeExceptions(target, calendar)` 在 Java 中就是
+//!   转发到 `mergeExceptions(target, source.getCalendarExceptions())`，无需再拆两个函数）。
 //!
-//! 这两个模块与本文件同批并行翻译，本文件按下列接口使用（待其落地后如有出入需对齐）：
+//! # Java → Rust 成员对照
+//!
+//! | Java | Rust |
+//! |---|---|
+//! | `public ProjectCalendar(ProjectFile file)` | [`ProjectCalendar::new_in_file`] |
+//! | `protected ProjectCalendar(ProjectContext, boolean)` | [`ProjectCalendar::new`] |
+//! | `public List<Task> getTasks()` | [`ProjectCalendar::get_tasks`] |
+//! | `public List<Resource> getResources()` | [`ProjectCalendar::get_resources`] |
+//! | `public int getResourceCount()` | [`ProjectCalendar::get_resource_count`] |
+//! | `public List<ProjectCalendar> getDerivedCalendarsForProject(ProjectFile)` | [`ProjectCalendar::get_derived_calendars_for_project`] |
+//! | `@Override public Integer getUniqueID()` / `setUniqueID(Integer)` | [`ProjectCalendar::get_unique_id`] / [`ProjectCalendar::set_unique_id`]，同时通过 [`ProjectEntityWithUniqueID`] / [`ProjectEntityWithMutableUniqueID`] 暴露给容器 |
+//! | `public void remove()` | [`ProjectCalendar::remove`]（Java 中由容器 `removed` 完成的资源 / 任务日历引用清理，改由本方法在释放上下文借用后补做，见容器文件头） |
+//!
+//! Java 特有机制（反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`）：
+//! 本类中未出现，无需跳过；本类也**没有**被跳过的 Java 方法。
+//!
+//! # 对 `ProjectContext` / `ProjectCalendarContainer` 的接口假设
+//!
+//! 本文件按下列接口使用（均已落地并核对过）：
 //!
 //! ```text
 //! ProjectContext::get_calendars(&self) -> &ProjectCalendarContainer
@@ -74,6 +91,8 @@
 //! ProjectContext（作为 UniqueIdObjectSequenceProvider）:
 //!   get_unique_id_object_sequence(&mut self, TypeId) -> Rc<ObjectSequence>
 //!   （ObjectSequence::get_next(&self) -> i32，与「TypeId 作键」的既定移植方案一致）
+//! ProjectContext::get_projects(&self) -> Vec<Rc<RefCell<ProjectFile>>>
+//! ProjectContext::get_resources(&self) -> &ResourceContainer
 //! ProjectCalendarContainer::get_default_calendar_unique_id(&self) -> Option<i32>
 //! ProjectCalendarContainer::set_default_calendar_unique_id(&mut self, Option<i32>)
 //! ProjectCalendarContainer::update_unique_id(&mut self, old: Option<i32>, new: Option<i32>)
@@ -81,8 +100,9 @@
 //! ProjectCalendarContainer::as_slice(&self) -> &[Rc<RefCell<ProjectCalendar>>]
 //! ```
 //!
-//! `ProjectCalendar` 未实现 `ProjectEntityWithMutableUniqueID`（该接口尚未移植，
-//! 与 `crate::shift::Shift` 的处理一致），但保留 `get_unique_id` / `set_unique_id`。
+//! `ProjectCalendar` 实现了 `ProjectEntityWithUniqueID` 与 `ProjectEntityWithMutableUniqueID`
+//! （见文件末尾），因此 `ProjectCalendarContainer` 可以组合 `ProjectEntityContainer`
+//! 并复用其 `fixUniqueIdClashes` / `firstUniqueID` / `getSequenceProvider`。
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -95,6 +115,7 @@ use uuid::Uuid;
 
 use crate::calendar_type::CalendarType;
 use crate::common::local_date_helper::LocalDateHelper;
+use crate::common::local_date_time_helper::LocalDateTimeHelper;
 use crate::common::local_time_helper::LocalTimeHelper;
 use crate::common::number_helper::NumberHelper;
 use crate::day_type::DayType;
@@ -105,8 +126,13 @@ use crate::project_calendar_exception::ProjectCalendarException;
 use crate::project_calendar_hours::ProjectCalendarHours;
 use crate::project_calendar_week::ProjectCalendarWeek;
 use crate::project_context::ProjectContext;
+use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID;
+use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
+use crate::project_file::ProjectFile;
 use crate::recurrence_type::RecurrenceType;
 use crate::recurring_data::RecurringData;
+use crate::resource::Resource;
+use crate::task::Task;
 use crate::time_unit::TimeUnit;
 use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
@@ -227,8 +253,6 @@ impl ProjectCalendar {
     /// 非临时日历且上下文存在、且 `ProjectConfig.getAutoCalendarUniqueID()` 为真时，
     /// 从上下文的唯一 ID 序列中取下一个值（对应 Java 的 `setUniqueID(...)`；
     /// 构造期间日历尚未加入容器，此处直接赋值，最终效果一致）。
-    ///
-    /// Java 的 `ProjectCalendar(ProjectFile file)` 依赖尚未移植的 `ProjectFile`，未翻译。
     pub fn new(context: Weak<RefCell<ProjectContext>>, temporary_calendar: bool) -> ProjectCalendar {
         let mut unique_id = None;
 
@@ -283,6 +307,21 @@ impl ProjectCalendar {
     /// 对应 Java: `public ProjectContext getProjectContext()`
     pub fn get_project_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
+    }
+
+    /// 以父项目文件构造日历。
+    ///
+    /// 对应 Java: `public ProjectCalendar(ProjectFile file)`
+    /// （Java 为 `this(file.getProjectContext(), false)`）
+    ///
+    /// 父文件已被借用（Java 不会出现该情形）时退化为无上下文的日历并与 `new` 等价。
+    pub fn new_in_file(file: &Rc<RefCell<ProjectFile>>) -> ProjectCalendar {
+        let context = match file.try_borrow() {
+            Ok(file_ref) => Rc::downgrade(&file_ref.get_project_context()),
+            Err(_) => Weak::new(),
+        };
+
+        ProjectCalendar::new(context, false)
     }
 
     /// 判断本日历是否为项目文件 / 数据库的默认日历。
@@ -624,7 +663,7 @@ impl ProjectCalendar {
     /// 对应 Java: `public List<ProjectCalendarException> getExpandedCalendarExceptionsWithWorkWeeks()`
     ///
     /// Java 通过 `TemporaryCalendar` + `ProjectCalendarHelper.mergeExceptions` 实现；
-    /// 二者尚未移植，此处按同样的语义：构造临时日历经由本文件内的
+    /// 二者在本仓就地复刻（不单独成模块），此处构造临时日历经由本文件内的
     /// `merge_exceptions` 合并（见文件头说明）。
     pub fn get_expanded_calendar_exceptions_with_work_weeks(
         &mut self,
@@ -667,9 +706,18 @@ impl ProjectCalendar {
     ///
     /// 对应 Java: `public void setParent(ProjectCalendar calendar)`
     ///
-    /// Java 会用 `calendar != this` 忽略畸形数据（把父日历设为自己）；Rust 侧
-    /// `self` 不在 `Rc` 中，无法表达该同一性检查，见文件头说明。
+    /// Java 用 `calendar != this` 忽略「把自己设为父日历」的畸形数据；Rust 侧按地址同一性
+    /// 还原（见文件头说明）。`self` 尚未位于 `Rc<RefCell<ProjectCalendar>>` 中
+    /// （例如尚未入容器）时无从比较，与 Java 一致地直接设置。
     pub fn set_parent(&mut self, calendar: Option<Rc<RefCell<ProjectCalendar>>>) {
+        if let Some(candidate) = &calendar {
+            // Java: if (calendar != this)
+            let is_self = candidate.as_ptr() as *const ProjectCalendar == self as *const ProjectCalendar;
+            if is_self {
+                return;
+            }
+        }
+
         self.parent = match &calendar {
             Some(calendar) => Rc::downgrade(calendar),
             None => Weak::new(),
@@ -823,7 +871,7 @@ impl ProjectCalendar {
         self.get_date_last_remaining_milliseconds = remaining_milliseconds;
 
         if self.get_date_last_result.is_some()
-            && compare_optional_date_time(Some(start_date), get_date_last_start_date) == 0
+            && LocalDateTimeHelper::compare(Some(start_date), get_date_last_start_date) == 0
             && remaining_milliseconds >= get_date_last_remaining_milliseconds
         {
             if let Some(result) = self.get_date_last_result {
@@ -1282,7 +1330,10 @@ impl ProjectCalendar {
     ///
     /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
     ///
-    /// 临时日历不修改上下文的日历唯一 ID 映射。
+    /// 临时日历不修改上下文的日历唯一 ID 映射（对应 Java 的
+    /// `if (!m_temporaryCalendar)` 守卫）。Java 把 `this` 一并交给容器的
+    /// `updateUniqueID(element, old, new)`；Rust 侧容器的对应方法不需要元素参数
+    /// （见 `ProjectCalendarContainer::update_unique_id` 的说明），故此处只传新旧值。
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         if !self.temporary_calendar {
             if let Some(context) = self.context.upgrade() {
@@ -1315,6 +1366,80 @@ impl ProjectCalendar {
     /// 对应 Java: `public void setGUID(UUID value)`
     pub fn set_guid(&mut self, value: Option<Uuid>) {
         self.guid = value;
+    }
+
+    /// 取使用本日历的任务列表。
+    ///
+    /// 对应 Java: `public List<Task> getTasks()`
+    ///
+    /// Java 汇总上下文中全部项目的任务后按 `getCalendarUniqueID()` 过滤。Rust 侧同样遍历；
+    /// 上下文未接线或已被借用时返回空列表（Java 的 `m_context` 是强引用，不会出现该情形）。
+    pub fn get_tasks(&self) -> Vec<Rc<RefCell<Task>>> {
+        let mut result = Vec::new();
+
+        // Java: m_uniqueID.equals(t.getCalendarUniqueID()) —— m_uniqueID 为 null 时恒为 false
+        let Some(unique_id) = self.unique_id else {
+            return result;
+        };
+        let Some(context) = self.context.upgrade() else {
+            return result;
+        };
+        let Ok(context_ref) = context.try_borrow() else {
+            return result;
+        };
+
+        for project in context_ref.get_projects() {
+            let Ok(project_ref) = project.try_borrow() else {
+                continue;
+            };
+
+            for task in project_ref.get_tasks().as_slice() {
+                if let Ok(task_ref) = task.try_borrow() {
+                    if task_ref.get_calendar_unique_id() == Some(unique_id) {
+                        result.push(Rc::clone(task));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// 取使用本日历的资源列表。
+    ///
+    /// 对应 Java: `public List<Resource> getResources()`
+    ///
+    /// 退化情形同 [`ProjectCalendar::get_tasks`]。
+    pub fn get_resources(&self) -> Vec<Rc<RefCell<Resource>>> {
+        let mut result = Vec::new();
+
+        // Java: m_uniqueID.equals(r.getCalendarUniqueID())
+        let Some(unique_id) = self.unique_id else {
+            return result;
+        };
+        let Some(context) = self.context.upgrade() else {
+            return result;
+        };
+        let Ok(context_ref) = context.try_borrow() else {
+            return result;
+        };
+
+        for resource in context_ref.get_resources().as_slice() {
+            if let Ok(resource_ref) = resource.try_borrow() {
+                if resource_ref.get_calendar_unique_id() == Some(unique_id) {
+                    result.push(Rc::clone(resource));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// 取使用本日历的资源数量。
+    ///
+    /// 对应 Java: `public int getResourceCount()`
+    pub fn get_resource_count(&self) -> i32 {
+        self.get_resources().len() as i32
     }
 
     /// 把本日历从项目中移除。
@@ -1685,6 +1810,35 @@ impl ProjectCalendar {
         result
     }
 
+    /// 取本日历在指定项目下的派生日历列表。
+    ///
+    /// 对应 Java: `public List<ProjectCalendar> getDerivedCalendarsForProject(ProjectFile project)`
+    ///
+    /// Java 过滤掉「类型为 `PROJECT` 且 `getProjectUniqueID()` 不等于该项目 unique ID」的
+    /// 派生日历。Rust 侧 `getProjectUniqueID()` 为 `Option<i32>`：与项目 unique ID 同为
+    /// `None` 时视为相等（Java 在此处会因 `null.equals` 抛 NPE）；项目被借用时取不到其
+    /// unique ID，按 `None` 处理。
+    pub fn get_derived_calendars_for_project(
+        &self,
+        project: &Rc<RefCell<ProjectFile>>,
+    ) -> Vec<Rc<RefCell<ProjectCalendar>>> {
+        let project_unique_id = project
+            .try_borrow()
+            .ok()
+            .and_then(|file| file.get_project_properties().get_unique_id());
+
+        self.get_derived_calendars()
+            .into_iter()
+            .filter(|calendar| match calendar.try_borrow() {
+                Ok(calendar_ref) => {
+                    calendar_ref.get_type() != CalendarType::Project
+                        || calendar_ref.get_project_unique_id() == project_unique_id
+                }
+                Err(_) => false,
+            })
+            .collect()
+    }
+
     /// 判断本日历是否为其它日历的基日历。
     ///
     /// 对应 Java: `public boolean isParent()`
@@ -1898,6 +2052,30 @@ impl ProjectCalendar {
     }
 }
 
+/// `ProjectCalendar` 以 trait 实现的方式暴露 unique ID。
+///
+/// 对应 Java: `public final class ProjectCalendar implements ProjectEntityWithID, TimePeriodEntity`
+/// —— Java 的接口在 Rust 侧用 trait 表达（见 `crate::project_entity_with_unique_id`）。
+/// 实现这两个 trait 后，`ProjectCalendarContainer` 才能按 `ProjectEntityWithUniqueID`
+/// 的约束复用容器基类的能力。
+impl ProjectEntityWithUniqueID for ProjectCalendar {
+    /// 对应 Java: `@Override public Integer getUniqueID()`
+    fn get_unique_id(&self) -> Option<i32> {
+        self.unique_id
+    }
+}
+
+/// 对应 Java: `ProjectEntityWithMutableUniqueID.setUniqueID(Integer)`
+///
+/// 转调到本类型的同名声明方法（其中含临时日历守卫与容器序号同步，见
+/// [`ProjectCalendar::set_unique_id`]）。
+impl ProjectEntityWithMutableUniqueID for ProjectCalendar {
+    /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
+    fn set_unique_id(&mut self, unique_id: Option<i32>) {
+        ProjectCalendar::set_unique_id(self, unique_id);
+    }
+}
+
 /// 默认基日历名称（未提供基日历时使用）。
 ///
 /// 对应 Java: `public static final String DEFAULT_BASE_CALENDAR_NAME = "Standard";`
@@ -2022,27 +2200,6 @@ fn truncate_to_seconds(date_time: NaiveDateTime) -> NaiveDateTime {
     }
 }
 
-/// 对应 Java: `LocalDateTimeHelper.compare(LocalDateTime d1, LocalDateTime d2)`。
-///
-/// 保留 Java 的 null 语义：`null` 视为「更大」。`common::local_date_time_helper`
-/// 当前未在 `common/mod.rs` 中启用，故在此局部复刻。
-fn compare_optional_date_time(lhs: Option<NaiveDateTime>, rhs: Option<NaiveDateTime>) -> i32 {
-    match (lhs, rhs) {
-        (None, None) => 0,
-        (None, Some(_)) => 1,
-        (Some(_), None) => -1,
-        (Some(lhs), Some(rhs)) => {
-            if lhs < rhs {
-                -1
-            } else if lhs == rhs {
-                0
-            } else {
-                1
-            }
-        }
-    }
-}
-
 /// 对应 Java: `Math.round(double)`——返回最接近的整数，.5 向正无穷取整。
 fn java_math_round(value: f64) -> i64 {
     (value + 0.5).floor() as i64
@@ -2050,7 +2207,9 @@ fn java_math_round(value: f64) -> i64 {
 
 /// 对应 Java: `ProjectCalendarHelper.mergeExceptions(ProjectCalendar target, ProjectCalendar source)`
 /// 与 `mergeExceptions(ProjectCalendar target, List<ProjectCalendarException> sourceExceptions)`
-/// 的合并算法（`ProjectCalendarHelper` 尚未移植，故在此忠实复刻）。
+/// 的合并算法（`ProjectCalendarHelper` 在本仓就地复刻，未单独成模块，见文件头说明）。
+/// Java 的「日历版」重载只是转发到「列表版」`source.getCalendarExceptions()`，
+/// 因此 Rust 侧只保留这一个函数。
 fn merge_exceptions(target: &mut ProjectCalendar, source_exceptions: &[ProjectCalendarException]) {
     // Java: 该快照在循环中不会更新
     let expanded_target_exceptions = target.get_expanded_calendar_exceptions();
@@ -2914,5 +3073,108 @@ mod tests {
         assert!(text.contains("   [Day SUNDAY\n      type=NON_WORKING\n"));
         assert!(text.contains("   [Exceptions=\n"));
         assert!(text.ends_with("]\n]"));
+    }
+
+    /// Java: `setParent` 中的 `calendar != this` 守卫 —— 忽略「把自己设为父日历」的畸形数据。
+    #[test]
+    fn set_parent_ignores_self_reference() {
+        let context = ProjectContext::shared();
+        let calendar = context.borrow_mut().get_calendars_mut().add();
+
+        calendar.borrow_mut().set_parent(Some(Rc::clone(&calendar)));
+
+        assert!(calendar.borrow().get_parent().is_none());
+    }
+
+    /// `ProjectEntityWithUniqueID` / `ProjectEntityWithMutableUniqueID` 转调到本类型的同名方法。
+    #[test]
+    fn unique_id_trait_impls_delegate_to_the_declared_methods() {
+        let mut calendar = temp_calendar();
+
+        ProjectEntityWithMutableUniqueID::set_unique_id(&mut calendar, Some(11));
+        assert_eq!(
+            ProjectEntityWithUniqueID::get_unique_id(&calendar),
+            Some(11)
+        );
+    }
+
+    /// 按日历 unique ID 反查使用它的任务 / 资源（Java 的 `getTasks` / `getResources`）。
+    #[test]
+    fn tasks_and_resources_filter_by_calendar_unique_id() {
+        let file = ProjectFile::new();
+        let context = file.borrow().get_project_context();
+
+        let calendar = {
+            let mut context_ref = context.borrow_mut();
+            context_ref.get_calendars_mut().add()
+        };
+        calendar.borrow_mut().set_unique_id(Some(5));
+
+        // 没有 unique ID 的日历（Java 的 `m_uniqueID.equals(...)` 恒为 false）查不到任何实体
+        let without_id = {
+            let mut context_ref = context.borrow_mut();
+            context_ref.get_calendars_mut().add()
+        };
+        without_id.borrow_mut().set_unique_id(None);
+        assert!(without_id.borrow().get_tasks().is_empty());
+        assert!(without_id.borrow().get_resources().is_empty());
+        assert_eq!(without_id.borrow().get_resource_count(), 0);
+
+        let task = ProjectFile::add_task_shared(&file);
+        task.borrow_mut().set_calendar_unique_id(Some(5));
+
+        let resource = file.borrow_mut().add_resource();
+        resource.borrow_mut().set_calendar_unique_id(Some(5));
+
+        let tasks = calendar.borrow().get_tasks();
+        assert_eq!(tasks.len(), 1);
+        assert!(Rc::ptr_eq(&tasks[0], &task));
+
+        let resources = calendar.borrow().get_resources();
+        assert_eq!(resources.len(), 1);
+        assert!(Rc::ptr_eq(&resources[0], &resource));
+
+        assert_eq!(calendar.borrow().get_resource_count(), 1);
+    }
+
+    /// 无上下文时（Java 的 `m_context` 是强引用，不会出现该情形）退化为空集合。
+    #[test]
+    fn tasks_and_resources_are_empty_without_context() {
+        let calendar = temp_calendar();
+
+        assert!(calendar.get_tasks().is_empty());
+        assert!(calendar.get_resources().is_empty());
+        assert_eq!(calendar.get_resource_count(), 0);
+    }
+
+    /// `getDerivedCalendarsForProject` 过滤掉「类型为 `PROJECT` 且项目 unique ID 不匹配」的日历。
+    #[test]
+    fn derived_calendars_for_project_filters_by_project_unique_id() {
+        let file = ProjectFile::new();
+        let context = file.borrow().get_project_context();
+
+        let (base, derived) = {
+            let mut context_ref = context.borrow_mut();
+            let base = context_ref.get_calendars_mut().add();
+            let derived = context_ref.get_calendars_mut().add();
+            (base, derived)
+        };
+        base.borrow_mut().set_unique_id(Some(1));
+        derived.borrow_mut().set_parent(Some(Rc::clone(&base)));
+
+        // 默认为 GLOBAL 类型，不受项目 unique ID 过滤
+        assert_eq!(base.borrow().get_derived_calendars_for_project(&file).len(), 1);
+
+        // 类型为 PROJECT 且项目 unique ID 不匹配时被过滤掉
+        derived.borrow_mut().set_type(Some(CalendarType::Project));
+        derived.borrow_mut().set_project_unique_id(Some(99));
+        assert!(base
+            .borrow()
+            .get_derived_calendars_for_project(&file)
+            .is_empty());
+
+        // 与项目 unique ID 一致（本测试中项目未设置 unique ID，两边均为 None）时保留
+        derived.borrow_mut().set_project_unique_id(None);
+        assert_eq!(base.borrow().get_derived_calendars_for_project(&file).len(), 1);
     }
 }

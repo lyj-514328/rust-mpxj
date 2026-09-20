@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use crate::data_type::DataType;
 use crate::field_type_class::FieldTypeClass;
+use crate::mpx::locale_utility::MpxLocale;
 use crate::mpxj_enum::MpxjEnum;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
@@ -25,22 +26,24 @@ use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 /// [`get_units_type`](UserDefinedField::get_units_type)），语义与 Java 一致。
 /// [`MpxjEnum`] 没有 `Copy` 约束，故正常实现。
 ///
-/// 另需注意：[`crate::field_key::FieldKey`]（本 crate 对 `FieldType` 的运行时擦除）没有
-/// 「用户自定义字段」变体，因此 [`crate::custom_field::CustomField`] 与
-/// [`crate::custom_field_container::CustomFieldContainer`] 目前无法表示本类型，
-/// 这与 Java 中 `CustomField` 可以持有 `UserDefinedField` 存在差异。
+/// 另需注意：[`crate::field_key::FieldKey`] 用 [`crate::field_key::CustomFieldKey`]
+/// （以 unique ID 为等价依据的 `Copy` 键）表达本类型，因此
+/// [`crate::custom_field::CustomField`] 与
+/// [`crate::custom_field_container::CustomFieldContainer`] 可以表示本类型对应的字段；
+/// 代价是拿不到 `Rc<RefCell<UserDefinedField>>` 本身（见 `crate::custom_field` 文件头）。
 ///
 /// # 与 Java 的差异
 ///
 /// - Java 的 `Integer m_uniqueID` 在构造时必定由序号生成器赋值（`syncOrGetNext`），
 ///   Rust 侧因此用 `i32`；Java 的 `String m_externalName`、`FieldTypeClass m_fieldTypeClass`、
 ///   `DataType m_dataType` 可以为 `null`，Rust 侧用 `Option<_>`。
-/// - Java 的 `getName(Locale)` 重载未移植（本 crate 的 `FieldType` trait 也未包含它）。
+/// - Java 的 `getName(Locale)` 重载在 Rust 侧命名为 [`UserDefinedField::get_name_for_locale`]
+///   （Java 的实现就是 `return getName();`，与 locale 无关）。
 /// - `equals` / `hashCode` 只比较 `m_uniqueID`，Rust 侧按此实现 `PartialEq` / `Eq` / `Hash`。
 ///
 /// 被跳过的 Java 机制：无。
 ///
-/// 未移植的 Java 方法：`getName(Locale locale)`（见上）。
+/// 未移植的 Java 方法：无。
 #[derive(Debug, Clone)]
 pub struct UserDefinedField {
     /// unique ID。
@@ -103,6 +106,17 @@ impl UserDefinedField {
     /// 对应 Java: `@Override public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.m_external_name.as_deref()
+    }
+
+    /// 取给定区域设置下的显示名。
+    ///
+    /// 对应 Java: `@Override public String getName(Locale locale)`
+    ///
+    /// Java 的实现是 `return getName();` —— 自定义字段的名称来自用户 / 文件，
+    /// 与区域设置无关。
+    pub fn get_name_for_locale(&self, locale: MpxLocale) -> Option<&str> {
+        let _ = locale;
+        self.get_name()
     }
 
     /// 取内部名称（Java 枚举常量名的等价物）。
@@ -354,6 +368,27 @@ mod tests {
         // 序列已同步到 8
         let next = Builder::new(Rc::clone(&provider)).build();
         assert_eq!(next.get_unique_id(), 8);
+    }
+
+    /// Java: `getName(Locale)` 的实现就是 `return getName();`，与区域设置无关。
+    #[test]
+    fn name_for_locale_equals_name() {
+        let provider = provider();
+        let field = Builder::new(Rc::clone(&provider))
+            .internal_name(Some("user_field_1".to_owned()))
+            .external_name(Some("My Field".to_owned()))
+            .field_type_class(FieldTypeClass::Task)
+            .data_type(DataType::Numeric)
+            .build();
+
+        for locale in MpxLocale::ALL {
+            assert_eq!(field.get_name_for_locale(locale), field.get_name(), "{locale}");
+        }
+        assert_eq!(field.get_name_for_locale(MpxLocale::Zh), Some("My Field"));
+
+        // 未设置外部名时恒为 None（Java 返回 null）
+        let unnamed = Builder::new(Rc::clone(&provider)).build();
+        assert_eq!(unnamed.get_name_for_locale(MpxLocale::En), None);
     }
 
     #[test]

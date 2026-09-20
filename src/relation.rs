@@ -28,8 +28,8 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | 构造方法中 `uniqueID == null` 时经 `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` 的自动 unique ID 分配 | 未接线：Rust 侧完全由调用方经 [`Builder::unique_id`] 提供 | 依赖均已落地（`Task::get_parent_file`、`ProjectFile`、`ProjectConfig::get_auto_relation_unique_id`），缺的是把该逻辑接回 [`crate::relation_container::RelationContainer::add_predecessor`]（容器持有父文件与序号生成器）。 |
-//! | `setUniqueID` 中的 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` | 未接线：Rust 侧容器按 unique ID 线性查找（见 [`crate::relation_container::RelationContainer`] 文件头），不需要回调维护索引；序号生成器同步由调用方经 `RelationContainer::update_unique_id` 完成 | 同上（依赖 `ProjectFile` / `Task` 均已落地），缺的是接线。 |
+//! | 构造方法中 `uniqueID == null` 时经 `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` 的自动 unique ID 分配 | **已接线**，但落点是 [`crate::relation_container::RelationContainer::add_predecessor`]（Java 在 `builder.build()` 里做）：Rust 的 [`Builder::build`] 返回裸值、且拿不到容器，无法在构造点完成「分配 + 向容器登记」；容器侧按 Java 的三步逐条实现，见该方法的注释。 |
+//! | `setUniqueID` 中的 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` | 未接线：`Relation` 没有自身的 `Rc` 弱引用（无 `self_ref`，[`crate::relation::Relation::set_unique_id`] 只有 `&mut self`），无法提供 `updateUniqueID` 的 `element` 参数。Rust 侧容器按 unique ID 线性查找，索引无需回调维护；序号生成器同步由容器自己的 `update_unique_id`（`add_predecessor` / `fix_unique_id_clashes` 会调用）完成。 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
 //!
 //! # 与 Java 的差异
@@ -49,7 +49,7 @@
 //! - **值相等语义**：Java 未覆写 `equals` / `hashCode`（即引用相等），容器依赖该语义，
 //!   故 Rust 侧**不**派生 `PartialEq` / `Eq` / `Hash`。
 //! - **`toString()` 中的任务**：Java 拼接 `Task.toString()`（输出任务字段内容）；Rust 侧改为
-//!   输出任务的 unique ID（不依赖并行模块 `Task` 的 `Display` 实现）。
+//!   输出任务的 unique ID（不依赖 `Task` 的 `Display` 实现）。
 //! - **`Builder.from`**：Java 是实例方法（`new Builder().from(relation)`），Rust 侧为关联函数；
 //!   Java 的 `from` 不复制 `m_driving`，Rust 侧保持一致。
 //! - **`Builder.type(null)`**：Java 的 `type(RelationType)` 允许传 `null`（构造时会回落到
@@ -131,9 +131,12 @@ impl Relation {
     ///
     /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
     ///
-    /// Java 还会调用 `m_successorTask.getParentFile().getRelations().updateUniqueID(...)` 同步
-    /// 容器的 unique ID 索引与序号生成器；该接线**尚未补回**（`ProjectFile` / `Task` 均已落地），
-    /// Rust 侧容器改为按 unique ID 线性查找（无需维护索引），见文件头。
+    /// Java 还会调用 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, ...)`
+    /// 同步容器的序号生成器；该回调在 Rust 侧**无法接线** —— `&mut self` 下拿不到自身的
+    /// `Rc` 句柄（`Relation` 无 `self_ref`），构造不出 `updateUniqueID` 的 `element` 参数。
+    /// 序号同步改由容器自己的
+    /// [`RelationContainer::update_unique_id`](crate::relation_container::RelationContainer::update_unique_id)
+    /// 完成（`add_predecessor` 与 `fix_unique_id_clashes` 会调用它）。
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.unique_id = unique_id;
     }
@@ -192,7 +195,7 @@ impl Display for Relation {
 
 impl Debug for Relation {
     /// Java 侧只用 `toString()`；Rust 侧另提供结构化 `Debug`，任务引用输出其 unique ID
-    /// （避免依赖并行模块 `Task` 的 `Debug` 实现）。
+    /// （避免依赖 `Task` 的 `Debug` 实现）。
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Relation")
             .field("unique_id", &self.unique_id)
@@ -332,7 +335,11 @@ impl Builder {
     ///
     /// 对应 Java: `public Relation build()`
     ///
-    /// Java 的构造方法会在这里做 unique ID 的自动分配与容器同步，Rust 侧的取舍见文件头。
+    /// Java 的构造方法还会做 unique ID 的自动分配并向容器登记（见文件头「跳过的 Java 代码」
+    /// 第一行）：Rust 侧 [`Builder::build`] 返回裸值、拿不到容器，这几步由
+    /// [`RelationContainer::add_predecessor`](crate::relation_container::RelationContainer::add_predecessor)
+    /// 在创建实例后立即执行（语义与顺序一致）。因此**直接**调用 `build()` 得到的实例
+    /// 其 unique ID 仍是 builder 提供的值（未提供时为 `None`）。
     pub fn build(self) -> Relation {
         Relation {
             unique_id: self.unique_id,

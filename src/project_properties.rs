@@ -69,21 +69,41 @@
 //!   `ProjectCode` / `ProjectCodeValue` 未在 `src/lib.rs` 声明。
 //! - `getPopulatedFields()`：依赖 `org.mpxj.common.PopulatedFields`（未移植），且返回值
 //!   `Set<FieldType>` 需要能容纳 `UserDefinedField`，而 [`crate::field_key::FieldKey`]
-//!   没有「用户自定义字段」变体，无法表达。
-//! - `getResourcePoolObject()`：语义是读取外部资源池文件，依赖
-//!   `ProjectFile.readExternalProject(String)`（`ProjectFile` 并行翻译中，返回类型未定），
-//!   属于 reader 层职责。`getResourcePoolFile()` / `setResourcePoolFile(...)` 已翻译。
+//!   只能用 [`crate::field_key::CustomFieldKey`]（unique ID 等价键）近似表达自定义字段，
+//!   无法承载字段名等元信息。
+//! - `getResourcePoolObject()`：**无法移植**（原因见本节的下一节「无法移植的原因」）。
+//!   `getResourcePoolFile()` / `setResourcePoolFile(...)` 已翻译。
 //! - `removeFieldListener(FieldListener)`：Java 按对象身份移除监听器，Rust 无法表达，
 //!   按 [`crate::field_container::FieldContainer`] 的约定改为 `clear_field_listeners()`。
 //! - Java 特有机制（反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`）：本类中未出现
 //!   （唯一相关的是 `TimeUnit` 等枚举的 `EnumHelper.createTypeArray` 建表，已在各枚举模块内
 //!   以 `match` 替代）。
 //!
-//! # 对并行翻译模块（`ProjectFile` / `Task`）的接口假设
+//! # 无法移植的原因：`getResourcePoolObject()`
 //!
-//! `ProjectFile` / `Task` 与 `ProjectProperties` 同批并行翻译，本文件按下列签名使用，
-//! 待其落地后如有出入需对齐（`org.mpxj` 根模块在 `src/lib.rs` 中已声明 `project_file` /
-//! `task`，故引用这两个模块名不会引入新依赖）：
+//! Java 的实现是 `return m_parentFile.readExternalProject(getResourcePoolFile());`，
+//! 即「取父文件 → 读外部项目（结果缓存）」。Rust 侧这条链路有两个硬限制：
+//!
+//! 1. **`&mut ProjectFile` 拿不到**：`readExternalProject` 会写
+//!    `ExternalProjectContainer` 的缓存（`m_fileMap` / `m_projectMap`），对应本 crate 的
+//!    [`ProjectFile::read_external_project`]（`&mut self`）。而本类型的 `parent_file` 是
+//!    `Weak<RefCell<ProjectFile>>`，要取 `&mut ProjectFile` 必须 `try_borrow_mut`；
+//!    可是**能调用本方法的前提就是已经借用了该 `ProjectFile`**（`ProjectProperties`
+//!    是 `ProjectFile` 的字段，只能经 `&ProjectFile` / `&mut ProjectFile` 取得），
+//!    除「游离的 `ProjectProperties` 实例」（不属于任何文件，Java 无此概念）外
+//!    `try_borrow_mut` 必然失败 ⇒ 该方法只能恒返回 `None`，与 Java 行为不符。
+//!    这是 `RefCell` 借用模型导致的限制（Java 的稳定引用没有这个问题）。
+//! 2. **外部文件读取本身未接线**：读取动作依赖 `UniversalProjectReader`（`Class.forName`
+//!    反射分发），本工程类别性跳过，`ExternalProjectContainer` 只能靠调用方经
+//!    [`crate::external_project_container::ExternalProjectContainer::set_project_reader`]
+//!    注入回调，未注入时读取恒失败（返回 `None`，等价于 Java 的 `catch (MPXJException)`）。
+//!
+//! 需要该功能时，请持有 `&mut ProjectFile`（例如 `Task::expand_subproject` 的调用形态）
+//! 后直接调用 [`ProjectFile::read_external_project`]，其语义与 Java 相同。
+//!
+//! # 使用的模型层接口（均已落地，此处仅作索引）
+//!
+//! `ProjectFile` / `Task` 按下列签名使用：
 //!
 //! ```text
 //! ProjectFile::get_project_context(&self) -> Rc<RefCell<ProjectContext>>

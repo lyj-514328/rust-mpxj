@@ -9,7 +9,7 @@
 //! | `public int getAlignTitle()` | [`Column::get_align_title`] |
 //! | `public FieldType getFieldType()` | [`Column::get_field_type`]（返回 [`FieldKey`]） |
 //! | `public String getTitle()` | [`Column::get_title`] |
-//! | `public String getTitle(Locale locale)` | 与 `getTitle()` 合并进 [`Column::get_title`]（见下） |
+//! | `public String getTitle(Locale locale)` | [`Column::get_title_for_locale`]（Rust 无重载，加后缀区分） |
 //! | `public int getWidth()` | [`Column::get_width`] |
 //! | `public void setAlignData(int)` / `setAlignTitle(int)` | [`Column::set_align_data`] / [`Column::set_align_title`] |
 //! | `public void setFieldType(FieldType)` | [`Column::set_field_type`] |
@@ -24,11 +24,13 @@
 //!
 //! 1. **`FieldType` → [`FieldKey`]**：本 crate 用 [`FieldKey`] 作为 Java `FieldType`
 //!    接口的运行时擦除载体（见 `crate::field_key`），故字段类型一律存 `FieldKey`。
-//! 2. **`getTitle(Locale)` 合并**：Java 用 `m_fieldType.getName(locale)` 取默认标题，
-//!    而 [`crate::field_type::FieldType`] 只提供无 locale 的 `get_name()`（该 trait 的
-//!    文件头已说明 `getName(Locale)` 未移植）。Rust 侧 [`Column::get_title`] 即
-//!    Java 的 `getTitle(Locale.getDefault())`，`Locale` 重载不再单列；字段名表中
-//!    未定义的字段（Java 返回 `null`）在 Rust 侧返回 `None`。
+//! 2. **`getTitle(Locale)` 拆成两个方法**：Java 的 `getTitle()` 等于
+//!    `getTitle(Locale.getDefault())`，两者共用同一段逻辑。Rust 无重载，故保留
+//!    无参的 [`Column::get_title`] 并另给 [`Column::get_title_for_locale`]；
+//!    `get_title()` 内部以 [`MpxLocale::En`] 调用后者（本 crate 用 [`MpxLocale`]
+//!    替代 `java.util.Locale`，字段名表对任何 locale 都返回英文名，见
+//!    [`crate::field_type::FieldType::get_name_for_locale`]）。字段名表中未定义的
+//!    字段（Java 返回 `null`）在 Rust 侧返回 `None`。
 //! 3. **父项目引用**：Java 的 `m_project` 是强引用；Rust 侧 `Column` 被 `Table` 按值持有，
 //!    而 `ProjectFile` 又持有 `TableContainer`，若用强引用会形成 `Rc` 循环，故改存
 //!    `Weak<RefCell<ProjectFile>>`（[`Column::get_title`] 在父文件已释放时退化为
@@ -45,6 +47,7 @@ use std::rc::Weak;
 
 use crate::field_key::FieldKey;
 use crate::field_type::FieldType;
+use crate::mpx::locale_utility::MpxLocale;
 use crate::project_file::ProjectFile;
 
 /// MS Project 表格中的一列。
@@ -133,13 +136,22 @@ impl Column {
         self.m_field_type
     }
 
-    /// 取列标题。
+    /// 取列标题（使用 Java 的默认区域设置）。
     ///
-    /// 对应 Java: `public String getTitle()` 与 `public String getTitle(Locale locale)`
+    /// 对应 Java: `public String getTitle()`（即 `getTitle(Locale.getDefault())`）
+    pub fn get_title(&self) -> Option<String> {
+        // Java: return getTitle(Locale.getDefault());
+        // 本 crate 的字段名表对任何区域设置都返回英文名（见文件头），故取 En。
+        self.get_title_for_locale(MpxLocale::En)
+    }
+
+    /// 取给定区域设置下的列标题。
+    ///
+    /// 对应 Java: `public String getTitle(Locale locale)`
     ///
     /// 优先返回用户自定义标题；否则返回自定义字段的别名；再否则返回字段的默认名称
     /// （字段名表中未定义时返回 `None`，对应 Java 的 `null`）。
-    pub fn get_title(&self) -> Option<String> {
+    pub fn get_title_for_locale(&self, locale: MpxLocale) -> Option<String> {
         if let Some(title) = &self.m_title {
             return Some(title.clone());
         }
@@ -152,7 +164,8 @@ impl Column {
         match self.custom_field_alias(field_type) {
             Some(alias) if !alias.is_empty() => Some(alias),
             _ => {
-                let name = field_type.get_name();
+                // Java: m_fieldType.getName(locale)
+                let name = field_type.get_name_for_locale(locale);
                 if name.is_empty() {
                     None
                 } else {
@@ -299,6 +312,37 @@ mod tests {
         // 空标题被视为「未设置」
         column.set_title(Some(String::new()));
         assert_eq!(column.get_title(), Some(String::new()));
+    }
+
+    /// 对应 Java: `public String getTitle(Locale locale)`。
+    ///
+    /// Java 的 `org.mpxj.LocaleData` 只有英文列名表（无 `LocaleData_<lang>` 变体），
+    /// 因此各区域设置下取到的标题与英文标题一致。
+    #[test]
+    fn title_for_locale_matches_english_title() {
+        let mut column = standalone();
+        column.set_field_type(Some(FieldKey::Task(TaskField::Name)));
+
+        for locale in MpxLocale::ALL {
+            assert_eq!(
+                column.get_title_for_locale(locale),
+                Some("Task Name".to_owned()),
+                "{locale}"
+            );
+        }
+
+        // 用户自定义标题优先于任何区域设置
+        column.set_title(Some("My Title".to_owned()));
+        assert_eq!(
+            column.get_title_for_locale(MpxLocale::Zh),
+            Some("My Title".to_owned())
+        );
+
+        // 未设置字段类型时恒为 None（Java 返回 null）
+        assert_eq!(
+            standalone().get_title_for_locale(MpxLocale::De),
+            None
+        );
     }
 
     #[test]

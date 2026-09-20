@@ -4,8 +4,9 @@ use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::NaiveDateTime;
 
+use crate::common::local_date_time_helper::LocalDateTimeHelper;
 use crate::local_date_time_range::LocalDateTimeRange;
 use crate::rate::Rate;
 use crate::shift_period::ShiftPeriod;
@@ -28,9 +29,11 @@ const MAX_RATE_COUNT: usize = 5;
 /// - Java 的两个公开构造方法（`Rate...` 与 `ShiftPeriod, Rate...` 重载）在 Rust 中不能重名，
 ///   第二个在 Rust 侧命名为 [`CostRateTableEntry::new_with_shift_period`]；可变参数 `Rate...`
 ///   映射为 `&[Rate]`。
-/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 在本文件内以私有函数复刻
-///   （[`crate::common::local_date_time_helper`] **已启用**并提供同值方法，
-///   这里的复刻属历史遗留，待清理）。
+/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 直接调用
+///   [`LocalDateTimeHelper::start_date_na`] / [`LocalDateTimeHelper::end_date_na`]
+///   （本 crate 的 `crate::common::local_date_time_helper` 已落地）。
+///   注意：本类的两个常量与 helper 取值相同（1984-01-01 00:00 / 2049-12-31 23:59），
+///   与 `AvailabilityTable` 自己的 23:58 不同，不可互相替换。
 /// - Java 的 `DEFAULT_ENTRY` / `MAX_RATES` 为 `public static final`；`LocalDateTime` 与数组
 ///   均无法 `const` 构造，`DEFAULT_ENTRY` 改为 [`CostRateTableEntry::default_entry`] 函数，
 ///   `MAX_RATES` 保留为常量。
@@ -100,8 +103,8 @@ impl CostRateTableEntry {
     /// `public static final CostRateTableEntry DEFAULT_ENTRY`。
     pub fn default_entry() -> Self {
         Self::new(
-            Some(start_date_na()),
-            Some(end_date_na()),
+            Some(LocalDateTimeHelper::start_date_na()),
+            Some(LocalDateTimeHelper::end_date_na()),
             Some(0.0),
             &[],
         )
@@ -196,28 +199,6 @@ fn compare_optional_date_time(lhs: Option<NaiveDateTime>, rhs: Option<NaiveDateT
     }
 }
 
-/// 对应 Java: `LocalDateTimeHelper.START_DATE_NA`（1984-01-01 00:00）。
-fn start_date_na() -> NaiveDateTime {
-    match (
-        NaiveDate::from_ymd_opt(1984, 1, 1),
-        NaiveTime::from_hms_opt(0, 0, 0),
-    ) {
-        (Some(date), Some(time)) => NaiveDateTime::new(date, time),
-        _ => NaiveDateTime::default(),
-    }
-}
-
-/// 对应 Java: `LocalDateTimeHelper.END_DATE_NA`（2049-12-31 23:59）。
-fn end_date_na() -> NaiveDateTime {
-    match (
-        NaiveDate::from_ymd_opt(2049, 12, 31),
-        NaiveTime::from_hms_opt(23, 59, 0),
-    ) {
-        (Some(date), Some(time)) => NaiveDateTime::new(date, time),
-        _ => NaiveDateTime::default(),
-    }
-}
-
 impl Ord for CostRateTableEntry {
     /// 对应 Java: `@Override public int compareTo(CostRateTableEntry o)`
     ///
@@ -290,6 +271,7 @@ impl Display for CostRateTableEntry {
 mod tests {
     use super::*;
     use crate::time_unit::TimeUnit;
+    use chrono::{NaiveDate, NaiveTime};
 
     /// 构造测试用日期时间。
     fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
@@ -353,8 +335,13 @@ mod tests {
     fn default_entry_matches_java_definition() {
         let entry = CostRateTableEntry::default_entry();
 
-        assert_eq!(entry.get_start_date(), Some(start_date_na()));
-        assert_eq!(entry.get_end_date(), Some(end_date_na()));
+        // Java: this(LocalDateTimeHelper.START_DATE_NA, LocalDateTimeHelper.END_DATE_NA,
+        //        NumberHelper.DOUBLE_ZERO)
+        assert_eq!(
+            entry.get_start_date(),
+            Some(LocalDateTimeHelper::start_date_na())
+        );
+        assert_eq!(entry.get_end_date(), Some(LocalDateTimeHelper::end_date_na()));
         assert_eq!(entry.get_cost_per_use(), Some(0.0));
         assert_eq!(entry.get_standard_rate(), Rate::ZERO);
         assert_eq!(entry.get_rate(CostRateTableEntry::MAX_RATES - 1), Some(Rate::ZERO));

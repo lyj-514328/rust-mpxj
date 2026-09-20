@@ -15,7 +15,7 @@
 //! Task::get_child_tasks(&self) -> Vec<Rc<RefCell<Task>>>
 //! Task::get_successors(&self) -> Vec<Rc<RefCell<Relation>>>
 //! Task::get_start_slack / get_finish_slack / get_total_slack(&self) -> Option<Duration>
-//! Task::get_parent_file(&self) -> Rc<RefCell<ProjectFile>>
+//! Task::get_parent_file(&self) -> Option<Rc<RefCell<ProjectFile>>>
 //! ProjectFile::get_project_properties(&self) -> &ProjectProperties
 //! ProjectProperties::get_total_slack_calculation_type(&self) -> TotalSlackCalculationType
 //! Relation::get_predecessor_task / get_successor_task(&self) -> Option<Rc<RefCell<Task>>>
@@ -31,16 +31,18 @@
 //! - **空值处理**：Java 对 `relation.getSuccessorTask()` / `getPredecessorTask()` /
 //!   `getLag()` 为 `null` 时会抛 `NullPointerException`；Rust 侧不 panic，
 //!   分别按「跳过该关系 / 返回零工期 / 视为无 lag」处理。
-//! - **日历借用**：`Task::get_effective_calendar` 返回 `Rc<RefCell<ProjectCalendar>>`。
-//!   Java 通过 `LocalDateTimeHelper.getVariance` 计算日期差值；该工具类**已启用**
-//!   （`crate::common::local_date_time_helper` 已加入 `crate::common::mod`，
-//!   `get_variance(Option<&ProjectCalendar>, Option<NaiveDateTime>, Option<NaiveDateTime>, TimeUnit)`
-//!   与 Java 同语义）。本文件**尚未接线**，仍在私有方法
-//!   [`MicrosoftSlackCalculator::get_variance`] 中内联同一行为
-//!   （日历缺失或日期缺失时返回 0 工期，否则调用 `ProjectCalendar::get_work`）。
+//! - **日历借用**：`Task::get_effective_calendar` 返回 `Rc<RefCell<ProjectCalendar>>`，
+//!   而 `LocalDateTimeHelper.getVariance` 需要 `&ProjectCalendar`。Rust 侧在
+//!   [`MicrosoftSlackCalculator::get_variance`] 中先用 `try_borrow` 借出日历再转调
+//!   [`crate::common::local_date_time_helper::LocalDateTimeHelper::get_variance`]
+//!   （该工具类已落地并启用，语义与 Java 相同）；日历缺失、日期缺失或日历正被
+//!   可变借用时退化为 0 工期（Java 在日期缺失时返回 0 工期，日历为 `null` 时同样）。
+//!
+//! 未移植的 Java 代码：无。
 
 use chrono::NaiveDateTime;
 
+use crate::common::local_date_time_helper::LocalDateTimeHelper;
 use crate::constraint_type::ConstraintType;
 use crate::duration::Duration;
 use crate::relation::Relation;
@@ -68,9 +70,9 @@ impl MicrosoftSlackCalculator {
     ///
     /// 对应 Java: `LocalDateTimeHelper.getVariance(task.getEffectiveCalendar(), date1, date2, format)`
     ///
-    /// 实现说明见文件头：`crate::common::local_date_time_helper` 尚未在 `common/mod.rs` 中启用，
-    /// 故这里内联该方法的行为——日历或任一日期缺失时返回 0 工期，否则调用
-    /// `ProjectCalendar::get_work`。
+    /// Java 侧直接传入对象引用；Rust 侧的有效日历在 `Rc<RefCell<..>>` 中，故先
+    /// `try_borrow`（日历正被可变借用时退化为「无日历」，即 0 工期，不 panic），
+    /// 再转调同语义的 [`LocalDateTimeHelper::get_variance`]。
     fn get_variance(
         &self,
         task: &Task,
@@ -78,16 +80,10 @@ impl MicrosoftSlackCalculator {
         date2: Option<NaiveDateTime>,
         format: TimeUnit,
     ) -> Duration {
-        let Some(calendar) = task.get_effective_calendar() else {
-            return Duration::get_instance(0.0, format);
-        };
+        let calendar = task.get_effective_calendar();
+        let calendar = calendar.as_ref().and_then(|calendar| calendar.try_borrow().ok());
 
-        let (Some(date1), Some(date2)) = (date1, date2) else {
-            return Duration::get_instance(0.0, format);
-        };
-
-        // 用 `return` 让 `Ref` 临时值在使用后立即释放，避免借用检查报错。
-        return calendar.borrow().get_work(date1, date2, format);
+        LocalDateTimeHelper::get_variance(calendar.as_deref(), date1, date2, format)
     }
 
     /// 计算一个任务的 early finish 与另一个任务的 early start 之间的差值（variance）。

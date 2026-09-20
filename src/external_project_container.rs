@@ -27,11 +27,15 @@
 //! - **缓存的空值**：Java 的 `m_fileMap` / `m_projectMap` 都会把 `null` 也缓存下来
 //!   （`containsKey` 命中后直接返回 `null`，不再重试）。Rust 侧用
 //!   `HashMap<String, Option<PathBuf>>` / `HashMap<PathBuf, Option<Rc<..>>>` 表达同样的语义。
-//! - **`readFile` 中的读取动作**：Java 直接 `new UniversalProjectReader().read(file)`；
-//!   本 crate 的 `reader` 包（`crate::reader`）**已落定**，缺的是
-//!   `UniversalProjectReader` —— 它靠 `Class.forName` 反射按格式分发，属本工程的
-//!   类别性跳过项（反射在本工程不移植）。因此 Rust 侧把「读取」抽成
-//!   可插拔回调 [`ExternalProjectContainer::set_project_reader`]（Rust 特有）；
+//! - **`readFile` 中的读取动作（A 类硬限制）**：Java 直接
+//!   `new UniversalProjectReader().read(file)`。本 crate **没有** `UniversalProjectReader`
+//!   —— Java 靠 `Class.forName` 遍历 `org.mpxj.reader` 包下的候选 reader 并按
+//!   `getFileFormat()` 试读分发，Rust 无反射；本工程把这归为类别性跳过项。
+//!   已落地的具体 reader 是 [`crate::mpp::mpp_reader::MPPReader`] 与
+//!   [`crate::mpx::mpx_reader::MPXReader`]
+//!   （均实现 [`crate::reader::project_reader::ProjectReader`]），因此 Rust 侧把
+//!   「读取」抽成可插拔回调 [`ExternalProjectContainer::set_project_reader`]（Rust 特有）：
+//!   调用方按扩展名自行分派到上述 reader 即可等价还原 Java 的分发结果；
 //!   未接线时 `read_file` 返回 `None`（等价于 Java 读取失败的情形）。
 //!   `read_file` 的其余逻辑（子项目继承搜索目录）与 Java 一致。
 //! - **异常处理**：Java 用 `catch (MPXJException ex) { project = null; }`；Rust 侧的
@@ -42,7 +46,9 @@
 //!
 //! # 跳过的 Java 机制
 //!
-//! `org.mpxj.reader.UniversalProjectReader`（反射分发，见上；`crate::reader` 其余部分已落地）。
+//! `org.mpxj.reader.UniversalProjectReader`（反射分发，见上；`crate::reader` 与
+//! `crate::mpp::mpp_reader::MPPReader` / `crate::mpx::mpx_reader::MPXReader` 均已落地，
+//! 缺的只是这层反射分发）。
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 
 use std::cell::RefCell;

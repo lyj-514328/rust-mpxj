@@ -16,7 +16,7 @@
 //! | 继承自 `ProjectEntityContainer<ProjectCalendar>` 的 `add(T)` | [`ProjectCalendarContainer::add_calendar`]（Rust 无重载，故加后缀区分同名的无参 `add()`） |
 //! | 继承自 `ProjectEntityContainer` 的 `getByUniqueID` / `size` / `isEmpty` / `iterator` / `get` | [`ProjectCalendarContainer::get_by_unique_id`] / [`ProjectCalendarContainer::len`] / [`ProjectCalendarContainer::is_empty`] / [`ProjectCalendarContainer::iter`] / [`ProjectCalendarContainer::get`] |
 //! | 继承自 `ProjectEntityContainer` 的 `updateUniqueID(T element, Integer old, Integer new)` | [`ProjectCalendarContainer::update_unique_id`]（Rust 无元素参数，见下） |
-//! | 继承自 `ProjectEntityContainer` 的 `fixUniqueIdClashes`、`getSequenceProvider`、`firstUniqueID`、`ListWithCallbacks` 的回调注册 | 未移植：`ProjectEntityContainer` 已移植，但它要求元素实现 `ProjectEntityWithUniqueID`，而 [`crate::project_calendar::ProjectCalendar`] 目前未实现该 trait（其文件头亦有说明），因此本容器未组合基类（见下） |
+//! | 继承自 `ProjectEntityContainer` 的 `fixUniqueIdClashes`、`getSequenceProvider`、`firstUniqueID`、`ListWithCallbacks` 的回调注册 | 未组合基类：`ProjectEntityContainer` 已移植，[`crate::project_calendar::ProjectCalendar`] 也已实现 `ProjectEntityWithUniqueID`（其文件末尾有说明），但基类的 `new` 要求在**构造时**就传入 `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`，而本容器在 `ProjectContext` 尚未成型时就被构造（上下文由 [`ProjectCalendarContainer::set_context`] 事后接线），无法在构造点取得该提供者，故仍按线性查找（见下） |
 //!
 //! # 与 Java 的差异
 //!
@@ -47,10 +47,12 @@
 //!   （等价于 Java 的默认 `equals`）。因为参数是不可变引用，`removed` 中
 //!   「把被移除日历的 parent 置空」只能在能再借到该日历的可变引用时执行（通常调用方
 //!   正持有该日历的可变借用，此时退化为跳过），Java 无此限制。
-//! - `getByName` 在 Java 用 `equalsIgnoreCase`（Unicode 大小写折叠），Rust 侧用
-//!   `eq_ignore_ascii_case`（与 MPXJ 中日历名称为 ASCII 的实际用法一致）。
-//! - `removed` 中「把引用该日历的资源的 calendar 置空」与「把引用该日历的任务的 calendar
-//!   置空」依赖尚未移植的 `Resource` / `Task`，待其落地后在此补充（Java 原逻辑保留在注释中）。
+//! - `removed` 中「把引用该日历的资源 / 任务的 calendar 置空」**无法还原**：Java 从容器
+//!   持有的强引用 `m_context` 直接取资源 / 任务；Rust 侧容器只能由
+//!   `ProjectContext::get_calendars_mut()` 取得，`removed` 执行时上下文必然处于可变借用中，
+//!   资源 / 任务查询内部的 `try_borrow` 必然失败。与之相对，「派生日历不再回指被移除的父
+//!   日历」一步改为**直接扫描本容器的元素**（语义等价于 Java 经上下文查询），因此可以正常
+//!   执行 —— 不同于文件头旧版说明中「依赖尚未移植的 `Resource` / `Task`」的说法。
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -60,6 +62,7 @@ use std::rc::{Rc, Weak};
 use chrono::Weekday;
 
 use crate::day_type::DayType;
+use crate::mpx::locale_utility::equals_ignore_case;
 use crate::project_calendar::{ProjectCalendar, DEFAULT_BASE_CALENDAR_NAME};
 use crate::project_context::ProjectContext;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
@@ -207,9 +210,13 @@ impl ProjectCalendarContainer {
         Some(calendar)
     }
 
-    /// 按名称查找日历（忽略 ASCII 大小写）；名称为 `None`/空串时返回 `None`。
+    /// 按名称查找日历（忽略大小写）；名称为 `None`/空串时返回 `None`。
     ///
     /// 对应 Java: `public ProjectCalendar getByName(String calendarName)`
+    ///
+    /// Java 用 `calendarName.equalsIgnoreCase(calendar.getName())`（Unicode 大小写折叠；
+    /// 实参为 `null` 时返回 `false`），Rust 侧转调
+    /// [`crate::mpx::locale_utility::equals_ignore_case`]（同语义）。
     pub fn get_by_name(
         &self,
         calendar_name: Option<&str>,
@@ -222,9 +229,7 @@ impl ProjectCalendarContainer {
         self.items
             .iter()
             .find(|calendar| {
-                read_name(calendar)
-                    .map(|name| name.eq_ignore_ascii_case(calendar_name))
-                    .unwrap_or(false)
+                equals_ignore_case(calendar_name, read_name(calendar).as_deref())
             })
             .map(Rc::clone)
     }
@@ -288,32 +293,42 @@ impl ProjectCalendarContainer {
         true
     }
 
-    /// 日历被移除后的清理：派生日历不再回指被移除的父日历。
+    /// 日历被移除后的清理：清空相关实体对本日历的反向引用。
     ///
-    /// 对应 Java: `@Override protected void removed(ProjectCalendar calendar)`
+    /// 对应 Java: `@Override public void removed(ProjectCalendar calendar)`
     fn removed(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         // Java: super.removed(calendar); —— 基类从 unique ID 索引中移除该项。
         // Rust 侧使用线性查找，没有需要维护的索引。
 
         // Java: calendar.getDerivedCalendars().forEach(c -> c.setParent(null));
-        let derived_calendars = borrow_or_skip(calendar)
-            .map(|calendar_ref| calendar_ref.get_derived_calendars())
-            .unwrap_or_default();
+        // Java 经 `m_context` 查出本日历的派生日历；Rust 侧改为直接扫描本容器的元素
+        // （语义等价 —— 容器的元素集合就是上下文里的日历集合），从而不必再借用上下文：
+        // 本方法的调用点都正持有上下文的可变借用，借用上下文会失败。
+        for candidate in &self.items {
+            let is_derived = match candidate.try_borrow() {
+                Ok(candidate_ref) => candidate_ref
+                    .get_parent()
+                    .is_some_and(|parent| Rc::ptr_eq(&parent, calendar)),
+                Err(_) => false,
+            };
 
-        for derived_calendar in derived_calendars {
-            if let Ok(mut derived_calendar_ref) = derived_calendar.try_borrow_mut() {
-                derived_calendar_ref.set_parent(None);
+            if is_derived {
+                if let Ok(mut candidate_ref) = candidate.try_borrow_mut() {
+                    candidate_ref.set_parent(None);
+                }
             }
         }
 
         // Java:
         // calendar.getResources().forEach(r -> r.setCalendar(null));
         // calendar.getTasks().forEach(t -> t.setCalendar(null));
-        // Resource / Task 尚未移植，其 setCalendar 归属各自模块，待落地后在此补充。
+        // 这两步要经上下文查询资源 / 任务，而容器只能由 `ProjectContext::get_calendars_mut()`
+        // 取得，本方法执行时上下文必然处于可变借用中，查询内部的 `try_borrow` 必然失败，
+        // 故 Rust 侧无法还原（Java 的 `m_context` 是强引用，无此限制）。
 
         // Java: calendar.setParent(null);
-        // 调用方（ProjectCalendar::remove）通常正持有该日历的可变借用，此时无法再借用，
-        // 与文件头说明一致地退化为跳过。
+        // 调用方（`ProjectCalendar::remove` 与 `ProjectFile` 的移除路径）通常正持有该日历的
+        // 借用，此时无法再可变借用，与文件头说明一致地退化为跳过。
         if let Ok(mut calendar_ref) = calendar.try_borrow_mut() {
             calendar_ref.set_parent(None);
         }
@@ -385,13 +400,6 @@ impl Debug for ProjectCalendarContainer {
             .field("context_is_set", &(self.context.strong_count() > 0))
             .finish()
     }
-}
-
-/// 以 `try_borrow` 获取日历的不可变引用，已被可变借用时返回 `None`（不 panic）。
-fn borrow_or_skip(
-    calendar: &Rc<RefCell<ProjectCalendar>>,
-) -> Option<std::cell::Ref<'_, ProjectCalendar>> {
-    calendar.try_borrow().ok()
 }
 
 /// 以 `try_borrow_mut` 获取日历的可变引用，已被借用时返回 `None`（不 panic）。
@@ -543,6 +551,26 @@ mod tests {
             container.remove(&calendar_ref)
         };
         assert!(!removed_again);
+    }
+
+    /// 移除日历后，其派生日历不再回指被移除的父日历（Java 的
+    /// `calendar.getDerivedCalendars().forEach(c -> c.setParent(null))`）。
+    #[test]
+    fn remove_clears_parent_of_derived_calendars() {
+        let mut container = ProjectCalendarContainer::new();
+        let parent = container.add();
+        let child = container.add();
+
+        child.borrow_mut().set_parent(Some(Rc::clone(&parent)));
+        assert!(child.borrow().get_parent().is_some());
+
+        let removed = {
+            let calendar_ref = read(&parent);
+            container.remove(&calendar_ref)
+        };
+
+        assert!(removed);
+        assert!(child.borrow().get_parent().is_none());
     }
 
     #[test]

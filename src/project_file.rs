@@ -80,7 +80,7 @@
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 //!
-//! # 已知的重入借用限制（继承自并行模块的设计，务必阅读）
+//! # 已知的重入借用限制（务必阅读）
 //!
 //! `Task` / `ResourceAssignment` 等实体以 `Weak<RefCell<ProjectFile>>` 回指父文件，
 //! 并在需要时调用 `file.borrow()` / `file.borrow_mut()`（见 `crate::task`）。
@@ -93,23 +93,28 @@
 //! - [`ProjectFile::update_structure`]：`Task::generate_wbs` / `generate_outline_number`
 //!   会读取 `file.get_child_tasks()`（即再次借用父文件），从 `&mut self` 进入时必然冲突。
 //!   该问题需要 `Task` 侧改用 `try_borrow` 退化（或由调用方在不持有文件借用时驱动容器）
-//!   才能真正解决，本文件不改动他人模块，仅记录。
+//!   才能真正解决，此处仅作记录。
 //! - [`ProjectFile::expand_subprojects`] / `replace_external_tasks` / `replace_relations`：
 //!   `Task::expand_subproject` / `Task::add_predecessor` 会再次借用父文件。
-//!   当前 `ExternalProjectContainer::read_file` 未接线读取回调时恒返回 `None`
-//!   （见其文件头），因此外部项目分支不会被执行；接线 reader 后需要统一对齐借用策略。
-//! - [`ProjectFile::fix_unique_id_clashes`]：容器需要经父文件取序号生成器，而父文件正被
-//!   调用方借用时会退化为「跳过」（容器内部使用 `try_borrow*`，不会 panic）。
+//!   外部项目读取回调（[`ExternalProjectContainer::set_project_reader`]）目前尚无调用方：
+//!   Java 的 `readFile` 用 `UniversalProjectReader`，而本 crate 没有该类 —— 它靠
+//!   `Class.forName` 反射遍历候选 reader 并按 `getFileFormat()` 试读分发，属类别性跳过项。
+//!   已落地的 [`crate::mpp::mpp_reader::MPPReader`] /
+//!   [`crate::mpx::mpx_reader::MPXReader`] 可由调用方按扩展名分派后接进该回调；
+//!   未接线时 `read_file` 恒返回 `None`（见其文件头），外部项目分支因此不会被执行，
+//!   接线后需要统一对齐借用策略。
+//! - [`ProjectFile::fix_unique_id_clashes`]：容器需要经 `ProjectContext`（关系容器已接线）
+//!   或父文件取序号生成器，两者都不可用时退化为「跳过」（容器内部使用 `try_borrow*`，不会 panic）。
 //!
-//! 这些限制与 `crate::task_container` 文件头记录的「重入借用」说明一致；本文件不改动
-//! 其他模块，仅在此记录，供集成阶段统一处理。
+//! 这些限制与 `crate::task_container` / `crate::relation_container` 文件头记录的
+//! 「重入借用」说明一致，集成阶段需统一处理。
 //!
-//! # 本文件对并行模块接口的假设（集成时如不一致需对齐）
+//! # 使用的模型层接口（均已落地，此处仅作索引）
 //!
 //! ```text
 //! TableContainer::new() / FilterContainer::new() / GroupContainer::new() / ViewContainer::new()
 //! ```
-//! （对应 Java 的无参构造，展示层模块由并行任务翻译中。）
+//! （对应 Java 的无参构造；展示层容器均已落地。）
 //!
 //! 另：[`ProjectFile::get_tasks`] 返回 `&TaskContainer`，而
 //! `crate::default_baseline_strategy` 用 `for task in project.get_tasks()` 迭代，
@@ -282,6 +287,13 @@ impl ProjectFile {
             file_ref.properties = ProjectProperties::new(Rc::downgrade(&file));
             file_ref.tasks.set_context(&file);
             file_ref.relations.set_context(&file);
+            // Rust 特有：`RelationContainer::set_context` 内部经 `try_borrow` 读上下文，
+            // 而此刻 `file` 正被可变借用（上面的 `file_ref`），必然读不到；关系容器的
+            // 自动 unique ID 需要 `ProjectContext`，故在此显式补接线（见
+            // `RelationContainer::set_project_context` 与 `TaskContainer::project_context`
+            // 字段的同名说明 —— 后者同样受此限制，其 `creation_context` 在
+            // `ProjectFile::new_with_context` 建出的文件上取不到配置，属既有行为）。
+            file_ref.relations.set_project_context(&context);
             file_ref.external_projects.set_context(&file);
             file_ref.assignments.set_context(&context);
         }

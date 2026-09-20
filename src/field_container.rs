@@ -26,8 +26,19 @@ use crate::time_unit::TimeUnit;
 ///   故沿用默认实现 —— 不会给出与 Java 不符的数值；
 /// * `src/mpp/**` 中的测试用 `MockContainer` 无需改动即可满足 trait。
 ///
-/// 另外 Java 的 `removeFieldListener(FieldListener)` 按对象身份移除监听器，
-/// Rust 无法表达，改为 [`FieldContainer::clear_field_listeners`]。
+/// 另外 Java 的 `removeFieldListener(FieldListener)` 按对象身份移除监听器（`List.remove(Object)`），
+/// 本仓无法表达该语义，改为 [`FieldContainer::clear_field_listeners`]。**真实阻塞原因**（非「依赖未落地」）：
+///
+/// * 本 trait 的注册方法是 `add_field_listener(Box<dyn FieldListener>)`——`Box` **按值移交所有权**，
+///   注册者拿不回任何可用于后续定位的句柄；`dyn FieldListener` 也不实现任何相等性。
+/// * 监听器实际存放在 [`crate::abstract_field_container::AbstractFieldContainer`] 的
+///   `listeners: Vec<Box<dyn FieldListener>>` 中（该文件不在本批改动范围内）。
+///   要还原 Java 的按身份移除，需要把「注册 / 存储 / 移除」三处一并改成共享句柄
+///   （`Rc<RefCell<Box<dyn FieldListener>>>`，即 `crate::reader::abstract_project_reader`
+///   为项目监听器引入的 `SharedProjectListener` 那种形态），并同步改动该文件的实现
+///   与全部 `FieldContainer` 实现者。
+/// * 调用方目前也确实拿不到该句柄，因此这里不硬做，[`FieldContainer::clear_field_listeners`]
+///   是语义明确、不会误删他人监听器的替代操作。
 pub trait FieldContainer {
     /// 设置字段值。传 `None` 等价于 Java 传 `null`，即把该字段从字段表中移除。
     ///

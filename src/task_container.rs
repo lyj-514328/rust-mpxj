@@ -30,7 +30,7 @@
 //! | Java | 原因 |
 //! |---|---|
 //! | `public Set<FieldType> getPopulatedFields()`（内部用 `org.mpxj.common.PopulatedFields`） | `PopulatedFields` 未移植（`src/common` 无对应文件），且其构造函数需要 `ProjectFile` / `UserDefinedFieldContainer` 的完整接口。待其落地后补回。 |
-//! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | 未接线：`ResourceAssignment` / `ResourceAssignmentContainer` **均已落地**（`src/resource_assignment.rs` / `src/resource_assignment_container.rs`），缺的是在 [`TaskContainer::removed`] 中接回该逻辑（Java 原逻辑已保留在方法注释中）。 |
+//! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | **已接线**：Java 经 `m_projectFile.getResourceAssignments()` 遍历删除，Rust 侧在 [`TaskContainer::removed`] 中经父 `ProjectFile` 弱引用取容器并逐个 `remove`（调用方正持有 `ProjectFile` 借用时退化为不清理，不 panic）。 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
 //!
 //! # 继承体系的还原：组合 + 转发
@@ -44,9 +44,9 @@
 //!   [`crate::project_calendar_container::ProjectCalendarContainer`] 的做法一致。
 //! - `ChildTaskContainer` 的两个方法（`getChildTasks` / `addTask`）在本类型上以**固有方法**
 //!   [`TaskContainer::get_child_tasks`] / [`TaskContainer::add_task`] 提供：`src/lib.rs`
-//!   没有声明 `child_task_container` 模块（本批只落地三个文件），故不新建该 trait；
-//!   待 `Task` / `ProjectFile` 落地后如需共享该接口，可再抽出 trait 并把这里的两个方法
-//!   改为 trait 实现（行为不变）。
+//!   至今没有声明 `child_task_container` 模块，故本类型不实现该接口（`Task` 侧同样是按需的
+//!   固有方法，见 `crate::task`）；如需共享该接口，可抽出 trait 并把这里的两个方法改为
+//!   trait 实现（行为不变）。
 //! - Java 的私有递归 `synchroizeTaskIDToHierarchy(ChildTaskContainer parentTask, ...)` 同时被
 //!   「项目文件」（`m_projectFile`，其 `getChildTasks()` 就是本容器的 `m_childTasks`）与
 //!   「任务」（`Task implements ChildTaskContainer`）调用。Rust 侧不引入 `ChildTaskContainer`
@@ -118,11 +118,11 @@
 //!   Rust 侧改为遍历子任务快照后逐个移除：移除集合与递归顺序一致，且不依赖子任务的反向指针。
 //! - **`updateStructure` 中的父任务回填**：Java 的 `parent.addChildTask(task)` 会同时设置
 //!   `child.m_parent = this`，后文的 `lastTask.getParentTask()` 依赖这一点。Rust 侧同样
-//!   依赖 `Task::add_child_task` 维护 `child.get_parent_task()`（见下「接口假设」）。
+//!   依赖 `Task::add_child_task` 维护 `child.get_parent_task()`（见下「使用的模型层接口」）。
 //!
-//! # 本文件对并行模块接口的假设（集成时如不一致需对齐）
+//! # 使用的模型层接口（均已落地，此处仅作索引）
 //!
-//! `Task`（`src/task.rs`）已落地，本文件按它的实际签名使用：
+//! `Task`（`src/task.rs`）按下列签名使用：
 //!
 //! ```text
 //! Task::new() -> Task
@@ -141,12 +141,13 @@
 //! Task::clear_child_tasks(&Rc<RefCell<Task>>)                      // 同上
 //! ```
 //!
-//! `ProjectFile`（`src/project_file.rs`）已落地，本文件按下列签名使用：
+//! `ProjectFile`（`src/project_file.rs`）按下列签名使用：
 //!
 //! ```text
-//! ProjectFile::new() -> ProjectFile
-//! ProjectFile::get_project_config(&self) -> &ProjectConfig
+//! ProjectFile::new() -> Rc<RefCell<ProjectFile>>
+//! ProjectFile::get_project_config(&self) -> Ref<'_, ProjectConfig>
 //! ProjectFile::get_custom_fields(&self) -> Rc<RefCell<CustomFieldContainer>>
+//! ProjectFile::get_resource_assignments_mut(&mut self) -> &mut ResourceAssignmentContainer
 //! ProjectFile::get_unique_id_object_sequence(&mut self, TypeId) -> Rc<ObjectSequence>
 //!         // 或 `ProjectFile: UniqueIdObjectSequenceProvider`（Java 一致），
 //!         // 本文件的方法调用形态对两种写法都成立
@@ -164,6 +165,7 @@ use crate::custom_field_container::CustomFieldContainer;
 use crate::field_key::FieldKey;
 use crate::field_type_class::FieldTypeClass;
 use crate::project_file::ProjectFile;
+use crate::resource_assignment::ResourceAssignment;
 use crate::task::{Task, TaskCreationContext};
 // `ProjectFile` 可能以「实现本 trait」或「提供同签名固有方法」两种形式给出（见文件头
 // 「接口假设」）；前者需要本导入，后者不会用到它，故显式允许未使用。
@@ -408,8 +410,34 @@ impl TaskContainer {
         // while (iter.hasNext()) { ResourceAssignment assignment = iter.next();
         //    if (assignment.getTaskUniqueID().equals(task.getUniqueID())) { iter.remove(); } }
         //
-        // ResourceAssignment / ResourceAssignmentContainer 均已落地（见文件头），
-        // 但该逻辑尚未接线，待补回。
+        // Java 的 `m_projectFile.getResourceAssignments()` 即父文件的资源分配容器，
+        // Rust 侧经 `context`（父 `ProjectFile` 弱引用）取得。任务 unique ID 为 `null`
+        // 时 Java 的 `equals` 恒不匹配（`Integer.equals(null)` 为 false），故此处跳过；
+        // 调用方正持有 `ProjectFile` 借用时无法清理（Java 无此情形），退化为不清理而不 panic。
+        if let Some(task_unique_id) = read_task(task, |task| task.get_unique_id()).flatten() {
+            if let Some(project_file) = self.context.upgrade() {
+                if let Ok(mut project_file) = project_file.try_borrow_mut() {
+                    let assignments = project_file.get_resource_assignments_mut();
+
+                    // 先收集再删除：`remove` 需要 `&mut`，不能与遍历的借用共存。
+                    let targets: Vec<Rc<RefCell<ResourceAssignment>>> = assignments
+                        .iter()
+                        .filter(|assignment| {
+                            assignment
+                                .try_borrow()
+                                .ok()
+                                .and_then(|assignment| assignment.get_task_unique_id())
+                                == Some(task_unique_id)
+                        })
+                        .cloned()
+                        .collect();
+
+                    for assignment in targets {
+                        assignments.remove(&assignment);
+                    }
+                }
+            }
+        }
 
         //
         // Java: 递归移除子任务
@@ -957,7 +985,7 @@ impl Default for TaskContainer {
 
 impl Debug for TaskContainer {
     /// Java 侧未覆写 `toString()`；Rust 侧输出容器规模、顶层任务数与父文件接线情况
-    /// （避免依赖并行模块 `Task` 的 `Debug` 实现）。
+    /// （避免依赖 `Task` 的 `Debug` 实现）。
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("TaskContainer")
             .field("size", &self.items.len())
@@ -1233,6 +1261,49 @@ mod tests {
         assert!(read_task(&root, |task| task.get_wbs().is_some()).unwrap_or(false));
         assert!(read_task(&child, |task| task.get_wbs().is_some()).unwrap_or(false));
         assert!(read_task(&grandchild, |task| task.get_wbs().is_some()).unwrap_or(false));
+    }
+
+    /// Java: `removed(Task)` 会删除该任务的全部资源分配
+    /// （`assignment.getTaskUniqueID().equals(task.getUniqueID())`）。
+    #[test]
+    fn removed_deletes_the_tasks_resource_assignments() {
+        let (mut container, project_file) = container();
+
+        let task = add_task(&mut container, &project_file, 1, 0);
+        task.borrow_mut().set_unique_id(Some(1));
+
+        let other = add_task(&mut container, &project_file, 2, 0);
+        other.borrow_mut().set_unique_id(Some(2));
+
+        let matching = Rc::new(RefCell::new(ResourceAssignment::new()));
+        matching.borrow_mut().set_task_unique_id(Some(1));
+        let other_task_assignment = Rc::new(RefCell::new(ResourceAssignment::new()));
+        other_task_assignment.borrow_mut().set_task_unique_id(Some(2));
+        let unassigned = Rc::new(RefCell::new(ResourceAssignment::new()));
+
+        {
+            let mut file_ref = project_file.borrow_mut();
+            let assignments = file_ref.get_resource_assignments_mut();
+            assignments.add(Rc::clone(&matching));
+            assignments.add(Rc::clone(&other_task_assignment));
+            assignments.add(Rc::clone(&unassigned));
+        }
+
+        container.remove_task(&task);
+
+        // 只删除 taskUniqueID 匹配的那一条
+        let assignments = project_file.borrow();
+        let remaining = assignments.get_resource_assignments().as_slice();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining
+            .iter()
+            .any(|assignment| Rc::ptr_eq(assignment, &other_task_assignment)));
+        assert!(remaining
+            .iter()
+            .any(|assignment| Rc::ptr_eq(assignment, &unassigned)));
+        assert!(!remaining
+            .iter()
+            .any(|assignment| Rc::ptr_eq(assignment, &matching)));
     }
 
     #[test]

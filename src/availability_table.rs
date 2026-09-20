@@ -13,10 +13,19 @@ use crate::local_date_time_range::LocalDateTimeRange;
 /// 移植说明：
 /// - Java 侧继承 `ArrayList<Availability>`；Rust 侧改为持有 `Vec<Availability>` 的独立
 ///   容器，并只提供翻译所需的集合操作（长度、按下标取元素、追加、迭代）。
-/// - Java 的 `START_DATE_NA` 取自 `LocalDateTimeHelper`（本 crate 已启用，直接调用
-///   [`LocalDateTimeHelper::start_date_na`]）；`END_DATE_NA` 则是**本类自己的常量**
-///   （23:58，与 helper 的 23:59 不同），见 [`AvailabilityTable::end_date_na`]。
-///   两者不可互相替换，本文件内所有取值都分别指向上述来源。
+/// - Java 的 `START_DATE_NA` 全部取自 `LocalDateTimeHelper`（本 crate 已启用，直接调用
+///   [`LocalDateTimeHelper::start_date_na`]）；`END_DATE_NA` 则**两个来源混用**，
+///   必须逐处对照 Java（`Java: AvailabilityTable.java`）：
+///
+///   | Java 位置 | 常量 | Rust |
+///   |---|---|---|
+///   | `hasDefaultDateRange` 的 `range.getEnd().isAfter(END_DATE_NA)` | 本类常量 23:58 | [`AvailabilityTable::end_date_na`] |
+///   | `availableFrom` 的 `rangeEnd.isAfter(END_DATE_NA)` | 本类常量 23:58 | [`AvailabilityTable::end_date_na`] |
+///   | `availableTo` 的 `rangeEnd.isAfter(END_DATE_NA)` | 本类常量 23:58 | [`AvailabilityTable::end_date_na`] |
+///   | `availableTo` 的 `rangeEnd = range.getEnd() == null ? ...` | helper 23:59 | [`LocalDateTimeHelper::end_date_na`] |
+///
+///   两者不可互相替换（Java 注释说明本类常量用于兼容 MS Project 的不一致取值，
+///   见 [`AvailabilityTable::end_date_na`]）。
 ///
 /// 未移植的 Java 方法：无（`ArrayList` 继承而来的方法不计入本类翻译范围）。
 #[derive(Debug, Clone, Default)]
@@ -214,9 +223,14 @@ impl AvailabilityTable {
         for availability in &self.entries {
             let current_range = availability.get_range();
 
+            // Java: rangeEnd = currentRange.getEnd() == null
+            //       ? LocalDateTimeHelper.END_DATE_NA : currentRange.getEnd();
+            // 注意这里取的是 **helper** 的 END_DATE_NA（23:59），而不是本类的 23:58：
+            // 本类的常量只用在 `hasDefaultDateRange` / `availableFrom` / 方法末尾的
+            // `rangeEnd.isAfter(END_DATE_NA)` 三处（见方法注释与文件头说明）。
             let range_end = current_range
                 .get_end()
-                .unwrap_or_else(Self::end_date_na);
+                .unwrap_or_else(LocalDateTimeHelper::end_date_na);
 
             // 目标日期是否晚于本区间？
             if date > range_end {
@@ -471,6 +485,20 @@ mod tests {
             table.available_from(date_time_with_seconds(2049, 12, 31, 23, 58, 40)),
             Some(date_time(2023, 10, 10, 0, 0))
         );
+    }
+
+    /// **使用点**取的是 helper 常量（23:59）：`availableTo` 中
+    /// `rangeEnd = range.getEnd() == null ? LocalDateTimeHelper.END_DATE_NA : ...`。
+    ///
+    /// 单条区间「起始为具体日期、结束为空（开放区间）」时：Java 用 helper 的 23:59，
+    /// 末尾的 `rangeEnd.isAfter(END_DATE_NA /* 23:58 */)` 判定为真 → 返回 `null`。
+    /// 若误用本类的 23:58，则 `23:58 > 23:58` 为假 → 会错误地返回该 23:58。
+    #[test]
+    fn available_to_uses_the_helper_end_date_na_for_open_ended_ranges() {
+        let mut table = AvailabilityTable::new();
+        table.add(availability(Some(date_time(2024, 1, 1, 8, 0)), None));
+
+        assert_eq!(table.available_to(date_time(2024, 6, 1, 9, 0)), None);
     }
 
     /// **使用点**取的是本类常量（23:58）：`available_to` 末尾的 `rangeEnd.isAfter(END_DATE_NA)`。

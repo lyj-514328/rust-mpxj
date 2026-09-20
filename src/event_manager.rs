@@ -27,11 +27,21 @@
 //!   与 `add` / `remove` 都要判空；Rust 侧用始终存在的 `Vec<Box<dyn ProjectListener>>`
 //!   （Java 的 `List` → `Vec`），因此所有判空分支消失，空列表自然就是空操作。
 //! - **`removeProjectListener` → [`EventManager::clear_project_listeners`]**：Java 的
-//!   `List.remove(Object)` 按 `equals`（本处即引用身份）移除指定的那一个监听器；Rust 的
-//!   `Box<dyn ProjectListener>` trait 对象没有身份比较 / 相等性（`dyn` 不实现 `PartialEq`，
-//!   也不保证 `Rc` 指针相等以外的语义），无法表达「按身份移除」，故改为**清空全部监听器**
-//!   这一语义明确的操作。需要移除单个监听器时，由调用方改为重建 `EventManager` 或收紧
-//!   注册范围。
+//!   `List.remove(Object)` 按 `equals`（本处即引用身份）移除指定的那一个监听器。
+//!   **真实阻塞原因**（非「依赖未落地」）：
+//!   1. [`EventManager::add_project_listener`] 以 `Box<dyn ProjectListener>` **按值**接收监听器，
+//!      注册者拿不回句柄；`dyn ProjectListener` 也不实现相等性，故无法表达「按身份移除」。
+//!   2. 该签名与存储形态由本批次之外的代码固定：`crate::reader::project_reader::ProjectReader`
+//!      的 `add_project_listener(Box<dyn ProjectListener>)`（`reader/abstract_project_reader.rs`、
+//!      `mpp/mpp_reader.rs`、`mpx/mpx_reader.rs` 的实现与 `mpp/constraint_factory.rs` 的调用点）
+//!      都按 `Box` 传递。
+//!   3. 本仓已有 `SharedProjectListener`（`reader/abstract_project_reader.rs`，
+//!      `Rc<RefCell<Box<dyn ProjectListener>>>` + `Rc::ptr_eq`）可表达身份，但它的内部 `Rc`
+//!      是私有字段、没有暴露相等性访问器，且该文件不在本批改动范围内 —— 本文件无法据此
+//!      实现 `ptr_eq` 比较；若为此在 `EventManager` 内另造一份同形态句柄，则与
+//!      `SharedProjectListener` 形成两份并行实现（本工程明令避免的做法）。
+//!   因此这里保留**清空全部监听器**这一语义明确的操作；需要移除单个监听器时，由调用方改为
+//!   重建 `EventManager` 或收紧注册范围。
 //! - **`fire_*` / 注册方法取 `&mut self`**：监听器方法取 `&mut self`（见
 //!   [`crate::listener::project_listener::ProjectListener`]），遍历监听器列表需要可变借用，
 //!   故这些方法都是 `&mut self`。对 [`crate::project_context::ProjectContext`] 而言要经
