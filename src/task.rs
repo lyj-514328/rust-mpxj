@@ -133,7 +133,7 @@ use crate::time_unit::TimeUnit;
 //    [`Task::get_predecessors`] / [`Task::get_successors`] 仍直接向 `RelationContainer`
 //    查询（等价实现，见各自说明）。
 //
-// # 依赖模块的接口（已按并行翻译落地的真实签名书写）
+// # 依赖模块的接口（已按各模块落地的真实签名书写）
 //
 // 下列模块在编写本文件时已落地，调用形状与它们一致：
 //

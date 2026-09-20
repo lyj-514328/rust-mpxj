@@ -8,7 +8,7 @@
 //! # 继承 / 接口的还原
 //!
 //! Java: `abstract class VarDataFieldReader`（抽象类，一个具体方法 `getValue` + 两个抽象方法）。
-//! Rust 侧按本批约定把它还原为 trait：
+//! Rust 侧按约定把它还原为 trait：
 //!
 //! | Java | Rust |
 //! |---|---|

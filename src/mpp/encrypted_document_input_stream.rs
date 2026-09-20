@@ -10,7 +10,7 @@
 //!
 //! | Java | Rust | 说明 |
 //! |---|---|---|
-//! | `extends InputStream`，内部持有 POI 的 `DocumentInputStream` | 持有 `Vec<u8>` + 读取位置的独立 struct，`impl Read` | 按本批约定，Rust 侧 `InputStream` 一律换成 `&[u8]`；实现方式参考 [`crate::mpp::ole::DocumentInputStream`] |
+//! | `extends InputStream`，内部持有 POI 的 `DocumentInputStream` | 持有 `Vec<u8>` + 读取位置的独立 struct，`impl Read` | 按项目约定，Rust 侧 `InputStream` 一律换成 `&[u8]`；实现方式参考 [`crate::mpp::ole::DocumentInputStream`] |
 //! | `EncryptedDocumentInputStream(DocumentEntry entry, int mask)` | `EncryptedDocumentInputStream::new(&[u8], u8)` | 入参由「流 + 掩码」变为「字节切片 + 掩码」 |
 //! | `int read()` | [`EncryptedDocumentInputStream::read_byte`] 返回 `Option<u8>` | 到达末尾 Java 应返回 `-1`，Rust 用 `None` |
 //! | `int read(byte[] b, int off, int len)` | `impl Read::read` | Rust 的 `Read` 只提供「读入缓冲区」这一种形态 |

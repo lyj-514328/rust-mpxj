@@ -4,8 +4,8 @@
 //!
 //! # 继承的还原（组合 + 转发）
 //!
-//! Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`。Rust 无继承，按本批
-//! 约定改为**组合 + 转发**：
+//! Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`。Rust 无继承，按约定
+//! 改为**组合 + 转发**：
 //!
 //! | Java | Rust |
 //! |---|---|
@@ -13,7 +13,7 @@
 //! | 继承来的 `process()` / `getTypedValue(...)` / `protected` 字段 | 逐一转发到 `base`（见各方法说明） |
 //! | 构造方法中按 `m_properties.getApplicationVersion()` 分支赋值的三个偏移 | 构造后调用 `base.set_*_offset`，判定逻辑同 Java |
 //! | `NumberHelper.getInt(m_properties.getApplicationVersion())` | [`ProjectProperties::get_application_version`]（`Option<i32>`）+ `unwrap_or(0)`，与 Java 把 `null` 视为 0 一致 |
-//! | `ApplicationVersion.PROJECT_2010` | 本文件的私有常量 [`PROJECT_2010`] | Java 的 `ApplicationVersion` 是常量类，其 Rust 模块 [`crate::mpp::application_version`] **已落地**并提供同值的 `ApplicationVersion::PROJECT_2010`；本文件的私有常量是并行开发期留下的等价定义，尚未改为引用（取值相同，属待清理的重复定义） |
+//! | `ApplicationVersion.PROJECT_2010` | 本文件的私有常量 [`PROJECT_2010`] | Java 的 `ApplicationVersion` 是常量类，其 Rust 模块 [`crate::mpp::application_version`] **已落地**并提供同值的 `ApplicationVersion::PROJECT_2010`；本文件的私有常量是早期并行开发期遗留的等价定义，尚未改为引用（取值相同，属待清理的重复定义） |
 //!
 //! 跳过的 Java 方法：无（本类只有 1 个构造方法，无其它方法）。
 //!
@@ -38,8 +38,8 @@ use crate::project_file::ProjectFile;
 ///
 /// 对应 Java: `ApplicationVersion.PROJECT_2010`
 ///
-/// 说明：[`crate::mpp::application_version`] 已落地并提供同值常量，本私有常量是并行
-/// 开发期留下的等价定义（待清理，见文件头差异表）。
+/// 说明：[`crate::mpp::application_version`] 已落地并提供同值常量，本私有常量是早期并行
+/// 开发期遗留的等价定义（待清理，见文件头差异表）。
 const PROJECT_2010: i32 = 14;
 
 /// MPP14 取值列表读取器。

@@ -40,7 +40,7 @@
 //!   （`getSource(null)` 返回 `null`，随后 `isFieldPopulated(null, null)` 为 `false`），
 //!   Rust 侧直接跳过该列，结果相同。
 //! - **`Record` / `LocaleData` 的依赖**：`crate::mpx::record`（`Record`）与
-//!   `crate::mpx::locale_data`（`LocaleData`）由其他模块并行移植，本文件按 Java 的用法调用：
+//!   `crate::mpx::locale_data`（`LocaleData`）均已落地，本文件按 Java 的用法调用：
 //!   `Record::get_length()`（Java 返回 `int`，Rust 侧是 `usize`，此处转回 `i32` 以匹配
 //!   `Record::get_string(i32)` / `get_integer(i32)`）、
 //!   `LocaleData::get_string_array(locale, LocaleData::RESOURCE_NAMES)`

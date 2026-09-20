@@ -31,13 +31,13 @@
 //!   **真实阻塞原因**（非「依赖未落地」）：
 //!   1. [`EventManager::add_project_listener`] 以 `Box<dyn ProjectListener>` **按值**接收监听器，
 //!      注册者拿不回句柄；`dyn ProjectListener` 也不实现相等性，故无法表达「按身份移除」。
-//!   2. 该签名与存储形态由本批次之外的代码固定：`crate::reader::project_reader::ProjectReader`
+//!   2. 该签名与存储形态由既有的读取器接口固定：`crate::reader::project_reader::ProjectReader`
 //!      的 `add_project_listener(Box<dyn ProjectListener>)`（`reader/abstract_project_reader.rs`、
 //!      `mpp/mpp_reader.rs`、`mpx/mpx_reader.rs` 的实现与 `mpp/constraint_factory.rs` 的调用点）
 //!      都按 `Box` 传递。
 //!   3. 本仓已有 `SharedProjectListener`（`reader/abstract_project_reader.rs`，
 //!      `Rc<RefCell<Box<dyn ProjectListener>>>` + `Rc::ptr_eq`）可表达身份，但它的内部 `Rc`
-//!      是私有字段、没有暴露相等性访问器，且该文件不在本批改动范围内 —— 本文件无法据此
+//!      是私有字段、没有暴露相等性访问器 —— 本文件无法据此
 //!      实现 `ptr_eq` 比较；若为此在 `EventManager` 内另造一份同形态句柄，则与
 //!      `SharedProjectListener` 形成两份并行实现（本工程明令避免的做法）。
 //!   因此这里保留**清空全部监听器**这一语义明确的操作；需要移除单个监听器时，由调用方改为

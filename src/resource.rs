@@ -63,7 +63,7 @@
 //!
 //! 被跳过的 Java 机制：反射、`Serializable`（本类未使用）。
 //!
-//! # 对并行模块的接口假设
+//! # 对相关模块的接口假设
 //!
 //! - `crate::resource_assignment::ResourceAssignment`：`get_start()` / `get_finish()` →
 //!   `Option<NaiveDateTime>`，`get_planned_work()` → `Option<Duration>`，

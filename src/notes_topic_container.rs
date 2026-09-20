@@ -18,7 +18,7 @@ use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 /// `get_by_unique_id` / `iter` 等）。Java 中本类只声明了构造方法与 `getDefaultTopic()`，
 /// 其余方法都继承自 `ProjectEntityContainer`，因此这些转发方法即「继承而来的方法」。
 ///
-/// # 对并行模块的依赖
+/// # 对相关模块的依赖
 ///
 /// Java 的 `NotesTopic implements ProjectEntityWithUniqueID`，`src/notes_topic.rs` 已提供对应的
 /// `impl`，本文件因此可以直接使用 `ProjectEntityContainer<NotesTopic>`。

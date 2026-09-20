@@ -8,8 +8,11 @@
 //! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`，并保存为 `Vec<u8>`
 //!   （Java 的 `InputStreamHelper.readAvailable` 本身就会复制一份数据，语义一致）。
 //! - Java 调用的 `MPPUtility.getByteArray` / `MPPUtility.getUnicodeString` 在本文件内以私有
-//!   函数 [`copy_bytes`] / [`get_unicode_string`] 实现，避免与同批并行开发的 `mpp_utility`
-//!   模块耦合。
+//!   函数 [`copy_bytes`] / [`get_unicode_string`] 重复实现：早期并行开发期 `mpp_utility` 模块
+//!   尚未落地，为免跨模块耦合而内联；该模块现已落地，这两个私有函数与
+//!   [`crate::mpp::mpp_utility::MPPUtility::get_byte_array`] /
+//!   [`crate::mpp::mpp_utility::MPPUtility::get_unicode_string`] 语义等价（差异：本文件越界时
+//!   返回 `None` 交由调用方处理，`MPPUtility` 版静默不复制），本文件仍使用自己的副本。
 //! - Java 抛数组越界异常的地方（`ByteArrayHelper.getInt` / `MPPUtility.getByteArray`）在
 //!   Rust 侧返回 `None`，绝不 panic。
 //! - Java 的 `new String(byte[])` 使用平台默认字符集，Rust 侧按 UTF-8 容错解码；

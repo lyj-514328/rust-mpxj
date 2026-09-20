@@ -18,7 +18,7 @@
 //!   `ViewContainer` 又持有 `ViewState`，用强引用会形成 `Rc` 循环）。
 //!   [`ViewState::get_filter`] 在父文件已释放 / 已被借用时返回 `None`
 //!   （Java 会抛 `NullPointerException`）。
-//! - **对并行翻译模块的接口假设**：`getFilter()` 依赖
+//! - **对相关模块的接口假设**：`getFilter()` 依赖
 //!   `ProjectFile::get_filters(&self) -> &FilterContainer`（Java 的
 //!   `ProjectFile.getFilters()` 返回 `FilterContainer`），与本 crate 其它模块对
 //!   `ProjectFile` 的取用方式一致。

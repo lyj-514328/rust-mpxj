@@ -15,7 +15,7 @@ use crate::field_value::FieldValue;
 ///   `FieldType` 接口在 Rust 里的具体化形式（见 `field_key` 模块头注释）。
 /// - Java 的 `Object zeroValue` / `Object nonZeroValue` 在 Rust 侧用
 ///   [`FieldValue`] 承载并包成 `Option`：Java 允许传 `null`，此时 `set` 会清除该字段。
-/// - Java 的 `setValue(FieldContainer, byte[])` 先判断 `data != null`；按本批翻译约定
+/// - Java 的 `setValue(FieldContainer, byte[])` 先判断 `data != null`；按项目翻译约定
 ///   `byte[]` 入参统一为 `&[u8]`（不可能为 null），因此该判空分支不再需要。
 /// - Java 中 `ByteArrayHelper.getInt(data, m_offset)` 在 `m_offset` 越界时会抛
 ///   `ArrayIndexOutOfBoundsException`；Rust 侧把越界视为「表达式为 0」（即取

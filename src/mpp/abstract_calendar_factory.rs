@@ -29,7 +29,7 @@
 //! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | 按约定共享；访问用 `try_borrow` / `try_borrow_mut`，避免借用冲突 panic |
 //! | `ProjectCalendar` | `Rc<RefCell<ProjectCalendar>>` | 日历需要在文件容器与局部变量间共享 |
 //! | `byte[]` | `&[u8]` / `Option<&[u8]>` | Java 的 `null` → `None` |
-//! | `Pair<ProjectCalendar, Integer>` | `(Rc<RefCell<ProjectCalendar>>, i32)` | [`crate::common::pair`] 未在本批使用 |
+//! | `Pair<ProjectCalendar, Integer>` | `(Rc<RefCell<ProjectCalendar>>, i32)` | [`crate::common::pair`] 的 `Pair` 未被使用 |
 //! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java 越界抛异常，Rust 必须不 panic（见函数注释） |
 //! | `LocalTime.plus(duration, MILLIS)` | [`plus_milliseconds`] | chrono 没有等价的「按毫秒回绕」方法 |
 //!

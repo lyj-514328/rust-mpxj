@@ -12,7 +12,7 @@
 //! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | 同 Java |
 //! | `if (offset + N > m_data.length) { return; }` | `if !has(data, offset, N) { return; }` | 语义相同，且避免 `offset + N` 溢出 |
 //! | `offset += size`（`int`，可为负） | [`advance_offset`] 返回 `Option<usize>`，回退到负偏移时中断解析 | Java 的显式边界检查随后同样会 `return` |
-//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（本批次同期落地的 `crate::mpp::enterprise_custom_field_data_type`） |
+//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（`crate::mpp::enterprise_custom_field_data_type` 已落地） |
 //! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | 逐个 `CustomFieldContainer::get_or_create` + `set_alias` | `FieldTypeHelper` 未识别字段号时 Java 会传 `null` 并抛 NPE；Rust 的 `FieldKey` 无「未知」变体，故跳过 |
 //!
 //! 跳过的 Java 方法：无（`process()` 逐行翻译，源文件中被注释掉的调试语句按原样保留注释）。

@@ -4,8 +4,8 @@
 //!
 //! # 继承的还原（组合 + 转发）
 //!
-//! Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`。Rust 无继承，按本批
-//! 约定改为**组合 + 转发**：
+//! Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`。Rust 无继承，按约定
+//! 改为**组合 + 转发**：
 //!
 //! | Java | Rust |
 //! |---|---|

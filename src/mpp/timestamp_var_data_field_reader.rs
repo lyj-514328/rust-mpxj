@@ -5,7 +5,7 @@
 //! # 继承的还原
 //!
 //! Java: `class TimestampVarDataFieldReader extends VarDataFieldReader`。
-//! Rust 侧按本批约定：接口（抽象类）→ trait，实现类 → 独立结构体 + `impl`。
+//! Rust 侧按约定：接口（抽象类）→ trait，实现类 → 独立结构体 + `impl`。
 //!
 //! | Java | Rust |
 //! |---|---|

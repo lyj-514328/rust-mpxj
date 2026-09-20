@@ -24,8 +24,8 @@
 //!   未命中的下标在 Java 中取数组默认值 `0`，Rust 侧同样返回 `0`。
 //! - `CUSTOM_FIELDS`：Java 在静态块中用
 //!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(ResourceFieldLists.CUSTOM_FIELDS::contains)`
-//!   生成。Rust 侧 `ResourceFieldLists`（`src/common/resource_field_lists.rs`）由其他模块
-//!   并行翻译，为避免跨模块依赖，这里直接给出过滤结果（与 Java 完全一致，共 5 项）。
+//!   生成。Rust 侧 `ResourceFieldLists`（`src/common/resource_field_lists.rs`）已落地；
+//!   本文件为避免跨模块依赖，仍直接给出过滤结果（与 Java 完全一致，共 5 项）。
 //!
 //! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
 //! 未移植的方法：无。

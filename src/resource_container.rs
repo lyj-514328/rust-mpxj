@@ -17,8 +17,8 @@
 //!   [`ResourceContainer::new`] 无参数（[`crate::project_context::ProjectContext::new`] 调用它时
 //!   上下文尚未构建），再由 [`ResourceContainer::set_context`] 接线；
 //!   `ProjectContext::shared()` 目前只接线日历容器与序号提供者适配器，
-//!   **集成时需要在其中补一次 `resources.set_context(&context)`**（本文件不修改
-//!   `project_context.rs`，见该文件「本文件对并行模块接口的假设」）。
+//!   **接线时需要在其中补一次 `resources.set_context(&context)`**（本文件不修改
+//!   `project_context.rs`，接线点即 [`crate::project_context::ProjectContext::shared`]）。
 //! - **序号生成器提供者**：Java 把 `ProjectContext` 自身（实现了
 //!   `UniqueIdObjectSequenceProvider`）交给基类。Rust 侧若强引用上下文会形成 `Rc` 循环，
 //!   故本文件内定义只持弱引用的 `ResourceSequenceProvider`（与 `project_context.rs` 内
@@ -52,7 +52,7 @@
 //!
 //! 被跳过的 Java 机制：`Serializable`（本类未使用）。
 //!
-//! # 对并行模块的接口假设
+//! # 对相关模块的接口假设
 //!
 //! - `crate::project_file::ProjectFile`：`get_resource_assignments()` →
 //!   `&ResourceAssignmentContainer`，`get_resource_assignments_mut()` →

@@ -18,7 +18,7 @@
 //! | POI 抛 `IndexOutOfBoundsException` 时 `file.addIgnoredError(ex)` 并 `break` | 数据块被截断（长度字段本身读不出来）时记录 [`MpxjError`] 并停止解析 | Rust 侧切片越界可预判，不存在异常；其余「尽力容忍损坏文件」的逻辑与 Java 一致 |
 //! | Java 的 `is.reset()` / `InputStreamHelper.skip(is, n)` | 内部游标定位（`position = 0` / `position + n`，负数不移动） | Rust 侧没有流，见 [`Var2Data::new`] 中的逐行注释 |
 //!
-//! # 本文件对并行模块接口的假设（集成时如不一致需对齐）
+//! # 本文件对相关模块接口的假设（已核对一致）
 //!
 //! Java 用 `MPPUtility` 解码字符串 / 时间戳 / 单字节，Rust 侧沿用同样的调用：
 //!

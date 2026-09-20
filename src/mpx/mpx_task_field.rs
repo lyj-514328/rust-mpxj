@@ -30,8 +30,8 @@
 //! - `CUSTOM_FIELDS`：Java 在静态块中用
 //!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(TaskFieldLists.CUSTOM_FIELDS::contains)`
 //!   生成，即「出现在 MPX 映射表中的自定义字段」，元素顺序为 MPX 字段号升序。
-//!   Rust 侧 `TaskFieldLists`（`src/common/task_field_lists.rs`）由其他模块并行翻译，
-//!   为避免跨模块依赖，这里直接给出过滤结果（与 Java 完全一致，共 41 项）。
+//!   Rust 侧 `TaskFieldLists`（`src/common/task_field_lists.rs`）已落地；本文件为避免
+//!   跨模块依赖，仍直接给出过滤结果（与 Java 完全一致，共 41 项）。
 //!
 //! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
 //! 未移植的方法：无。

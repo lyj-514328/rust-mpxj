@@ -24,13 +24,13 @@
 //!    按 1:1 保留（`println!` / 写文件），它们只服务于开发者排查，不参与解析路径。
 //!    其中 `dumpBlockData` 在 `blockSize == 0` 时 Java 会死循环，Rust 侧直接返回。
 //!
-//! 未移植的方法：无（`convertRateFromHours` 已于本批补齐，见其文档注释）。
+//! 未移植的方法：无（`convertRateFromHours` 已补齐，见其文档注释）。
 //!
 //! # 与 Java 的差异
 //!
 //! | Java | Rust | 说明 |
 //! |---|---|---|
-//! | `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | 单位字段以整数存放，按 [`TimeUnit::get_instance`] 还原 | [`crate::FieldValue`] 没有承载 `TimeUnit` 的变体（`field_value.rs` 属既有文件，未改动） |
+//! | `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | 单位字段以整数存放，按 [`TimeUnit::get_instance`] 还原 | [`crate::FieldValue`] 没有承载 `TimeUnit` 的变体 |
 //! | `RateHelper.convertFromHours`（`org.mpxj.common`） | [`crate::rate_helper::RateHelper::convert_from_hours`] | 该工具类已单独成模块，读取器共用同一份实现 |
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -61,7 +61,7 @@ pub struct MPPUtility;
 
 /// [`MPPUtility`] 的别名（Rust 特有）。
 ///
-/// 本批并行开发的兄弟模块 `data_at_offset` / `extended_data` 按 `MppUtility`
+/// 同一 `mpp` 模块下的 `data_at_offset` / `extended_data` 按 `MppUtility`
 /// 拼写引用本类型，这里提供别名以保持两者指同一类型：`MppUtility::get_double(...)`
 /// 与 `MPPUtility::get_double(...)` 完全等价。
 pub type MppUtility = MPPUtility;

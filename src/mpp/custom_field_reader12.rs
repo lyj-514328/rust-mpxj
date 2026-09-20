@@ -13,7 +13,7 @@
 //! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | 同 Java（未命中的字段号由 `FieldTypeHelper` 处理，见下） |
 //! | `ByteArrayHelper.getInt/getShort` 越界抛 `ArrayIndexOutOfBoundsException` | [`checked_int`] / [`checked_short`] 返回 `None` 并中断解析 | 遵循「不 panic」约定，逐点注释 |
 //! | `offset += size`（`size` 为 `int`，Java 允许负值把偏移回退） | `advance_offset` 返回 `Option<usize>`，回退到负偏移时中断解析 | Java 在随后的越界读取中同样会抛 `ArrayIndexOutOfBoundsException` |
-//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（本批次同期落地的 `crate::mpp::enterprise_custom_field_data_type`） |
+//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（`crate::mpp::enterprise_custom_field_data_type` 已落地） |
 //! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | 逐个 `CustomFieldContainer::get_or_create(&container, key)` + `set_alias(Some(alias))` | Java 在 `FieldTypeHelper` 未识别字段号时会把 `null` 传给 `getOrCreate`（`HashMap` 允许 null 键，但 `CustomField` 随后会因 `field.getFieldTypeClass()` 抛 NPE）；Rust 的 `FieldKey` 无「未知」变体，故跳过该字段号 |
 //! | `aliasMap.forEach(...)` | `for (field_id, alias) in alias_map` | 遍历顺序与 Java 的 `HashMap` 一样不保证（各自内部顺序不同） |
 //!

@@ -860,9 +860,9 @@ impl AbstractProjectStreamReader for MPPReader {}
 /// （对应 Java 的 `null`）。副作用是 Java 侧 `newInstance()` 可能抛出的
 /// `InstantiationException` / `IllegalAccessException` 两个失败分支随之消失。
 ///
-/// # 对并行模块的接口假设
+/// # 对相关模块的接口假设
 ///
-/// 见本文件头「对并行模块的接口假设」：四个变体类型各有无参构造方法 `new()` 并实现
+/// 见本文件头「对变体 reader 的接口假设」：四个变体类型各有无参构造方法 `new()` 并实现
 /// [`MPPVariantReader`]。
 fn file_class_map(format: Option<&str>) -> Option<Box<dyn MPPVariantReader>> {
     // Java: FILE_CLASS_MAP.get(format) —— 键为 null 时返回 null

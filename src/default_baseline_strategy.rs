@@ -3,7 +3,7 @@
 //! # 与 Java 的差异
 //!
 //! - **继承**：Java 的 `DefaultBaselineStrategy extends AbstractBaselineStrategy`，
-//!   而 `AbstractBaselineStrategy` 不在本次移植范围内。Rust 无继承，
+//!   而 Java 的 `AbstractBaselineStrategy` 未单独成模块。Rust 无继承，
 //!   故把基类的实现（`clearBaseline` / `populateBaseline` / `getKeyForTask` /
 //!   `getBaselineFields` / `getSourceFields`）原样并入本类型。
 //! - **`TaskFieldLists`**：Java 从 `org.mpxj.common.TaskFieldLists` 取 baseline 字段数组；

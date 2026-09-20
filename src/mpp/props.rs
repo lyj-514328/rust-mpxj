@@ -37,7 +37,7 @@
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
 //!
-//! # 对并行模块 `crate::mpp::mpp_utility::MPPUtility` 的接口假设（已核对一致）
+//! # 对相关模块 `crate::mpp::mpp_utility::MPPUtility` 的接口假设（已核对一致）
 //!
 //! ```text
 //! MPPUtility::get_double(&[u8], usize) -> f64                                // Java getDouble

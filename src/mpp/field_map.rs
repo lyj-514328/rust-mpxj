@@ -1680,7 +1680,7 @@ mod tests {
     use crate::task_field::TaskField;
 
     /// 任务 / 资源字段号前缀（与 Java 的 `MPPTaskField.TASK_FIELD_BASE` /
-    /// `MPPResourceField.RESOURCE_FIELD_BASE` 一致，取自并行落地的 `MPP*Field` 常量）。
+    /// `MPPResourceField.RESOURCE_FIELD_BASE` 一致，取自已落地的 `MPP*Field` 常量）。
     const TASK_FIELD_BASE: i32 = MPPTaskField::TASK_FIELD_BASE;
     const RESOURCE_FIELD_BASE: i32 = MPPResourceField::RESOURCE_FIELD_BASE;
 

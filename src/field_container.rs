@@ -32,7 +32,7 @@ use crate::time_unit::TimeUnit;
 /// * 本 trait 的注册方法是 `add_field_listener(Box<dyn FieldListener>)`——`Box` **按值移交所有权**，
 ///   注册者拿不回任何可用于后续定位的句柄；`dyn FieldListener` 也不实现任何相等性。
 /// * 监听器实际存放在 [`crate::abstract_field_container::AbstractFieldContainer`] 的
-///   `listeners: Vec<Box<dyn FieldListener>>` 中（该文件不在本批改动范围内）。
+///   私有字段 `listeners: Vec<Box<dyn FieldListener>>` 中（该字段不对外暴露）。
 ///   要还原 Java 的按身份移除，需要把「注册 / 存储 / 移除」三处一并改成共享句柄
 ///   （`Rc<RefCell<Box<dyn FieldListener>>>`，即 `crate::reader::abstract_project_reader`
 ///   为项目监听器引入的 `SharedProjectListener` 那种形态），并同步改动该文件的实现

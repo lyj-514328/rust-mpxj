@@ -20,7 +20,7 @@
 //!
 //! # 继承的还原
 //!
-//! Java: `final class CompObj extends MPPComponent`。Rust 无继承，`MPPComponent` 已按本批
+//! Java: `final class CompObj extends MPPComponent`。Rust 无继承，`MPPComponent` 已按项目
 //! 约定退化为独立工具类型（见 [`crate::mpp::mpp_component`]），本类直接调用它的
 //! [`MPPComponent::read_int`] / [`MPPComponent::read_byte_array`] 按游标顺序读取。
 //!
