@@ -459,6 +459,20 @@ impl ResourceAssignment {
         self.calculate(field)
     }
 
+    /// 关闭字段更新时的依赖字段清理与事件触发。
+    ///
+    /// 对应 Java: `public void disableEvents()`
+    pub fn disable_events(&mut self) {
+        self.fields.disable_events();
+    }
+
+    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+    ///
+    /// 对应 Java: `public void enableEvents()`
+    pub fn enable_events(&mut self) {
+        self.fields.enable_events();
+    }
+
     /// 只读取已保存的字段值，不触发计算。
     ///
     /// 对应 Java: `public Object getCachedValue(FieldType field)`

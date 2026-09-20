@@ -79,6 +79,15 @@ pub mod task_type_helper;
 pub mod timephased_data_factory;
 pub mod work_contour_helper;
 
+// ---- variant reader 主体 ----
+
+pub mod mpp_variant_reader;
+pub mod mpp8_reader;
+pub mod mpp9_reader;
+pub mod mpp12_reader;
+pub mod mpp14_reader;
+pub mod mpp_reader;
+
 // ---- Rust 特有 ----
 
 pub mod ole;

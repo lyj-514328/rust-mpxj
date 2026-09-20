@@ -31,6 +31,7 @@ use crate::project_entity_with_id::ProjectEntityWithID;
 use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID;
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use crate::project_file::ProjectFile;
+use crate::recurring_task::RecurringTask;
 use crate::relation::{Builder as RelationBuilder, Relation};
 use crate::relation_type::RelationType;
 use crate::resource::Resource;
@@ -298,6 +299,11 @@ pub struct Task {
     /// `Rc<RefCell<Task>>`，故用弱引用自持句柄还原该回调。由
     /// [`crate::TaskContainer::add_task`] 在任务入容器时接线。
     self_ref: Weak<RefCell<Task>>,
+
+    /// 对应 Java: `private RecurringTask m_recurringTask;`
+    ///
+    /// 惰性创建（见 [`Task::add_recurring_task`]），非重复任务时为 `None`。
+    recurring_task: Option<RecurringTask>,
 }
 
 impl Default for Task {
@@ -322,6 +328,7 @@ impl Task {
             fields: AbstractFieldContainer::new(),
             clear_dependent_fields_enabled: true,
             self_ref: Weak::new(),
+            recurring_task: None,
         }
     }
 
@@ -513,6 +520,23 @@ impl Task {
     /// 对应 Java: `@Override public void removeFieldListener(FieldListener listener)`
     pub fn clear_field_listeners(&mut self) {
         self.fields.clear_field_listeners();
+    }
+
+    /// 取（必要时创建）重复任务记录。
+    ///
+    /// 对应 Java: `public RecurringTask addRecurringTask()`
+    ///
+    /// Java 侧若 `m_recurringTask` 为 null 则新建，Rust 侧等价于
+    /// `Option::get_or_insert_with`。
+    pub fn add_recurring_task(&mut self) -> &mut RecurringTask {
+        self.recurring_task.get_or_insert_with(RecurringTask::new)
+    }
+
+    /// 取重复任务记录；当前任务不是重复任务时返回 `None`。
+    ///
+    /// 对应 Java: `public RecurringTask getRecurringTask()`
+    pub fn get_recurring_task(&self) -> Option<&RecurringTask> {
+        self.recurring_task.as_ref()
     }
 
     /// 关闭字段更新时的依赖字段清理与事件触发。
