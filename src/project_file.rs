@@ -40,7 +40,7 @@
 //! 3. 包一层 `Rc::new(RefCell::new(..))` 得到文件句柄 `file`；
 //! 4. 回填与接线（**必须**在 `Rc` 已存在之后）：
 //!    `self_ref`（自身弱引用）、`properties`（`ProjectProperties::new` 需要父文件弱引用）、
-//!    `tasks.set_context(&file)`、`relations.set_context(&file)`、
+//!    `tasks.set_context(&file)`、`tasks.set_project_context(&context)`、`relations.set_context(&file)`、
 //!    `external_projects.set_context(&file)`、`assignments.set_context(&context)`；
 //! 5. 向上下文登记本项目：`context.borrow_mut().add_project(&file)`；
 //! 6. **补齐上下文中资源的接线**：`context.get_resources_mut().set_context(&context)`
@@ -67,6 +67,7 @@
 //! | `getDefaultCalendar()/setDefaultCalendar()` | 同名 + `Option` | 委托 [`ProjectProperties`]（Java 里也是委托 `m_properties`） |
 //! | `setBaseline(ProjectFile)` / `getBaseline()` / `clearBaseline()` | [`ProjectFile::set_default_baseline`] / [`ProjectFile::get_default_baseline`] / [`ProjectFile::clear_default_baseline`] | Rust 无重载，带 `int` 参数的版本分别命名为 `set_baseline` / `get_baseline` / `clear_baseline` |
 //! | `getStartDate(Task)` / `getFinishDate(Task)`（私有） | 私有方法 `start_date` / `finish_date` | Rust 命名风格 |
+//! | `getPopulatedFields` 使用四类容器无参方法 | 各容器接受父文件传入的默认值及自定义字段 | `ProjectFile` 持有父文件借用时避免通过容器再次借用父文件 |
 //! | `toString()` | 未提供 | Java 未覆写 `toString()`（`Debug` 也未派生：依赖的 `ProjectContext` 等未实现 `Debug`） |
 //!
 //! # 跳过的 Java 方法及原因
@@ -75,8 +76,7 @@
 //! |---|---|
 //! | `getActivityCodes()` / `getProjectCodes()` / `getResourceCodes()` / `getRoleCodes()` / `getResourceAssignmentCodes()` | 对应容器模块未在 `src/lib.rs` 声明（Primavera 等格式使用），`ProjectContext` 亦未提供 |
 //! | `getExpenseCategories()` / `getCostAccounts()` / `getLocations()` / `getCurrencies()` | 同上（模块未声明） |
-//! | `getPopulatedFields()` | 依赖未移植的 `org.mpxj.common.PopulatedFields` |
-//! | `fixUniqueIdClashes()` 中对**日历**与**资源分配**容器的调用 | `ProjectCalendarContainer` / `ResourceAssignmentContainer` 未提供 `fix_unique_id_clashes`（二者按 unique ID 线性查找，见各自文件头），其余三项调用保留 |
+//! | `fixUniqueIdClashes()` 中对**资源分配**容器的调用 | `ResourceAssignmentContainer` 尚未提供 `fix_unique_id_clashes`；日历容器已接入基类索引与冲突修复 |
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 //!
@@ -134,6 +134,8 @@ use crate::common::object_sequence::ObjectSequence;
 use crate::custom_field_container::CustomFieldContainer;
 use crate::data_link_container::DataLinkContainer;
 use crate::event_manager::EventManager;
+use crate::common::populated_fields::Defaults;
+use crate::field_key::FieldKey;
 use crate::external_project_container::ExternalProjectContainer;
 use crate::filter_container::FilterContainer;
 use crate::group_container::GroupContainer;
@@ -286,13 +288,11 @@ impl ProjectFile {
             file_ref.self_ref = Rc::downgrade(&file);
             file_ref.properties = ProjectProperties::new(Rc::downgrade(&file));
             file_ref.tasks.set_context(&file);
+            file_ref.tasks.set_project_context(&context);
             file_ref.relations.set_context(&file);
             // Rust 特有：`RelationContainer::set_context` 内部经 `try_borrow` 读上下文，
             // 而此刻 `file` 正被可变借用（上面的 `file_ref`），必然读不到；关系容器的
-            // 自动 unique ID 需要 `ProjectContext`，故在此显式补接线（见
-            // `RelationContainer::set_project_context` 与 `TaskContainer::project_context`
-            // 字段的同名说明 —— 后者同样受此限制，其 `creation_context` 在
-            // `ProjectFile::new_with_context` 建出的文件上取不到配置，属既有行为）。
+            // 自动 unique ID 需要 `ProjectContext`，故在此显式补接线。
             file_ref.relations.set_project_context(&context);
             file_ref.external_projects.set_context(&file);
             file_ref.assignments.set_context(&context);
@@ -836,6 +836,44 @@ impl ProjectFile {
         })
     }
 
+    /// 返回任务、资源与分配中至少有一个非默认缓存值的字段。
+    ///
+    /// 对应 Java: `UserDefinedFieldMap` 构造函数依次合并三个容器的
+    /// `getPopulatedFields()`；本方法在持有父文件借用时收集句柄并统一扫描。
+    pub fn get_populated_entity_fields(&self) -> std::collections::HashSet<FieldKey> {
+        let defaults = Defaults::from_project_properties(&self.properties);
+        let (custom_tasks, custom_resources, custom_assignments) = {
+            let Ok(context) = self.context.try_borrow() else {
+                return Default::default();
+            };
+            let custom = context.get_user_defined_fields();
+            (
+                custom.get_task_fields().iter().map(FieldKey::from).collect::<Vec<_>>(),
+                custom.get_resource_fields().iter().map(FieldKey::from).collect::<Vec<_>>(),
+                custom.get_assignment_fields().iter().map(FieldKey::from).collect::<Vec<_>>(),
+            )
+        };
+        let mut result = self.tasks.get_populated_fields(custom_tasks, defaults);
+        if let Ok(context) = self.context.try_borrow() {
+            result.extend(context.get_resources().get_populated_fields(custom_resources));
+        }
+        result.extend(self.assignments.get_populated_fields(custom_assignments, defaults));
+        result
+    }
+
+    /// 返回项目四类实体中至少有一个非默认缓存值的字段。
+    ///
+    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`。
+    pub fn get_populated_fields(&self) -> std::collections::HashSet<FieldKey> {
+        let mut result = self.get_populated_entity_fields();
+        let custom = self.context.try_borrow().map(|context| {
+            context.get_user_defined_fields().get_project_fields().iter()
+                .map(FieldKey::from).collect::<Vec<_>>()
+        }).unwrap_or_default();
+        result.extend(self.properties.get_populated_fields(custom));
+        result
+    }
+
     /// 取工时分布容器。
     ///
     /// 对应 Java: `public WorkContourContainer getWorkContours()`
@@ -1292,8 +1330,7 @@ impl ProjectFile {
     ///
     /// 对应 Java: `public void fixUniqueIdClashes()`
     ///
-    /// Java 还会处理日历容器与资源分配容器；这两个 Rust 容器未提供
-    /// `fix_unique_id_clashes`（见文件头），故只保留其余三项。注意重入借用限制。
+    /// Java 还会处理资源分配容器；该 Rust 容器尚未提供冲突修复。
     pub fn fix_unique_id_clashes(&mut self) {
         // Java: getTasks().fixUniqueIdClashes();
         self.tasks.fix_unique_id_clashes();
@@ -1305,7 +1342,10 @@ impl ProjectFile {
             .fix_unique_id_clashes();
 
         // Java: getCalendars().fixUniqueIdClashes();
-        // ProjectCalendarContainer 未提供该方法（按 unique ID 线性查找，见其文件头）。
+        let calendar_sequence = self.context.borrow_mut()
+            .get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>());
+        self.context.borrow_mut().get_calendars_mut()
+            .fix_unique_id_clashes(calendar_sequence);
 
         // Java: getResourceAssignments().fixUniqueIdClashes();
         // ResourceAssignmentContainer 未提供该方法（同上）。
@@ -1415,11 +1455,15 @@ impl<'a> IntoIterator for &'a TaskContainer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assignment_field::AssignmentField;
     use crate::data_link::DataLink;
+    use crate::field_container::FieldContainer;
     use crate::field_key::FieldKey;
+    use crate::field_value::FieldValue;
     use crate::project_entity_with_id::ProjectEntityWithID;
     use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
     use crate::resource_assignment::ResourceAssignment;
+    use crate::resource_field::ResourceField;
     use crate::task_field::TaskField;
 
     /// 新建一份项目文件。
@@ -1455,6 +1499,44 @@ mod tests {
             .get_resource_assignments()
             .get_context()
             .is_some());
+    }
+
+    /// 创建任务时读取真实项目配置并使用上下文共享序号。
+    #[test]
+    fn new_tasks_share_the_context_unique_id_sequence() {
+        let file = project();
+        let first = add_task(&file);
+        let second = add_task(&file);
+        assert_eq!(first.borrow().get_unique_id(), Some(1));
+        assert_eq!(second.borrow().get_unique_id(), Some(2));
+        let context = file.borrow().get_project_context();
+        let sequence = context.borrow_mut().get_unique_id_object_sequence(TypeId::of::<Task>());
+        assert_eq!(sequence.get_next(), 3);
+    }
+
+    /// 字段扫描只收集非默认缓存值，并涵盖四类字段容器。
+    #[test]
+    fn populated_fields_distinguish_defaults_across_containers() {
+        let file = project();
+        let task = add_task(&file);
+        task.borrow_mut().set(FieldKey::Task(TaskField::Text1), Some(FieldValue::String(String::new())));
+        task.borrow_mut().set(FieldKey::Task(TaskField::Text2), Some(FieldValue::String("内容".into())));
+        task.borrow_mut().set(FieldKey::Task(TaskField::Flag1), Some(FieldValue::Boolean(false)));
+        let context = file.borrow().get_project_context();
+        let resource = context.borrow_mut().get_resources_mut().add();
+        resource.borrow_mut().set(FieldKey::Resource(ResourceField::Number1), Some(FieldValue::Double(0.0)));
+        resource.borrow_mut().set(FieldKey::Resource(ResourceField::Text1), Some(FieldValue::String("资源".into())));
+        let assignment = Rc::new(RefCell::new(ResourceAssignment::new()));
+        assignment.borrow_mut().set(FieldKey::Assignment(AssignmentField::Flag1), Some(FieldValue::Boolean(true)));
+        file.borrow_mut().get_resource_assignments_mut().add(assignment);
+
+        let fields = file.borrow().get_populated_fields();
+        assert!(fields.contains(&FieldKey::Task(TaskField::Text2)));
+        assert!(fields.contains(&FieldKey::Resource(ResourceField::Text1)));
+        assert!(fields.contains(&FieldKey::Assignment(AssignmentField::Flag1)));
+        assert!(!fields.contains(&FieldKey::Task(TaskField::Text1)));
+        assert!(!fields.contains(&FieldKey::Task(TaskField::Flag1)));
+        assert!(!fields.contains(&FieldKey::Resource(ResourceField::Number1)));
     }
 
     #[test]

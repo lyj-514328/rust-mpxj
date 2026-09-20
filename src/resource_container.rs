@@ -47,7 +47,7 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `public Set<FieldType> getPopulatedFields()` | 依赖未在 `src/lib.rs` 声明的 `common::PopulatedFields` |
+//! | 无 | `getPopulatedFields` 已移植；父上下文传入自定义字段以避免重入借用 |
 //!
 //! 被跳过的 Java 机制：`Serializable`（本类未使用）。
 //!
@@ -100,6 +100,23 @@ pub struct ResourceContainer {
 }
 
 impl ResourceContainer {
+    /// 返回资源中至少有一个非默认缓存值的字段。
+    ///
+    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；自定义字段由上下文
+    /// 调用者传入，资源与 Java 一样不使用项目属性作为默认值。
+    pub fn get_populated_fields(
+        &self,
+        custom: impl IntoIterator<Item = FieldKey>,
+    ) -> std::collections::HashSet<FieldKey> {
+        crate::common::populated_fields::get_populated_fields(
+            crate::common::populated_fields::merge_fields(
+                crate::resource_field::ResourceField::ALL.map(FieldKey::Resource), custom,
+            ),
+            self.iter().cloned(),
+            crate::common::populated_fields::Defaults::without_project(),
+        )
+    }
+
     /// 构造方法。
     ///
     /// 对应 Java: `public ResourceContainer(ProjectContext context)`

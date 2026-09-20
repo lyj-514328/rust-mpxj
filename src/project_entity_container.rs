@@ -1,4 +1,15 @@
 //! 对应 Java: `org/mpxj/ProjectEntityContainer.java`
+//!
+//! # 与 Java 的差异
+//!
+//! | Java | Rust | 说明 |
+//! |---|---|---|
+//! | `removed(T)` 通过当前 unique ID 删除索引 | 按 `Rc` 身份删除索引 | 日历调用 `remove()` 时可能仍被可变借用，不能反向读取其 unique ID；索引被其它同号元素覆盖时保留该元素 |
+//! | `fixUniqueIdClashes()` 从提供者取序列 | 另有传入真实序列的重载 | 容器在 `ProjectContext` 可变借用期间无法经适配器再次借用上下文 |
+//!
+//! # 跳过的 Java 成员 + 原因
+//!
+//! 无。
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -6,6 +17,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Debug, Formatter};
 use std::rc::Rc;
 
+use crate::common::object_sequence::ObjectSequence;
 use crate::list_with_callbacks::ListWithCallbacks;
 use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID;
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
@@ -91,12 +103,13 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
             let map = Rc::clone(&unique_id_map);
             let clash_list = Rc::clone(&unique_id_clash_list);
             list.set_added_callback(Some(Box::new(move |element: &Rc<RefCell<T>>| {
-                let unique_id = match element.borrow().get_unique_id() {
+                let unique_id = match element.try_borrow().ok().and_then(|element| element.get_unique_id()) {
                     Some(unique_id) => unique_id,
                     None => return,
                 };
 
-                let current_element = map.borrow().get(&unique_id).cloned();
+                let current_element = map.try_borrow().ok()
+                    .and_then(|map| map.get(&unique_id).cloned());
                 if let Some(current_element) = current_element {
                     // Java: 同一个实例重复加入不视为冲突
                     if Rc::ptr_eq(&current_element, element) {
@@ -106,10 +119,14 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
                     // Java: `if (currentElement instanceof ProjectEntityWithMutableUniqueID)`
                     // 记录冲突候选；对 unique ID 不可变的元素类型，冲突列表不会被消费
                     // （见 `fix_unique_id_clashes` 的方法级约束）。
-                    clash_list.borrow_mut().push(Rc::clone(element));
+                    if let Ok(mut clashes) = clash_list.try_borrow_mut() {
+                        clashes.push(Rc::clone(element));
+                    }
                 }
 
-                map.borrow_mut().insert(unique_id, Rc::clone(element));
+                if let Ok(mut map) = map.try_borrow_mut() {
+                    map.insert(unique_id, Rc::clone(element));
+                }
             })));
         }
 
@@ -117,8 +134,10 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         {
             let map = Rc::clone(&unique_id_map);
             list.set_removed_callback(Some(Box::new(move |element: &Rc<RefCell<T>>| {
-                if let Some(unique_id) = element.borrow().get_unique_id() {
-                    map.borrow_mut().remove(&unique_id);
+                // 日历可在其 `remove()` 持有可变借用时触发此回调。
+                // 直接按元素身份移除，无需重入借用实体。
+                if let Ok(mut map) = map.try_borrow_mut() {
+                    map.retain(|_, candidate| !Rc::ptr_eq(candidate, element));
                 }
             })));
         }
@@ -300,16 +319,25 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
     where
         T: ProjectEntityWithMutableUniqueID,
     {
-        let clash_list: Vec<Rc<RefCell<T>>> = self.unique_id_clash_list.borrow().clone();
-        if clash_list.is_empty() {
-            return;
-        }
-
-        // Java: `m_sequenceProvider.getUniqueIdObjectSequence(m_uniqueIDClashList.get(0).getClass())`
         let sequence = self
             .sequence_provider
             .borrow_mut()
             .get_unique_id_object_sequence(TypeId::of::<T>());
+        self.fix_unique_id_clashes_with_sequence(sequence);
+    }
+
+    /// 使用父上下文已取得的序列修复冲突。
+    ///
+    /// 对应 Java: `fixUniqueIdClashes()`；Rust 的日历容器在持有上下文可变借用时
+    /// 无法让序号提供者再次借用同一上下文，故由调用者传入真实序列。
+    pub fn fix_unique_id_clashes_with_sequence(&mut self, sequence: Rc<ObjectSequence>)
+    where
+        T: ProjectEntityWithMutableUniqueID,
+    {
+        let clash_list: Vec<Rc<RefCell<T>>> = self.unique_id_clash_list.borrow().clone();
+        if clash_list.is_empty() {
+            return;
+        }
 
         for element in &clash_list {
             let next = sequence.get_next();
@@ -324,6 +352,33 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
             if let Some(unique_id) = element.borrow().get_unique_id() {
                 map.insert(unique_id, Rc::clone(element));
             }
+        }
+    }
+
+    /// 从当前元素重建 unique ID 索引与冲突列表。
+    ///
+    /// 对应 Java: `added(T)` 的逐元素索引行为；Rust 的日历 setter 遇到上下文
+    /// 重入借用时无法回调容器，修复冲突前需补齐那段索引变化。
+    pub fn rebuild_unique_id_index(&mut self) {
+        let (Ok(mut map), Ok(mut clashes)) = (
+            self.unique_id_map.try_borrow_mut(),
+            self.unique_id_clash_list.try_borrow_mut(),
+        ) else {
+            return;
+        };
+        map.clear();
+        clashes.clear();
+        for item in self.list.iter() {
+            let Ok(item_ref) = item.try_borrow() else {
+                continue;
+            };
+            let Some(id) = item_ref.get_unique_id() else {
+                continue;
+            };
+            if map.contains_key(&id) {
+                clashes.push(Rc::clone(item));
+            }
+            map.insert(id, Rc::clone(item));
         }
     }
 }

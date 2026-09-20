@@ -4,15 +4,21 @@
 //! 每个块头部是 4 字节的「下一个块偏移」，`-1` 表示链尾；`getByteArray` 会顺着链把
 //! 一条数据项的所有分片拼回一个连续数组。
 //!
+//! # 与 Java 的差异
+//!
+//! | Java | Rust | 说明 |
+//! |---|---|---|
+//! | `MPPUtility.getByteArray` 越界抛异常 | `None` / 结束转储 | 先验证边界，再调用同一工具类 |
+//!
+//! # 跳过的 Java 成员 + 原因
+//!
+//! 无。
+//!
 //! 移植取舍：
 //! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`，并保存为 `Vec<u8>`
 //!   （Java 的 `InputStreamHelper.readAvailable` 本身就会复制一份数据，语义一致）。
-//! - Java 调用的 `MPPUtility.getByteArray` / `MPPUtility.getUnicodeString` 在本文件内以私有
-//!   函数 [`copy_bytes`] / [`get_unicode_string`] 重复实现：早期并行开发期 `mpp_utility` 模块
-//!   尚未落地，为免跨模块耦合而内联；该模块现已落地，这两个私有函数与
-//!   [`crate::mpp::mpp_utility::MPPUtility::get_byte_array`] /
-//!   [`crate::mpp::mpp_utility::MPPUtility::get_unicode_string`] 语义等价（差异：本文件越界时
-//!   返回 `None` 交由调用方处理，`MPPUtility` 版静默不复制），本文件仍使用自己的副本。
+//! - `MPPUtility.getByteArray` 在 Rust 侧需先校验范围，以便将 Java 的越界异常
+//!   退化为 `None`；通过范围校验后复用 [`crate::mpp::mpp_utility::MPPUtility`]。
 //! - Java 抛数组越界异常的地方（`ByteArrayHelper.getInt` / `MPPUtility.getByteArray`）在
 //!   Rust 侧返回 `None`，绝不 panic。
 //! - Java 的 `new String(byte[])` 使用平台默认字符集，Rust 侧按 UTF-8 容错解码；
@@ -25,6 +31,7 @@ use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 
 use crate::common::byte_array_helper::ByteArrayHelper;
+use crate::mpp::mpp_utility::MPPUtility;
 
 /// `FixDeferFix` 块：MPP98 格式中的变长数据块。
 ///
@@ -129,7 +136,7 @@ impl FixDeferFix {
     /// 对应 Java: `public String getUnicodeString(int offset)`
     pub fn get_unicode_string(&self, offset: i32) -> Option<String> {
         let data = self.get_byte_array(offset)?;
-        Some(get_unicode_string(&data, 0))
+        Some(MPPUtility::get_unicode_string(&data, 0))
     }
 
     /// 从 `file_offset` 开始走一遍块链，返回该偏移处数据块的内容。
@@ -325,59 +332,11 @@ fn copy_bytes(
     let destination_start = dest_offset as usize;
     let destination_end = destination_start.checked_add(size as usize)?;
 
-    dest.get_mut(destination_start..destination_end)?
-        .copy_from_slice(data.get(source_start..source_end)?);
+    data.get(source_start..source_end)?;
+    dest.get(destination_start..destination_end)?;
+    MPPUtility::get_byte_array(data, source_start, size as usize, dest, destination_start);
 
     Some(())
-}
-
-/// 读取以双字节 0 结尾的 UTF-16LE 字符串。
-///
-/// 对应 Java: `MPPUtility.getUnicodeString(byte[] data, int offset)`
-fn get_unicode_string(data: &[u8], offset: i32) -> String {
-    let length = get_unicode_string_length_in_bytes(data, offset);
-    if length == 0 {
-        // Java: length == 0 ? "" : new String(...)
-        return String::new();
-    }
-
-    let start = offset as usize;
-    let Some(bytes) = start
-        .checked_add(length as usize)
-        .and_then(|end| data.get(start..end))
-    else {
-        return String::new();
-    };
-
-    // Java: new String(data, offset, length, CharsetHelper.UTF16LE)
-    let (result, _) = encoding_rs::UTF_16LE.decode_without_bom_handling(bytes);
-    result.into_owned()
-}
-
-/// 计算以双字节 0 结尾的 UTF-16LE 字符串的字节长度。
-///
-/// 对应 Java: `MPPUtility.getUnicodeStringLengthInBytes(byte[] data, int offset)`
-fn get_unicode_string_length_in_bytes(data: &[u8], offset: i32) -> i32 {
-    // Java: data == null || offset >= data.length 时返回 0
-    if data.is_empty() || offset < 0 || offset as usize >= data.len() {
-        return 0;
-    }
-
-    let offset = offset as usize;
-    let mut result = (data.len() - offset) as i32;
-
-    // Java: for (loop = offset; loop < data.length - 1; loop += 2)
-    let mut loop_index = offset;
-    while loop_index < data.len() - 1 {
-        if data[loop_index] == 0 && data[loop_index + 1] == 0 {
-            result = (loop_index - offset) as i32;
-            break;
-        }
-
-        loop_index += 2;
-    }
-
-    result
 }
 
 #[cfg(test)]

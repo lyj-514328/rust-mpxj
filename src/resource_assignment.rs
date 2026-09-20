@@ -59,7 +59,7 @@
 //! | `getCostAccount()` / `setCostAccount(CostAccount)` | `CostAccount` / `CostAccountContainer` 未在本仓声明（`getCostAccountUniqueID` / `setCostAccountUniqueID` 已移植） |
 //! | `getResourceAssignmentCodeValues()` / `addResourceAssignmentCodeValue(...)` | `ResourceAssignmentCode` / `ResourceAssignmentCodeValue` 未在本仓声明 |
 //! | `public CostRateTable getCostRateTable()` | [`ResourceAssignment::with_cost_rate_table`]（Rust 特有回调形式：资源按值持有 `CostRateTable` 且该类型未实现 `Clone`，无法返回所有权；`getEffectiveRate` / timephased 成本的调用点语义不变） |
-//! | `getEffectiveCalendar()` 里的 `CombinedCalendar` / `ManuallyScheduledTaskCalendar` 包装 | 两者位于 `org.mpxj.common`，本仓未声明；Rust 侧返回未包装的日历（见方法注释） |
+//! | `getEffectiveCalendar()` 里的 `CombinedCalendar` 包装 | 未移植该组合日历；手动排程的 `ManuallyScheduledTaskCalendar` 已接线（见方法注释） |
 //! | `calculatePercentWorkComplete` / `calculateStartVariance` / `calculateFinishVariance` 使用的 `ProjectProperties` | 经 `ProjectFile.get_project_properties()` 取值（与 `cpm::microsoft_slack_calculator` 的假设一致）；父文件未接线时退化为有效日历 / `TimeUnit::Days` |
 //! | `getRatePerHour` 使用的 `RateHelper.convertToHours` | 直接调用 [`crate::rate_helper::RateHelper::convert_to_hours`]（`getEffectiveCalendar()` 在 Rust 侧是 `Option<&Rc<RefCell<ProjectCalendar>>>`，未接线或借用冲突时按原值返回） |
 //! | `TimephasedUtility`（`org.mpxj.TimephasedUtility`，本仓未声明） | 在文件末尾以私有函数等价移植：`segment_work` / `segment_cost` / `segment_material` / `add_timephased_durations` / `add_timephased_numbers` |
@@ -1120,15 +1120,14 @@ impl ResourceAssignment {
     ///
     /// # 与 Java 的差异
     ///
-    /// Java 在「任务显式日历与资源日历同时存在」时构造 `CombinedCalendar`，并在任务为手动
-    /// 排程时再包一层 `ManuallyScheduledTaskCalendar`；这两个类型位于 `org.mpxj.common`，
-    /// 本仓未声明，故 Rust 侧返回未包装的日历（见文件头第 4 节）。
+    /// Java 在「任务显式日历与资源日历同时存在」时构造 `CombinedCalendar`，
+    /// 本仓尚未移植此组合；手动排程时再包一层临时日历，日期时间缺失时退化为原日历。
     pub fn get_effective_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let task = self.get_task()?;
         let task_calendar = task.try_borrow().ok().and_then(|task| task.get_calendar());
         let resource_calendar = self.resource_calendar(&task);
 
-        match task_calendar {
+        let result = match task_calendar {
             None => match resource_calendar {
                 None => task
                     .try_borrow()
@@ -1137,6 +1136,16 @@ impl ResourceAssignment {
                 Some(resource_calendar) => Some(resource_calendar),
             },
             Some(task_calendar) => Some(task_calendar),
+        };
+        let manually_scheduled = task.try_borrow().ok()
+            .and_then(|task| task.get_task_mode()) == Some(crate::task_mode::TaskMode::ManuallyScheduled);
+        if manually_scheduled {
+            result.and_then(|calendar| {
+                crate::manually_scheduled_task_calendar::new(Rc::clone(&calendar), self)
+                    .or(Some(calendar))
+            })
+        } else {
+            result
         }
     }
 

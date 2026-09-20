@@ -1,16 +1,14 @@
 //! 对应 Java: `org/mpxj/WorkContour.java`
 
 use std::fmt::{self, Display, Formatter};
+use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 
 /// 工时分布（work contour）值。
 ///
 /// 对应 Java: `public final class WorkContour implements ProjectEntityWithUniqueID`
 ///
 /// 移植说明：
-/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该 trait 已落地，本仓的 `impl` 写在
-///   [`crate::work_contour_container`]（早期并行开发期为避免跨文件冲突而放在容器文件内，
-///   属待归位项，见 `TECH_DEBT.md` 六），本类型自身仍保留同名的
-///   [`WorkContour::get_unique_id`] 方法。
+/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；Rust 在本文件实现对应 trait。
 /// - Java 的 `double... curveValues` 可变参数映射为 `Option<Vec<f64>>`：`null` 表示曲线
 ///   已被手工编辑（`CONTOURED`），与 Java 的 `null` 语义一致。
 /// - Java 的 `public static final` 常量（`FLAT`、`BACK_LOADED` 等）无法在 Rust 中 `const`
@@ -244,6 +242,13 @@ impl WorkContour {
     /// 对应 Java: `public static final WorkContour CONTOURED`
     pub fn contoured() -> Self {
         Self::new(Some(9), Some("CONTOURED".to_owned()), false, None)
+    }
+}
+
+impl ProjectEntityWithUniqueID for WorkContour {
+    /// 对应 Java: `@Override public Integer getUniqueID()`。
+    fn get_unique_id(&self) -> Option<i32> {
+        WorkContour::get_unique_id(self)
     }
 }
 

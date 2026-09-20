@@ -15,8 +15,8 @@
 //! | `public void setDefaultCalendarUniqueID(Integer)` | [`ProjectCalendarContainer::set_default_calendar_unique_id`] |
 //! | 继承自 `ProjectEntityContainer<ProjectCalendar>` 的 `add(T)` | [`ProjectCalendarContainer::add_calendar`]（Rust 无重载，故加后缀区分同名的无参 `add()`） |
 //! | 继承自 `ProjectEntityContainer` 的 `getByUniqueID` / `size` / `isEmpty` / `iterator` / `get` | [`ProjectCalendarContainer::get_by_unique_id`] / [`ProjectCalendarContainer::len`] / [`ProjectCalendarContainer::is_empty`] / [`ProjectCalendarContainer::iter`] / [`ProjectCalendarContainer::get`] |
-//! | 继承自 `ProjectEntityContainer` 的 `updateUniqueID(T element, Integer old, Integer new)` | [`ProjectCalendarContainer::update_unique_id`]（Rust 无元素参数，见下） |
-//! | 继承自 `ProjectEntityContainer` 的 `fixUniqueIdClashes`、`getSequenceProvider`、`firstUniqueID`、`ListWithCallbacks` 的回调注册 | 未组合基类：`ProjectEntityContainer` 已移植，[`crate::project_calendar::ProjectCalendar`] 也已实现 `ProjectEntityWithUniqueID`（其文件末尾有说明），但基类的 `new` 要求在**构造时**就传入 `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`，而本容器在 `ProjectContext` 尚未成型时就被构造（上下文由 [`ProjectCalendarContainer::set_context`] 事后接线），无法在构造点取得该提供者，故仍按线性查找（见下） |
+//! | 继承自 `ProjectEntityContainer` 的 `updateUniqueID(T element, Integer old, Integer new)` | [`ProjectCalendarContainer::update_unique_id_for_calendar`]（`self_ref` 提供元素句柄） |
+//! | 继承自 `ProjectEntityContainer` 的 `fixUniqueIdClashes`、`getSequenceProvider`、`firstUniqueID`、`ListWithCallbacks` 的回调注册 | 组合 [`ProjectEntityContainer`]；上下文先构造弱引用序号适配器，冲突修复时传入真实序列 |
 //!
 //! # 与 Java 的差异
 //!
@@ -29,15 +29,10 @@
 //!   派生日历会回指父日历），Rust 侧存 `Rc<RefCell<ProjectCalendar>>`，
 //!   [`crate::project_calendar::ProjectCalendar::new`] 返回的是值，故由 [`ProjectCalendarContainer::add`]
 //!   负责包一层 `Rc<RefCell<..>>`。
-//! - **未组合 `ProjectEntityContainer`**：Java 的 `m_uniqueIDMap`（unique ID 索引）与
-//!   `m_uniqueIDClashList`（冲突列表）来自基类。Rust 侧本容器改为**按当前 unique ID 线性查找**：
-//!   日历的 unique ID 由 `ProjectCalendar::setUniqueID` 在更新自身字段前回调
-//!   [`ProjectCalendarContainer::update_unique_id`] 维护索引，而线性查找天然不会因 unique ID
-//!   变化而失效，因此不再需要索引与冲突列表，`fixUniqueIdClashes` 等配套方法也一并跳过。
-//! - **`update_unique_id` 的参数**：Java 为 `updateUniqueID(T element, Integer old, Integer new)`；
-//!   [`crate::project_calendar::ProjectCalendar::set_unique_id`] 以
-//!   `update_unique_id(old, new)` 调用本容器的对应方法（`ProjectCalendar` 文件头列出的接口约定），
-//!   故 Rust 侧不接收元素参数：需要同步序号生成器时以 `TypeId::of::<ProjectCalendar>()` 取序列。
+//! - **基类索引的重入限制**：`ProjectCalendar::set_unique_id` 回调时若上下文已被借用，
+//!   不能借到容器；按 ID 查询回退线性查找，冲突修复前按当前元素重建基类索引。
+//!   `fix_unique_id_clashes` 从调用者接收真实上下文序列，避免适配器在借用冲突时
+//!   使用独立的退化序列。
 //! - **上下文重入借用**：容器是 `ProjectContext` 的字段，调用方必须先 `borrow_mut()` 上下文
 //!   才能取得容器的 `&mut`；此时在容器内部再借同一上下文会失败。Rust 侧一律使用
 //!   `try_borrow_mut`，失败时退化为「不同步序号生成器」，不会 panic（Java 无此情形）。
@@ -65,6 +60,8 @@ use crate::day_type::DayType;
 use crate::mpx::locale_utility::equals_ignore_case;
 use crate::project_calendar::{ProjectCalendar, DEFAULT_BASE_CALENDAR_NAME};
 use crate::project_context::ProjectContext;
+use crate::project_entity_container::ProjectEntityContainer;
+use crate::common::object_sequence::ObjectSequence;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
 /// 参与当前上下文（多个项目共享）的日历集合。
@@ -74,7 +71,7 @@ pub struct ProjectCalendarContainer {
     /// 容器内的日历。
     ///
     /// 对应 Java: `ProjectEntityContainer` 内部的列表存储。
-    items: Vec<Rc<RefCell<ProjectCalendar>>>,
+    items: ProjectEntityContainer<ProjectCalendar>,
 
     /// 上下文默认日历的 unique ID。
     ///
@@ -94,8 +91,20 @@ impl ProjectCalendarContainer {
     ///
     /// Rust 侧先以空上下文弱引用构造，由 [`ProjectCalendarContainer::set_context`] 完成接线。
     pub fn new() -> Self {
+        let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
+            Rc::new(RefCell::new(crate::project_context::ContextSequenceProvider::new()));
+        Self::new_with_provider(provider)
+    }
+
+    /// 在上下文构造时接入已创建的序号提供者。
+    ///
+    /// 对应 Java: `super(context)`；提供者仅保存上下文弱引用，构造时不需要
+    /// 已完成的 `ProjectContext`。
+    pub(crate) fn new_with_provider(
+        provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>,
+    ) -> Self {
         Self {
-            items: Vec::new(),
+            items: ProjectEntityContainer::new(provider),
             default_calendar_unique_id: None,
             context: Weak::new(),
         }
@@ -115,7 +124,10 @@ impl ProjectCalendarContainer {
     /// Rust 侧无重载，故与同名的无参 [`ProjectCalendarContainer::add`] 以 `_calendar`
     /// 后缀区分。
     pub fn add_calendar(&mut self, calendar: Rc<RefCell<ProjectCalendar>>) {
-        self.items.push(calendar);
+        if let Ok(mut calendar_ref) = calendar.try_borrow_mut() {
+            calendar_ref.set_self_ref(Rc::downgrade(&calendar));
+        }
+        self.items.add(calendar);
     }
 
     /// 新建一个日历并加入容器。
@@ -253,9 +265,8 @@ impl ProjectCalendarContainer {
     /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     /// 的末尾一步 `m_sequenceProvider.getUniqueIdObjectSequence(element.getClass()).sync(newUniqueID)`
     ///
-    /// Rust 侧容器按当前 unique ID 线性查找（无索引与冲突列表，见文件头），因此只需要把
-    /// 序号生成器同步到新的 unique ID。调用时机见
-    /// [`crate::project_calendar::ProjectCalendar::set_unique_id`]：它在更新自身字段**之前**调用本方法。
+    /// 无元素句柄时只同步序号生成器；日历 setter 使用
+    /// [`ProjectCalendarContainer::update_unique_id_for_calendar`] 更新基类索引。
     pub fn update_unique_id(&mut self, old_unique_id: Option<i32>, new_unique_id: Option<i32>) {
         let _ = old_unique_id;
         let Some(new_unique_id) = new_unique_id else {
@@ -270,6 +281,49 @@ impl ProjectCalendarContainer {
                     .sync(Some(new_unique_id));
             }
         }
+    }
+
+    /// 取基类持有的序号提供者。
+    ///
+    /// 对应 Java: `ProjectEntityContainer.getSequenceProvider()`。
+    pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
+        self.items.get_sequence_provider()
+    }
+
+    /// 取 unique ID 序列的初值。
+    ///
+    /// 对应 Java: `ProjectEntityContainer.firstUniqueID()`。
+    pub fn first_unique_id(&self) -> i32 {
+        self.items.first_unique_id()
+    }
+
+    /// 更新日历 unique ID 索引，同时处理重复 ID 候选。
+    ///
+    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(this, oldUniqueID, newUniqueID)`；
+    /// 未登记入容器的日历只同步序号生成器。
+    pub(crate) fn update_unique_id_for_calendar(
+        &mut self,
+        calendar: Option<Rc<RefCell<ProjectCalendar>>>,
+        old_unique_id: Option<i32>,
+        new_unique_id: Option<i32>,
+    ) {
+        if let Some(calendar) = calendar {
+            self.items.update_unique_id(&calendar, old_unique_id, new_unique_id);
+        } else {
+            self.update_unique_id(old_unique_id, new_unique_id);
+        }
+    }
+
+    /// 按 Java 基类行为重新分配重复的日历 unique ID。
+    ///
+    /// 对应 Java: `ProjectEntityContainer.fixUniqueIdClashes()`；调用者在借用
+    /// 上下文前取得序号句柄，避免序号提供者的反向借用冲突。
+    pub fn fix_unique_id_clashes(&mut self, sequence: Rc<ObjectSequence>) {
+        self.items.rebuild_unique_id_index();
+        for calendar in self.items.iter() {
+            sequence.sync(read_unique_id(calendar));
+        }
+        self.items.fix_unique_id_clashes_with_sequence(sequence);
     }
 
     /// 从容器移除一个日历，并执行移除后的清理。
@@ -288,7 +342,9 @@ impl ProjectCalendarContainer {
             return false;
         };
 
-        let removed = self.items.remove(index);
+        let Some(removed) = self.items.remove(index) else {
+            return false;
+        };
         self.removed(&removed);
         true
     }
@@ -297,14 +353,13 @@ impl ProjectCalendarContainer {
     ///
     /// 对应 Java: `@Override public void removed(ProjectCalendar calendar)`
     fn removed(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
-        // Java: super.removed(calendar); —— 基类从 unique ID 索引中移除该项。
-        // Rust 侧使用线性查找，没有需要维护的索引。
+        // Java: super.removed(calendar); —— 基类已在 items.remove 中维护索引。
 
         // Java: calendar.getDerivedCalendars().forEach(c -> c.setParent(null));
         // Java 经 `m_context` 查出本日历的派生日历；Rust 侧改为直接扫描本容器的元素
         // （语义等价 —— 容器的元素集合就是上下文里的日历集合），从而不必再借用上下文：
         // 本方法的调用点都正持有上下文的可变借用，借用上下文会失败。
-        for candidate in &self.items {
+        for candidate in self.items.iter() {
             let is_derived = match candidate.try_borrow() {
                 Ok(candidate_ref) => candidate_ref
                     .get_parent()
@@ -338,7 +393,7 @@ impl ProjectCalendarContainer {
     ///
     /// 对应 Java: `ArrayList.get(int index)`。
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<ProjectCalendar>>> {
-        self.items.get(index).map(Rc::clone)
+        self.items.get(index)
     }
 
     /// 日历个数。
@@ -375,6 +430,12 @@ impl ProjectCalendarContainer {
     /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let id = id?;
+        if let Some(indexed) = self.items.get_by_unique_id(Some(id)) {
+            if read_unique_id(&indexed) == Some(id) {
+                return Some(indexed);
+            }
+        }
+        // 调用方持有上下文可变借用时，日历 setter 无法同步基类索引。
         self.items
             .iter()
             .find(|calendar| read_unique_id(calendar) == Some(id))
@@ -658,6 +719,37 @@ mod tests {
             .unwrap_or(false));
         assert!(container.get_by_unique_id(Some(4)).is_none());
         assert!(container.get_by_unique_id(None).is_none());
+    }
+
+    /// 通过基类索引修复两个日历同号时只重排后加入的元素。
+    #[test]
+    fn fix_unique_id_clashes_rebuilds_index_and_renumbers_duplicates() {
+        let mut container = ProjectCalendarContainer::new();
+        let first = container.add();
+        let second = container.add();
+        first.borrow_mut().set_unique_id(Some(7));
+        second.borrow_mut().set_unique_id(Some(7));
+        let sequence = container.items.get_sequence_provider().borrow_mut()
+            .get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>());
+        container.fix_unique_id_clashes(sequence);
+
+        assert_eq!(first.borrow().get_unique_id(), Some(7));
+        assert_eq!(second.borrow().get_unique_id(), Some(8));
+        assert!(container.get_by_unique_id(Some(7)).is_some_and(|found| Rc::ptr_eq(&found, &first)));
+        assert!(container.get_by_unique_id(Some(8)).is_some_and(|found| Rc::ptr_eq(&found, &second)));
+    }
+
+    /// 元素正被借用时加入基类容器不触发 RefCell panic。
+    #[test]
+    fn add_calendar_with_borrowed_element_degrades_to_linear_lookup() {
+        let mut container = ProjectCalendarContainer::new();
+        let calendar = Rc::new(RefCell::new(ProjectCalendar::new(Weak::new(), false)));
+        let mut borrowed = calendar.borrow_mut();
+        borrowed.set_unique_id(Some(12));
+        container.add_calendar(Rc::clone(&calendar));
+        drop(borrowed);
+        assert!(container.get_by_unique_id(Some(12))
+            .is_some_and(|found| Rc::ptr_eq(&found, &calendar)));
     }
 
     #[test]

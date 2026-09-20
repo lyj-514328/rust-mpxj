@@ -64,7 +64,7 @@
 //!
 //! 下列构造表达式按各模块已落地的签名书写：
 //! `UnitOfMeasureContainer::new()`、`WorkContourContainer::new(sequence_provider)`、
-//! `NotesTopicContainer::new(sequence_provider)`、`CustomFieldContainer::new()`（返回
+//! `NotesTopicContainer::new(sequence_provider)`、`ProjectCalendarContainer::new_with_provider(sequence_provider)`、`CustomFieldContainer::new()`（返回
 //! `Rc<RefCell<Self>>`）、`UserDefinedFieldContainer::new()`、`ShiftContainer::new()`、
 //! `ShiftPeriodContainer::new()`、`ProjectCalendarContainer::new()`、`ResourceContainer::new()`、
 //! `TimeUnitDefaults::new()`、`ProjectConfig::new()`、`EventManager::new()`。
@@ -156,6 +156,8 @@ impl ProjectContext {
             sequence_provider.clone();
         let notes_topic_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             sequence_provider.clone();
+        let calendar_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
+            sequence_provider.clone();
 
         Self {
             units_of_measure: UnitOfMeasureContainer::new(),
@@ -165,7 +167,7 @@ impl ProjectContext {
             user_defined_fields: UserDefinedFieldContainer::new(),
             shifts: ShiftContainer::new(),
             shift_periods: ShiftPeriodContainer::new(),
-            calendars: ProjectCalendarContainer::new(),
+            calendars: ProjectCalendarContainer::new_with_provider(calendar_provider),
             resources: ResourceContainer::new(),
             projects: Vec::new(),
             time_unit_defaults: TimeUnitDefaults::new(),
@@ -429,7 +431,7 @@ fn sequence_for(
 ///
 /// 上下文尚未接线（[`ProjectContext::new`] 构造期间）或已被借用时，退化为本适配器自带的
 /// 独立序号生成器，保证不 panic、不失败（Java 无此情形）。
-struct ContextSequenceProvider {
+pub(crate) struct ContextSequenceProvider {
     /// 目标上下文（弱引用，避免 `Rc` 循环）。
     context: Weak<RefCell<ProjectContext>>,
     /// 上下文不可用时的退化序号生成器。
@@ -437,7 +439,7 @@ struct ContextSequenceProvider {
 }
 
 impl ContextSequenceProvider {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             context: Weak::new(),
             fallback: HashMap::new(),

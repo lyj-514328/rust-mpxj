@@ -10,7 +10,7 @@
 //! | `ResourceAssignmentContainer(ProjectFile projectFile)` | [`ResourceAssignmentContainer::new`] + [`ResourceAssignmentContainer::set_context`]（父文件由 [`crate::resource_assignment::ResourceAssignment`] 自行持有弱引用） |
 //! | `@Override protected void added(ResourceAssignment assignment)` | 私有方法 `added`（由 [`ResourceAssignmentContainer::add`] 调用） |
 //! | `@Override public void removed(ResourceAssignment assignment)` | 私有方法 `removed`（由 `remove` / `remove_by_unique_id` 调用） |
-//! | `public Set<FieldType> getPopulatedFields()` | 未移植：依赖 `org.mpxj.common.PopulatedFields`（本仓未声明） |
+//! | `public Set<FieldType> getPopulatedFields()` | [`ResourceAssignmentContainer::get_populated_fields`]（由父文件传入默认值与自定义字段） |
 //! | `public List<CustomField> getCustomFields()` | [`ResourceAssignmentContainer::get_custom_fields`]（经上下文的自定义字段容器） |
 //! | `public FieldType getFieldTypeByAlias(String alias)` | [`ResourceAssignmentContainer::get_field_type_by_alias`]（返回 `Option<FieldKey>`） |
 //! | `public List<ResourceAssignment> getByTaskUniqueID(Integer)` | [`ResourceAssignmentContainer::get_by_task_unique_id`] |
@@ -83,6 +83,24 @@ pub struct ResourceAssignmentContainer {
 }
 
 impl ResourceAssignmentContainer {
+    /// 返回资源分配中至少有一个非默认缓存值的字段。
+    ///
+    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；项目默认值及自定义
+    /// 字段由父文件调用者传入，以免在父文件已有借用时再次借用。
+    pub fn get_populated_fields(
+        &self,
+        custom: impl IntoIterator<Item = FieldKey>,
+        defaults: crate::common::populated_fields::Defaults,
+    ) -> std::collections::HashSet<FieldKey> {
+        crate::common::populated_fields::get_populated_fields(
+            crate::common::populated_fields::merge_fields(
+                crate::assignment_field::AssignmentField::ALL.map(FieldKey::Assignment), custom,
+            ),
+            self.iter().cloned(),
+            defaults,
+        )
+    }
+
     /// 构造方法。
     ///
     /// 对应 Java: `public ResourceAssignmentContainer(ProjectFile projectFile)`

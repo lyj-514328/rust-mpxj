@@ -10,7 +10,7 @@
 //! | Java | Rust | 说明 |
 //! |---|---|---|
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本 crate 的共享方式（见任务约定第 8 条） |
-//! | 构造方法中的 `file.getTasks().getPopulatedFields()` 等 3 行 | [`UserDefinedFieldMap::new`] 按**空集**处理；另提供 [`UserDefinedFieldMap::new_with_populated_fields`] | Rust 侧未移植 `org.mpxj.common.PopulatedFields`（`src/project_file.rs` 文件头「跳过的 Java 方法」已注明 `getPopulatedFields()` 依赖它），`TaskContainer` / `ResourceContainer` / `ResourceAssignmentContainer` 因而都没有 `get_populated_fields()`。**因此 `new` 不会过滤「已被占用」的目标字段**，行为与 Java 有别；`new_with_populated_fields` 保留 Java 第 68 行的过滤语义，供调用方显式传入该集合 |
+//! | 构造方法中的 `file.getTasks().getPopulatedFields()` 等 3 行 | [`UserDefinedFieldMap::new`] 汇总 [`ProjectFile::get_populated_entity_fields`] | Rust 在持有父文件借用时一次收集三类实体的已填充字段，避免容器反向借用父文件 |
 //! | `Map<FieldType, FieldType> m_targetMap` / `m_sourceMap` | `HashMap<MppFieldKey, FieldKey>` / `HashMap<FieldKey, MppFieldKey>` | Java 直接拿 `FieldType` 对象作键；Rust 的键需要 `Copy + Eq + Hash`（见 `crate::field_key`），故用等价键。`m_targetMap` 的源键是自定义字段的 unique ID（与 `UserDefinedField.equals` 一致） |
 //! | `Map<FieldTypeClass, Map<DataType, List<FieldType>>> m_fields` | `HashMap<Option<FieldTypeClass>, HashMap<DataType, Vec<FieldKey>>>` | Java 允许 `fieldTypeClass` 为 `null`（此时用 `null` 作 `HashMap` 键）；Rust 用 `Option` 表达「未知实体类型」这一独立分支，语义一致 |
 //! | `m_sourceMap` 的值为源 `FieldType` 对象 | 另有 `m_sources: HashMap<i32, Rc<RefCell<UserDefinedField>>>` | Java 的 `getSource` 直接返回保存的源对象引用；Rust 的等价键无法还原对象，故额外保存句柄（仅对已生成映射的源字段登记） |
@@ -66,11 +66,12 @@ impl UserDefinedFieldMap {
     ///
     /// 对应 Java: `public UserDefinedFieldMap(ProjectFile file, List<FieldType> targetFieldList)`
     ///
-    /// Java 会用「各实体已填充字段」（`getPopulatedFields()`）过滤掉已被占用的目标字段；
-    /// Rust 侧该方法未移植，故此处按空集处理（见文件头差异表）。需要保持 Java 语义时
-    /// 请改用 [`UserDefinedFieldMap::new_with_populated_fields`]。
+    /// Java 会用「各实体已填充字段」过滤已被占用的目标字段。
     pub fn new(file: &Rc<RefCell<ProjectFile>>, target_field_list: &[FieldKey]) -> Self {
-        Self::build(file, target_field_list, &[])
+        let populated = file.try_borrow()
+            .map(|file| file.get_populated_entity_fields().into_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Self::build(file, target_field_list, &populated)
     }
 
     /// 构造方法（Rust 特有：由调用方给出「已被占用的字段」集合）。
@@ -399,6 +400,31 @@ mod tests {
         );
 
         assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text2)));
+    }
+
+    /// 构造函数应自动排除任务里已有实际值的自定义字段。
+    #[test]
+    fn new_skips_targets_already_used_by_tasks() {
+        let file = ProjectFile::new();
+        let source = source_field(&file, 0x8001, DataType::String);
+        let task = file.borrow_mut().get_tasks_mut().add();
+        task.borrow_mut().set(target(TaskField::Text1), Some("已占用".into()));
+        let mut map = UserDefinedFieldMap::new(
+            &file,
+            &[target(TaskField::Text1), target(TaskField::Text2)],
+        );
+        assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text2)));
+    }
+
+    /// 空文本、零值和 false 都不是 Java `PopulatedFields` 所称的已填充字段。
+    #[test]
+    fn new_keeps_targets_with_only_default_values() {
+        let file = ProjectFile::new();
+        let source = source_field(&file, 0x8001, DataType::String);
+        let task = file.borrow_mut().get_tasks_mut().add();
+        task.borrow_mut().set(target(TaskField::Text1), Some("".into()));
+        let mut map = UserDefinedFieldMap::new(&file, &[target(TaskField::Text1)]);
+        assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text1)));
     }
 
     /// `normaliseDataType` 的分支与 Java 一致。

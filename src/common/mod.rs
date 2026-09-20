@@ -21,6 +21,7 @@ pub mod mpp_task_field;
 pub mod number_helper;
 pub mod object_sequence;
 pub mod pair;
+pub mod populated_fields;
 pub mod project_field_lists;
 pub mod reader_tokenizer;
 pub mod resource_field_lists;

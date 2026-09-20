@@ -67,10 +67,9 @@
 //!   `setLocationUniqueID(...)` 已翻译。
 //! - `getProjectCodeValues()` / `addProjectCodeValue(ProjectCodeValue)`：
 //!   `ProjectCode` / `ProjectCodeValue` 未在 `src/lib.rs` 声明。
-//! - `getPopulatedFields()`：依赖 `org.mpxj.common.PopulatedFields`（未移植），且返回值
-//!   `Set<FieldType>` 需要能容纳 `UserDefinedField`，而 [`crate::field_key::FieldKey`]
-//!   只能用 [`crate::field_key::CustomFieldKey`]（unique ID 等价键）近似表达自定义字段，
-//!   无法承载字段名等元信息。
+//! - `getPopulatedFields()` 已由 [`ProjectProperties::get_populated_fields`] 移植；
+//!   返回 [`crate::field_key::FieldKey`] 集合，用自定义字段的 unique ID 等价键表示身份，
+//!   不包含字段名称等展示元信息。
 //! - `getResourcePoolObject()`：**无法移植**（原因见本节的下一节「无法移植的原因」）。
 //!   `getResourcePoolFile()` / `setResourcePoolFile(...)` 已翻译。
 //! - `removeFieldListener(FieldListener)`：Java 按对象身份移除监听器，Rust 无法表达，
@@ -3744,6 +3743,25 @@ impl ProjectProperties {
         let task = child_tasks.first()?;
         let task_ref = task.try_borrow().ok()?;
         task_ref.get(FieldKey::Task(field))
+    }
+}
+
+impl ProjectProperties {
+    /// 返回项目属性中有非默认缓存值的字段。
+    ///
+    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；自定义字段由父文件
+    /// 调用者传入，避免借用中的项目文件被反向借用。
+    pub fn get_populated_fields(
+        &self,
+        custom: impl IntoIterator<Item = FieldKey>,
+    ) -> std::collections::HashSet<FieldKey> {
+        let defaults = crate::common::populated_fields::Defaults::from_project_properties(self);
+        crate::common::populated_fields::merge_fields(
+            crate::project_field::ProjectField::ALL.map(FieldKey::Project), custom,
+        )
+        .into_iter()
+        .filter(|field| crate::common::populated_fields::is_populated(self, *field, defaults))
+        .collect()
     }
 }
 

@@ -77,7 +77,12 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | `b66f7cd` · 四 | 四-节所列 14 个文件的过期措辞订正完毕（`mpp8/9/12/14_reader`、`mpp_variant_reader`、`shift_container`、`shift_period_container`、`unit_of_measure_container`、`shift_period`、`work_contour`、`work_contour_container`、`notes_topic`、`slack_calculator`、`mpx/task_model`、`mpx/resource_model`）。**同时发现**：`UserDefinedFieldMap` 其实**已落地**（`src/mpp/user_defined_field_map.rs`），原判「未移植」有误；`WorkContour` 的 `impl ProjectEntityWithUniqueID` 写在容器文件里（原注释称「为避免并行冲突」） |
 | `dedfa4d` · 四 | 再订正约 25 处残留「并行 / 本批」措辞（`resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs`、`mpp/custom_field_value_reader14.rs` 等 30 个文件），纯注释、`git diff -U0` 自检确认未动代码行 |
 
-### ⬜ 仍欠
+### 本轮待办核对
+
+本轮工作区（尚未提交）已修复下表的 `FixDeferFix` 工具重复实现、`PopulatedFields`
+及四类容器接线、日历容器基类复用、手动排程分配日历、任务上下文接线；
+原审计正文保留为历史记录。班次、班次时段、计量单位和笔记主题只由
+P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，见下表中的分类。
 
 | 章节 | 条目 | 状态 |
 |---|---|---|
@@ -86,13 +91,13 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | 四 | ~~白名单外仍有过期措辞的文件（14 个）~~ | ✅ `b66f7cd` 已订正 |
 | 四 | 约 25 处残留「并行 / 本批」措辞（审计清单未覆盖，含 `resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs` 等 30 个文件） | ✅ `dedfa4d` 已订正（纯注释，已用 `git diff -U0` 自检确认未动任何代码行） |
 | 二 | **新发现**：`ProjectContext::shared()` 未接线 `resources.set_context(&context)`（只接线了日历容器与序号提供者适配器）⇒ `ResourceContainer` 的上下文弱引用为空、内部序号生成器退化为自带计数器 | ✅ `69c6648` 已接线 |
-| 六 | `mpp/fix_defer_fix.rs` 的 `copy_bytes` / `get_unicode_string` 与 `MPPUtility::get_byte_array` / `get_unicode_string` 是**重复实现**且语义略有差异（本文件越界返回 `None`，`MPPUtility` 版静默不复制）——现已在注释中如实说明，但是否合流需先定调 | 待定调 |
+| 六 | `mpp/fix_defer_fix.rs` 的 `copy_bytes` / `get_unicode_string` 与 `MPPUtility::get_byte_array` / `get_unicode_string` 是**重复实现**且语义略有差异（本文件越界返回 `None`，`MPPUtility` 版静默不复制） | ✅ 本轮：边界验证后转调 `MPPUtility`，删除私有 Unicode 解码副本 |
 | 六 | ~~`mpp/custom_field_value_reader14.rs:16` 的私有常量 `PROJECT_2010` 重复定义~~ | ✅ `0ea4c62` 已改为引用 `ApplicationVersion::PROJECT_2010` |
-| 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 仍未移植（需新增该类型 + 容器的 `get_populated_fields`） | 待接线 |
-| 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类：`ProjectCalendar` 现已实现所需 trait，但基类 `new` 要求**构造时**就有序号提供者，而容器在上下文成型前构造 —— 需先重构 `ProjectContext::shared` 的接线顺序 | 待定调 |
-| 六 | `shift` / `shift_period` / `unit_of_measure` / `notes_topic` 的 Builder 序列提供者；`shift_container` / `shift_period_container` / `unit_of_measure_container` 复用容器基类；`work_contour` / `unit_of_measure` 内 `impl ProjectEntityWithUniqueID` 的归位 | 待接线 |
-| 六 | `ResourceAssignment::get_effective_calendar` 缺 `ManuallyScheduledTaskCalendar` 包装（该类在 `org.mpxj` 根包，需新建） | 待接线 |
-| 六 | `TaskContainer::project_context` 在真实文件上从未接线（`ProjectFile::new_with_context` 的接线阶段文件正被可变借用）⇒ 任务不自动分配 unique ID。启用会消费任务序号、可能改变 MPX reader 现有 unique ID 结果 | 待定调 |
+| 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 与容器的 `get_populated_fields` | ✅ 本轮：四类字段容器使用缓存值判断默认值，映射跳过已占用目标字段 |
+| 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类，缺 unique ID 索引与冲突修复 | ✅ 本轮：构造时传入弱引用序号适配器；修复冲突前重建索引并取上下文真实序列 |
+| 六 | `shift` / `shift_period` / `unit_of_measure` / `notes_topic` 的 Builder 序列提供者及容器基类；`work_contour` / `unit_of_measure` 的 trait 实现归位 | A 类范围限制：前四类及 `unit_of_measure` 是 P6 专用数据；`work_contour` 的 trait 实现已归位 |
+| 六 | `ResourceAssignment::get_effective_calendar` 缺 `ManuallyScheduledTaskCalendar` 包装 | ✅ 本轮：接入临时日历的边界日时段；分配时间在构造时取快照（见该模块差异表） |
+| 六 | `TaskContainer::project_context` 在真实文件上从未接线 | ✅ 本轮：由 `ProjectFile::new_with_context` 显式传入；真实文件创建任务会消费上下文序列 |
 
 ### 经核实「无法还原」（已在对应文件头登记为限制，不再是待办）
 

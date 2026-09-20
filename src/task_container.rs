@@ -14,7 +14,7 @@
 //! | `public void synchronizeTaskIDToHierarchy()` | [`TaskContainer::synchronize_task_id_to_hierarchy`] |
 //! | `private int synchroizeTaskIDToHierarchy(ChildTaskContainer, int, int)` | 私有方法 [`TaskContainer::synchronize_task_id_to_hierarchy_for`]（参数改为「子任务列表」，见下） |
 //! | `void updateStructure()` | [`TaskContainer::update_structure`]（`pub(crate)`，与 Java 的包级可见性对应） |
-//! | `public Set<FieldType> getPopulatedFields()` | **未移植**，见下 |
+//! | `public Set<FieldType> getPopulatedFields()` | [`TaskContainer::get_populated_fields`]（默认值和自定义字段由父文件传入） |
 //! | `public List<CustomField> getCustomFields()` | [`TaskContainer::get_custom_fields`] |
 //! | `public FieldType getFieldTypeByAlias(String alias)` | [`TaskContainer::get_field_type_by_alias`]（返回 `Option<FieldKey>`，见下） |
 //! | `@Override protected int firstUniqueID()` | [`TaskContainer::first_unique_id`] |
@@ -29,7 +29,6 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `public Set<FieldType> getPopulatedFields()`（内部用 `org.mpxj.common.PopulatedFields`） | `PopulatedFields` 未移植（`src/common` 无对应文件），且其构造函数需要 `ProjectFile` / `UserDefinedFieldContainer` 的完整接口。待其落地后补回。 |
 //! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | **已接线**：Java 经 `m_projectFile.getResourceAssignments()` 遍历删除，Rust 侧在 [`TaskContainer::removed`] 中经父 `ProjectFile` 弱引用取容器并逐个 `remove`（调用方正持有 `ProjectFile` 借用时退化为不清理，不 panic）。 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
 //!
@@ -71,6 +70,10 @@
 //!   [`TaskContainer::get_next_id`] 使用。
 //!
 //! # 与 Java 的差异
+//!
+//! | Java | Rust | 说明 |
+//! |---|---|---|
+//! | `getPopulatedFields()` 从父文件取默认值与自定义字段 | 调用者显式传入 | `ProjectFile` 已被借用时容器无法反向借用父文件 |
 //!
 //! - **父文件的反向引用**：Java 的构造方法接收 `ProjectFile` 并保存为强引用
 //!   （`m_projectFile`，同时由基类作为序号生成器提供者）。Rust 侧若强引用会形成
@@ -221,6 +224,24 @@ pub struct TaskContainer {
 }
 
 impl TaskContainer {
+    /// 返回任务中至少有一个非默认缓存值的字段。
+    ///
+    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；父文件借用期间由
+    /// 调用者传入默认值及自定义字段，避免通过弱引用反向借用父文件。
+    pub fn get_populated_fields(
+        &self,
+        custom: impl IntoIterator<Item = FieldKey>,
+        defaults: crate::common::populated_fields::Defaults,
+    ) -> std::collections::HashSet<FieldKey> {
+        crate::common::populated_fields::get_populated_fields(
+            crate::common::populated_fields::merge_fields(
+                crate::task_field::TaskField::ALL.map(FieldKey::Task), custom,
+            ),
+            self.iter().cloned(),
+            defaults,
+        )
+    }
+
     /// 构造方法。
     ///
     /// 对应 Java: `public TaskContainer(ProjectFile projectFile)`
@@ -249,6 +270,17 @@ impl TaskContainer {
             Ok(file_ref) => Rc::downgrade(&file_ref.get_project_context()),
             Err(_) => Weak::new(),
         };
+    }
+
+    /// 构造父文件时接线已持有的项目上下文。
+    ///
+    /// 对应 Java: `TaskContainer(ProjectFile)` 中经父文件获取的 `ProjectContext`；
+    /// Rust 构造阶段父文件正被可变借用，需由拥有上下文的调用者显式传入。
+    pub(crate) fn set_project_context(
+        &mut self,
+        context: &Rc<RefCell<crate::project_context::ProjectContext>>,
+    ) {
+        self.project_context = Rc::downgrade(context);
     }
 
     /// 取父项目文件（未接线时返回 `None`）。

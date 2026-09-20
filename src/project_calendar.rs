@@ -3,6 +3,12 @@
 //! 日历定义：既表示基日历，也表示从基日历派生的日历。定义了每周的工作日 /
 //! 非工作日，默认日历将周一到周五定义为工作日。
 //!
+//! # 与 Java 的差异
+//!
+//! | Java | Rust | 说明 |
+//! |---|---|---|
+//! | `ManuallyScheduledTaskCalendar extends ProjectCalendar` 并覆写日期时段 | 临时日历内保存手动排程规则 | Rust 调用者持有具体日历共享句柄，详见 `manually_scheduled_task_calendar` 文件头 |
+//!
 //! # 继承被拍平
 //!
 //! Java 的 `ProjectCalendar extends ProjectCalendarDays` 在 Rust 中无法表达。
@@ -95,7 +101,7 @@
 //! ProjectContext::get_resources(&self) -> &ResourceContainer
 //! ProjectCalendarContainer::get_default_calendar_unique_id(&self) -> Option<i32>
 //! ProjectCalendarContainer::set_default_calendar_unique_id(&mut self, Option<i32>)
-//! ProjectCalendarContainer::update_unique_id(&mut self, old: Option<i32>, new: Option<i32>)
+//! ProjectCalendarContainer::update_unique_id_for_calendar(&mut self, element, old, new)
 //! ProjectCalendarContainer::remove(&mut self, calendar: &ProjectCalendar) -> bool
 //! ProjectCalendarContainer::as_slice(&self) -> &[Rc<RefCell<ProjectCalendar>>]
 //! ```
@@ -141,6 +147,10 @@ use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 ///
 /// 对应 Java: `public class ProjectCalendar extends ProjectCalendarDays implements ProjectEntityWithMutableUniqueID, TimeUnitDefaultsContainer`
 pub struct ProjectCalendar {
+    /// Java `this` 用于向容器更新 unique ID 索引，Rust 用弱引用断环。
+    self_ref: Weak<RefCell<ProjectCalendar>>,
+    /// 手动排程分配的有效时段规则；Java 通过子类覆写 `getRanges(LocalDate)`。
+    manual_schedule: Option<crate::manually_scheduled_task_calendar::ManualSchedule>,
     /// 对应 Java 的继承关系 `extends ProjectCalendarDays`（继承被拍平为字段组合）
     days: ProjectCalendarDays,
 
@@ -278,6 +288,8 @@ impl ProjectCalendar {
         }
 
         ProjectCalendar {
+            self_ref: Weak::new(),
+            manual_schedule: None,
             days: ProjectCalendarDays::new(),
             parent: Weak::new(),
             unique_id,
@@ -300,6 +312,25 @@ impl ProjectCalendar {
             temporary_calendar,
             context,
         }
+    }
+
+    /// 安装手动排程的日期时段计算规则。
+    ///
+    /// 对应 Java: `ManuallyScheduledTaskCalendar extends ProjectCalendar` 并覆写
+    /// `getRanges(LocalDate)`；Rust 的共享句柄固定为 `ProjectCalendar`，故将覆写规则
+    /// 保存在临时日历内。仅由包装构造方法调用。
+    pub(crate) fn set_manual_schedule(
+        &mut self,
+        schedule: crate::manually_scheduled_task_calendar::ManualSchedule,
+    ) {
+        self.manual_schedule = Some(schedule);
+    }
+
+    /// 为 Java `setUniqueID` 中的 `this` 回调接线自身句柄。
+    ///
+    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(this, oldID, newID)`。
+    pub(crate) fn set_self_ref(&mut self, self_ref: Weak<RefCell<ProjectCalendar>>) {
+        self.self_ref = self_ref;
     }
 
     /// 取父 `ProjectContext`（上下文已释放时返回 `None`）。
@@ -1332,15 +1363,18 @@ impl ProjectCalendar {
     ///
     /// 临时日历不修改上下文的日历唯一 ID 映射（对应 Java 的
     /// `if (!m_temporaryCalendar)` 守卫）。Java 把 `this` 一并交给容器的
-    /// `updateUniqueID(element, old, new)`；Rust 侧容器的对应方法不需要元素参数
-    /// （见 `ProjectCalendarContainer::update_unique_id` 的说明），故此处只传新旧值。
+    /// `updateUniqueID(element, old, new)`；Rust 侧从 `self_ref` 获取句柄回调容器，
+    /// 上下文已被借用时由冲突修复前的索引重建补齐。
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         if !self.temporary_calendar {
             if let Some(context) = self.context.upgrade() {
                 if let Ok(mut context_ref) = context.try_borrow_mut() {
                     context_ref
+                        .get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>())
+                        .sync(unique_id);
+                    context_ref
                         .get_calendars_mut()
-                        .update_unique_id(self.unique_id, unique_id);
+                        .update_unique_id_for_calendar(self.self_ref.upgrade(), self.unique_id, unique_id);
                 }
             }
         }
@@ -1921,6 +1955,9 @@ impl ProjectCalendar {
     ///
     /// Java 可能返回 `null`（基日历无对应时段时），Rust 侧统一返回空集合。
     pub fn get_ranges(&self, date: NaiveDate) -> ProjectCalendarHours {
+        if let Some(schedule) = &self.manual_schedule {
+            return schedule.get_ranges(date);
+        }
         // 先检查本日历及任何基日历上针对该日期的例外
         if let Some(exception) = self.get_exception(date) {
             return exception.get_hours().clone();

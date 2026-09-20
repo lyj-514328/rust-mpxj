@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::project_entity_container::ProjectEntityContainer;
-use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 use crate::work_contour::WorkContour;
 
@@ -24,9 +23,8 @@ use crate::work_contour::WorkContour;
 /// - `fixUniqueIdClashes()` **未**转发：Java 中只有 unique ID 可变的实体才会进入冲突列表，
 ///   而 `WorkContour` 的 unique ID 是 `final`（其 `ProjectEntityWithUniqueID` 实现只有读取
 ///   方法），冲突列表恒为空，转发该方法没有意义。
-/// - Java 的 `WorkContour implements ProjectEntityWithUniqueID`：Rust 侧的该 `impl` 目前写在
-///   本文件（早期并行开发期为避免跨文件冲突而放在容器文件内），属待归位项 ——
-///   见 `TECH_DEBT.md` 六；归位后本文件只需保留上面的容器逻辑。
+/// - Java 的 `WorkContour implements ProjectEntityWithUniqueID`：Rust 侧的实现已归位到
+///   [`crate::work_contour`]，本文件只保留容器逻辑。
 ///
 /// 被跳过的 Java 代码：`fixUniqueIdClashes()`（见上）。
 ///
@@ -36,17 +34,6 @@ pub struct WorkContourContainer {
     ///
     /// 对应 Java 的 `extends ProjectEntityContainer<WorkContour>`。
     container: ProjectEntityContainer<WorkContour>,
-}
-
-/// Java 侧 `WorkContour` 实现了 `ProjectEntityWithUniqueID`；这里补上 Rust 侧的 `impl`。
-///
-/// 调用的是 `WorkContour` 自带的同名方法（`impl` 内的 `WorkContour::get_unique_id`），
-/// 不存在递归。
-impl ProjectEntityWithUniqueID for WorkContour {
-    /// 对应 Java: `@Override public Integer getUniqueID()`
-    fn get_unique_id(&self) -> Option<i32> {
-        WorkContour::get_unique_id(self)
-    }
 }
 
 impl WorkContourContainer {
@@ -180,6 +167,7 @@ impl std::fmt::Debug for WorkContourContainer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
     use crate::common::object_sequence::ObjectSequence;
     use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
     use std::any::TypeId;
