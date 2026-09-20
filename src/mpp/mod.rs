@@ -80,13 +80,16 @@ pub mod timephased_data_factory;
 pub mod work_contour_helper;
 
 // ---- variant reader 主体 ----
-
-pub mod mpp_variant_reader;
-pub mod mpp8_reader;
-pub mod mpp9_reader;
-pub mod mpp12_reader;
-pub mod mpp14_reader;
-pub mod mpp_reader;
+//
+// 待展示层（视图 / 表 / 筛选 / 分组 / 图形化指标）落地后启用 —— MPP8/9/12/14Reader
+// 在读取文件尾部时会实例化 ViewFactory*、TableFactory*、FilterReader*、GroupReader*、
+// ViewStateReader*、GraphicalIndicatorReader，它们目前尚未移植。
+// pub mod mpp_variant_reader;
+// pub mod mpp8_reader;
+// pub mod mpp9_reader;
+// pub mod mpp12_reader;
+// pub mod mpp14_reader;
+// pub mod mpp_reader;
 
 // ---- Rust 特有 ----
 
