@@ -44,8 +44,14 @@ class CompareJsonTest(unittest.TestCase):
     def test_all_fields_requires_catalog_and_exclusions(self):
         snapshot = self.full_snapshot()
         del snapshot["field_catalog"]
-        with self.assertRaisesRegex(ValueError, "缺少全字段目录"):
+        with self.assertRaisesRegex(ValueError, "扩展容器"):
             validate_snapshot(snapshot, "Rust", True)
+
+    def test_all_fields_requires_extended_containers(self):
+        snapshot = self.full_snapshot()
+        del snapshot["data_links"]
+        with self.assertRaisesRegex(ValueError, "扩展容器"):
+            validate_snapshot(snapshot, "Java", True)
 
     def test_all_fields_rejects_duplicate_or_unlisted_values(self):
         snapshot = self.full_snapshot()
@@ -62,6 +68,21 @@ class CompareJsonTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "被排除"):
             validate_snapshot(snapshot, "Java", True)
 
+    def test_all_fields_requires_calendar_and_resource_details(self):
+        snapshot = self.full_snapshot()
+        snapshot["calendars"].append({"details": {"days": [None] * 7, "work_weeks": [], "exceptions": []}})
+        snapshot["resources"].append({"details": {"availability": [], "cost_rate_tables": [None] * 5}, "field_values": []})
+        validate_snapshot(snapshot, "Rust", True)
+        del snapshot["calendars"][0]["details"]
+        with self.assertRaisesRegex(ValueError, "缺少对象详情"):
+            validate_snapshot(snapshot, "Rust", True)
+
+    def test_all_fields_requires_display_containers(self):
+        snapshot = self.full_snapshot()
+        del snapshot["tables"]
+        with self.assertRaisesRegex(ValueError, "扩展容器"):
+            validate_snapshot(snapshot, "Java", True)
+
     @staticmethod
     def full_snapshot():
         groups = ("properties", "tasks", "resources", "assignments")
@@ -70,6 +91,9 @@ class CompareJsonTest(unittest.TestCase):
                     "resources": [], "assignments": [], "relations": [], "calendars": []}
         snapshot["field_catalog"] = {group: ["ID"] for group in groups}
         snapshot["field_exclusions"] = {group: [] for group in groups}
+        snapshot.update({"views": [], "tables": [], "groups": [], "task_filters": [],
+                         "resource_filters": [], "view_state": None, "user_defined_fields": [],
+                         "work_contours": [], "data_links": []})
         return snapshot
 
 

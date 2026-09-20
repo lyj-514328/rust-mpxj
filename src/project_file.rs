@@ -907,7 +907,11 @@ impl ProjectFile {
     pub fn set_default_calendar(&mut self, calendar: Option<Rc<RefCell<ProjectCalendar>>>) {
         // Java: if (calendar != null) { m_properties.setDefaultCalendar(calendar); }
         if let Some(calendar) = calendar {
+            let id = calendar.try_borrow().ok().and_then(|value| value.get_unique_id());
             self.properties.set_default_calendar(Some(calendar));
+            if let Ok(mut context) = self.context.try_borrow_mut() {
+                context.get_calendars_mut().set_default_calendar_unique_id(id);
+            }
         }
     }
 

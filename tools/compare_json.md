@@ -1,5 +1,17 @@
 # ProjectFile JSON 对拍
 
+并发编排由 `tools/run_json_compare.py` 负责，使用 Python 线程池启动独立的 Java、Rust 和比较器进程；JSON 以 UTF-8 字节流保存，避免 Windows 控制台代码页改写非 ASCII 字符。
+
+```powershell
+python -X utf8 -B tools/run_json_compare.py --all-fields --parallelism 8
+```
+
+已有的 PowerShell 入口仍然保留，会把参数转发给 Python：
+
+```powershell
+./tools/run_json_compare.ps1 -AllFields -Parallelism 8 -Quiet
+```
+
 在仓库根目录执行：
 
 ```powershell
@@ -37,7 +49,7 @@ if ($samples.Count -ne 625) { throw "样本总数不符: $($samples.Count)" }
 
 Java 参考实现取自本仓库固定的子模块提交 `c5e1320` 的**本地构建 jar**，而不是 Maven 仓库下载的同版本 jar。源码变动后，下一次对拍会自动重新构建，确保 jar 与源码版本一致。
 
-默认模式仍保持精简的基础快照。`-AllFields` 则覆盖四类实体的全部内置字段和已声明的自定义字段值；关系、日历基础属性仍按基础快照输出。日历工作时段、资源可用性/费率表、展示数据以及其它不属于 `FieldType` 的对象图数据尚未纳入 JSON schema，因此不能把该模式解释为 MPXJ `JsonWriter` 的逐对象完全序列化；这些结构需要各自的稳定跨语言表示后再加入。
+默认模式仍保持精简的基础快照。`-AllFields` 覆盖四类实体的全部内置字段和已声明的自定义字段值，并附加日历工作周/例外/星期时段、资源可用性与五张费率表、视图/表格/列、筛选/分组、用户字段定义、数据链接等对象。关系及其它未列出的展示细节仍不属于 schema；MPXJ 的十个内置 `WorkContour` 是静态常量，不作为容器成员输出。该模式仍不是 MPXJ `JsonWriter` 的逐对象完全序列化，未覆盖的对象会继续列在本说明中。
 
 日期是本地时间并保留纳秒，不做时区变换；工期保存原始数值和单位枚举整数；JSON 的 `null` 与缺少键不同。对象键顺序不参与比较；实体列表用 unique ID（缺失时备用键和出现序号）匹配，重复 ID 不会被吞掉。所有差异均显示 JSON 路径；解析或工具出错时停止，不当作「一致」。
 

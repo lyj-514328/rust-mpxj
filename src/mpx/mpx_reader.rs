@@ -2295,9 +2295,7 @@ impl MPXReader {
         };
 
         if let Some(default_calendar) = default_calendar {
-            file.borrow_mut()
-                .get_project_properties_mut()
-                .set_default_calendar(Some(Rc::clone(&default_calendar)));
+            file.borrow_mut().set_default_calendar(Some(Rc::clone(&default_calendar)));
         }
 
         //

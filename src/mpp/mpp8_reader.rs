@@ -598,10 +598,7 @@ impl MPP8ReaderState {
         };
 
         if let Some(project_default_calendar) = project_default_calendar {
-            self.file
-                .borrow_mut()
-                .get_project_properties_mut()
-                .set_default_calendar(Some(project_default_calendar));
+            self.file.borrow_mut().set_default_calendar(Some(project_default_calendar));
         }
 
         Ok(())

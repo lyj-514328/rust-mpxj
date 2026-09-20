@@ -14,8 +14,8 @@
 //! |---|---|---|
 //! | `DataLinkFactory(ProjectFile project, FixedData fixedData, Var2Data varData)` | [`DataLinkFactory::new`] 取三个参数的**所有权** | Java 只保存引用（`m_fixedData` / `m_varData`）；Rust 的 `FixedData` / `Var2Data` 没有共享句柄，`ProjectFile` 则用 `Rc<RefCell<..>>` |
 //! | `process() throws IOException` | [`DataLinkFactory::process`] 返回 `MpxjResult<()>` | Java 的 `IOException` 来自 `Props14` 构造；Rust 侧统一用 [`MpxjError`] |
-//! | `Map<String, DataLink> map = new HashMap<>()` | `BTreeMap<String, Rc<RefCell<DataLink>>>` | Java 的 `HashMap` 迭代顺序不确定，而 `addAll(map.values())` 的写入顺序依赖迭代顺序；Rust 侧用 `BTreeMap` 让顺序稳定（内容等价） |
-//! | `new DataLink(dataLinkID)`（`dataLinkID` 可为 `null`） | `DataLink::new(id)`，`null` 用空串代替 | Rust 的 `DataLink::new` 接收 `impl Into<String>`，无法承载 `null`（见 `crate::data_link`） |
+//! | `Map<String, DataLink> map = new HashMap<>()` | `BTreeMap<Option<String>, Rc<RefCell<DataLink>>>` | Java 的 `HashMap` 迭代顺序不确定；Rust 侧用 `BTreeMap` 让顺序稳定，并保留 `null` 与空串不同的键 |
+//! | `new DataLink(dataLinkID)`（`dataLinkID` 可为 `null`） | `DataLink::new_nullable(id)` | 与 Java 一样保留 `null` |
 //! | `m_project.getDataLinks().addAll(...)` | 逐条 `DataLinkContainer::add` | Rust 的容器没有 `addAll` |
 //! | `data[112]`（数组不足 113 字节时 Java 抛 `ArrayIndexOutOfBoundsException`） | 长度不足时跳过该条记录 | 不 panic |
 //!
@@ -94,7 +94,7 @@ impl DataLinkFactory {
         };
 
         // Java: Map<String, DataLink> map = new HashMap<>();
-        let mut map: BTreeMap<String, Rc<RefCell<DataLink>>> = BTreeMap::new();
+        let mut map: BTreeMap<Option<String>, Rc<RefCell<DataLink>>> = BTreeMap::new();
 
         // Java: int itemCount = m_fixedData.getItemCount();
         let item_count = self.fixed_data.get_item_count();
@@ -142,7 +142,7 @@ impl DataLinkFactory {
     fn process_data_link(
         &self,
         data: &[u8],
-        map: &mut BTreeMap<String, Rc<RefCell<DataLink>>>,
+        map: &mut BTreeMap<Option<String>, Rc<RefCell<DataLink>>>,
     ) -> MpxjResult<()> {
         // Java: Props props = new Props14(m_project, new ByteArrayInputStream(data));
         let props = Props14::new(&self.project, data)?;
@@ -150,11 +150,8 @@ impl DataLinkFactory {
         // Java: String dataLinkID = props.getUnicodeString(PropsKey.DATA_LINK_PATH);
         //       DataLink dataLink = map.computeIfAbsent(dataLinkID, DataLink::new);
         let data_link_id = props.get_unicode_string(PropsKey::DataLinkPath);
-        let key = data_link_id.clone().unwrap_or_default();
-        let data_link = Rc::clone(map.entry(key).or_insert_with(|| {
-            Rc::new(RefCell::new(DataLink::new(
-                data_link_id.clone().unwrap_or_default(),
-            )))
+        let data_link = Rc::clone(map.entry(data_link_id.clone()).or_insert_with(|| {
+            Rc::new(RefCell::new(DataLink::new_nullable(data_link_id.clone())))
         }));
 
         // Java: Integer rowUniqueID = Integer.valueOf(props.getInt(PropsKey.DATA_LINK_UNIQUE_ID));

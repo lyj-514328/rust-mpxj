@@ -9,7 +9,7 @@
 //! | Java | Rust |
 //! |---|---|
 //! | `public DataLink(String id)` | [`DataLink::new`] |
-//! | `public String getID()` | [`DataLink::get_id`]（返回 `&str`，Java 返回 `String`） |
+//! | `public String getID()` | [`DataLink::get_nullable_id`]；兼容旧 API 的 [`DataLink::get_id`] 将 `null` 映射为空串 |
 //! | `public FieldType getSourceField()` | [`DataLink::get_source_field`]（返回 `Option<FieldKey>`，见下） |
 //! | `public void setSourceField(FieldType)` | [`DataLink::set_source_field`] |
 //! | `public Integer getSourceUniqueID()` | [`DataLink::get_source_unique_id`] |
@@ -26,8 +26,11 @@
 //!   返回 `FieldType` 接口；Rust 侧按本 crate 的约定改用其运行时擦除形式
 //!   [`FieldKey`]（见 `crate::field_key`），并用 `FieldType::get_field_type_class` /
 //!   `FieldType::name` 复现 Java `toString()` 中 `FieldTypeClass.name()` 的输出。
-//! - **可空字段 → `Option<T>`**：Java 中除 `m_id` 外均可为 `null`（`Integer` → `Option<i32>`，
+//! - **可空字段 → `Option<T>`**：Java 字段可为 `null`（`Integer` → `Option<i32>`，
 //!   `FieldType` → `Option<FieldKey>`）。
+//! - **`get_id` 兼容入口**：Java 的 `m_id` 也可为 `null`；模型保留
+//!   `Option<String>`，旧 `get_id()` 为保持 API 兼容把 `None` 表示为空串；
+//!   精确语义请调用 `get_nullable_id()`。
 //! - **未派生 `PartialEq` / `Eq` / `Hash`**：Java 的 `DataLink` 未覆写
 //!   `equals` / `hashCode`（沿用对象同一性），因此 Rust 侧不提供结构相等，
 //!   容器中的「按引用相等移除」由 [`crate::data_link_container::DataLinkContainer`]
@@ -52,7 +55,7 @@ pub struct DataLink {
     /// 链接标识。
     ///
     /// 对应 Java: `private final String m_id;`
-    id: String,
+    id: Option<String>,
 
     /// 源字段。
     ///
@@ -80,8 +83,15 @@ impl DataLink {
     ///
     /// 对应 Java: `public DataLink(String id)`
     pub fn new(id: impl Into<String>) -> Self {
+        Self::new_nullable(Some(id.into()))
+    }
+
+    /// 构造允许空标识的链接，保留 Java 的 `null` 和空字符串区别。
+    ///
+    /// 对应 Java: `public DataLink(String id)`（`id == null`）。
+    pub fn new_nullable(id: Option<String>) -> Self {
         Self {
-            id: id.into(),
+            id,
             source_field: None,
             source_unique_id: None,
             target_field: None,
@@ -93,7 +103,14 @@ impl DataLink {
     ///
     /// 对应 Java: `public String getID()`
     pub fn get_id(&self) -> &str {
-        &self.id
+        self.id.as_deref().unwrap_or("")
+    }
+
+    /// 取可空标识，供需要区分 Java `null` 与空串的调用方使用。
+    ///
+    /// 对应 Java: `public String getID()`。
+    pub fn get_nullable_id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     /// 取源字段。
@@ -156,7 +173,7 @@ impl DataLink {
 impl Display for DataLink {
     /// 对应 Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[DataLink id={}", self.id)?;
+        write!(f, "[DataLink id={}", self.id.as_deref().unwrap_or("null"))?;
 
         if let Some(source_field) = self.source_field {
             write!(
@@ -204,6 +221,15 @@ mod tests {
         assert!(link.get_source_unique_id().is_none());
         assert!(link.get_target_field().is_none());
         assert!(link.get_target_unique_id().is_none());
+    }
+
+    #[test]
+    fn nullable_link_id_distinguishes_null_from_empty() {
+        let missing = DataLink::new_nullable(None);
+        let empty = DataLink::new("");
+        assert_eq!(missing.get_nullable_id(), None);
+        assert_eq!(empty.get_nullable_id(), Some(""));
+        assert_eq!(missing.to_string(), "[DataLink id=null]");
     }
 
     #[test]

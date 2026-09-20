@@ -402,8 +402,7 @@ impl AbstractCalendarFactory {
 
         if let Some(project_default_calendar) = project_default_calendar {
             if let Ok(mut file) = self.file.try_borrow_mut() {
-                file.get_project_properties_mut()
-                    .set_default_calendar(Some(project_default_calendar));
+                file.set_default_calendar(Some(project_default_calendar));
             }
         }
 

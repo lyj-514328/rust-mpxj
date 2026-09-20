@@ -14,6 +14,14 @@ KEYS = {
     "assignments": (("unique_id",), ("task_unique_id", "resource_unique_id")),
     "relations": (("unique_id",), ("predecessor_unique_id", "successor_unique_id", "type")),
     "calendars": (("unique_id",), ("name",)),
+    "views": (("id",), ("name",)),
+    "tables": (("id",), ("name",)),
+    "groups": (("id",), ("name",)),
+    "task_filters": (("id",), ("name",)),
+    "resource_filters": (("id",), ("name",)),
+    "user_defined_fields": (("unique_id",), ("internal_name",)),
+    "work_contours": (("unique_id",), ("name",)),
+    "data_links": (("id",), ("source_unique_id", "target_unique_id")),
     "field_values": (("name",),),
 }
 MISSING = object()
@@ -28,6 +36,36 @@ def validate_snapshot(snapshot, side, require_all_fields=False):
         raise ValueError(f"{side} 快照缺少必需容器: {missing}")
     if not require_all_fields:
         return
+    required_extended = {"field_catalog", "field_exclusions", "tables", "views", "view_state", "groups",
+                         "task_filters", "resource_filters", "user_defined_fields", "work_contours", "data_links"}
+    if not required_extended <= snapshot.keys():
+        raise ValueError(f"{side} 缺少全字段扩展容器: {sorted(required_extended - snapshot.keys())}")
+    for group in ("calendars", "resources", "views", "tables", "groups", "task_filters", "resource_filters",
+                  "user_defined_fields", "work_contours", "data_links"):
+        entities = snapshot.get(group)
+        if not isinstance(entities, list) or any(not isinstance(entity, dict) for entity in entities):
+            raise ValueError(f"{side}.{group} 容器缺失或无效")
+    if "view_state" not in snapshot:
+        raise ValueError(f"{side} 缺少视图状态")
+    for group in ("calendars", "resources"):
+        for index, entity in enumerate(snapshot[group]):
+            details = entity.get("details")
+            if not isinstance(details, dict):
+                raise ValueError(f"{side}.{group}[{index}] 缺少对象详情")
+            if group == "calendars":
+                if not isinstance(details.get("days"), list) or len(details["days"]) != 7:
+                    raise ValueError(f"{side}.{group}[{index}] 缺少每周七天")
+                if not isinstance(details.get("work_weeks"), list) or not isinstance(details.get("exceptions"), list):
+                    raise ValueError(f"{side}.{group}[{index}] 缺少工作周或例外")
+            elif (not isinstance(details.get("availability"), list) or
+                  not isinstance(details.get("cost_rate_tables"), list) or len(details["cost_rate_tables"]) != 5):
+                raise ValueError(f"{side}.{group}[{index}] 缺少可用性或五张费率表")
+    for index, entry in enumerate(snapshot["tables"]):
+        if not isinstance(entry.get("columns"), list):
+            raise ValueError(f"{side}.tables[{index}] 缺少表格列")
+    for index, entry in enumerate(snapshot["groups"]):
+        if not isinstance(entry.get("clauses"), list):
+            raise ValueError(f"{side}.groups[{index}] 缺少分组条件")
     catalogs = snapshot.get("field_catalog")
     exclusions = snapshot.get("field_exclusions")
     if not isinstance(catalogs, dict) or not isinstance(exclusions, dict):

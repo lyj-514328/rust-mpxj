@@ -3,6 +3,8 @@
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,6 +24,25 @@ import org.mpxj.LocalDateTimeRange;
 import org.mpxj.MpxjEnum;
 import org.mpxj.Notes;
 import org.mpxj.Priority;
+import org.mpxj.ProjectCalendar;
+import org.mpxj.ProjectCalendarWeek;
+import org.mpxj.ProjectCalendarException;
+import org.mpxj.ProjectCalendarDays;
+import org.mpxj.ProjectCalendarHours;
+import org.mpxj.LocalTimeRange;
+import org.mpxj.RecurringData;
+import org.mpxj.CostRateTable;
+import org.mpxj.CostRateTableEntry;
+import org.mpxj.Availability;
+import org.mpxj.View;
+import org.mpxj.Table;
+import org.mpxj.Column;
+import org.mpxj.Filter;
+import org.mpxj.GenericCriteria;
+import org.mpxj.GenericCriteriaPrompt;
+import org.mpxj.Group;
+import org.mpxj.GroupClause;
+import org.mpxj.DataLink;
 import org.mpxj.ProjectField;
 import org.mpxj.ProjectFile;
 import org.mpxj.Rate;
@@ -63,6 +84,191 @@ public final class JsonSnapshot
    private static Map<String, Object> duration(Duration value)
    {
       return value == null ? null : fields("value", value.getDuration(), "unit", value.getUnits().getValue());
+   }
+
+   // 保留数组顺序（星期日先于星期一），并区分不存在与空工作时段。
+   private static Object calendarDays(ProjectCalendarDays days)
+   {
+      List<Object> result = new ArrayList<>();
+      var types = days.getCalendarDayTypes();
+      var hours = days.getCalendarHours();
+      for (int day = 0; day < 7; day++)
+      {
+         List<Object> ranges = null;
+         if (hours[day] != null)
+         {
+            ranges = new ArrayList<>();
+            for (LocalTimeRange range : hours[day])
+            {
+               ranges.add(fields("start", time(range.getStart()), "end", time(range.getEnd())));
+            }
+         }
+         result.add(fields("type", types[day] == null ? null : types[day].getValue(), "hours", ranges));
+      }
+      return result;
+   }
+
+   private static String time(LocalTime value)
+   {
+      return value == null ? null : value.format(DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSSSSS"));
+   }
+
+   private static String day(LocalDate value)
+   {
+      return value == null ? null : value.toString();
+   }
+
+   private static Object recurrence(RecurringData value)
+   {
+      if (value == null) { return null; }
+      List<Object> weeklyDays = new ArrayList<>();
+      for (java.time.DayOfWeek weekday : java.time.DayOfWeek.values())
+      {
+         weeklyDays.add(value.getWeeklyDay(weekday));
+      }
+      return fields("start", day(value.getStartDate()), "finish", day(value.getFinishDate()),
+         "occurrences", value.getOccurrences(), "type", value.getRecurrenceType() == null ? null : value.getRecurrenceType().getValue(),
+         "use_end_date", value.getUseEndDate(), "working_days_only", value.getWorkingDaysOnly(),
+         "weekly_days", weeklyDays, "relative", value.getRelative(), "frequency", value.getFrequency(),
+         "day_of_week", value.getDayOfWeek() == null ? null : value.getDayOfWeek().getValue(),
+         "day_number", value.getDayNumber(), "month_number", value.getMonthNumber());
+   }
+
+   private static Object calendarException(ProjectCalendarException value)
+   {
+      List<Object> hours = new ArrayList<>();
+      for (LocalTimeRange range : value)
+      {
+         hours.add(fields("start", time(range.getStart()), "end", time(range.getEnd())));
+      }
+      return fields("name", value.getName(), "from", day(value.getFromDate()), "to", day(value.getToDate()),
+         "recurring", recurrence(value.getRecurring()), "working", value.getWorking(), "hours", hours);
+   }
+
+   private static Object calendarDetails(ProjectCalendar calendar)
+   {
+      List<Object> weeks = new ArrayList<>();
+      for (ProjectCalendarWeek week : calendar.getWorkWeeks())
+      {
+         var range = week.getDateRange();
+         weeks.add(fields("name", week.getName(), "range", range == null ? null :
+            fields("start", day(range.getStart()), "end", day(range.getEnd())), "days", calendarDays(week)));
+      }
+      List<Object> exceptions = new ArrayList<>();
+      for (ProjectCalendarException exception : calendar.getCalendarExceptions())
+      {
+         exceptions.add(calendarException(exception));
+      }
+      return fields("default", calendar.getDefault(), "guid", calendar.getGUID() == null ? null : calendar.getGUID().toString(),
+         "calendar_minutes_per_day", calendar.getCalendarMinutesPerDay(),
+         "calendar_minutes_per_week", calendar.getCalendarMinutesPerWeek(),
+         "calendar_minutes_per_month", calendar.getCalendarMinutesPerMonth(),
+         "calendar_minutes_per_year", calendar.getCalendarMinutesPerYear(),
+         "days", calendarDays(calendar), "work_weeks", weeks, "exceptions", exceptions);
+   }
+
+   private static Object resourceDetails(Resource resource)
+   {
+      List<Object> availability = new ArrayList<>();
+      for (Availability item : resource.getAvailability())
+      {
+         availability.add(fields("start", date(item.getRange().getStart()),
+            "end", date(item.getRange().getEnd()), "units", item.getUnits()));
+      }
+      List<Object> tables = new ArrayList<>();
+      for (int index = 0; index < 5; index++)
+      {
+         CostRateTable table = resource.getCostRateTable(index);
+         if (table == null) { tables.add(null); continue; }
+         List<Object> entries = new ArrayList<>();
+         for (CostRateTableEntry entry : table)
+         {
+            List<Object> rates = new ArrayList<>();
+            for (int rateIndex = 0; rateIndex < 5; rateIndex++)
+            {
+               rates.add(fieldValue(entry.getRate(rateIndex)));
+            }
+            entries.add(fields("start", date(entry.getStartDate()), "end", date(entry.getEndDate()),
+               "rates", rates, "cost_per_use", entry.getCostPerUse()));
+         }
+         tables.add(entries);
+      }
+      return fields("availability", availability, "cost_rate_tables", tables);
+   }
+
+   private static Object table(Table value)
+   {
+      if (value == null) { return null; }
+      List<Object> columns = new ArrayList<>();
+      for (Column column : value.getColumns())
+      {
+         columns.add(fields("field", column.getFieldType() == null ? null : fieldName(column.getFieldType()),
+            "width", column.getWidth(), "title", column.getTitle(),
+            "align_title", column.getAlignTitle(), "align_data", column.getAlignData()));
+      }
+      return fields("id", value.getID(), "name", value.getName(),
+         "resource", value.getResourceFlag(), "columns", columns);
+   }
+
+   private static Object view(View value)
+   {
+      return fields("id", value.getID(), "name", value.getName(),
+         "type", value.getType() == null ? null : value.getType().getValue(),
+         "table_name", value.getTableName(),
+         "table_id", value.getTable() == null ? null : value.getTable().getID());
+   }
+
+   private static Object criteriaValue(Object value)
+   {
+      if (value instanceof FieldType) { return fields("field", fieldName((FieldType) value)); }
+      if (value instanceof GenericCriteriaPrompt)
+      {
+         GenericCriteriaPrompt prompt = (GenericCriteriaPrompt) value;
+         return fields("prompt", prompt.getPrompt(), "type", prompt.getType().getValue());
+      }
+      return fieldValue(value);
+   }
+
+   private static Object criteria(GenericCriteria value)
+   {
+      if (value == null) { return null; }
+      List<Object> children = new ArrayList<>();
+      for (GenericCriteria child : value.getCriteriaList()) { children.add(criteria(child)); }
+      return fields("field", value.getLeftValue() == null ? null : fieldName(value.getLeftValue()),
+         "operator", value.getOperator() == null ? null : value.getOperator().getValue(),
+         "values", Arrays.asList(criteriaValue(value.getValue(0)), criteriaValue(value.getValue(1))),
+         "children", children);
+   }
+
+   private static Object filter(Filter value)
+   {
+      List<Object> prompts = null;
+      if (value.getPrompts() != null)
+      {
+         prompts = new ArrayList<>();
+         for (GenericCriteriaPrompt prompt : value.getPrompts())
+         {
+            prompts.add(fields("prompt", prompt.getPrompt(), "type", prompt.getType().getValue()));
+         }
+      }
+      return fields("id", value.getID(), "name", value.getName(),
+         "show_related_summary_rows", value.getShowRelatedSummaryRows(),
+         "task", value.isTaskFilter(), "resource", value.isResourceFilter(),
+         "criteria", criteria(value.getCriteria()), "prompts", prompts);
+   }
+
+   private static Object group(Group value)
+   {
+      List<Object> clauses = new ArrayList<>();
+      for (GroupClause clause : value.getGroupClauses())
+      {
+         clauses.add(fields("ascending", clause.getAscending(),
+            "field", clause.getField() == null ? null : fieldName(clause.getField()),
+            "group_interval", criteriaValue(clause.getGroupInterval()),
+            "group_on", clause.getGroupOn(), "start_at", criteriaValue(clause.getStartAt())));
+      }
+      return fields("id", value.getID(), "name", value.getName(),
+         "show_summary_tasks", value.getShowSummaryTasks(), "clauses", clauses);
    }
 
    // 字段快照以枚举名为键；未知值不能悄悄变成字符串或 null。
@@ -325,7 +531,7 @@ public final class JsonSnapshot
             "id", r.getID(), "unique_id", r.getUniqueID(), "name", r.getName(),
             "calendar_unique_id", r.getCalendarUniqueID(),
             "work", duration(r.getWork()), "cost", r.getCost());
-         if (allFields) { entry.put("field_values", fieldValues(r, resourceFields)); }
+         if (allFields) { entry.put("field_values", fieldValues(r, resourceFields)); entry.put("details", resourceDetails(r)); }
          resources.add(entry);
       }
       List<Object> assignments = new ArrayList<>();
@@ -351,10 +557,12 @@ public final class JsonSnapshot
       List<Object> calendars = new ArrayList<>();
       for (var c : file.getCalendars())
       {
-         calendars.add(fields(
+         Map<String, Object> calendar = fields(
             "unique_id", c.getUniqueID(), "name", c.getName(),
             "parent_unique_id", c.getParent() == null ? null : c.getParent().getUniqueID(),
-            "project_unique_id", c.getProjectUniqueID(), "type", c.getType().ordinal()));
+            "project_unique_id", c.getProjectUniqueID(), "type", c.getType().ordinal());
+         if (allFields) { calendar.put("details", calendarDetails(c)); }
+         calendars.add(calendar);
       }
       Map<String, Object> properties = fields(
             "unique_id", p.getUniqueID(), "name", p.getName(),
@@ -367,6 +575,54 @@ public final class JsonSnapshot
          "relations", relations, "calendars", calendars);
       if (allFields)
       {
+         List<Object> tables = new ArrayList<>();
+         for (Table table : file.getTables()) { tables.add(table(table)); }
+         result.put("tables", tables);
+         List<Object> views = new ArrayList<>();
+         for (View view : file.getViews()) { views.add(view(view)); }
+         result.put("views", views);
+         var viewState = file.getViews().getViewState();
+         result.put("view_state", viewState == null ? null : fields("view_name", viewState.getViewName(),
+            "unique_ids", viewState.getUniqueIdList(),
+            "filter_id", viewState.getFilter() == null ? null : viewState.getFilter().getID()));
+         List<Object> groups = new ArrayList<>();
+         for (Group group : file.getGroups()) { groups.add(group(group)); }
+         result.put("groups", groups);
+         List<Object> taskFilters = new ArrayList<>();
+         for (Filter filter : file.getFilters().getTaskFilters()) { taskFilters.add(filter(filter)); }
+         result.put("task_filters", taskFilters);
+         List<Object> resourceFilters = new ArrayList<>();
+         for (Filter filter : file.getFilters().getResourceFilters()) { resourceFilters.add(filter(filter)); }
+         result.put("resource_filters", resourceFilters);
+         List<Object> definedFields = new ArrayList<>();
+         for (UserDefinedField field : file.getUserDefinedFields())
+         {
+            definedFields.add(fields("unique_id", field.getUniqueID(), "internal_name", field.name(),
+               "name", field.getName(), "summary_task_only", field.getSummaryTaskOnly(),
+               "field_type_class", field.getFieldTypeClass() == null ? null : field.getFieldTypeClass().ordinal(),
+               "data_type", field.getDataType() == null ? null : field.getDataType().getValue()));
+         }
+         result.put("user_defined_fields", definedFields);
+         List<Object> contours = new ArrayList<>();
+         for (WorkContour contour : file.getWorkContours())
+         {
+            // MPXJ 的十个内置曲线是静态 WorkContour 实例，不会出现在容器集合中；
+            // 只序列化真正由文件注册的扩展曲线。
+            if (contour.getUniqueID() != null && contour.getUniqueID() >= 0 && contour.getUniqueID() <= 9) { continue; }
+            contours.add(fields("unique_id", contour.getUniqueID(), "name", contour.getName(),
+               "curve", contour.getCurveValues()));
+         }
+         result.put("work_contours", contours);
+         List<Object> dataLinks = new ArrayList<>();
+         for (DataLink link : file.getDataLinks())
+         {
+            dataLinks.add(fields("id", link.getID(),
+               "source_field", link.getSourceField() == null ? null : fieldName(link.getSourceField()),
+               "source_unique_id", link.getSourceUniqueID(),
+               "target_field", link.getTargetField() == null ? null : fieldName(link.getTargetField()),
+               "target_unique_id", link.getTargetUniqueID()));
+         }
+         result.put("data_links", dataLinks);
          result.put("field_catalog", fields(
             "properties", fieldNames(projectFields),
             "tasks", fieldNames(taskFields),

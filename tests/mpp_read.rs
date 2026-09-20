@@ -493,3 +493,16 @@ fn mpp8_notes_strip_record_terminator() {
         .expect("缺少带备注的资源");
     assert_eq!(resource.borrow().get_notes(), "Test Resource Notes");
 }
+
+/// 默认日历的字段 ID 与容器 ID 必须一起更新，否则 getDefault() 会返回 false。
+#[test]
+fn mpp_default_calendar_marks_calendar_as_default() {
+    for relative in ["mpp9calendar.mpp", "mpp12calendar.mpp", "mpp14calendar.mpp"] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+        let default_id = file_ref.get_project_properties().get_default_calendar_unique_id();
+        assert_eq!(default_id, Some(1), "{relative}");
+        let calendar = file_ref.get_calendar_by_unique_id(default_id).expect("默认日历应存在");
+        assert!(calendar.borrow().get_default(), "{relative}");
+    }
+}

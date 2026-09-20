@@ -17,6 +17,17 @@ use mpxj::reader::project_reader::ProjectReader;
 use mpxj::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
 use mpxj::{CalendarType, Duration, RelationType, TimeUnit};
 
+/// MPX 读取后的默认日历容器状态应与 Java 的 getDefault() 一致。
+#[test]
+fn mpx_default_calendar_marks_calendar_as_default() {
+    let file = read_sample("sample.mpx");
+    let file_ref = file.borrow();
+    let default_id = file_ref.get_project_properties().get_default_calendar_unique_id();
+    assert_eq!(default_id, Some(1));
+    let calendar = file_ref.get_calendar_by_unique_id(default_id).expect("默认日历应存在");
+    assert!(calendar.borrow().get_default());
+}
+
 /// 取 `mpxj/junit/data/legacy/` 下的样本文件路径。
 fn sample(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
