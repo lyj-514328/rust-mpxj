@@ -23,17 +23,17 @@
 //! |---|---|---|
 //! | `protected abstract Integer getVarDataType()` | `fn get_var_data_type(&self) -> i32` | Java 侧该 `Integer` 恒非空（子类返回常量 1 / 6） |
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 项目文件在本 crate 中以 `Rc<RefCell<..>>` 共享 |
-//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>`（形参名 `_font_bases`） | **本参数在 Rust 侧未被使用**：Java 用它构造 `FontStyle` 并 `clause.setFont(...)`，而本 crate 的 [`GroupClause`] 未移植 `font` / `cellBackgroundColor` / `pattern` 三个成员（见 `crate::group_clause` 的文件头说明），因此字体样式无法附加。保留该形参以保证与调用点（`Mpp9Reader` / `Mpp12Reader` 的对应实现）一致 |
-//! | `FontStyle fontStyle = new FontStyle(fontBase, italic, bold, underline, false, fontColor.getColor(), null, BackgroundPattern.SOLID); clause.setFont(fontStyle);`<br>`clause.setCellBackgroundColor(color.getColor());`<br>`clause.setPattern(BackgroundPattern.getInstance(...));` | **跳过** | 目标模型 [`GroupClause`] 没有对应成员（且 `java.awt.Color` / `BackgroundPattern` 属展示层样式），见上 |
+//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>` | Java 用它按 `offset + 8` 的字体序号取出 [`FontBase`]，再构造 [`FontStyle`] 交给 `clause.setFont(...)`；Rust 侧一致（字体表里没有该序号时 Java 传 `null`，Rust 传 `None`） |
+//! | `FontStyle fontStyle = new FontStyle(fontBase, italic, bold, underline, false, fontColor.getColor(), null, BackgroundPattern.SOLID); clause.setFont(fontStyle);`<br>`clause.setCellBackgroundColor(color.getColor());`<br>`clause.setPattern(BackgroundPattern.getInstance(...));` | [`clause.set_font`](crate::group_clause::GroupClause::set_font) / [`clause.set_cell_background_color`](crate::group_clause::GroupClause::set_cell_background_color) / [`clause.set_pattern`](crate::group_clause::GroupClause::set_pattern) | 逐行还原；`ColorType.getColor()` 在 Java 里可能为 `null`（`ColorType.AUTOMATIC`），Rust 侧是 `Option<Color>` |
 //! | `ByteArrayHelper.getShort/getInt` 越界抛 `ArrayIndexOutOfBoundsException` | [`get_short_safe`] / [`get_int_safe`] 返回 0 | 遵循「不 panic」约定（`get_int_safe` 与 `MPPUtility.get_byte` 的降级语义一致） |
 //! | `type.getDataType()` 为 `null` 时 Java 抛 NPE | 字段类型为 `None` 时按 `switch` 的 `default` 分支处理（起始值 / 分组间隔均为 `null`） | 遵循「不 panic」约定 |
 //! | `file.getGroups().add(group)` 在填充子句**之前**调用 | 填好子句后再 `add` | 容器按值持有分组，最终状态与 Java 一致；这样无需在填充期间可变借用项目文件 |
 //! | `Object startAt` / `Object groupInterval` | `Option<FieldValue>` | 取值可能是双精度 / 整数 / 布尔 / 日期时间，与 [`GroupClause`] 的成员类型一致 |
 //!
-//! 跳过的 Java 成员：与字体样式相关的 4 行（见上表），其余全部翻译。
+//! 跳过的 Java 成员：无。
 //!
 //! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制
-//! （`java.awt.Color` 属 GUI，已随字体样式一同跳过）。
+//! （`java.awt.Color` 已由 `crate::mpp::mpp_utility::Color` 代替）。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,8 +47,11 @@ use crate::field_value::FieldValue;
 use crate::group::Group;
 use crate::group_clause::GroupClause;
 use crate::mpp::abstract_calendar_factory::{get_int_safe, get_short_safe};
+use crate::mpp::background_pattern::BackgroundPattern;
+use crate::mpp::color_type::ColorType;
 use crate::mpp::fixed_data::FixedData;
 use crate::mpp::font_base::FontBase;
+use crate::mpp::font_style::FontStyle;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::var2_data::Var2Data;
 use crate::project_file::ProjectFile;
@@ -71,14 +74,12 @@ pub trait GroupReader {
     ///
     /// 对应 Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData,
     /// Map<Integer, FontBase> fontBases)`
-    ///
-    /// `font_bases` 在本 crate 中未被使用（见文件头差异表），保留形参以保证调用点一致。
     fn process(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
         fixed_data: &FixedData,
         var_data: &Var2Data,
-        _font_bases: &HashMap<i32, FontBase>,
+        font_bases: &HashMap<i32, FontBase>,
     ) {
         // Java: int groupCount = fixedData.getItemCount();
         let group_count = fixed_data.get_item_count();
@@ -147,8 +148,50 @@ pub trait GroupReader {
                 //       clause.setAscending(ascending);
                 clause.set_ascending(MPPUtility::get_byte(&group_var_data, offset + 4) != 0);
 
-                // Java 的字体样式 / 字体色 / 单元格背景色 / 图案四段在此跳过
-                // （`GroupClause` 无对应成员，见文件头差异表）
+                // Java: int fontIndex = MPPUtility.getByte(groupVarData, offset + 8);
+                //       FontBase fontBase = fontBases.get(Integer.valueOf(fontIndex));
+                let font_index = MPPUtility::get_byte(&group_var_data, offset + 8);
+                let font_base = font_bases.get(&font_index).cloned();
+
+                // Java: int style = MPPUtility.getByte(groupVarData, offset + 9);
+                //       boolean bold = ((style & 0x01) != 0);
+                //       boolean italic = ((style & 0x02) != 0);
+                //       boolean underline = ((style & 0x04) != 0);
+                let style = MPPUtility::get_byte(&group_var_data, offset + 9);
+                let bold = (style & 0x01) != 0;
+                let italic = (style & 0x02) != 0;
+                let underline = (style & 0x04) != 0;
+
+                // Java: int fontColorIndex = MPPUtility.getByte(groupVarData, offset + 10);
+                //       ColorType fontColor = ColorType.getInstance(fontColorIndex);
+                let font_color =
+                    ColorType::get_instance(MPPUtility::get_byte(&group_var_data, offset + 10));
+
+                // Java: FontStyle fontStyle = new FontStyle(fontBase, italic, bold, underline, false,
+                //       fontColor.getColor(), null, BackgroundPattern.SOLID);
+                //       clause.setFont(fontStyle);
+                clause.set_font(Some(FontStyle::new(
+                    font_base,
+                    italic,
+                    bold,
+                    underline,
+                    false,
+                    font_color.get_color(),
+                    None,
+                    BackgroundPattern::Solid,
+                )));
+
+                // Java: int colorIndex = MPPUtility.getByte(groupVarData, offset + 12);
+                //       ColorType color = ColorType.getInstance(colorIndex);
+                //       clause.setCellBackgroundColor(color.getColor());
+                let color =
+                    ColorType::get_instance(MPPUtility::get_byte(&group_var_data, offset + 12));
+                clause.set_cell_background_color(color.get_color());
+
+                // Java: clause.setPattern(BackgroundPattern.getInstance(MPPUtility.getByte(groupVarData, offset + 13) & 0x0F));
+                clause.set_pattern(Some(BackgroundPattern::get_instance(
+                    MPPUtility::get_byte(&group_var_data, offset + 13) & 0x0F,
+                )));
 
                 // Java: int groupOn = ByteArrayHelper.getShort(groupVarData, offset + 14);
                 //       clause.setGroupOn(groupOn);
@@ -224,6 +267,7 @@ mod tests {
     use crate::field_key::FieldKey;
     use crate::mpp::custom_field_value_reader::test_support::{fixed_data, var_data_with_meta};
     use crate::mpp::group_reader9::GroupReader9;
+    use crate::mpp::mpp_utility::Color;
     use crate::task_field::TaskField;
 
     /// 分组定长数据：`[0..4)` = ID，`[4..)` = 名称（UTF-16LE + NUL）。
@@ -292,6 +336,78 @@ mod tests {
             clauses[0].get_group_interval(),
             Some(&FieldValue::Double(2.5))
         );
+    }
+
+    /// 字体样式 / 字体色 / 单元格背景色 / 图案四段被写入子句。
+    #[test]
+    fn clause_style_members_are_read() {
+        let mut data = group_var_data(true, &[(TaskField::Cost, true, 2)]);
+        let offset = 8;
+        // offset+8=字体序号；offset+9=style（0x01 粗体 / 0x02 斜体 / 0x04 下划线）；
+        // offset+10=字体色序号；offset+12=背景色序号；offset+13=图案
+        data[offset + 8] = 1;
+        data[offset + 9] = 0x01 | 0x04;
+        data[offset + 10] = 1;
+        data[offset + 12] = 5;
+        data[offset + 13] = 3;
+
+        let fixed = fixed_data(&[group_fixed_record(7, "My Group")]);
+        let (_, var_data) = var_data_with_meta(&[(7, 1, data)]);
+
+        // Java: fontBases.get(Integer.valueOf(fontIndex))
+        let mut font_bases = HashMap::new();
+        font_bases.insert(1, FontBase::new(Some(1), "Arial".to_owned(), 10));
+
+        let file = ProjectFile::new();
+        GroupReader9::new().process(&file, &fixed, &var_data, &font_bases);
+
+        let project = file.borrow();
+        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let clause = &group.get_group_clauses()[0];
+
+        // Java: new FontStyle(fontBase, italic, bold, underline, false, fontColor.getColor(), null, BackgroundPattern.SOLID)
+        let font = clause.get_font().expect("应有字体样式");
+        assert_eq!(font.get_font_base().map(FontBase::get_name), Some("Arial"));
+        assert!(font.get_bold());
+        assert!(!font.get_italic());
+        assert!(font.get_underline());
+        assert!(!font.get_strikethrough());
+        assert_eq!(font.get_color(), Some(Color::new(255, 0, 0)));
+        assert_eq!(font.get_background_color(), None);
+        assert_eq!(font.get_background_pattern(), BackgroundPattern::Solid);
+
+        // Java: clause.setCellBackgroundColor(color.getColor()) / clause.setPattern(...)
+        assert_eq!(
+            clause.get_cell_background_color(),
+            Some(Color::new(0, 0, 255))
+        );
+        assert_eq!(clause.get_pattern(), Some(BackgroundPattern::Dotted));
+    }
+
+    /// 字体表里没有该序号时字体基为 `None`（Java 传入的是 `null`）。
+    #[test]
+    fn missing_font_index_yields_no_font_base() {
+        let mut data = group_var_data(true, &[(TaskField::Cost, true, 2)]);
+        // 字体序号 9、字体色序号 0（ColorType.BLACK）、背景色序号 0、图案 0
+        data[8 + 8] = 9;
+
+        let fixed = fixed_data(&[group_fixed_record(7, "My Group")]);
+        let (_, var_data) = var_data_with_meta(&[(7, 1, data)]);
+
+        let file = ProjectFile::new();
+        GroupReader9::new().process(&file, &fixed, &var_data, &HashMap::new());
+
+        let project = file.borrow();
+        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let clause = &group.get_group_clauses()[0];
+
+        assert_eq!(
+            clause.get_font().and_then(FontStyle::get_font_base),
+            None
+        );
+        // ColorType.BLACK / BackgroundPattern.TRANSPARENT
+        assert_eq!(clause.get_cell_background_color(), Some(Color::new(0, 0, 0)));
+        assert_eq!(clause.get_pattern(), Some(BackgroundPattern::Transparent));
     }
 
     /// 百分比 / 布尔 / 日期字段的取值分支。

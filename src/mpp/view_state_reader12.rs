@@ -15,16 +15,17 @@
 //! | Java | Rust |
 //! |---|---|
 //! | `ViewStateReader12 extends ViewStateReader` | [`ViewStateReader12`] **持有**一个 [`ViewStateReader`] 并转发 `process` |
-//! | `@Override protected Props getProps(Var2Data varData) throws IOException` | 实现 [`ViewStateReaderMethods::get_props`]（返回 `Box<dyn ViewStateProps>`，见 `view_state_reader.rs` 的取舍说明） |
+//! | `@Override protected Props getProps(Var2Data varData) throws IOException` | 实现 [`ViewStateReaderMethods::get_props`]（返回 `Props`，见 `view_state_reader.rs` 的取舍说明） |
 //! | `private static final Integer PROPS_ID / PROPS_TYPE` | [`ViewStateReader12::PROPS_ID`] / [`ViewStateReader12::PROPS_TYPE`] |
 //! | `throws IOException` | `MpxjResult`（`Props12` 解析失败时 `Err`） |
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::mpp::props::Props;
 use crate::mpp::props12::Props12;
 use crate::mpp::var2_data::Var2Data;
-use crate::mpp::view_state_reader::{ViewStateProps, ViewStateReader, ViewStateReaderMethods};
+use crate::mpp::view_state_reader::{ViewStateReader, ViewStateReaderMethods};
 use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 
@@ -88,12 +89,18 @@ impl ViewStateReaderMethods for ViewStateReader12 {
     /// 用 `Props12` 解析 `(1, 6)` 数据项；数据项不存在时返回 `Ok(None)`（Java 返回 `null`）。
     ///
     /// 对应 Java: `@Override protected Props getProps(Var2Data varData) throws IOException`
-    fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Box<dyn ViewStateProps>>> {
+    ///
+    /// Java 返回的是 `Props12` 实例本身（后续按基类 `Props` 使用）；Rust 侧因返回类型需要拥有
+    /// 所有权，故用 [`Props::copied_from`] 按解析结果重建一份等价的 [`Props`]。
+    fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Props>> {
         // Java: byte[] propsData = varData.getByteArray(PROPS_ID, PROPS_TYPE);
         match var_data.get_byte_array(Some(Self::PROPS_ID), Some(Self::PROPS_TYPE)) {
             // Java: if (propsData != null) { props = new Props12(new ByteArrayInputStream(propsData)); }
             None => Ok(None),
-            Some(props_data) => Ok(Some(Box::new(Props12::new(&props_data)?))),
+            Some(props_data) => {
+                let props12 = Props12::new(&props_data)?;
+                Ok(Some(Props::copied_from(&props12)))
+            }
         }
     }
 }

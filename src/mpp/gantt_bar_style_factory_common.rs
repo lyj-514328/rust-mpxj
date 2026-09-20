@@ -15,7 +15,7 @@
 //! |---|---|---|
 //! | `GanttBarStyleFactoryCommon implements GanttBarStyleFactory` | 本类型同时提供**固有方法**与 [`GanttBarStyleFactory`] 实现 | 固有方法便于按 Java 的写法直接调用（无需 `use` trait），trait 实现只是转发 |
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本工程约定 |
-//! | `Props props`（基类） | `P: `[`GanttBarStyleProps`]` | Rust 无继承，`Props9/12/14` 与 `Props` 不是子类型关系；调用方 `GanttChartView9/12` 实际传入 `&Props9`，故用最小 trait 泛型化（详见 `gantt_bar_style_factory` 模块说明） |
+//! | `Props props`（基类） | `&Props` | `Props9/12/14` 在 Rust 侧是「组合 + `Deref`」实现的独立类型，`&Props9` 等会经 `Deref` 自动强转成 `&Props`，故签名与 Java 一致（详见 `gantt_bar_style_factory` 模块说明） |
 //! | `byte[]` 下标读取（如 `barStyleData[styleOffset + 1]`） | 私有函数 [`java_byte`] | Java 的 `byte` **有符号**：`ColorType` / 枚举查找都按有符号值解释，且 `% 21`、`/ 21` 也对有符号值取模整除；Rust 侧用 `u8 as i8 as i32` 保留该语义（越界时 Java 抛异常，Rust 返回 0） |
 //! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java 越界抛 `ArrayIndexOutOfBoundsException`，Rust 返回 0（见 `abstract_calendar_factory`） |
 //! | `new GanttBarStyle[barStyleData[countOffset]]` | `usize::from(data[count_offset])` | Java 用**有符号** `byte` 作数组长度，取值 ≥ 0x80 时抛 `NegativeArraySizeException`；Rust 按无符号字节处理（不 panic） |
@@ -38,8 +38,9 @@ use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
 use crate::mpp::gantt_bar_style::GanttBarStyle;
 use crate::mpp::gantt_bar_style_exception::GanttBarStyleException;
-use crate::mpp::gantt_bar_style_factory::{GanttBarStyleFactory, GanttBarStyleProps};
+use crate::mpp::gantt_bar_style_factory::GanttBarStyleFactory;
 use crate::mpp::mpp_utility::{Color, MPPUtility};
+use crate::mpp::props::Props;
 use crate::mpp::props_key::PropsKey;
 use crate::project_file::ProjectFile;
 
@@ -74,10 +75,10 @@ impl GanttBarStyleFactoryCommon {
     /// 读取默认的甘特图条形样式集合。
     ///
     /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
-    pub fn process_default_styles<P: GanttBarStyleProps>(
+    pub fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyle> {
         // Java: int countOffset = 812; 取得 ALTERNATE_STYLE_DATA；取不到则改取 STYLE_DATA，countOffset = 1162
         let mut count_offset = 812;
@@ -194,10 +195,10 @@ impl GanttBarStyleFactoryCommon {
     /// 读取单任务例外条形样式集合。
     ///
     /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
-    pub fn process_exception_styles<P: GanttBarStyleProps>(
+    pub fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyleException> {
         let Some(bar_data) = props.get_byte_array(PropsKey::BarExceptionStyles) else {
             // Java: return EMPTY_EXCEPTIONS;
@@ -289,10 +290,10 @@ impl GanttBarStyleFactory for GanttBarStyleFactoryCommon {
     /// 转发 [`GanttBarStyleFactoryCommon::process_default_styles`]。
     ///
     /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
-    fn process_default_styles<P: GanttBarStyleProps>(
+    fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyle> {
         GanttBarStyleFactoryCommon::process_default_styles(self, file, props)
     }
@@ -300,10 +301,10 @@ impl GanttBarStyleFactory for GanttBarStyleFactoryCommon {
     /// 转发 [`GanttBarStyleFactoryCommon::process_exception_styles`]。
     ///
     /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
-    fn process_exception_styles<P: GanttBarStyleProps>(
+    fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyleException> {
         GanttBarStyleFactoryCommon::process_exception_styles(self, file, props)
     }

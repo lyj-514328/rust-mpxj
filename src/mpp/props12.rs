@@ -14,10 +14,17 @@ use crate::mpxj_exception::MpxjResult;
 ///
 /// 对应 Java: `final class Props12 extends Props`
 ///
-/// # 继承的还原（组合 + 转发）
+/// # 继承的还原（组合 + `Deref` + 转发）
 ///
-/// Java 的 `Props12` 继承 [`Props`]（Java 侧未覆写 `toString()`），Rust 无继承，故本类
-/// 持有一个 [`Props`] 并把 `Props` 的全部公开方法原样转发。
+/// Java 的 `Props12` 继承 [`Props`]（Java 侧未覆写 `toString()`）。Rust 无继承，本类用
+/// **组合 + `Deref`/`DerefMut`** 还原：持有一个 [`Props`]（字段 `props`），于是 `&Props12`
+/// 能自动强转（deref coercion）成 `&Props` —— 「形参是 `&Props` 的方法」也可以直接接收
+/// `&Props12`，对应 Java 里「子类实例可直接传给基类形参」（本 crate 已在
+/// [`crate::recurring_task`] 用同一手法还原继承）。
+///
+/// 类末尾仍保留 `Props` 全部公开方法的显式转发，供不需要强转的调用点直接调用；这些同名方法
+/// 会遮蔽 `Deref` 目标 [`Props`] 上的同名方法，而它们本身就是逐方法转发、行为完全一致，
+/// 因此不存在语义冲突。
 ///
 /// # 构造方法与 `InputStream`
 ///
@@ -183,6 +190,22 @@ impl fmt::Display for Props12 {
     /// 对应 Java: `Props.toString()`（`Props12` 未覆写）
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.props, f)
+    }
+}
+
+impl std::ops::Deref for Props12 {
+    type Target = Props;
+
+    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+    fn deref(&self) -> &Self::Target {
+        &self.props
+    }
+}
+
+impl std::ops::DerefMut for Props12 {
+    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.props
     }
 }
 

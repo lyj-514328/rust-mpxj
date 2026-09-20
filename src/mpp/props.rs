@@ -14,7 +14,9 @@
 //!   [`InputStreamCursor`] 提供等价操作；[`Props`] 自身不再需要父类（`MPPComponent`
 //!   的类级翻译由并行任务负责，本文件不依赖它）。
 //! - `Props8/9/12/14/PropsBlock` 各自**持有一个 [`Props`]**（私有字段 `props`），并把它
-//!   的全部公开方法原样转发，语义等价于 Java 的继承。
+//!   的全部公开方法原样转发；`Props8/9/12/14` 另实现 `Deref`/`DerefMut`（目标为 [`Props`]），
+//!   使 `&Props9` 之类的引用能自动强转成 `&Props` —— 与 Java 的继承（子类实例可直接传给
+//!   基类形参）等价，手法同 [`crate::recurring_task`]。
 //!
 //! # 本类与 Java 的差异
 //!
@@ -84,6 +86,18 @@ impl Props {
     /// 对应 Java: 子类对 `m_map.put(Integer, byte[])` 的调用（例如 `Props8`、`PropsBlock`）
     pub fn put(&mut self, key: i32, value: Vec<u8>) {
         self.map.insert(key, value);
+    }
+
+    /// 按另一份属性表的内容重建一份等价的 [`Props`]。
+    ///
+    /// Rust 特有：Java 的 `Props9/12/14 extends Props`，`ViewStateReader.getProps` 直接返回
+    /// 子类实例、随后按基类引用使用；本 crate 的子类用组合实现「继承」（见文件头），`Deref`
+    /// 只能给出借用、无法按值取出内部的 [`Props`]，故「需要拥有所有权的 [`Props`]」的场景
+    /// 在此按键值重建一份（内容与来源完全一致，含 `PropsKey` 未覆盖的键）。
+    pub(crate) fn copied_from(source: &Props) -> Props {
+        Props {
+            map: source.map.clone(),
+        }
     }
 
     /// 取属性数据（原始字节）。

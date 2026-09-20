@@ -32,9 +32,11 @@
 //!    `&C`（`C: FieldContainer + 'static`），内部先转成 `&dyn Any` 再
 //!    `downcast_ref::<Task>()`，语义与 Java 完全一致；非 `Task` 容器一律使用非摘要行条件
 //!    （与 Java 的 `else` 分支一致）。
-//! 2. **构造方法可见性**：Java 的构造方法是包内可见（由 `CustomField` 调用）；本 crate 的
-//!    [`crate::custom_field::CustomField`] 在移植时跳过了 `GraphicalIndicator` 字段，
-//!    因此 Rust 侧把构造方法设为 `pub`，由调用方自行创建。
+//! 2. **构造方法可见性**：Java 的构造方法是包内可见（实际只由 `CustomField` 调用）；本 crate
+//!    的 [`crate::custom_field::CustomField`] 位于 `crate::custom_field` 模块，而本类型位于
+//!    `crate::graphical_indicator`，`pub(crate)` / 私有无法表达「仅包内可构造」这一可见性，
+//!    因此 Rust 侧把构造方法设为 `pub`（[`crate::custom_field::CustomField::new`] 同样以
+//!    它创建 `m_indicator`）。
 //! 3. **条件的持有方式**：Java 的三个 `List` 分别是字段；Rust 侧同样是 `Vec`，并按本 crate
 //!    的约定拆成只读切片访问器（[`GraphicalIndicator::get_non_summary_row_criteria`] 等）
 //!    与 `add_*` 追加方法。Java 的 `getNonSummaryRowCriteria()` 直接返回可变列表，

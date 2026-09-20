@@ -8,7 +8,7 @@
 //! |---|---|---|
 //! | `interface GanttBarStyleFactory`（包级可见） | `pub trait GanttBarStyleFactory` | 接口 → `trait`；改为 `pub` 是因为工厂类型本身也是 `pub`，Rust 不允许公开类型的 trait 实现指向私有 trait |
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本工程约定：`ProjectFile` 以 `Rc<RefCell<..>>` 共享 |
-//! | `Props props`（基类） | `P: `[`GanttBarStyleProps`]` | **Rust 无继承**：`Props9` / `Props12` / `Props14` 在 Rust 侧都是以「组合 + 转发」持有 [`Props`] 的独立类型，彼此不构成子类型关系。Java 的签名写的是基类 `Props`，而实际调用方（`GanttChartView9/12/14`）传入的是解析出的 `Props9`，故这里用最小 trait 抽象「按键取字节数组」的能力，工厂方法对其泛型化 —— `&Props` 与 `&Props9/&Props12/&Props14` 都能直接传入 |
+//! | `Props props`（基类） | `&Props` | `Props9` / `Props12` / `Props14` 在 Rust 侧是「组合 + `Deref`」实现的独立类型（见 `crate::mpp::props9` 等模块说明），`&Props9` 等会经 `Deref` 自动强转成 `&Props`，因此 Java 的「子类实例传给基类形参」在 Rust 侧同样成立，签名与 Java 完全一致 |
 //! | `GanttBarStyle[]` / `GanttBarStyleException[]` | `Vec<GanttBarStyle>` / `Vec<GanttBarStyleException>` | 数组 → `Vec` |
 //!
 //! Java 的两个实现类 `GanttBarStyleFactoryCommon` 与 `GanttBarStyleFactory14` 都是**直接**
@@ -24,51 +24,7 @@ use std::rc::Rc;
 use crate::mpp::gantt_bar_style::GanttBarStyle;
 use crate::mpp::gantt_bar_style_exception::GanttBarStyleException;
 use crate::mpp::props::Props;
-use crate::mpp::props12::Props12;
-use crate::mpp::props14::Props14;
-use crate::mpp::props9::Props9;
-use crate::mpp::props_key::PropsKey;
 use crate::project_file::ProjectFile;
-
-/// 工厂读取样式数据所需的最小能力（Rust 特有的接线）。
-///
-/// Java 的 `Props9` / `Props12` / `Props14` 都 `extends Props`，工厂签名里写的是基类
-/// `Props`；Rust 侧各版本 Props 都是独立类型（见模块说明），因此用本 trait 抽象
-/// 「按键取字节数组」这一唯一被用到的能力，工厂方法对其实施泛型化。
-pub trait GanttBarStyleProps {
-    /// 按键取属性数据（原始字节）。
-    ///
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]>;
-}
-
-impl GanttBarStyleProps for Props {
-    /// 转发 [`Props::get_byte_array`]。
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props::get_byte_array(self, key)
-    }
-}
-
-impl GanttBarStyleProps for Props9 {
-    /// 转发 [`Props9::get_byte_array`]。
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props9::get_byte_array(self, key)
-    }
-}
-
-impl GanttBarStyleProps for Props12 {
-    /// 转发 [`Props12::get_byte_array`]。
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props12::get_byte_array(self, key)
-    }
-}
-
-impl GanttBarStyleProps for Props14 {
-    /// 转发 [`Props14::get_byte_array`]。
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props14::get_byte_array(self, key)
-    }
-}
 
 /// 读取甘特图条形样式的工厂。
 ///
@@ -77,18 +33,18 @@ pub trait GanttBarStyleFactory {
     /// 读取默认的甘特图条形样式集合。
     ///
     /// 对应 Java: `GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
-    fn process_default_styles<P: GanttBarStyleProps>(
+    fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyle>;
 
     /// 读取单任务例外条形样式集合。
     ///
     /// 对应 Java: `GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
-    fn process_exception_styles<P: GanttBarStyleProps>(
+    fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyleException>;
 }

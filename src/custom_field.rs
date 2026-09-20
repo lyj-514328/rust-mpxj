@@ -11,6 +11,7 @@ use crate::custom_field_value_mask::CustomFieldValueMask;
 use crate::field_key::FieldKey;
 use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
+use crate::graphical_indicator::GraphicalIndicator;
 
 /// 单个字段的配置信息。
 ///
@@ -23,22 +24,26 @@ use crate::field_type_class::FieldTypeClass;
 /// | `private final FieldType m_field` | `FieldKey`（本 crate 对 `FieldType` 接口的运行时擦除，见 [`crate::field_key`]） |
 /// | `private final CustomFieldContainer m_parent` | `Weak<RefCell<CustomFieldContainer>>`（`setAlias` 时回指父容器注册别名，用 `Weak` 避免 `Rc` 循环） |
 /// | `private final CustomFieldLookupTable m_table` | [`CustomFieldLookupTable`] |
-/// | `private final GraphicalIndicator m_indicator` | **未移植**（见下） |
+/// | `private final GraphicalIndicator m_indicator` | [`GraphicalIndicator`]（`src/graphical_indicator.rs`） |
 /// | `private final List<CustomFieldValueMask> m_masks` | `Vec<CustomFieldValueMask>` |
 /// | `private Integer m_uniqueID` | `Option<i32>` |
 /// | `private String m_alias` | `Option<String>` |
 ///
 /// # 被跳过的 Java 代码
 ///
-/// - `private final GraphicalIndicator m_indicator` 与 `getGraphicalIndicator()`：
-///   `GraphicalIndicator`（`org.mpxj.GraphicalIndicator`）不在本次移植范围，且 `src/lib.rs`
-///   未声明对应模块，Rust 侧无法引用，故整体跳过。
 /// - `getUniqueID()` 中「未显式设置时回落到 `FieldTypeHelper.getFieldID(m_field)`」的惰性求值：
 ///   `FieldTypeHelper.getFieldID` 依赖 `org.mpxj.mpp.MPPTaskField` 等 MPP 字段 ID 表，
 ///   这些类型尚未移植。Rust 侧的 [`CustomField::get_unique_id`] 只返回显式设置过的值，
 ///   未设置时返回 `None`（对应 Java 中「尚未缓存过 MPP 字段 ID」的状态）。
 ///
-/// 未移植的 Java 方法：`getGraphicalIndicator()`（见上）。
+/// # 与 Java 的差异
+///
+/// - `getGraphicalIndicator()` 返回的是 `m_indicator` 的借用，且额外提供
+///   [`CustomField::get_graphical_indicator_mut`]：Java 的 `GraphicalIndicator` 是引用语义，
+///   调用方拿到后直接修改；Rust 侧实例通常被 `Rc<RefCell<CustomField>>` 共享，故按本 crate
+///   的既有做法（见 `get_lookup_table_mut` / `get_masks_mut`）另给一个可变访问器。
+///
+/// 未移植的 Java 方法：无。
 pub struct CustomField {
     /// 该配置对应的字段类型。
     ///
@@ -52,6 +57,10 @@ pub struct CustomField {
     ///
     /// 对应 Java: `private final CustomFieldLookupTable m_table;`
     m_table: CustomFieldLookupTable,
+    /// 图形化指标配置。
+    ///
+    /// 对应 Java: `private final GraphicalIndicator m_indicator;`
+    m_indicator: GraphicalIndicator,
     /// mask 定义。
     ///
     /// 对应 Java: `private final List<CustomFieldValueMask> m_masks;`
@@ -78,6 +87,7 @@ impl CustomField {
             m_field: field,
             m_parent: parent,
             m_table: CustomFieldLookupTable::new(),
+            m_indicator: GraphicalIndicator::new(field),
             m_masks: Vec::new(),
             m_unique_id: None,
             m_alias: None,
@@ -103,6 +113,23 @@ impl CustomField {
     /// 对应 Java: `public CustomFieldLookupTable getLookupTable()`
     pub fn get_lookup_table_mut(&mut self) -> &mut CustomFieldLookupTable {
         &mut self.m_table
+    }
+
+    /// 取该字段的图形化指标配置。
+    ///
+    /// 对应 Java: `public GraphicalIndicator getGraphicalIndicator()`
+    ///
+    /// Java 返回的实例在构造时创建（`m_indicator = new GraphicalIndicator(field)`），
+    /// 因此同一字段的指标配置始终是同一个实例；`GraphicalIndicatorReader` 正是取出它再填充。
+    pub fn get_graphical_indicator(&self) -> &GraphicalIndicator {
+        &self.m_indicator
+    }
+
+    /// 以可变方式取图形化指标配置（Java 返回的对象本身可变）。
+    ///
+    /// 对应 Java: `public GraphicalIndicator getGraphicalIndicator()`
+    pub fn get_graphical_indicator_mut(&mut self) -> &mut GraphicalIndicator {
+        &mut self.m_indicator
     }
 
     /// 取字段别名。
@@ -246,6 +273,7 @@ impl std::fmt::Debug for CustomField {
             .field("unique_id", &self.m_unique_id)
             .field("alias", &self.m_alias)
             .field("table", &self.m_table)
+            .field("indicator", &self.m_indicator)
             .field("masks", &self.m_masks)
             .finish()
     }
@@ -278,6 +306,24 @@ mod tests {
 
         assert_eq!(field.get_alias(), Some("Alias"));
         assert_eq!(field.get_unique_id(), Some(42));
+    }
+
+    #[test]
+    fn graphical_indicator_is_created_in_constructor() {
+        let mut field = standalone(FieldKey::Task(TaskField::Text1));
+
+        // Java: m_indicator = new GraphicalIndicator(field)
+        assert_eq!(
+            field.get_graphical_indicator().get_field_type(),
+            FieldKey::Task(TaskField::Text1)
+        );
+        assert!(!field.get_graphical_indicator().get_display_graphical_indicators());
+
+        // Java 的指标对象本身可变（同一实例被读写）
+        field
+            .get_graphical_indicator_mut()
+            .set_display_graphical_indicators(true);
+        assert!(field.get_graphical_indicator().get_display_graphical_indicators());
     }
 
     #[test]

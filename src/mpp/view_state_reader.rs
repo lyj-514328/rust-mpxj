@@ -22,7 +22,7 @@
 //!
 //! | Java | Rust | 说明 |
 //! |---|---|---|
-//! | `Props`（抽象基类）作为 `getProps` 的返回类型 | `Option<Box<dyn ViewStateProps>>` | Rust 侧 `Props8/9/12/14` 用组合 + 转发实现（不是继承），无法统一成 `Props`；故用 [`ViewStateProps`] trait 表达 `process` 用到的两个访问器，并对 `Props` / `Props9` / `Props12` 各实现一次 |
+//! | `Props`（抽象基类）作为 `getProps` 的返回类型 | [`Props`]（按解析结果重建一份） | `Props9/12` 用「组合 + `Deref`」实现「继承」：`&Props9` 可自动强转成 `&Props`，但 `Deref` 只能借用、无法按值取出内部的 [`Props`]，而本方法的返回类型需要拥有所有权，故用 [`Props::copied_from`] 按内容重建一份（键值逐条复制，语义等价） |
 //! | `throws IOException` | `MpxjResult<()>` | `Props9/12` 解析失败时返回 `Err`（Java 抛 `IOException`） |
 //! | 视图内容数据的下标越界（长度不是 4 的倍数）时 Java 抛 `ArrayIndexOutOfBoundsException` | 提前结束循环（并注释） | 不 panic |
 //! | `file.getViews().setViewState(state)` | 先 `try_borrow_mut`，文件已被可变借用时返回 `Err` | Java 无借用检查；Rust 侧把该情形显式化为错误，避免静默丢弃视图状态 |
@@ -33,8 +33,6 @@ use std::rc::Rc;
 use crate::common::byte_array_helper::ByteArrayHelper;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::props::Props;
-use crate::mpp::props12::Props12;
-use crate::mpp::props9::Props9;
 use crate::mpp::props_key::PropsKey;
 use crate::mpp::var2_data::Var2Data;
 use crate::mpxj_exception::{MpxjError, MpxjResult};
@@ -46,59 +44,6 @@ use crate::view_state::ViewState;
 /// 对应 Java: `ByteArrayHelper.getShort(fixedData, 128)`
 const FILTER_ID_OFFSET: usize = 128;
 
-/// Java 的 `Props` 基类在 `process` 中实际用到的两个访问器。
-///
-/// Rust 特有：`Props8/9/12/14` 与本 crate 的 [`Props`] 之间没有继承关系，无法用统一的
-/// `Props` 类型表达 `getProps` 的返回类型，故用本 trait 描述「能被 [`ViewStateReader::process`]
-/// 使用的属性块」。
-pub trait ViewStateProps {
-    /// 取 UTF-16LE 字符串属性。
-    ///
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`
-    fn get_unicode_string(&self, key: PropsKey) -> Option<String>;
-
-    /// 取属性数据（原始字节）。
-    ///
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]>;
-}
-
-impl ViewStateProps for Props {
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`
-    fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
-        Props::get_unicode_string(self, key)
-    }
-
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props::get_byte_array(self, key)
-    }
-}
-
-impl ViewStateProps for Props9 {
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`（`Props9` 继承而来）
-    fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
-        Props9::get_unicode_string(self, key)
-    }
-
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`（`Props9` 继承而来）
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props9::get_byte_array(self, key)
-    }
-}
-
-impl ViewStateProps for Props12 {
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`（`Props12` 继承而来）
-    fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
-        Props12::get_unicode_string(self, key)
-    }
-
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`（`Props12` 继承而来）
-    fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-        Props12::get_byte_array(self, key)
-    }
-}
-
 /// 抽象基类 `ViewStateReader` 的抽象方法集合。
 ///
 /// 对应 Java: `abstract class ViewStateReader` 的 `protected abstract Props getProps(Var2Data varData)`
@@ -108,7 +53,7 @@ pub trait ViewStateReaderMethods {
     /// 对应 Java: `protected abstract Props getProps(Var2Data varData) throws IOException`
     ///
     /// 属性块不存在时返回 `Ok(None)`（Java 返回 `null`）。
-    fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Box<dyn ViewStateProps>>>;
+    fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Props>>;
 }
 
 /// 视图状态读取器的抽象基类。
@@ -215,28 +160,34 @@ mod tests {
     use crate::filter::Filter;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 测试用属性块：只提供 `process` 需要的两个属性。
+    /// 测试用属性块的数据：只提供 `process` 需要的两个属性。
+    ///
+    /// 对应 Java 测试中直接构造的 `Props9`：Rust 侧按属性块布局建一个 [`Props`]。
     #[derive(Clone, Default)]
     struct TestProps {
         view_name: Option<String>,
         contents: Option<Vec<u8>>,
     }
 
-    impl ViewStateProps for TestProps {
-        fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
-            if key == PropsKey::ViewName {
-                self.view_name.clone()
-            } else {
-                None
-            }
-        }
+    impl TestProps {
+        /// 构造属性块（视图名称为 UTF-16LE + NUL，内容为原始字节）。
+        fn to_props(&self) -> Props {
+            let mut props = Props::new();
 
-        fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
-            if key == PropsKey::ViewContents {
-                self.contents.as_deref()
-            } else {
-                None
+            if let Some(view_name) = self.view_name.as_deref() {
+                let mut value = Vec::new();
+                for unit in view_name.encode_utf16() {
+                    value.extend_from_slice(&unit.to_le_bytes());
+                }
+                value.extend_from_slice(&[0, 0]);
+                props.put(PropsKey::ViewName.get_value(), value);
             }
+
+            if let Some(contents) = self.contents.as_deref() {
+                props.put(PropsKey::ViewContents.get_value(), contents.to_vec());
+            }
+
+            props
         }
     }
 
@@ -247,11 +198,8 @@ mod tests {
     }
 
     impl ViewStateReaderMethods for TestReader {
-        fn get_props(&self, _var_data: &Var2Data) -> MpxjResult<Option<Box<dyn ViewStateProps>>> {
-            Ok(self
-                .props
-                .clone()
-                .map(|props| Box::new(props) as Box<dyn ViewStateProps>))
+        fn get_props(&self, _var_data: &Var2Data) -> MpxjResult<Option<Props>> {
+            Ok(self.props.as_ref().map(TestProps::to_props))
         }
     }
 

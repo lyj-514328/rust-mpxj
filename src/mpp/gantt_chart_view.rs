@@ -40,11 +40,11 @@
 //! # 与 Java 的差异
 //!
 //! 1. **`Props` / `Props9`**：Java 用 `Props9 extends Props`，构造方法里把同一个 `Props9`
-//!    实例（静态类型 `Props`）传给各工厂方法。Rust 的 `Props9` 用组合实现「继承」，与
-//!    [`Props`] 无子类型关系，而本批已落地的 `GanttBarStyleFactory` / `GanttBarStyleFactory14`
-//!    接收 `&Props`。因此 [`GanttChartView::new`] 用 `Props9::new` 解析（与 Java 相同的
-//!    流式解析），再按解析结果重建一个内容等价的 [`Props`]（见 [`props9_to_props`]）传给
-//!    钩子；语义等价，代价是多一次映射拷贝。
+//!    实例（静态类型 `Props`）传给各工厂方法。Rust 的 `Props9` 用**组合 + `Deref`**实现
+//!    「继承」（见 `crate::mpp::props9`），`&Props9` 会经 `Deref` 自动强转成 `&Props`，
+//!    而各钩子（`GanttBarStyleFactory` / `GanttChartViewProcessor` 等）接收的正是 `&Props`；
+//!    因此 [`GanttChartView::new`] 用 `Props9::new` 解析后直接把 `&props9` 传下去，
+//!    与 Java 传入同一个实例完全一致，无需中间拷贝。
 //! 2. **`null` → `Option`**：可空字段（网格线、字体样式、时间刻度层、颜色、筛选名、
 //!    进度线起始日期等）一律改为 `Option<T>`；兼容「Java 中可能返回数组 `null`」的
 //!    getter（`getBarStyles` / `getTableFontStyles` / `getProgressLinesDisplaySelectedDates`）
@@ -554,8 +554,8 @@ impl GanttChartView {
         if let Some(props_data) = props_data.as_deref() {
             // Java: Props9 props = new Props9(new ByteArrayInputStream(propsData));
             let props9 = Props9::new(props_data)?;
-            // 见文件头差异 1：工厂方法接收 &Props，故按解析结果重建一个等价的 Props
-            let props = props9_to_props(&props9);
+            // 见文件头差异 1：钩子的形参是 &Props，`&props9` 经 Deref 自动强转后直接传入
+            let props = &props9;
 
             // Java: byte[] tableData = props.getByteArray(PropsKey.TABLE_PROPERTIES);
             if let Some(table_data) = props.get_byte_array(PropsKey::TableProperties) {
@@ -575,11 +575,11 @@ impl GanttChartView {
                 view.group_name = Some(MPPUtility::get_unicode_string(group_name, 0));
             }
 
-            processor.process_view_properties(&mut view, font_bases, &props);
+            processor.process_view_properties(&mut view, font_bases, props);
 
-            processor.process_default_bar_styles(&mut view, &props);
+            processor.process_default_bar_styles(&mut view, props);
 
-            processor.process_exception_bar_styles(&mut view, &props);
+            processor.process_exception_bar_styles(&mut view, props);
 
             // Java: byte[] columnData = props.getByteArray(PropsKey.COLUMN_PROPERTIES);
             if let Some(column_data) = props.get_byte_array(PropsKey::ColumnProperties) {
@@ -1520,31 +1520,6 @@ impl View for GanttChartView {
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
-}
-
-/// 把 `Props9` 的内容复制成 [`Props`]。
-///
-/// Rust 特有：Java 的 `Props9 extends Props`，各 `GanttBarStyleFactory` 的形参静态类型为
-/// `Props`、实参却是 `Props9`；本 crate 的 `Props9` 用组合实现「继承」（见
-/// `crate::mpp::props9` 的文件头），与 `Props` 之间没有子类型关系，故在此按解析结果
-/// 重建一个内容等价的 [`Props`]。
-///
-/// 键值有重复时（例如 `TABLE_NAME` 与 `UPPER_VIEW_NAME` 同为 574619658）以原始键值写入，
-/// 与 `Props9` 的查找结果一致。
-fn props9_to_props(props: &Props9) -> Props {
-    let mut result = Props::new();
-
-    for key in props.key_set() {
-        let Some(props_key) = PropsKey::get_instance(key) else {
-            continue;
-        };
-        let Some(value) = props.get_byte_array(props_key) else {
-            continue;
-        };
-        result.put(key, value.to_vec());
-    }
-
-    result
 }
 
 /// 把 `Option<impl Display>` 渲染成 Java 风格（`null` 或值本身）。
@@ -2513,20 +2488,24 @@ mod tests {
         assert!(view.get_default_filter().is_some());
     }
 
-    /// `Props9` → `Props` 的桥接保留全部键值。
+    /// `&Props9` 可经 `Deref` 强转成 `&Props`（对应 Java 的继承），
+    /// 因此 `GanttBarStyleFactory` 的 `&Props` 形参可直接接收 `&Props9`。
     #[test]
-    fn props9_to_props_keeps_entries() {
+    fn props9_derefs_to_props_for_style_factories() {
+        use crate::mpp::gantt_bar_style_factory::GanttBarStyleFactory;
+        use crate::mpp::gantt_bar_style_factory_common::GanttBarStyleFactoryCommon;
+
         let data = props_bytes(&[(PropsKey::GroupName, utf16le("G"))]);
         let props9 = Props9::new(&data).expect("Props9 合法");
-        let props = props9_to_props(&props9);
 
-        assert_eq!(
-            props.get_byte_array(PropsKey::GroupName),
-            Some(&utf16le("G")[..])
+        // 形参为 `&Props` 的 trait 方法直接接收 `&Props9`
+        let factory = GanttBarStyleFactoryCommon::new();
+        let file = ProjectFile::new();
+        assert!(
+            GanttBarStyleFactory::process_default_styles(&factory, &file, &props9).is_empty()
         );
-
-        // 空数据块 → 空 Props
-        let props9 = Props9::new(&props_bytes(&[])).expect("Props9 合法");
-        assert!(props9_to_props(&props9).key_set().is_empty());
+        assert!(
+            GanttBarStyleFactory::process_exception_styles(&factory, &file, &props9).is_empty()
+        );
     }
 }

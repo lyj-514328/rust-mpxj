@@ -198,7 +198,7 @@ mod tests {
             " name=G\n",
             " showSummaryTasks=false\n",
             " [Clauses=\n",
-            "  [GroupClause field=Task Name ascending=true groupOn=0 startAt=null groupInterval=null\n",
+            "  [GroupClause field=Task Name ascending=true font=null color=null pattern=null groupOn=0 startAt=null groupInterval=null\n",
             " ]\n",
             "]\n",
         );

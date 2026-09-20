@@ -13,16 +13,16 @@
 //! | Java | Rust | 说明 |
 //! |---|---|---|
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 项目文件在本 crate 中以 `Rc<RefCell<..>>` 共享 |
-//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>`（形参名 `_font_bases`） | **本参数在 Rust 侧未被使用**：Java 用它构造 `FontStyle` 并 `clause.setFont(...)`，而本 crate 的 [`GroupClause`](crate::group_clause::GroupClause) 未移植 `font` / `cellBackgroundColor` / `pattern` 三个成员（见其文件头说明），字体样式无法附加。保留形参以保证与调用点一致 |
-//! | `Color fontColor = MPPUtility.getColor(groupVarData, offset + 10)`、`clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22))`、`clause.setPattern(BackgroundPattern.getInstance(...))` | **跳过** | 目标模型 [`GroupClause`](crate::group_clause::GroupClause) 无对应成员（`java.awt.Color` / `BackgroundPattern` 属展示层样式），见上 |
+//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>` | Java 用它按 `offset + 8` 的字体序号取出 [`FontBase`]，再构造 [`FontStyle`] 交给 `clause.setFont(...)`；Rust 侧一致（字体表里没有该序号时 Java 传 `null`，Rust 传 `None`） |
+//! | `Color fontColor = MPPUtility.getColor(groupVarData, offset + 10)`、`clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22))`、`clause.setPattern(BackgroundPattern.getInstance(...))` | [`clause.set_font`](crate::group_clause::GroupClause::set_font) / [`clause.set_cell_background_color`](crate::group_clause::GroupClause::set_cell_background_color) / [`clause.set_pattern`](crate::group_clause::GroupClause::set_pattern) | 逐行还原；14 版直接取 `MPPUtility.getColor`（可返回 `null` ⇒ `Option<Color>`），与 9 / 12 版的 `ColorType` 路径不同，与 Java 一致 |
 //! | `ByteArrayHelper.getShort/getInt` 越界抛 `ArrayIndexOutOfBoundsException` | [`get_short_safe`] / [`get_int_safe`] 返回 0 | 遵循「不 panic」约定 |
 //! | `file.getGroups().add(group)` 在填充子句**之前**调用 | 填好子句后再 `add` | 容器按值持有分组，最终状态与 Java 一致 |
 //! | `Object startAt` / `Object groupInterval` | `Option<FieldValue>` | 取值可能是双精度 / 整数 / 布尔 / 日期时间，与 [`GroupClause`](crate::group_clause::GroupClause) 的成员类型一致 |
 //!
-//! 跳过的 Java 成员：与字体样式相关的 4 行（见上表），其余全部翻译。
+//! 跳过的 Java 成员：无。
 //!
 //! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制
-//! （`java.awt.Color` 属 GUI，已随字体样式一同跳过）。
+//! （`java.awt.Color` 已由 `crate::mpp::mpp_utility::Color` 代替）。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -36,8 +36,10 @@ use crate::field_value::FieldValue;
 use crate::group::Group;
 use crate::group_clause::GroupClause;
 use crate::mpp::abstract_calendar_factory::{get_int_safe, get_short_safe};
+use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::fixed_data::FixedData;
 use crate::mpp::font_base::FontBase;
+use crate::mpp::font_style::FontStyle;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::var2_data::Var2Data;
 use crate::project_file::ProjectFile;
@@ -69,14 +71,12 @@ impl GroupReader14 {
     ///
     /// 对应 Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData,
     /// Map<Integer, FontBase> fontBases)`
-    ///
-    /// `font_bases` 在本 crate 中未被使用（见文件头差异表），保留形参以保证调用点一致。
     pub fn process(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
         fixed_data: &FixedData,
         var_data: &Var2Data,
-        _font_bases: &HashMap<i32, FontBase>,
+        font_bases: &HashMap<i32, FontBase>,
     ) {
         // Java: int groupCount = fixedData.getItemCount();
         let group_count = fixed_data.get_item_count();
@@ -138,8 +138,44 @@ impl GroupReader14 {
                 // Java: boolean ascending = (MPPUtility.getByte(groupVarData, offset + 4) != 0);
                 clause.set_ascending(MPPUtility::get_byte(&group_var_data, offset + 4) != 0);
 
-                // Java 的字体样式 / 字体色 / 单元格背景色 / 图案四段在此跳过
-                // （`GroupClause` 无对应成员，见文件头差异表）
+                // Java: int fontIndex = MPPUtility.getByte(groupVarData, offset + 8);
+                //       FontBase fontBase = fontBases.get(Integer.valueOf(fontIndex));
+                let font_index = MPPUtility::get_byte(&group_var_data, offset + 8);
+                let font_base = font_bases.get(&font_index).cloned();
+
+                // Java: int style = MPPUtility.getByte(groupVarData, offset + 9);
+                //       boolean bold = ((style & 0x01) != 0);
+                //       boolean italic = ((style & 0x02) != 0);
+                //       boolean underline = ((style & 0x04) != 0);
+                let style = MPPUtility::get_byte(&group_var_data, offset + 9);
+                let bold = (style & 0x01) != 0;
+                let italic = (style & 0x02) != 0;
+                let underline = (style & 0x04) != 0;
+
+                // Java: Color fontColor = MPPUtility.getColor(groupVarData, offset + 10);
+                let font_color = MPPUtility::get_color(&group_var_data, offset + 10);
+
+                // Java: FontStyle fontStyle = new FontStyle(fontBase, italic, bold, underline, false,
+                //       fontColor, null, BackgroundPattern.SOLID);
+                //       clause.setFont(fontStyle);
+                clause.set_font(Some(FontStyle::new(
+                    font_base,
+                    italic,
+                    bold,
+                    underline,
+                    false,
+                    font_color,
+                    None,
+                    BackgroundPattern::Solid,
+                )));
+
+                // Java: clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22));
+                clause.set_cell_background_color(MPPUtility::get_color(&group_var_data, offset + 22));
+
+                // Java: clause.setPattern(BackgroundPattern.getInstance(MPPUtility.getByte(groupVarData, offset + 34) & 0x0F));
+                clause.set_pattern(Some(BackgroundPattern::get_instance(
+                    MPPUtility::get_byte(&group_var_data, offset + 34) & 0x0F,
+                )));
 
                 // Java: int groupOn = MPPUtility.getByte(groupVarData, offset + 38);
                 //       clause.setGroupOn(groupOn);
@@ -220,6 +256,7 @@ mod tests {
     use super::*;
     use crate::field_key::FieldKey;
     use crate::mpp::custom_field_value_reader::test_support::{fixed_data, var_data_with_meta};
+    use crate::mpp::mpp_utility::Color;
     use crate::task_field::TaskField;
 
     /// 分组定长数据：`[0..4)` = ID，`[4..)` = 名称（UTF-16LE + NUL）。
@@ -335,6 +372,51 @@ mod tests {
             Some(&FieldValue::Integer(0))
         );
         assert!(!group.get_show_summary_tasks());
+    }
+
+    /// 字体样式 / 字体色 / 单元格背景色 / 图案四段被写入子句（14 版的偏移与 9 / 12 版不同）。
+    #[test]
+    fn clause_style_members_are_read() {
+        let mut data = group_var_data(true, &[(TaskField::Cost, false, 3)]);
+        let offset = 12;
+        // offset+8=字体序号；offset+9=style（0x01 粗体 / 0x02 斜体 / 0x04 下划线）；
+        // offset+10=字体色（R/G/B + 标志）；offset+22=背景色；offset+34=图案
+        data[offset + 8] = 1;
+        data[offset + 9] = 0x02;
+        data[offset + 10] = 0xFF;
+        data[offset + 22 + 2] = 0xFF;
+        data[offset + 34] = 3;
+
+        let fixed = fixed_data(&[group_fixed_record(3, "G14")]);
+        let (_, var_data) = var_data_with_meta(&[(3, GroupReader14::GROUP_DATA, data)]);
+
+        // Java: fontBases.get(Integer.valueOf(fontIndex))
+        let mut font_bases = HashMap::new();
+        font_bases.insert(1, FontBase::new(Some(1), "Arial".to_owned(), 10));
+
+        let file = ProjectFile::new();
+        GroupReader14::new().process(&file, &fixed, &var_data, &font_bases);
+
+        let project = file.borrow();
+        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let clause = &group.get_group_clauses()[0];
+
+        let font = clause.get_font().expect("应有字体样式");
+        assert_eq!(font.get_font_base().map(FontBase::get_name), Some("Arial"));
+        assert!(!font.get_bold());
+        assert!(font.get_italic());
+        assert!(!font.get_underline());
+        assert!(!font.get_strikethrough());
+        assert_eq!(font.get_color(), Some(Color::new(255, 0, 0)));
+        assert_eq!(font.get_background_color(), None);
+        assert_eq!(font.get_background_pattern(), BackgroundPattern::Solid);
+
+        // Java: clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22))
+        assert_eq!(
+            clause.get_cell_background_color(),
+            Some(Color::new(0, 0, 255))
+        );
+        assert_eq!(clause.get_pattern(), Some(BackgroundPattern::Dotted));
     }
 
     /// 数据截断 / 缺失时不 panic。

@@ -14,7 +14,7 @@
 //! |---|---|---|
 //! | `GanttBarStyleFactory14 implements GanttBarStyleFactory` | 本类型同时提供**固有方法**与 [`GanttBarStyleFactory`] 实现 | 同 `GanttBarStyleFactoryCommon`；**注意实际 Java 源码中本类并不继承 `GanttBarStyleFactoryCommon`**，故无组合 / 转发 |
 //! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本工程约定 |
-//! | `Props props`（基类） | `P: `[`GanttBarStyleProps`]` | Rust 无继承，`Props9/12/14` 与 `Props` 不是子类型关系；调用方 `GanttChartView14` 实际传入 `&Props9`，故用最小 trait 泛型化（详见 `gantt_bar_style_factory` 模块说明） |
+//! | `Props props`（基类） | `&Props` | `Props9/12/14` 在 Rust 侧是「组合 + `Deref`」实现的独立类型，`&Props9` 等会经 `Deref` 自动强转成 `&Props`，故签名与 Java 一致（详见 `gantt_bar_style_factory` 模块说明） |
 //! | `barStyleData[offset]` | 私有函数 [`java_byte`] | Java 的 `byte` 有符号，`% 25`、`/ 25` 均按有符号值运算；Rust 侧保留该语义（越界时 Java 抛异常，Rust 返回 0） |
 //! | `MPPUtility.getColor` | [`MPPUtility::get_color`] | 返回 `Option<Color>`，标志字节非 0（自动颜色）时 Java 返回 `null` |
 //! | `FieldTypeHelper.getInstance` + `instanceof TaskField` 的 switch | [`FieldTypeHelper::get_instance`] + [`FieldTypeHelper::map_text_fields`] | Java 在 `getTaskField` 内联的 `START_TEXT` → `START` 等映射，正是 `mapTextFields` 的逻辑，故复用同一方法 |
@@ -38,8 +38,9 @@ use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
 use crate::mpp::gantt_bar_style::GanttBarStyle;
 use crate::mpp::gantt_bar_style_exception::GanttBarStyleException;
-use crate::mpp::gantt_bar_style_factory::{GanttBarStyleFactory, GanttBarStyleProps};
+use crate::mpp::gantt_bar_style_factory::GanttBarStyleFactory;
 use crate::mpp::mpp_utility::MPPUtility;
+use crate::mpp::props::Props;
 use crate::mpp::props_key::PropsKey;
 use crate::project_file::ProjectFile;
 
@@ -89,10 +90,10 @@ impl GanttBarStyleFactory14 {
     /// 读取默认的甘特图条形样式集合。
     ///
     /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
-    pub fn process_default_styles<P: GanttBarStyleProps>(
+    pub fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyle> {
         let bar_style_data = props.get_byte_array(PropsKey::StyleData);
         // Java: if (barStyleData == null || barStyleData.length <= 2240) { return EMPTY_STYLES; }
@@ -192,10 +193,10 @@ impl GanttBarStyleFactory14 {
     /// 读取单任务例外条形样式集合。
     ///
     /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
-    pub fn process_exception_styles<P: GanttBarStyleProps>(
+    pub fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyleException> {
         let Some(bar_data) = props.get_byte_array(PropsKey::BarExceptionStyles) else {
             // Java: return EMPTY_EXCEPTIONS;
@@ -275,10 +276,10 @@ impl GanttBarStyleFactory for GanttBarStyleFactory14 {
     /// 转发 [`GanttBarStyleFactory14::process_default_styles`]。
     ///
     /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
-    fn process_default_styles<P: GanttBarStyleProps>(
+    fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyle> {
         GanttBarStyleFactory14::process_default_styles(self, file, props)
     }
@@ -286,10 +287,10 @@ impl GanttBarStyleFactory for GanttBarStyleFactory14 {
     /// 转发 [`GanttBarStyleFactory14::process_exception_styles`]。
     ///
     /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
-    fn process_exception_styles<P: GanttBarStyleProps>(
+    fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
-        props: &P,
+        props: &Props,
     ) -> Vec<GanttBarStyleException> {
         GanttBarStyleFactory14::process_exception_styles(self, file, props)
     }
