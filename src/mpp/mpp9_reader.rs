@@ -1745,13 +1745,11 @@ impl<'a> MPP9ReaderState<'a> {
                 if let Some(recurring_task_reader) = &recurring_task_reader {
                     // Java: recurringTaskReader.processRecurringTask(task, recurringData);
                     // Java 的 processRecurringTask 直接写入 task；Rust 侧返回实例，由调用方挂载
-                    // （见 `recurring_task_reader.rs` 文件头）。
+                    // （见 `recurring_task_reader.rs` 文件头）。返回的即 `Task` 持有的同一类型。
                     let recurring_task = recurring_task_reader.process_recurring_task(&recurring_data);
                     {
                         let mut task_ref = task.borrow_mut();
-                        let target = task_ref.add_recurring_task();
-                        target.set_duration(recurring_task.get_duration());
-                        *target.get_recurring_data_mut() = recurring_task.get_data().clone();
+                        *task_ref.add_recurring_task() = recurring_task;
                     }
                 }
 

@@ -21,7 +21,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::font_base::FontBase;
-use crate::mpp::mpp_utility::Color;
+use crate::mpp::mpp_utility::{format_color, Color};
 
 /// 字体样式（基础字体 + 颜色 / 字型属性）。
 ///
@@ -163,23 +163,6 @@ impl Display for FontStyle {
             format_color(self.background_color),
             self.background_pattern
         )
-    }
-}
-
-/// 把 `Option<Color>` 格式化成 Java 的 `java.awt.Color.toString()` 形式（`None` 输出 `null`）。
-///
-/// Java 侧颜色用的是 `java.awt.Color`，其 `toString()` 为
-/// `java.awt.Color[r=<r>,g=<g>,b=<b>]`；Rust 侧用 [`crate::mpp::mpp_utility::Color`] 代替，
-/// 为了与 Java 的输出保持一致，这里手工拼出同样的字符串。
-fn format_color(color: Option<Color>) -> String {
-    match color {
-        Some(color) => format!(
-            "java.awt.Color[r={},g={},b={}]",
-            color.get_red(),
-            color.get_green(),
-            color.get_blue()
-        ),
-        None => "null".to_owned(),
     }
 }
 

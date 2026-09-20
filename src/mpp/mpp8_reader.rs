@@ -50,7 +50,7 @@
 //! | `LocalTime.plus(duration, ChronoUnit.MILLIS)` | `plus_milliseconds` | chrono 没有按毫秒回绕的方法 |
 //! | `task.setCost(1, …)` 等带下标 setter | `set_cost_at(1, …)` 等 | 本 crate 对同类重载统一加 `_at` 后缀（`Task` 的 `setDuration`/`setDate`/`setStart`/`setFinish`/`setText`/`setNumber`/`setFlag` 仍沿用原名，见各处注释） |
 //! | `FieldTypeHelper.getInstance` 返回 `FieldType` | `Option<MppFieldType>` → `to_field_key()` | 见 `crate::common::mpp_field_type` |
-//! | `RecurringTaskReader.processRecurringTask(task, data)`（内部 `task.addRecurringTask()`） | 返回结果后由本类写入 `task.add_recurring_task()` | 该 reader 的返回值与 `Task` 持有的 `RecurringTask` 是两个类型，故逐字段搬运（见 `crate::mpp::recurring_task_reader` 文件头） |
+//! | `RecurringTaskReader.processRecurringTask(task, data)`（内部 `task.addRecurringTask()`） | 返回结果后由本类写入 `task.add_recurring_task()` | Rust 侧写入 `Task` 需要 `&mut Task`，故「读取」与「挂载」分成两步（见 `crate::mpp::recurring_task_reader` 文件头） |
 //!
 //! ## 明确跳过的 Java 内容
 //!
@@ -1171,11 +1171,8 @@ impl MPP8ReaderState {
                     if let Some(reader) = recurring_task_reader.as_ref() {
                         let recurring_task = reader.process_recurring_task(recurring_data);
                         // Java: RecurringTaskReader.processRecurringTask 内部直接 `task.addRecurringTask()`；
-                        // Rust 侧该 reader 返回自己的一份结果（见 `crate::mpp::recurring_task_reader` 文件头），
-                        // 故这里把工期与 `RecurringData` 搬运到任务持有的 `RecurringTask` 上
-                        let target = task_ref.add_recurring_task();
-                        target.set_duration(recurring_task.get_duration());
-                        *target.get_recurring_data_mut() = recurring_task.get_data().clone();
+                        // Rust 侧该 reader 返回同一类型的结果，这里挂到任务上即可
+                        *task_ref.add_recurring_task() = recurring_task;
                     }
                 }
 

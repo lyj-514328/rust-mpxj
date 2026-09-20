@@ -149,6 +149,19 @@ impl fmt::Display for Color {
     }
 }
 
+/// 把可空颜色渲染成 Java `java.awt.Color.toString()` 的形式（`None` → `"null"`）。
+///
+/// Java 的展示类在 `toString()` 里直接拼接 `java.awt.Color`，`null` 时拼出 `"null"`
+/// （字符串拼接的 `String.valueOf` 语义）。这里集中提供该文本，避免各展示类各自复刻
+/// 一遍（`crate::mpp::font_style` / `crate::mpp::gantt_bar_common_style` /
+/// `crate::group_clause` 曾各有一份拷贝）。
+pub fn format_color(value: Option<Color>) -> String {
+    match value {
+        Some(color) => color.to_string(),
+        None => "null".to_owned(),
+    }
+}
+
 impl MPPUtility {
     /// 对应 Java: `public static final void decodeBuffer(byte[] data, byte encryptionCode)`
     ///

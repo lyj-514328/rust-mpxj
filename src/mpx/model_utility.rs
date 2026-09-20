@@ -9,9 +9,8 @@
 //! 类型不匹配时 Java 会抛 `ClassCastException`；Rust 侧不 panic，按「有值即视为已填充」
 //! 处理（与 Java 中 `!(value instanceof X)` 分支的语义一致）。
 //!
-//! `DataType::RelationList`：Java 判断 `!((List<Relation>) value).isEmpty()`，而 Rust 的
-//! `FieldValue` 目前没有集合变体（见 `field_value` 文件头），无法表达关系列表，
-//! 因此这里按「有值即已填充」处理。
+//! `DataType::RelationList`：Java 判断 `!((List<Relation>) value).isEmpty()`，Rust 侧对应
+//! [`FieldValue::Relations`]（见 `field_value` 文件头）。
 //!
 //! 未移植的成员：无。
 
@@ -63,8 +62,11 @@ impl ModelUtility {
                 value.as_boolean().is_none_or(|flag| flag)
             }
             DataType::RelationList => {
-                // 见文件头：无法表达关系列表，有值即视为已填充。
-                true
+                // Java: populated = !((List<Relation>) value).isEmpty();
+                match value {
+                    FieldValue::Relations(relations) => !relations.is_empty(),
+                    _ => true,
+                }
             }
             _ => true,
         }

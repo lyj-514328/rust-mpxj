@@ -53,7 +53,7 @@ use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::font_style::FontStyle;
-use crate::mpp::mpp_utility::Color;
+use crate::mpp::mpp_utility::{format_color, Color};
 use crate::test_operator::Operand;
 
 /// 分组定义中的一条子句。
@@ -251,23 +251,6 @@ fn render_value(value: Option<&FieldValue>) -> String {
 fn render_optional<T: Display>(value: Option<&T>) -> String {
     match value {
         Some(value) => value.to_string(),
-        None => "null".to_owned(),
-    }
-}
-
-/// 把可选颜色渲染成 Java `java.awt.Color.toString()` 的形式（`None` → `"null"`）。
-///
-/// Java 侧颜色用的是 `java.awt.Color`，其 `toString()` 为
-/// `java.awt.Color[r=<r>,g=<g>,b=<b>]`；Rust 侧用 [`crate::mpp::mpp_utility::Color`] 代替，
-/// 为了与 Java 的输出保持一致，这里手工拼出同样的字符串（与 `crate::mpp::font_style` 同法）。
-fn format_color(color: Option<Color>) -> String {
-    match color {
-        Some(color) => format!(
-            "java.awt.Color[r={},g={},b={}]",
-            color.get_red(),
-            color.get_green(),
-            color.get_blue()
-        ),
         None => "null".to_owned(),
     }
 }

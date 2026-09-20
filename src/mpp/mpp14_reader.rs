@@ -1954,9 +1954,7 @@ impl Mpp14ReaderState {
                     let recurring_task = reader.process_recurring_task(&recurring_data);
                     {
                         let mut task_ref = task.borrow_mut();
-                        let target = task_ref.add_recurring_task();
-                        target.set_duration(recurring_task.get_duration());
-                        *target.get_recurring_data_mut() = recurring_task.get_data().clone();
+                        *task_ref.add_recurring_task() = recurring_task;
                     }
                     task.borrow_mut().set_recurring(true);
                 }

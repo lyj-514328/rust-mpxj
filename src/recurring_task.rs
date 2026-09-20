@@ -119,6 +119,8 @@ mod tests {
         task.set_duration(Some(Duration::get_instance_int(3, crate::time_unit::TimeUnit::Days)));
 
         assert!(task.get_duration().is_some());
+        // Default 等价于隐式无参构造
+        assert_eq!(RecurringTask::default().get_duration(), None);
     }
 
     #[test]

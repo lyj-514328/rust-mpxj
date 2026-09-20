@@ -38,7 +38,7 @@
 //! | `MicrosoftProjectConstants.EPOCH_DATE` / `MAX_UNIQUE_ID` | [`epoch_date`] / [`MAX_UNIQUE_ID`] | 常量值取自 Java 侧同名常量（1983-12-31T00:00、0x1FFFFF）；`MicrosoftProjectConstants` 未在本 crate 落地 |
 //! | `Collections.sort(externalTasks)`（`Task implements Comparable`） | `sort_by(\|a, b\| a.compare_to(&b))` | 使用 `Task::compare_to`（Java 的 `compareTo`） |
 //! | `throw new MPXJException("Unable to fix task order")` | `Err(MpxjError::new("Unable to fix task order"))` | 统一错误类型 |
-//! | `recurringTaskReader.processRecurringTask(task, recurringData)`（就地写回 task） | `reader.process_recurring_task(data)` 取结果后，把 `duration` 与 `RecurringData` 搬运到 `task.add_recurring_task()` | mpp 层的 `RecurringTaskReader::process_recurring_task` 返回 `mpp::recurring_task_reader::RecurringTask`，与 `Task` 使用的模型层 `crate::recurring_task::RecurringTask` 是两个类型（Java 只有一个），故需一次字段拷贝 |
+//! | `recurringTaskReader.processRecurringTask(task, recurringData)`（就地写回 task） | `reader.process_recurring_task(data)` 取结果后写入 `task.add_recurring_task()` | Rust 侧写入 `Task` 需要 `&mut Task`，故「读取」与「挂载」分成两步（见 `crate::mpp::recurring_task_reader` 文件头） |
 //! | `finally { clearMemberData(); }` | [`MPP12Reader::process`] 中「[`ReaderState::process`] 执行主体 → `clear_member_data()` → 返回结果」 | 主体即 Java `try` 块内的全部语句，`clearMemberData` 在成功与失败路径上都会执行 |
 //! | `toString` / `equals` / `hashCode` | 无 | 本类未覆写 |
 //! | `MPPUtility.convertRateFromHours(m_file, resource, STANDARD_RATE/OvertimeRate, …_UNITS)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | [`MPPUtility::convert_rate_from_hours`]（内部按整数还原 `TimeUnit`） | `FieldValue` 没有承载 `TimeUnit` 的变体，单位字段以整数存放；换算逻辑由 `RateHelper::convert_from_hours` 提供 |
@@ -1781,15 +1781,8 @@ impl<'a> ReaderState<'a> {
                     }
                     if let Some(reader) = &recurring_task_reader {
                         // Java: recurringTaskReader.processRecurringTask(task, recurringData);
-                        //
-                        // Rust 特有：mpp 层的 `RecurringTaskReader::process_recurring_task` 返回
-                        // `mpp::recurring_task_reader::RecurringTask`，而 `Task::add_recurring_task()`
-                        // 返回模型层的 `crate::recurring_task::RecurringTask`（两个不同类型），
-                        // 故做一次字段搬运（Java 只有模型层一个类型，读取器直接写回 task）。
                         let recurring = reader.process_recurring_task(recurring_data);
-                        let target = task_ref.add_recurring_task();
-                        target.set_duration(recurring.get_duration());
-                        *target.get_recurring_data_mut() = recurring.get_data().clone();
+                        *task_ref.add_recurring_task() = recurring;
                         // Java: task.setRecurring(true);
                         task_ref.set_recurring(true);
                     }

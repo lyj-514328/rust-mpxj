@@ -27,7 +27,7 @@ use crate::mpp::chart_pattern::ChartPattern;
 use crate::mpp::gantt_bar_middle_shape::GanttBarMiddleShape;
 use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
-use crate::mpp::mpp_utility::Color;
+use crate::mpp::mpp_utility::{format_color, Color};
 
 /// 甘特图条形样式（普通 / 例外）的共有部分。
 ///
@@ -301,19 +301,6 @@ impl Display for GanttBarCommonStyle {
 fn format_option<T: Display>(value: Option<T>) -> String {
     match value {
         Some(value) => value.to_string(),
-        None => "null".to_owned(),
-    }
-}
-
-/// 打印可空的颜色，复刻 `java.awt.Color.toString()` 的格式（`None` 对应 Java 的 `null`）。
-fn format_color(value: Option<Color>) -> String {
-    match value {
-        Some(color) => format!(
-            "java.awt.Color[r={},g={},b={}]",
-            color.get_red(),
-            color.get_green(),
-            color.get_blue()
-        ),
         None => "null".to_owned(),
     }
 }

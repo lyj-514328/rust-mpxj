@@ -29,8 +29,8 @@
 //! |---|---|---|
 //! | `final class RecurringTaskReader` | `pub struct RecurringTaskReader` | Rust 无包级可见性 |
 //! | `RecurringTaskReader(ProjectProperties properties)` | [`RecurringTaskReader::new`] 接收 `&ProjectProperties`，只保留其**父文件弱引用** | `ProjectProperties` 由 `ProjectFile` 持有且不是 `Clone`，Rust 侧无法保存一份属性副本；读取工期时需要属性里的「每天 / 每周分钟数」，故按弱引用回到父文件按需借用（Java 持有稳定引用） |
-//! | `processRecurringTask(Task task, byte[] data)`（`task.addRecurringTask()` 返回 `RecurringTask`） | [`RecurringTaskReader::process_recurring_task`] 接收 `&[u8]` 并**返回**本文件的 [`RecurringTask`] | 「读取」与「挂到任务上」拆成两步：Java 在方法内部 `task.addRecurringTask()` 取到实例后逐字段写入；Rust 侧写入任务需要 `&mut Task`，故由调用方拿到读取结果后自行经 `Task::add_recurring_task()`（已落地，见 `crate::task::Task::add_recurring_task`）挂到任务上 |
-//! | `RecurringTask extends RecurringData`（额外持有 `m_duration`） | 本文件的 [`RecurringTask`] 用**组合 + 转发**表达：持有一个 [`RecurringData`] 与一个 `Option<Duration>` | 遵循「Java 继承 → 组合」约定（`RecurringData` 无 `m_duration`，故 duration 只能放在本类型上）。**已知重复**：`crate::recurring_task::RecurringTask` 是同一 Java 类的另一份实现（用 `Deref` 还原继承，访问器名为 `get_recurring_data` / `get_recurring_data_mut`）；合并两者会牵动调用方（`mpx_reader.rs`），故本文件暂留同名类型 |
+//! | `processRecurringTask(Task task, byte[] data)`（Java 在方法内 `task.addRecurringTask()` 取得实例后逐字段写入） | [`RecurringTaskReader::process_recurring_task`] 接收 `&[u8]` 并**返回** [`crate::recurring_task::RecurringTask`] | 「读取」与「挂到任务上」拆成两步：Rust 侧写入 `Task` 需要 `&mut Task`，故由调用方拿到读取结果后经 `Task::add_recurring_task()`（已落地，见 `crate::task::Task::add_recurring_task`）挂到任务上。返回的即 Java 中 `Task` 持有的那个类型，调用方无需再做字段搬运 |
+//! | `RecurringTask extends RecurringData`（额外持有 `m_duration`） | 直接复用模型层的 [`crate::recurring_task::RecurringTask`]（该类型同样以组合 + `Deref` 还原继承） | 本文件此前自带一份同名类型，与模型层各有一份实现；现已合并为一份 |
 //! | `ByteArrayHelper.getShort/getInt` 越界 | 先判长度，不足返回 0 | Java 抛 `ArrayIndexOutOfBoundsException` |
 //! | `switch (rt.getRecurrenceType())` 在类型为 `null` 时 | `match` 的 `None` 分支（不进入任何 case） | Java 对 `null` 枚举做 `switch` 会抛 `NullPointerException` |
 //! | `DayOfWeekHelper.getInstance(int)` 返回 `null` 时 `setDayOfWeek(null)` | 跳过该次设置 | Java 会在 `EnumSet.add(null)` 抛 `NullPointerException` |
@@ -51,7 +51,7 @@ use crate::mpp::mpp_utility::MPPUtility;
 use crate::project_file::ProjectFile;
 use crate::project_properties::ProjectProperties;
 use crate::recurrence_type::RecurrenceType;
-use crate::recurring_data::RecurringData;
+use crate::recurring_task::RecurringTask;
 use crate::time_unit::TimeUnit;
 
 /// 重复类型为「按月」时，「相对」标志所在的偏移。
@@ -109,64 +109,6 @@ const WORKING_DAYS_ONLY_OFFSET: usize = 26;
 /// 对应 Java: `ByteArrayHelper.getShort(data, 28)` … `ByteArrayHelper.getShort(data, 40)`
 const WEEKLY_DAYS_OFFSET: usize = 28;
 
-/// 重复任务的读取结果。
-///
-/// 对应 Java: `public final class RecurringTask extends RecurringData`
-///（Rust 侧为组合 + 转发的还原，见文件头差异表）。
-pub struct RecurringTask {
-    /// 对应 Java 字段: `private Duration m_duration`
-    duration: Option<Duration>,
-    /// 对应 Java 的父类 `RecurringData`
-    data: RecurringData,
-}
-
-impl RecurringTask {
-    /// 构造方法。
-    ///
-    /// 对应 Java: `RecurringTask` 的隐式默认构造方法（父类 `RecurringData` 同时初始化）
-    pub fn new() -> Self {
-        Self {
-            duration: None,
-            data: RecurringData::new(),
-        }
-    }
-
-    /// 取重复任务的工期。
-    ///
-    /// 对应 Java: `public Duration getDuration()`
-    pub fn get_duration(&self) -> Option<Duration> {
-        self.duration
-    }
-
-    /// 设置重复任务的工期。
-    ///
-    /// 对应 Java: `public void setDuration(Duration duration)`
-    pub fn set_duration(&mut self, duration: Option<Duration>) {
-        self.duration = duration;
-    }
-
-    /// 取重复数据部分（对应 Java 中继承自 `RecurringData` 的字段）。
-    ///
-    /// Rust 特有：Java 侧无该方法（字段由继承直接获得）。
-    pub fn get_data(&self) -> &RecurringData {
-        &self.data
-    }
-
-    /// 取可变的重复数据部分。
-    ///
-    /// Rust 特有：Java 侧字段由继承直接获得。
-    pub fn get_data_mut(&mut self) -> &mut RecurringData {
-        &mut self.data
-    }
-}
-
-impl Default for RecurringTask {
-    /// 对应 Java: 隐式默认构造方法。
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// 重复任务定义读取器。
 ///
 /// 对应 Java: `final class RecurringTaskReader`
@@ -207,7 +149,9 @@ impl RecurringTaskReader {
 
         let mut result = RecurringTask::new();
         result.set_duration(duration);
-        let rt = result.get_data_mut();
+        // Java: `RecurringTask rt = task.addRecurringTask();` —— 本仓返回该实例，
+        // 父类 `RecurringData` 的方法经 `DerefMut` 直接在 `rt` 上调用（与 Java 同形）。
+        let rt = &mut result;
 
         // Java: rt.setStartDate(MPPUtility.getDate(data, 6));
         rt.set_start_date(MPPUtility::get_date(data, START_DATE_OFFSET));
@@ -426,7 +370,7 @@ mod tests {
     fn reads_monthly_relative_recurring_task() {
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&recurring_task_data());
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert_eq!(rt.get_start_date(), NaiveDate::from_ymd_opt(1984, 1, 1));
         assert_eq!(rt.get_finish_date(), NaiveDate::from_ymd_opt(1984, 1, 31));
@@ -460,7 +404,7 @@ mod tests {
         let data = with_recurrence_type(recurring_task_data(), 1); // Daily
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert_eq!(rt.get_recurrence_type(), Some(RecurrenceType::Daily));
         assert!(!rt.get_weekly_day(Weekday::Sun));
@@ -486,7 +430,7 @@ mod tests {
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
 
-        assert_eq!(task.get_data().get_frequency(), Some(3));
+        assert_eq!(task.get_recurring_data().get_frequency(), Some(3));
     }
 
     /// 按周重复：频率取自偏移 48。
@@ -499,10 +443,10 @@ mod tests {
         let task = reader.process_recurring_task(&data);
 
         assert_eq!(
-            task.get_data().get_recurrence_type(),
+            task.get_recurring_data().get_recurrence_type(),
             Some(RecurrenceType::Weekly)
         );
-        assert_eq!(task.get_data().get_frequency(), Some(2));
+        assert_eq!(task.get_recurring_data().get_frequency(), Some(2));
     }
 
     /// 按月绝对规则：频率与「第几天」取自另一组偏移。
@@ -516,7 +460,7 @@ mod tests {
 
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert!(!rt.get_relative());
         assert_eq!(rt.get_frequency(), Some(1));
@@ -540,7 +484,7 @@ mod tests {
 
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert!(!rt.get_relative());
         assert_eq!(rt.get_month_number(), Some(4));
@@ -560,7 +504,7 @@ mod tests {
 
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert!(rt.get_relative());
         assert_eq!(rt.get_day_number(), Some(4));
@@ -574,26 +518,26 @@ mod tests {
         let reader = RecurringTaskReader::new(&properties());
 
         let task = reader.process_recurring_task(&[]);
-        assert_eq!(task.get_data().get_start_date(), None);
-        assert_eq!(task.get_data().get_finish_date(), None);
+        assert_eq!(task.get_recurring_data().get_start_date(), None);
+        assert_eq!(task.get_recurring_data().get_finish_date(), None);
         // 工期读到 0，按 DAYS 换算后仍为 0（Java 的 getAdjustedDuration 同样返回 0 而非 null）
         assert_eq!(
             task.get_duration().map(|value| (value.get_duration(), value.get_units())),
             Some((0.0, TimeUnit::Days))
         );
         // Java 会因数组越界抛异常；Rust 侧退化为 0
-        assert_eq!(task.get_data().get_occurrences(), Some(0));
+        assert_eq!(task.get_recurring_data().get_occurrences(), Some(0));
         // RecurrenceType.getInstance(0) 在 Java 中回落到 DAILY
         assert_eq!(
-            task.get_data().get_recurrence_type(),
+            task.get_recurring_data().get_recurrence_type(),
             Some(RecurrenceType::Daily)
         );
-        assert!(!task.get_data().get_use_end_date());
-        assert_eq!(task.get_data().get_frequency(), Some(0));
+        assert!(!task.get_recurring_data().get_use_end_date());
+        assert_eq!(task.get_recurring_data().get_frequency(), Some(0));
 
         // 只够读到工期单位
         let task = reader.process_recurring_task(&recurring_task_data()[..18]);
-        assert_eq!(task.get_data().get_occurrences(), Some(0));
+        assert_eq!(task.get_recurring_data().get_occurrences(), Some(0));
     }
 
     /// 落在 `RecurrenceType` 查找表空洞中的取值对应 Java 的 `null`。
@@ -602,7 +546,7 @@ mod tests {
         let data = with_recurrence_type(recurring_task_data(), 2);
         let reader = RecurringTaskReader::new(&properties());
         let task = reader.process_recurring_task(&data);
-        let rt = task.get_data();
+        let rt = task.get_recurring_data();
 
         assert_eq!(rt.get_recurrence_type(), None);
         assert_eq!(rt.get_frequency(), None);
@@ -646,29 +590,5 @@ mod tests {
         let duration = task.get_duration().expect("工期有效");
         assert_eq!(duration.get_duration(), 1.0);
         assert_eq!(duration.get_units(), TimeUnit::Hours);
-    }
-
-    /// `RecurringTask` 的工期既能读写，又能访问组合的 `RecurringData`。
-    #[test]
-    fn recurring_task_wraps_recurring_data() {
-        let mut task = RecurringTask::new();
-        assert_eq!(task.get_duration(), None);
-        assert_eq!(task.get_data().get_recurrence_type(), None);
-
-        task.set_duration(Some(Duration::get_instance(3.0, TimeUnit::Days)));
-        task.get_data_mut()
-            .set_recurrence_type(Some(RecurrenceType::Weekly));
-
-        assert_eq!(
-            task.get_duration().map(|d| d.get_duration()),
-            Some(3.0)
-        );
-        assert_eq!(
-            task.get_data().get_recurrence_type(),
-            Some(RecurrenceType::Weekly)
-        );
-
-        // Default 等价于 new
-        assert_eq!(RecurringTask::default().get_duration(), None);
     }
 }

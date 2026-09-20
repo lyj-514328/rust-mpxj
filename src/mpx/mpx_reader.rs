@@ -82,7 +82,7 @@
 //! | `TASK_NOTES`(71) | `setNotes` |
 //! | `RECURRING_TASK`(72) | `setRecurring(true)` + `addRecurringTask()` + [`MPXReader::populate_recurring_task`] |
 //! | `RESOURCE_ASSIGNMENT`(75) | `addResourceAssignment` + [`MPXReader::populate_resource_assignment`] |
-//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`(76) | [`MPXReader::populate_resource_assignment_workgroup_fields`]（接线待 `ResourceAssignment` 接口，见「跳过的 Java 代码」） |
+//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`(76) | `addWorkgroupAssignment()` + [`MPXReader::populate_resource_assignment_workgroup_fields`] |
 //! | `FILE_CREATION`(999) | [`MPXReader::populate_file_creation_record`] |
 //! | 其它 | `Err(INVALID_RECORD)` |
 //!
@@ -185,8 +185,6 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS` 记录（76）里 `m_lastResourceAssignment.addWorkgroupAssignment()` 的**落位** | [`crate::ResourceAssignment`] 尚未提供 `add_workgroup_assignment()` / `get_workgroup_assignment()`（该文件由并行任务修改）。[`crate::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields`] 与 [`MPXReader::populate_resource_assignment_workgroup_fields`] 均已按 Java 落地，接口就绪后解开记录 76 分支里的注释即可 |
-//! | `m_lastResourceAssignment.disableEvents()` / `enableEvents()` | [`crate::ResourceAssignment`] 未提供这两个方法（字段容器未对外暴露），属纯性能 / 事件抑制手段，省略不影响写入结果 |
 //! | `MPXWriter` | 按任务要求不移植（本文件只含读取链路） |
 //! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
 //!
@@ -980,9 +978,12 @@ impl MPXReader {
                     if let Some(assignment) = assignment {
                         self.m_last_resource_assignment = Some(Rc::clone(&assignment));
 
-                        // Java: 此处还有 disableEvents() / enableEvents()，本仓的
-                        // `ResourceAssignment` 未提供这两个方法（见文件头「跳过的 Java 代码」）。
+                        // Java: m_lastResourceAssignment.disableEvents();
+                        //       populateResourceAssignment(record, m_lastResourceAssignment);
+                        //       m_lastResourceAssignment.enableEvents();
+                        assignment.borrow_mut().disable_events();
                         self.populate_resource_assignment(record, &assignment)?;
+                        assignment.borrow_mut().enable_events();
                     }
                 }
                 false
@@ -995,12 +996,11 @@ impl MPXReader {
                 //        m_lastResourceAssignment.addWorkgroupAssignment();
                 //    populateResourceAssignmentWorkgroupFields(record, workgroup);
                 // }
-                //
-                // ⚠️ 接线尚未完成：`addWorkgroupAssignment()` / `getWorkgroupAssignment()` 需要
-                // [`crate::ResourceAssignment`] 增加一个字段与两个方法（该文件由并行任务修改，
-                // 本任务不得改动，见汇报）。逐字段解析逻辑已按 Java 实现于
-                // [`MPXReader::populate_resource_assignment_workgroup_fields`]，上述接口就绪后
-                // 把注释里的三行解开即可。
+                if let Some(assignment) = self.m_last_resource_assignment.clone() {
+                    let mut assignment_ref = assignment.borrow_mut();
+                    let workgroup = assignment_ref.add_workgroup_assignment();
+                    Self::populate_resource_assignment_workgroup_fields(record, workgroup);
+                }
                 false
             }
 
@@ -2242,11 +2242,7 @@ impl MPXReader {
     ///
     /// 对应 Java: `private void populateResourceAssignmentWorkgroupFields(Record record, ResourceAssignmentWorkgroupFields workgroup)`
     ///
-    /// 取舍：Java 侧本方法是 `private`；Rust 侧设为 `pub`，因为在
-    /// [`crate::ResourceAssignment`] 提供 `add_workgroup_assignment()` 之前，记录 76 的
-    /// 接线点只能保持注释（该文件由并行任务修改），此处先以公开方法承载 Java 的逐字段逻辑，
-    /// 便于回归测试与后续接线（见 [`MPXConstants::RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER`]
-    /// 分支的说明）。
+    /// 取舍：Java 侧本方法是 `private`；Rust 侧设为 `pub` 便于单元测试直接覆盖逐字段逻辑。
     pub fn populate_resource_assignment_workgroup_fields(
         record: &Record<'_>,
         workgroup: &mut ResourceAssignmentWorkgroupFields,
