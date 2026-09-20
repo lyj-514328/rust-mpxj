@@ -36,6 +36,50 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 
 ---
 
+## 修复进度
+
+### ✅ 已完成（commit `ca16922`、`f00eeab`）
+
+| 章节 | 条目 |
+|---|---|
+| 一 | `availability_table` 的 23:58 bug（**唯一给错答案的**）—— 使用点改 `Self::end_date_na()`，删模块级副本 |
+| 二 | 资源可用性表在 MPP 全部格式下为空 —— 4 个调用点接 `Resource::add_availability`，MPP8 按 `MPP8Reader.java:1035` 新增 |
+| 二 | 资源费率未换算 —— 新建 `src/rate_helper.rs`（对应 `org.mpxj.common.RateHelper`），mpp9/12/14 + `cost_rate_table_factory` 四处统一调用 |
+| 二 | MPX `ResourceField::MAX_UNITS` 被丢弃 —— 改为按 Java 写可用性表 |
+| 二 | MPX 记录 72 周期任务明细 —— 新增 `populate_recurring_task`，按 `MPXReader.java:1348` 逐字段写 |
+| 五 | **`FieldValue` 扩展** —— 新增 12 个变体（Uuid/TimeUnit/WorkContour/RateSource/ResourceRequestType/Notes/Steps/Relations/Resource/TimephasedWork/TimephasedCost/TimeRanges）。`Clone`/`PartialEq` 改为**手写**，逐变体对齐 Java 的引用/值比较语义（`Notes`/`Steps`/`Resource` 用 `Rc::ptr_eq`，`TimephasedWork`/`TimeRanges` 用值比较，依据是 Java `TimephasedItem` 覆写了 `equals`） |
+| 五 | 据上把 `ResourceAssignment` 的专属字段**接回字段表**，`get_field()` 现在可见。`m_workgroup` 经核对**确实不在** Java 字段表（`ResourceAssignment.java:4220`，由 `addWorkgroupAssignment()` 惰性创建），保留为独立字段 |
+| 五 | `Task` 的 `get_steps/set_steps/default_steps`、`set_notes_object`（子类型保真）、`get_work_splits` 系列；`FieldContainer` 的两个 timephased 查询 |
+| 六 | `ResourceAssignment::add_workgroup_assignment/get_workgroup_assignment` |
+| 六 | `ResourceAssignment::disable_events/enable_events` 接线（`populate_container` 前后） |
+| 三 | `default_baseline_strategy.rs` 的 7 个 `BASELINE_*` 数组去重 → 引用 `common/task_field_lists` |
+| 三 | `format_color`：**实际有 5 份**（本文档原记 2 份，已修正）—— 已给 `mpp_utility::Color` 加 `Display`，删 2 份；**剩 3 份**在 `font_style.rs` / `group_clause.rs` / `gantt_bar_common_style.rs` |
+| 三 | `props.rs` / `abstract_var_meta.rs` 的私有读取助手改为转发 `MPPComponent` |
+| 四 | 一批过期注释订正；**纠正 `mpxj_formats.rs` 的错误指引**（月份/星期名数据源是 JDK `java.time`，`locale_data` 里没有，属真硬限制） |
+| 八 | `locale_utility.rs` 改为逐键走 `LocaleData`（覆盖 + 回落语义），删掉硬编码英文表 |
+| 八 | `duration_utility.rs` 补回 `NumberFormat` 参数，用 `MPXJNumberFormat::parse` 取代 `f64::from_str`。此前德语等小数逗号区域的小数工期（如 `1,5t`）会解析失败 |
+| 三 | 新增 `src/resource_assignment_workgroup_fields.rs`（对应 Java 同名类），记录 76 解析逻辑就位 |
+
+### ⬜ 仍欠
+
+| 章节 | 条目 |
+|---|---|
+| 二 | **MPX 记录 76 的调用点尚未解开** —— 接口与解析逻辑都已就位，`mpx_reader.rs` 里那处仍是注释 + 待办 |
+| 三 | `mpp/recurring_task_reader.rs` 自带的 `pub struct RecurringTask` 与 `crate::recurring_task::RecurringTask` 是**同一 Java 类的两份实现**，需连同 `mpx_reader.rs` 一起合并 |
+| 三 | `format_color` 剩 3 份（见上） |
+| 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败。已把误导性注释改为真实结构说明 |
+| 四 | 白名单外仍有过期措辞的文件（`mpp14_reader.rs`、`mpp9_reader.rs`、`mpp8_reader.rs`、`mpp12_reader.rs`、`project_calendar.rs`、`project_calendar_container.rs`、`shift_period.rs`、`shift_period_container.rs`、`shift_container.rs`、`unit_of_measure_container.rs`、`work_contour.rs`、`notes_topic.rs`、`slack_calculator.rs`、`project_file.rs`、`mpx/task_model.rs`、`mpx/resource_model.rs`、`mpp/mpp_variant_reader.rs`） |
+| 六 | 约 20 条「零件已落地、按需接线」：`PopulatedFields`、`ProjectCalendar` 的 contextual 方法、容器基类复用、`shift`/`unit_of_measure` 的 Builder 序列提供者、`relation` 自动 ID、`task_container::removed`、`external_project_container`、`event_manager` 按身份移除、`custom_field::get_unique_id` 回落、`microsoft_slack_calculator` 的 `get_variance`、`availability_table`/`cost_rate_table_entry` 的 helper 接线、`column` 的 `getName(Locale)` 等 |
+| 八 | `mpx/model_utility.rs:65` 的 `DataType::RelationList` 判定应为 `!list.is_empty()`（Java `ModelUtility.java:89`）。只影响未移植的 MPX **writer** 路径 |
+
+### 验证基线（每批都应维持）
+
+- `cargo build --all-targets` 无错误、**无警告**
+- `cargo test`：**1745 项单元测试 + 16 项集成测试**全绿
+- `cargo run --release --example sample_survey`：**MPP 606/609**（另 3 个是密码保护，属预期）、**MPX 19/19**
+
+---
+
 ## 一、🔴 给错答案（最高优先）
 
 | 位置 | 问题 | 修法 |
