@@ -47,6 +47,9 @@
 //!   它把请求转发给上下文，从而与 Java 一样共享同一批序号生成器。
 //! - **`ProjectCalendarContainer` 的接线**：该容器同样只持有上下文弱引用，
 //!   由 [`ProjectContext::shared`] 调用 `set_context` 完成接线。
+//! - **日历编号的借用拆分**：Java 可在容器内回读上下文配置和序列；Rust 从
+//!   `get_calendars_mut()` 取得容器时已借用上下文，故通过本类型的创建入口预先领取
+//!   同一个 `ObjectSequence` 的 ID，再交给容器构造日历。
 //! - **`Class<?>` 参数**：Java 的 `getUniqueIdObjectSequence(Class<?> c)` /
 //!   `resetUniqueIdObjectSequence(Class<?> c)` 以 `c.getName()` 作为 map key。Rust 侧按已移植的
 //!   [`crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider`] 改用
@@ -80,6 +83,7 @@ use crate::custom_field_container::CustomFieldContainer;
 use crate::event_manager::EventManager;
 use crate::mpxj_exception::MpxjError;
 use crate::notes_topic_container::NotesTopicContainer;
+use crate::project_calendar::ProjectCalendar;
 use crate::project_calendar_container::ProjectCalendarContainer;
 use crate::project_config::ProjectConfig;
 use crate::project_file::ProjectFile;
@@ -299,6 +303,59 @@ impl ProjectContext {
     /// 取日历容器的可变引用（Rust 特有）。
     pub fn get_calendars_mut(&mut self) -> &mut ProjectCalendarContainer {
         &mut self.calendars
+    }
+
+    /// 创建日历，并在上下文尚可访问时按配置领取唯一 ID。
+    ///
+    /// 对应 Java: `getCalendars().add()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
+        let unique_id = self.next_calendar_unique_id(false);
+        self.calendars.add_with_unique_id(unique_id)
+    }
+
+    /// 创建默认基准日历。
+    ///
+    /// 对应 Java: `getCalendars().addDefaultBaseCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_default_base_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
+        let unique_id = self.next_calendar_unique_id(false);
+        self.calendars.add_default_base_calendar_with_unique_id(unique_id)
+    }
+
+    /// 创建默认派生日历。
+    ///
+    /// 对应 Java: `getCalendars().addDefaultDerivedCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_default_derived_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
+        let unique_id = self.next_calendar_unique_id(false);
+        self.calendars.add_default_derived_calendar_with_unique_id(unique_id)
+    }
+
+    /// 查找默认日历；空容器时即使自动编号关闭也按 Java 行为分配 ID。
+    ///
+    /// 对应 Java: `getCalendars().findOrCreateDefaultCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn find_or_create_default_calendar(
+        &mut self,
+    ) -> Option<Rc<RefCell<ProjectCalendar>>> {
+        let unique_id = if self.calendars.is_empty() {
+            self.next_calendar_unique_id(true)
+        } else {
+            None
+        };
+        self.calendars.find_or_create_default_calendar_with_unique_id(unique_id)
+    }
+
+    /// 从 Java 日历构造方法使用的共享序列领取下一个 ID。
+    ///
+    /// 对应 Java: `ProjectCalendar(ProjectContext, boolean)` 中的自动编号；
+    /// `findOrCreateDefaultCalendar()` 空容器时可强制领取一次。
+    fn next_calendar_unique_id(&mut self, force: bool) -> Option<i32> {
+        if force || self.project_config.get_auto_calendar_unique_id() {
+            Some(
+                self.get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>())
+                    .get_next(),
+            )
+        } else {
+            None
+        }
     }
 
     /// 取当前上下文可用的资源容器。
@@ -597,16 +654,12 @@ mod tests {
 
     #[test]
     fn shared_context_calendar_container_is_usable() {
-        // 注：通过 `borrow_mut()` 访问上下文时，上下文在整个调用期间处于可变借用状态，
-        // 此时容器内部对上下文的再次借用会失败并退化为「不分配 unique ID」
-        // （见 ProjectCalendarContainer 文件头说明），因此这里只验证容器可用。
         let context = ProjectContext::shared();
 
         let created = {
             let mut context_ref = context.borrow_mut();
-            let container = context_ref.get_calendars_mut();
-            let calendar = container.find_or_create_default_calendar();
-            assert_eq!(container.len(), 1);
+            let calendar = context_ref.find_or_create_default_calendar();
+            assert_eq!(context_ref.get_calendars().len(), 1);
             calendar
         }
         .expect("空上下文会创建默认基准日历");
@@ -615,9 +668,61 @@ mod tests {
             created.borrow().get_name(),
             Some(DEFAULT_BASE_CALENDAR_NAME)
         );
+        assert_eq!(created.borrow().get_unique_id(), Some(1));
 
         // 上下文本身仍然可用（弱引用未造成泄漏或悬垂）
         assert_eq!(context.borrow().get_calendars().len(), 1);
+    }
+
+    /// 对应 Java: `ProjectCalendarContainer.add()` 与构造器共用上下文日历序列。
+    #[test]
+    fn calendar_creation_uses_shared_sequence_while_context_is_borrowed() {
+        let context = ProjectContext::shared();
+        let (first, second, derived) = {
+            let mut context_ref = context.borrow_mut();
+            (
+                context_ref.add_calendar(),
+                context_ref.add_default_base_calendar(),
+                context_ref.add_default_derived_calendar(),
+            )
+        };
+
+        assert_eq!(first.borrow().get_unique_id(), Some(1));
+        assert_eq!(second.borrow().get_unique_id(), Some(2));
+        assert_eq!(derived.borrow().get_unique_id(), Some(3));
+        assert!(context.borrow().get_calendars().get_by_unique_id(Some(2)).is_some());
+        assert_eq!(
+            context
+                .borrow_mut()
+                .get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>())
+                .get_next(),
+            4,
+        );
+    }
+
+    /// 对应 Java: 自动编号关闭时只有 `findOrCreateDefaultCalendar` 强制补上 ID。
+    #[test]
+    fn default_calendar_gets_id_even_when_auto_ids_are_disabled() {
+        let context = ProjectContext::shared();
+        context
+            .borrow_mut()
+            .get_project_config_mut()
+            .set_auto_calendar_unique_id(false);
+        let default = context
+            .borrow_mut()
+            .find_or_create_default_calendar()
+            .expect("默认日历");
+        let ordinary = context.borrow_mut().add_calendar();
+
+        assert_eq!(default.borrow().get_unique_id(), Some(1));
+        assert_eq!(ordinary.borrow().get_unique_id(), None);
+        assert_eq!(
+            context
+                .borrow_mut()
+                .get_unique_id_object_sequence(TypeId::of::<ProjectCalendar>())
+                .get_next(),
+            2
+        );
     }
 
     #[test]

@@ -15,4 +15,4 @@ Java 参考实现取自本仓库固定的子模块提交 `c5e1320` 的**本地�
 
 日期是本地时间并保留纳秒，不做时区变换；工期保存原始数值和单位枚举整数；JSON 的 `null` 与缺少键不同。对象键顺序不参与比较；实体列表用 unique ID（缺失时备用键和出现序号）匹配，重复 ID 不会被吞掉。所有差异均显示 JSON 路径；解析或工具出错时停止，不当作「一致」。
 
-首轮结果（仅限上述字段）：`legacy/sample.mpp` 和 `mpp14availability.mpp` 一致；`legacy/sample.mpx` 和 `sample.de.mpx` 均报告相同的 11 处差异，集中在四个日历的 unique ID、两个资源日历的父 ID/类型，以及默认日历和资源的日历 ID。`ProjectCalendarContainer::add` 经上下文可变借用进入 `ProjectCalendar::new`，后者的 `try_borrow` 因重入失败而不生成自动 ID；这是 MPX 差异的已确认起点，需在模型层单独修复并补跨格式回归测试。目前不能宣称 MPX 语义一致。
+首轮对拍发现 `legacy/sample.mpx` 和 `sample.de.mpx` 各有 11 处日历差异：日历创建时重入借用上下文，导致自动 unique ID 缺失，继而丢失资源日历的父 ID/类型及默认日历和资源的引用。修复模型层的编号路径后，重新用 Maven 构建的本地 Java jar 对拍：上述两份 MPX 样本、日历专项样本 `legacy/caltest98.mpx` 和 `legacy/calendarExceptions.mpx`，以及 `legacy/sample.mpp`、`mpp14availability.mpp` **在上述快照字段范围内全部一致**。尚未纳入的字段不在此结论内。

@@ -408,7 +408,7 @@ impl ProjectFile {
     /// 对应 Java: `public ProjectCalendar addCalendar()`
     pub fn add_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().add();
-        self.context.borrow_mut().get_calendars_mut().add()
+        self.context.borrow_mut().add_calendar()
     }
 
     /// 移除一个日历（返回是否命中；Java 返回 `void`）。
@@ -430,10 +430,7 @@ impl ProjectFile {
     /// 对应 Java: `public ProjectCalendar addDefaultBaseCalendar()`
     pub fn add_default_base_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().addDefaultBaseCalendar();
-        self.context
-            .borrow_mut()
-            .get_calendars_mut()
-            .add_default_base_calendar()
+        self.context.borrow_mut().add_default_base_calendar()
     }
 
     /// 新建一个默认派生日历。
@@ -441,10 +438,7 @@ impl ProjectFile {
     /// 对应 Java: `public ProjectCalendar addDefaultDerivedCalendar()`
     pub fn add_default_derived_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().addDefaultDerivedCalendar();
-        self.context
-            .borrow_mut()
-            .get_calendars_mut()
-            .add_default_derived_calendar()
+        self.context.borrow_mut().add_default_derived_calendar()
     }
 
     /// 取日历容器。

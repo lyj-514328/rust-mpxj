@@ -391,7 +391,7 @@ impl AbstractCalendarFactory {
                     drop(file);
                     match context.try_borrow_mut() {
                         Ok(mut context_ref) => {
-                            context_ref.get_calendars_mut().find_or_create_default_calendar()
+                            context_ref.find_or_create_default_calendar()
                         }
                         Err(_) => None,
                     }

@@ -2025,9 +2025,7 @@ impl MPP8ReaderState {
         drop(file);
 
         let mut context_ref = context.try_borrow_mut().ok()?;
-        context_ref
-            .get_calendars_mut()
-            .find_or_create_default_calendar()
+        context_ref.find_or_create_default_calendar()
     }
 
     /// 触发一次项目事件。

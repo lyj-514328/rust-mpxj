@@ -2290,7 +2290,6 @@ impl MPXReader {
                     .borrow()
                     .get_project_context()
                     .borrow_mut()
-                    .get_calendars_mut()
                     .find_or_create_default_calendar(),
             }
         };

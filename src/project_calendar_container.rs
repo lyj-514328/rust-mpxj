@@ -34,8 +34,8 @@
 //!   `fix_unique_id_clashes` 从调用者接收真实上下文序列，避免适配器在借用冲突时
 //!   使用独立的退化序列。
 //! - **上下文重入借用**：容器是 `ProjectContext` 的字段，调用方必须先 `borrow_mut()` 上下文
-//!   才能取得容器的 `&mut`；此时在容器内部再借同一上下文会失败。Rust 侧一律使用
-//!   `try_borrow_mut`，失败时退化为「不同步序号生成器」，不会 panic（Java 无此情形）。
+//!   才能取得容器的 `&mut`；此时在容器内部再借同一上下文会失败。通过上下文创建日历时
+//!   先领取真实序列的 ID 并传入容器；独立使用容器时仍用 `try_borrow_mut` 退化处理。
 //! - **`remove` 的元素参数**：Java 为 `ListWithCallbacks.remove(Object)`（按引用相等查找）；
 //!   [`crate::project_calendar::ProjectCalendar::remove`] 以 `remove(self)` 调用本容器，
 //!   故 Rust 侧接收 `&ProjectCalendar`，用 `RefCell::as_ptr` 做**指针同一性**比较
@@ -141,19 +141,49 @@ impl ProjectCalendarContainer {
         calendar
     }
 
+    /// 使用持有上下文借用的调用方预先分配的 ID 创建日历。
+    ///
+    /// 对应 Java: `public ProjectCalendar add()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_with_unique_id(
+        &mut self,
+        unique_id: Option<i32>,
+    ) -> Rc<RefCell<ProjectCalendar>> {
+        let calendar = Rc::new(RefCell::new(ProjectCalendar::new_with_unique_id(
+            self.context.clone(), false, unique_id,
+        )));
+        self.add_calendar(Rc::clone(&calendar));
+        calendar
+    }
+
     /// 新建名为 “Standard” 的基准日历，并填入默认工作周与默认工作时段。
     ///
     /// 对应 Java: `public ProjectCalendar addDefaultBaseCalendar()`
     pub fn add_default_base_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         let calendar = self.add();
+        Self::initialize_default_base_calendar(&calendar);
+        calendar
+    }
 
-        if let Some(mut calendar_ref) = borrow_mut_or_skip(&calendar) {
+    /// 在上下文已借用时用预先领取的 ID 创建默认基准日历。
+    ///
+    /// 对应 Java: `public ProjectCalendar addDefaultBaseCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_default_base_calendar_with_unique_id(
+        &mut self, unique_id: Option<i32>,
+    ) -> Rc<RefCell<ProjectCalendar>> {
+        let calendar = self.add_with_unique_id(unique_id);
+        Self::initialize_default_base_calendar(&calendar);
+        calendar
+    }
+
+    /// 填充默认基准日历的名称、工作周和时段。
+    ///
+    /// 对应 Java: `addDefaultBaseCalendar()` 中 `add()` 后的三个调用。
+    fn initialize_default_base_calendar(calendar: &Rc<RefCell<ProjectCalendar>>) {
+        if let Some(mut calendar_ref) = borrow_mut_or_skip(calendar) {
             calendar_ref.set_name(Some(DEFAULT_BASE_CALENDAR_NAME.to_owned()));
             calendar_ref.add_default_calendar_days();
             calendar_ref.add_default_calendar_hours();
         }
-
-        calendar
     }
 
     /// 新建一个默认派生日历：7 天的工作日标志全部置为 `DEFAULT`。
@@ -161,8 +191,26 @@ impl ProjectCalendarContainer {
     /// 对应 Java: `public ProjectCalendar addDefaultDerivedCalendar()`
     pub fn add_default_derived_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         let calendar = self.add();
+        Self::initialize_default_derived_calendar(&calendar);
+        calendar
+    }
 
-        if let Some(mut calendar_ref) = borrow_mut_or_skip(&calendar) {
+    /// 在上下文已借用时用预先领取的 ID 创建默认派生日历。
+    ///
+    /// 对应 Java: `public ProjectCalendar addDefaultDerivedCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn add_default_derived_calendar_with_unique_id(
+        &mut self, unique_id: Option<i32>,
+    ) -> Rc<RefCell<ProjectCalendar>> {
+        let calendar = self.add_with_unique_id(unique_id);
+        Self::initialize_default_derived_calendar(&calendar);
+        calendar
+    }
+
+    /// 初始化默认派生日历的一周工作日类型。
+    ///
+    /// 对应 Java: `addDefaultDerivedCalendar()` 中七次 `setCalendarDayType`。
+    fn initialize_default_derived_calendar(calendar: &Rc<RefCell<ProjectCalendar>>) {
+        if let Some(mut calendar_ref) = borrow_mut_or_skip(calendar) {
             // Java 按 DayOfWeek 声明顺序依次设置（周日 → 周六）
             for day in [
                 Weekday::Sun,
@@ -176,8 +224,6 @@ impl ProjectCalendarContainer {
                 calendar_ref.set_calendar_day_type(day, DayType::Default);
             }
         }
-
-        calendar
     }
 
     /// 查找名为 “Standard” 的日历；找不到时退化为「第一个日历」或新建的默认基准日历。
@@ -185,6 +231,15 @@ impl ProjectCalendarContainer {
     /// 对应 Java: `public ProjectCalendar findOrCreateDefaultCalendar()`
     pub fn find_or_create_default_calendar(
         &mut self,
+    ) -> Option<Rc<RefCell<ProjectCalendar>>> {
+        self.find_or_create_default_calendar_with_unique_id(None)
+    }
+
+    /// 仅在需要新建默认日历时使用调用方预先领取的 ID。
+    ///
+    /// 对应 Java: `public ProjectCalendar findOrCreateDefaultCalendar()`；Rust 特有的借用拆分入口。
+    pub(crate) fn find_or_create_default_calendar_with_unique_id(
+        &mut self, unique_id: Option<i32>,
     ) -> Option<Rc<RefCell<ProjectCalendar>>> {
         if let Some(existing) = self.get_by_name(Some(DEFAULT_BASE_CALENDAR_NAME)) {
             return Some(existing);
@@ -195,7 +250,11 @@ impl ProjectCalendarContainer {
             return self.get(0);
         }
 
-        let calendar = self.add_default_base_calendar();
+        let calendar = if unique_id.is_some() {
+            self.add_default_base_calendar_with_unique_id(unique_id)
+        } else {
+            self.add_default_base_calendar()
+        };
 
         // Java: if (NumberHelper.getInt(result.getUniqueID()) == 0)
         //       result.setUniqueID(m_context.getUniqueIdObjectSequence(ProjectCalendar.class).getNext());

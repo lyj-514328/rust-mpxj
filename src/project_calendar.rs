@@ -8,6 +8,7 @@
 //! | Java | Rust | 说明 |
 //! |---|---|---|
 //! | `ManuallyScheduledTaskCalendar extends ProjectCalendar` 并覆写日期时段 | 临时日历内保存手动排程规则 | Rust 调用者持有具体日历共享句柄，详见 `manually_scheduled_task_calendar` 文件头 |
+//! | 构造时从 `ProjectContext` 领取日历 ID | `new_with_unique_id` 接收已领取的 ID | 上下文已借用时由调用方先领取 ID，避免重入借用失效 |
 //!
 //! # 继承被拍平
 //!
@@ -287,6 +288,18 @@ impl ProjectCalendar {
             }
         }
 
+        Self::new_with_unique_id(context, temporary_calendar, unique_id)
+    }
+
+    /// 在调用方已借用上下文时，用预先领取的 ID 构造日历。
+    ///
+    /// 对应 Java: `protected ProjectCalendar(ProjectContext context, boolean temporaryCalendar)`
+    /// 中自动生成 unique ID 的步骤；Rust 侧由持有上下文借用的调用方执行该步骤。
+    pub(crate) fn new_with_unique_id(
+        context: Weak<RefCell<ProjectContext>>,
+        temporary_calendar: bool,
+        unique_id: Option<i32>,
+    ) -> ProjectCalendar {
         ProjectCalendar {
             self_ref: Weak::new(),
             manual_schedule: None,

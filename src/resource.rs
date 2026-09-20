@@ -1734,7 +1734,7 @@ impl Resource {
             let mut context_ref = context
                 .try_borrow_mut()
                 .map_err(|_| MpxjError::new("ProjectContext is already borrowed"))?;
-            context_ref.get_calendars_mut().add()
+            context_ref.add_calendar()
         };
 
         let name = match self.get_name() {

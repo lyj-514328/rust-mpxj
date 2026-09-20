@@ -15,7 +15,7 @@ use mpxj::project_entity_with_id::ProjectEntityWithID;
 use mpxj::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use mpxj::reader::project_reader::ProjectReader;
 use mpxj::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
-use mpxj::{Duration, RelationType, TimeUnit};
+use mpxj::{CalendarType, Duration, RelationType, TimeUnit};
 
 /// 取 `mpxj/junit/data/legacy/` 下的样本文件路径。
 fn sample(name: &str) -> PathBuf {
@@ -43,6 +43,52 @@ fn read_sample(name: &str) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
     reader
         .read_file(&path)
         .unwrap_or_else(|error| panic!("读取 {} 失败：{}", path.display(), error.message()))
+}
+
+/// 对应 Java: `MPXReader.populateCalendar` / `validateCalendars` 与 `Resource.addCalendar`。
+#[test]
+fn sample_calendar_ids_parents_and_resource_links_match_java() {
+    let file = read_sample("sample.mpx");
+    let file_ref = file.borrow();
+    let calendars = file_ref.get_calendars();
+
+    for (name, id, parent_id, calendar_type) in [
+        ("Standard", 1, None, CalendarType::Global),
+        ("Night Shift", 2, None, CalendarType::Global),
+        ("First Resource", 3, Some(1), CalendarType::Resource),
+        ("Second Resource", 4, Some(2), CalendarType::Resource),
+    ] {
+        let calendar = calendars.get_by_name(Some(name)).expect("样本日历存在");
+        let calendar = calendar.borrow();
+        assert_eq!(calendar.get_unique_id(), Some(id), "{name} 的 ID");
+        assert_eq!(
+            calendar
+                .get_parent()
+                .and_then(|parent| parent.borrow().get_unique_id()),
+            parent_id,
+            "{name} 的父日历",
+        );
+        assert_eq!(calendar.get_type(), calendar_type, "{name} 的类型");
+    }
+
+    assert_eq!(
+        file_ref
+            .get_project_properties()
+            .get_default_calendar_unique_id(),
+        Some(1)
+    );
+    let resources = file_ref.get_resources();
+    for (name, id) in [("First Resource", 3), ("Second Resource", 4)] {
+        let resource = resources
+            .iter()
+            .find(|resource| resource.borrow().get_name().as_deref() == Some(name))
+            .expect("样本资源存在");
+        assert_eq!(
+            resource.borrow().get_calendar_unique_id(),
+            Some(id),
+            "{name} 的日历"
+        );
+    }
 }
 
 /// `Tue 07/01/03`（文件中的日期文本，日期顺序为 DMY）对应的 `LocalDateTime`。
