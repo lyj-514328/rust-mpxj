@@ -38,13 +38,10 @@
 //! # 未翻译 / 跳过的 Java 代码
 //!
 //! * `MPPUtility.convertRateFromHours(m_file, resource, ResourceField.STANDARD_RATE,
-//!   ResourceField.STANDARD_RATE_UNITS)`（`processResourceData` 中两处）——该方法依赖未移植的
-//!   `RateHelper.convertFromHours`，且 Rust 的 `FieldValue` 无法承载 `TimeUnit`（见
-//!   `mpp_utility.rs` 文件头的「未移植的方法」）。此处保留调用点位置与注释，实际跳过，
-//!   因此资源的标准费率 / 加班费率保持 `Rate` 的原始单位。
-//! * `AvailabilityFactory::process` 返回「应追加到资源可用性表的行」，而
-//!   `Resource::get_availability` 只返回只读 `Ref`（既有文件，无写入口），故调用后结果无法
-//!   写回资源（见 `process_resource_data` 中的注释）。
+//!   ResourceField.STANDARD_RATE_UNITS)`（`processResourceData` 中两处）——该方法与
+//!   `RateHelper.convertFromHours` 均已落地（见 `mpp_utility.rs`），调用点已接线。
+//! * `AvailabilityFactory::process` 返回「应追加到资源可用性表的行」，调用点经
+//!   `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
 //! * `postProcessTasks()` 上方被注释掉的旧实现（Java 中本就是注释）与 `dumpUnknownData`
 //!   及其两张常量表（Java 中同样是注释掉的调试代码）—— 未翻译注释掉的死代码。
 //! * 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
@@ -2547,10 +2544,23 @@ impl<'a> MPP9ReaderState<'a> {
             // Java:
             // MPPUtility.convertRateFromHours(m_file, resource, ResourceField.STANDARD_RATE, ResourceField.STANDARD_RATE_UNITS);
             // MPPUtility.convertRateFromHours(m_file, resource, ResourceField.OVERTIME_RATE, ResourceField.OVERTIME_RATE_UNITS);
-            //
-            // 未移植：`MPPUtility.convertRateFromHours` 依赖未落地的 `RateHelper.convertFromHours`，
-            // 且 `FieldValue` 无法承载 `TimeUnit`（见 `mpp_utility.rs` 文件头的「未移植的方法」）。
-            // 结果：资源的标准费率 / 加班费率保持文件中的原始单位。
+            // 说明：单位字段以整数存放 `TimeUnit`，[`MPPUtility::convert_rate_from_hours`] 内部据此
+            //       经 `RateHelper::convert_from_hours` 把「每小时金额」换算成目标单位。
+            {
+                let mut resource_ref = resource.borrow_mut();
+                MPPUtility::convert_rate_from_hours(
+                    &self.file,
+                    &mut resource_ref,
+                    ResourceField::StandardRate,
+                    ResourceField::StandardRateUnits,
+                );
+                MPPUtility::convert_rate_from_hours(
+                    &self.file,
+                    &mut resource_ref,
+                    ResourceField::OvertimeRate,
+                    ResourceField::OvertimeRateUnits,
+                );
+            }
 
             //
             // Process cost rate tables
@@ -2592,16 +2602,17 @@ impl<'a> MPP9ReaderState<'a> {
             //
             // Java: AvailabilityFactory af = new AvailabilityFactory();
             //       af.process(resource, rscVarData.getByteArray(id, fieldMap.getVarDataKey(ResourceField.AVAILABILITY_DATA)));
-            //
-            // 已知功能缺口：Rust 的 `Resource::get_availability` 只返回只读的 `Ref`（既有文件，
-            // 无「追加行」的公开入口），工厂返回的行无法写回资源，故此处调用后丢弃结果
-            // （仍走同样的解析路径与容错逻辑）。
+            // 说明：`AvailabilityFactory::process` 按约定返回「应追加到可用性表的行」，此处经
+            //       `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
             let availability_data = rsc_var_data.get_byte_array(
                 Some(id),
                 field_map.get_var_data_key(&resource_field(ResourceField::AvailabilityData)),
             );
-            let _availability =
+            let availability_entries =
                 availability_factory.process(&resource.borrow(), availability_data.as_deref());
+            for entry in availability_entries {
+                resource.borrow_mut().add_availability(entry);
+            }
 
             //
             // Process resource type

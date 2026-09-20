@@ -24,23 +24,33 @@
 //!    按 1:1 保留（`println!` / 写文件），它们只服务于开发者排查，不参与解析路径。
 //!    其中 `dumpBlockData` 在 `blockSize == 0` 时 Java 会死循环，Rust 侧直接返回。
 //!
-//! 未移植的方法：
-//! - `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)`：
-//!   依赖未移植的 `RateHelper.convertFromHours`；且 Java 从
-//!   `resource.getCachedValue(unitsField)` 取 `TimeUnit`，而 Rust 的
-//!   [`crate::FieldValue`] 没有承载 `TimeUnit` 的变体，无法表达（`field_value.rs`
-//!   属已存在文件，本批不得改动）。
+//! 未移植的方法：无（`convertRateFromHours` 已于本批补齐，见其文档注释）。
+//!
+//! # 与 Java 的差异
+//!
+//! | Java | Rust | 说明 |
+//! |---|---|---|
+//! | `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | 单位字段以整数存放，按 [`TimeUnit::get_instance`] 还原 | [`crate::FieldValue`] 没有承载 `TimeUnit` 的变体（`field_value.rs` 属既有文件，未改动） |
+//! | `RateHelper.convertFromHours`（`org.mpxj.common`） | [`crate::rate_helper::RateHelper::convert_from_hours`] | 该工具类已单独成模块，读取器共用同一份实现 |
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
 use uuid::Uuid;
 
 use crate::common::byte_array_helper::ByteArrayHelper;
 use crate::common::charset_helper::CharsetHelper;
 use crate::currency_symbol_position::CurrencySymbolPosition;
 use crate::duration::Duration;
+use crate::field_key::FieldKey;
+use crate::field_value::FieldValue;
 use crate::mpp::var2_data::Var2Data;
+use crate::project_file::ProjectFile;
 use crate::project_properties::ProjectProperties;
+use crate::rate_helper::RateHelper;
+use crate::resource::Resource;
+use crate::resource_field::ResourceField;
 use crate::time_unit::TimeUnit;
 
 /// MPP 文件各 section 的公共工具方法。
@@ -621,6 +631,62 @@ impl MPPUtility {
         }
     }
 
+    /// 把资源的费率从「每小时金额」换算成单位字段给出的目标单位。
+    ///
+    /// 对应 Java: `public static void convertRateFromHours(ProjectFile file, Resource resource, ResourceField rateField, ResourceField unitsField)`
+    ///
+    /// 说明：Java 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit`，而本 crate 的
+    /// [`FieldValue`] 没有承载 `TimeUnit` 的变体 —— 单位字段以整数（枚举取值）存放
+    /// （见 `mpp/field_map.rs` 的 `FieldItem::read_fixed_data`），故此处按整数还原 `TimeUnit`。
+    /// 项目文件被可变借用时（Java 侧无此情况）保持原值。
+    pub fn convert_rate_from_hours(
+        file: &Rc<RefCell<ProjectFile>>,
+        resource: &mut Resource,
+        rate_field: ResourceField,
+        units_field: ResourceField,
+    ) {
+        // Java: Rate rate = (Rate) resource.getCachedValue(rateField); if (rate == null) { return; }
+        let Some(rate) = resource
+            .get_cached_value(FieldKey::Resource(rate_field))
+            .and_then(|value| value.as_rate())
+        else {
+            return;
+        };
+
+        // Java: TimeUnit targetUnits = (TimeUnit) resource.getCachedValue(unitsField); if (targetUnits == null) { return; }
+        let Some(mut target_units) = resource
+            .get_cached_value(FieldKey::Resource(units_field))
+            .and_then(|value| value.as_integer())
+            .map(TimeUnit::get_instance)
+        else {
+            return;
+        };
+
+        // For "flat" rates (for example, for cost or material resources) where there is
+        // no time component, the MPP file stores a time unit which we recognise
+        // as elapsed minutes. If we encounter this, reset the time units to hours
+        // so we don't try to change the value.
+        // Java: if (targetUnits == TimeUnit.ELAPSED_MINUTES) { targetUnits = TimeUnit.HOURS; }
+        if target_units == TimeUnit::ElapsedMinutes {
+            target_units = TimeUnit::Hours;
+        }
+
+        // Java: resource.set(rateField, RateHelper.convertFromHours(file.getProjectProperties(), rate, targetUnits));
+        let Ok(file_ref) = file.try_borrow() else {
+            return;
+        };
+        let properties = file_ref.get_project_properties();
+
+        resource.set(
+            FieldKey::Resource(rate_field),
+            Some(FieldValue::Rate(RateHelper::convert_from_hours(
+                properties,
+                rate.get_amount(),
+                target_units,
+            ))),
+        );
+    }
+
     /// 对应 Java: `public static final byte[] cloneSubArray(byte[] data, int offset, int size)`
     ///
     /// 复制子数组。Java 越界时抛 `ArrayIndexOutOfBoundsException`，
@@ -863,6 +929,7 @@ fn minutes(value: Option<i32>) -> f64 {
 mod tests {
     use super::*;
     use crate::project_file::ProjectFile;
+    use crate::rate::Rate;
     use std::rc::Weak;
 
     /// 构造一个没有父文件的属性对象。
@@ -1593,5 +1660,153 @@ mod tests {
         // 极大的 blockSize（Java 的 int 加法会回绕）不能 panic
         MPPUtility::dump_block_data(1, usize::MAX, &data);
         MPPUtility::dump_block_data(2, 1, &[]);
+    }
+
+    /// 构造一个含单个资源的项目文件；每天分钟数显式设为 480（Java 默认日历的取值）。
+    fn project_with_resource() -> (Rc<RefCell<ProjectFile>>, Rc<RefCell<Resource>>) {
+        let file = ProjectFile::new();
+        file.borrow_mut()
+            .get_project_properties_mut()
+            .set_minutes_per_day(Some(480));
+        let resource = file.borrow_mut().add_resource();
+        (file, resource)
+    }
+
+    /// 把资源字段写成「缓存值」（`get_cachedValue` 读取的正是这份数据）。
+    fn set_cached(resource: &Rc<RefCell<Resource>>, field: ResourceField, value: FieldValue) {
+        resource
+            .borrow_mut()
+            .set(FieldKey::Resource(field), Some(value));
+    }
+
+    /// 取资源字段的缓存费率值（对应 Java 的 `(Rate) resource.getCachedValue(field)`）。
+    fn cached_rate(resource: &Rc<RefCell<Resource>>, field: ResourceField) -> Option<Rate> {
+        resource
+            .borrow()
+            .get_cached_value(FieldKey::Resource(field))
+            .and_then(|value| value.as_rate())
+    }
+
+    /// `convertRateFromHours`：按单位字段给出的目标单位把「每小时金额」换算成目标单位。
+    ///
+    /// 期望值与 Java `RateHelperTest.testConvertFromHours`（1 小时/天 -> 8 天）一致。
+    #[test]
+    fn convert_rate_from_hours_scales_the_cached_rate() {
+        let (file, resource) = project_with_resource();
+        set_cached(
+            &resource,
+            ResourceField::StandardRate,
+            FieldValue::Rate(Rate::new(100.0, TimeUnit::Hours)),
+        );
+        set_cached(
+            &resource,
+            ResourceField::StandardRateUnits,
+            FieldValue::Integer(TimeUnit::Days as i32),
+        );
+        set_cached(
+            &resource,
+            ResourceField::OvertimeRate,
+            FieldValue::Rate(Rate::new(200.0, TimeUnit::Hours)),
+        );
+        set_cached(
+            &resource,
+            ResourceField::OvertimeRateUnits,
+            FieldValue::Integer(TimeUnit::Weeks as i32),
+        );
+
+        {
+            let mut resource_ref = resource.borrow_mut();
+            MPPUtility::convert_rate_from_hours(
+                &file,
+                &mut resource_ref,
+                ResourceField::StandardRate,
+                ResourceField::StandardRateUnits,
+            );
+            MPPUtility::convert_rate_from_hours(
+                &file,
+                &mut resource_ref,
+                ResourceField::OvertimeRate,
+                ResourceField::OvertimeRateUnits,
+            );
+        }
+
+        // 100/h -> 100 * 480 / 60 = 800/d；200/h -> 200 * 2400 / 60 = 8000/w
+        assert_eq!(
+            cached_rate(&resource, ResourceField::StandardRate),
+            Some(Rate::new(800.0, TimeUnit::Days))
+        );
+        assert_eq!(
+            cached_rate(&resource, ResourceField::OvertimeRate),
+            Some(Rate::new(8000.0, TimeUnit::Weeks))
+        );
+    }
+
+    /// 「平铺」费率：单位字段为 `ELAPSED_MINUTES` 时按 `HOURS` 处理（数值不变）。
+    #[test]
+    fn convert_rate_from_hours_treats_elapsed_minutes_as_hours() {
+        let (file, resource) = project_with_resource();
+        set_cached(
+            &resource,
+            ResourceField::StandardRate,
+            FieldValue::Rate(Rate::new(25.0, TimeUnit::Hours)),
+        );
+        set_cached(
+            &resource,
+            ResourceField::StandardRateUnits,
+            FieldValue::Integer(TimeUnit::ElapsedMinutes as i32),
+        );
+
+        {
+            let mut resource_ref = resource.borrow_mut();
+            MPPUtility::convert_rate_from_hours(
+                &file,
+                &mut resource_ref,
+                ResourceField::StandardRate,
+                ResourceField::StandardRateUnits,
+            );
+        }
+
+        assert_eq!(
+            cached_rate(&resource, ResourceField::StandardRate),
+            Some(Rate::new(25.0, TimeUnit::Hours))
+        );
+    }
+
+    /// 费率或单位字段缺失时保持原值（Java 直接 `return`）。
+    #[test]
+    fn convert_rate_from_hours_without_cached_values_does_nothing() {
+        let (file, resource) = project_with_resource();
+
+        // 两个字段都没有缓存值
+        {
+            let mut resource_ref = resource.borrow_mut();
+            MPPUtility::convert_rate_from_hours(
+                &file,
+                &mut resource_ref,
+                ResourceField::StandardRate,
+                ResourceField::StandardRateUnits,
+            );
+        }
+        assert_eq!(cached_rate(&resource, ResourceField::StandardRate), None);
+
+        // 只有费率、没有单位
+        set_cached(
+            &resource,
+            ResourceField::StandardRate,
+            FieldValue::Rate(Rate::new(100.0, TimeUnit::Hours)),
+        );
+        {
+            let mut resource_ref = resource.borrow_mut();
+            MPPUtility::convert_rate_from_hours(
+                &file,
+                &mut resource_ref,
+                ResourceField::StandardRate,
+                ResourceField::StandardRateUnits,
+            );
+        }
+        assert_eq!(
+            cached_rate(&resource, ResourceField::StandardRate),
+            Some(Rate::new(100.0, TimeUnit::Hours))
+        );
     }
 }

@@ -1,8 +1,11 @@
 //! 对应 Java: `org/mpxj/FieldContainer.java`
 
+use crate::duration::Duration;
 use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 use crate::listener::field_listener::FieldListener;
+use crate::local_date_time_range::LocalDateTimeRange;
+use crate::time_unit::TimeUnit;
 
 /// 由 Task / Resource / ResourceAssignment 实现，定义按字段标识读写字段值的公共方法。
 ///
@@ -10,12 +13,18 @@ use crate::listener::field_listener::FieldListener;
 ///
 /// # 与 Java 的差异
 ///
-/// Java 的 `List<Duration> getTimephasedDurationValues(FieldType, List<LocalDateTimeRange>, TimeUnit)`
-/// 与 `List<Number> getTimephasedNumericValues(FieldType, List<LocalDateTimeRange>)`
-/// 未移植：`TimephasedDataFactory`（`crate::mpp::timephased_data_factory`）与
-/// [`crate::timephased_work::TimephasedWork`] / [`crate::timephased_cost::TimephasedCost`]
-/// 均已落地，缺的是 [`crate::FieldValue`] 承载 timephased 列表的变体；且它们服务于
-/// timephased 查询，不属于 reader 读入路径。
+/// Java 的 `getTimephasedDurationValues` / `getTimephasedNumericValues` 由各实现类覆写
+/// （`Task` / `Resource` 经各自的 `TIMEPHASED_*_FUNCTIONS` 分派；
+/// `ResourceAssignment` 同样经分派表；`ProjectProperties` 恒返回全 `null` 列表）。
+/// Rust 侧这两个方法带**默认实现**：即 Java 中「该字段不在分派表中」时的回落行为
+/// （返回 `ranges.len()` 个 `None`）。这样：
+///
+/// * [`crate::resource_assignment::ResourceAssignment`] 覆写为与其
+///   `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` 等价的实现；
+/// * [`crate::project_properties::ProjectProperties`] 覆写为 Java 的「恒返回全 `null` 列表」；
+/// * `Task` / `Resource` 的 `getTimephased*` 家族在本仓仍未移植（见各自文件头的跳过清单），
+///   故沿用默认实现 —— 不会给出与 Java 不符的数值；
+/// * `src/mpp/**` 中的测试用 `MockContainer` 无需改动即可满足 trait。
 ///
 /// 另外 Java 的 `removeFieldListener(FieldListener)` 按对象身份移除监听器，
 /// Rust 无法表达，改为 [`FieldContainer::clear_field_listeners`]。
@@ -34,6 +43,37 @@ pub trait FieldContainer {
     ///
     /// 对应 Java: `Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue>;
+
+    /// 取以工期表示的 timephased 数据（每个区间一项，缺失时为 `None`）。
+    ///
+    /// 对应 Java: `List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    ///
+    /// 默认实现即 Java 的「字段不在分派表中」回落（`Arrays.asList(new Duration[ranges.size()])`），
+    /// 见 trait 文档说明。
+    fn get_timephased_duration_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+        units: TimeUnit,
+    ) -> Vec<Option<Duration>> {
+        let _ = (field, units);
+        vec![None; ranges.len()]
+    }
+
+    /// 取以数值表示的 timephased 数据（每个区间一项，缺失时为 `None`）。
+    ///
+    /// 对应 Java: `List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    ///
+    /// 默认实现即 Java 的「字段不在分派表中」回落（`Arrays.asList(new Number[ranges.size()])`），
+    /// 见 trait 文档说明。
+    fn get_timephased_numeric_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+    ) -> Vec<Option<f64>> {
+        let _ = field;
+        vec![None; ranges.len()]
+    }
 
     /// 注册字段变更监听器。
     ///

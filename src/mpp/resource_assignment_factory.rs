@@ -11,7 +11,7 @@
 //! | `class ResourceAssignmentFactory` | `pub struct ResourceAssignmentFactory` + 关联函数 | Java 的方法不依赖实例状态，Rust 侧用无字段结构体承载 |
 //! | `byte[][] fixedDataArray = new byte[][] {data, data2}` | `[Option<&[u8]>; 2]` | 与 [`FieldMap::populate_container`] 的约定一致 |
 //! | `FieldMap` / `FixedData` 可为 `null` | `Option<&FieldMap>` / `Option<&FixedData>` | 「`null` → `Option<T>`」约定 |
-//! | `assignment.disableEvents()` / `enableEvents()` | **跳过** | `ResourceAssignment` 未移植这对方法（Java 用它抑制字段写入事件），见文件头末节 |
+//! | `assignment.disableEvents()` / `enableEvents()` | 同名方法（`FieldContainer` 提供） | 与 Java 一样在批量填字段前后调用，抑制每个 `set()` 触发的依赖字段清理与事件 |
 //! | `getRawTimephasedXxx()` 返回内部列表并 `addAll(...)` | 先读出既有内容、`extend` 后再用 Rust 特有的 `set_raw_timephased_xxx` 写回 | `ResourceAssignment` 的原始 timephased 字段只提供「取切片」与「整体替换」两个入口 |
 //! | `new MppBitFlag(AssignmentField.WORK_CONTOUR, …)` | 从位标志表中移除该项，改为按同样的位判定直接调用 `set_work_contour` | [`FieldValue`] 没有 `WorkContour` 变体，无法用 [`MppBitFlag`] 表达；且 `ResourceAssignment::get_work_contour` 读的是**专用字段**而不是字段表，故必须走专用 setter |
 //! | `MppBitFlag[]` 静态数组 | [`assignment_meta_data_bit_flags`] 等函数返回 `Vec<MppBitFlag>` | `MppBitFlag::new` 不是 `const fn`，无法定义静态数组 |
@@ -24,7 +24,6 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `assignment.disableEvents()` / `assignment.enableEvents()` | `ResourceAssignment` 未移植该对方法；其余逻辑与 Java 完全一致 |
 //! | 被注释掉的 `System.out.println(...)` 调试输出 | Java 源码中即为注释 |
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
@@ -246,7 +245,8 @@ impl ResourceAssignmentFactory {
                 continue;
             };
 
-            // Java: assignment.disableEvents();（Rust 侧无对应方法，见文件头）
+            // Java: assignment.disableEvents();
+            assignment.borrow_mut().disable_events();
 
             // Java: fieldMap.populateContainer(FieldTypeClass.ASSIGNMENT, assignment, varDataId, fixedDataArray, assnVarData);
             field_map.populate_container(
@@ -295,7 +295,8 @@ impl ResourceAssignmentFactory {
                 }
             }
 
-            // Java: assignment.enableEvents();（Rust 侧无对应方法，见文件头）
+            // Java: assignment.enableEvents();
+            assignment.borrow_mut().enable_events();
 
             // Java: Stream.of(metaDataBitFlags).forEach(f -> f.setValue(assignment, meta));
             {

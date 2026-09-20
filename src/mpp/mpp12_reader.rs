@@ -41,6 +41,8 @@
 //! | `recurringTaskReader.processRecurringTask(task, recurringData)`（就地写回 task） | `reader.process_recurring_task(data)` 取结果后，把 `duration` 与 `RecurringData` 搬运到 `task.add_recurring_task()` | mpp 层的 `RecurringTaskReader::process_recurring_task` 返回 `mpp::recurring_task_reader::RecurringTask`，与 `Task` 使用的模型层 `crate::recurring_task::RecurringTask` 是两个类型（Java 只有一个），故需一次字段拷贝 |
 //! | `finally { clearMemberData(); }` | [`MPP12Reader::process`] 中「[`ReaderState::process`] 执行主体 → `clear_member_data()` → 返回结果」 | 主体即 Java `try` 块内的全部语句，`clearMemberData` 在成功与失败路径上都会执行 |
 //! | `toString` / `equals` / `hashCode` | 无 | 本类未覆写 |
+//! | `MPPUtility.convertRateFromHours(m_file, resource, STANDARD_RATE/OvertimeRate, …_UNITS)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | [`MPPUtility::convert_rate_from_hours`]（内部按整数还原 `TimeUnit`） | `FieldValue` 没有承载 `TimeUnit` 的变体，单位字段以整数存放；换算逻辑由 `RateHelper::convert_from_hours` 提供 |
+//! | `AvailabilityFactory.process(resource, data)` 直接向 `resource.getAvailability()` 追加 | 工厂返回「应追加的行」，调用点经 [`crate::Resource::add_availability`] 写回 | `get_availability()` 只借出只读 `Ref` |
 //!
 //! # 与并行模块的接口（已核对一致）
 //!
@@ -67,17 +69,6 @@
 //!
 //! 本文件只使用上述 4 个符号；同批的 `MPP9Reader` 也采用「零尺寸 reader + 私有
 //! `ReaderState`」的同一结构（见 [`crate::mpp::mpp9_reader`]），便于横向对照。
-//!
-//! # 跳过的 Java 成员
-//!
-//! 1. `MPPUtility.convertRateFromHours(...)` 的两处调用（`processResourceData`）：
-//!    `MPPUtility` 未移植该方法（依赖未移植的 `RateHelper.convertFromHours`，且需要
-//!    `FieldValue` 承载 `TimeUnit`，而 `field_value.rs` 属已存在文件、本批不得改动）。
-//!    调用点保留注释与原始参数顺序，待该方法落地后补上即可。
-//! 2. `AvailabilityFactory.process(resource, data)` 的**写入效果**：工厂已按
-//!    `availability_factory.rs` 文件头约定「返回应追加的行」，但 `Resource` 未暴露
-//!    可用性表的可变入口（`get_availability()` 只返回 `Ref<'_, AvailabilityTable>`），
-//!    故返回值被丢弃。调用本身保留（保证解析路径与 Java 一致）。
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 
@@ -2300,9 +2291,20 @@ impl<'a> ReaderState<'a> {
                 // Java:
                 //   MPPUtility.convertRateFromHours(m_file, resource, ResourceField.STANDARD_RATE, ResourceField.STANDARD_RATE_UNITS);
                 //   MPPUtility.convertRateFromHours(m_file, resource, ResourceField.OVERTIME_RATE, ResourceField.OVERTIME_RATE_UNITS);
-                //
-                // 说明：`MPPUtility` 未移植 `convertRateFromHours`（见文件头「跳过的 Java 成员」），
-                // 故此处不调用，保留位置与参数说明待补。
+                // 说明：单位字段以整数存放 `TimeUnit`，[`MPPUtility::convert_rate_from_hours`] 内部据此
+                //       经 `RateHelper::convert_from_hours` 把「每小时金额」换算成目标单位。
+                MPPUtility::convert_rate_from_hours(
+                    &self.file,
+                    &mut resource_ref,
+                    ResourceField::StandardRate,
+                    ResourceField::StandardRateUnits,
+                );
+                MPPUtility::convert_rate_from_hours(
+                    &self.file,
+                    &mut resource_ref,
+                    ResourceField::OvertimeRate,
+                    ResourceField::OvertimeRateUnits,
+                );
 
                 //
                 // Process cost rate tables
@@ -2328,16 +2330,18 @@ impl<'a> ReaderState<'a> {
                 //
                 // Java: AvailabilityFactory af = new AvailabilityFactory();
                 //       af.process(resource, rscVarData.getByteArray(id, fieldMap.getVarDataKey(ResourceField.AVAILABILITY_DATA)));
-                //
-                // 说明：`AvailabilityFactory::process` 按约定「返回应追加的行」，而 `Resource`
-                // 未暴露可用性表的可变入口，故返回值无法写入（见文件头「跳过的 Java 成员」）。
+                // 说明：`AvailabilityFactory::process` 按约定返回「应追加到可用性表的行」，此处经
+                //       `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
                 let availability_factory = AvailabilityFactory::new();
                 let availability_data = rsc_var_data.get_byte_array(
                     Some(id),
                     field_map.get_var_data_key(&resource_field(ResourceField::AvailabilityData)),
                 );
-                let _availability =
+                let availability_entries =
                     availability_factory.process(&resource_ref, availability_data.as_deref());
+                for entry in availability_entries {
+                    resource_ref.add_availability(entry);
+                }
 
                 //
                 // Process resource type

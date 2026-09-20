@@ -64,7 +64,15 @@ impl Display for HtmlNotes {
     }
 }
 
-impl Notes for HtmlNotes {}
+impl Notes for HtmlNotes {
+    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+    fn to_box(&self) -> Box<dyn Notes> {
+        Box::new(HtmlNotes {
+            m_text: self.m_text.clone(),
+            m_html: self.m_html.clone(),
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {

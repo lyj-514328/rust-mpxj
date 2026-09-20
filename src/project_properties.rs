@@ -51,8 +51,10 @@
 //!   * `Map<String, Object>`（`CUSTOM_PROPERTIES`）与 `Map<ProjectCode, ProjectCodeValue>`
 //!     （`PROJECT_CODE_VALUES`）无法放进 `FieldValue`，其中前者改用独立字段
 //!     [`ProjectProperties::get_custom_properties`] 承载；
-//!   * `Notes` 是 trait（Java 的基类），无法放进 `FieldValue`，统一以纯文本存放，
-//!     [`ProjectProperties::get_notes_object`] 返回 `PlainNotes`。
+//!   * `Notes` 是 trait（Java 的基类），本类仍统一以纯文本存放，
+//!     [`ProjectProperties::get_notes_object`] 返回 `PlainNotes`
+//!     （`Task` / `ResourceAssignment` 已改用 [`crate::field_value::FieldValue::Notes`]
+//!     保真保存子类型，本类保持原样以免扩大改动面）。
 //! - **重载**：Rust 无重载，Java 的 `getBaselineDate(int)` / `setBaselineDate(int, LocalDateTime)`
 //!   按本 crate 惯例加 `_for_index` 后缀。
 //! - **空值语义**：Java 多处直接解引用可能为 `null` 的日期 / 容器（会抛 NPE），Rust 侧
@@ -60,9 +62,6 @@
 //!
 //! # 跳过的 Java 方法及原因
 //!
-//! - `getTimephasedDurationValues(...)` / `getTimephasedNumericValues(...)`：
-//!   `crate::field_container::FieldContainer` 明确暂不移植这两个 timephased 方法
-//!   （见该 trait 的文档），故本类也不提供。
 //! - `getLocation()` / `setLocation(Location)`：`Location` 未在 `src/lib.rs` 声明
 //!   （`ProjectContext` 同样未移植 `getLocations()`）。`getLocationUniqueID()` /
 //!   `setLocationUniqueID(...)` 已翻译。
@@ -120,6 +119,7 @@ use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 use crate::file_version::FileVersion;
 use crate::listener::field_listener::FieldListener;
+use crate::local_date_time_range::LocalDateTimeRange;
 use crate::mpxj_enum::MpxjEnum;
 use crate::notes::{Notes, PlainNotes};
 use crate::project_calendar::ProjectCalendar;
@@ -3758,6 +3758,36 @@ impl FieldContainer for ProjectProperties {
     /// 对应 Java: `@Override public Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
+    }
+
+    /// 取以工期表示的 timephased 数据。
+    ///
+    /// 对应 Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    ///
+    /// Java 的实现体恒返回全 `null` 列表（项目级字段没有 timephased 数据），
+    /// 与 [`FieldContainer`] 的默认实现一致，此处按 Java 显式覆写。
+    fn get_timephased_duration_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+        units: TimeUnit,
+    ) -> Vec<Option<Duration>> {
+        let _ = (field, units);
+        vec![None; ranges.len()]
+    }
+
+    /// 取以数值表示的 timephased 数据。
+    ///
+    /// 对应 Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    ///
+    /// 同 [`FieldContainer::get_timephased_duration_values`]，Java 恒返回全 `null` 列表。
+    fn get_timephased_numeric_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+    ) -> Vec<Option<f64>> {
+        let _ = field;
+        vec![None; ranges.len()]
     }
 
     /// 注册字段变更监听器。

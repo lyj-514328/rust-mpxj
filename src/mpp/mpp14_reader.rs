@@ -33,14 +33,13 @@
 //! | 两个 `getCustomFieldOutlineCodeValue` 重载 | [`Mpp14ReaderState::get_custom_field_outline_code_value`] 与 [`Mpp14ReaderState::get_custom_field_outline_code_value_by_id`] | Rust 无重载：按 `(id, type)` 取值的 4 参数版保留原名，按父项 ID 递归的 3 参数版加 `_by_id` 后缀（与同批 `mpp12_reader` 一致） |
 //! | `m_file.getCustomFields().getCustomFieldValueItemByUniqueID(int)` | 同名方法（返回 `Option<Rc<RefCell<CustomFieldValueItem>>>`） | 容器由 `Rc<RefCell<_>>` 共享 |
 //! | `Collections.sort(externalTasks)`（`Task.compareTo`） | `sort_by(|a, b| a.borrow().compare_to(&b.borrow()))` | 等价 |
-//! | `MPPUtility.convertRateFromHours(file, resource, STANDARD_RATE, STANDARD_RATE_UNITS)`（及 `OVERTIME_RATE` 同伴） | 本文件内的 [`convert_rate_from_hours`] + [`convert_amount_from_hours`] | `MPPUtility.convertRateFromHours` 与 `org.mpxj.common.RateHelper` **尚未移植**，故在此按 Java 源码逐行等价实现（`RateHelper.convertFromHours` 的 switch 分支与 `NumberHelper.round(value, 2)` 均照搬）。单位字段取自 `FieldValue::Integer`（`RATE_UNITS` 数据类型即以整数存放 `TimeUnit`，见 `field_map.rs`），单位缺失时与 Java 一样直接返回 |
+//! | `MPPUtility.convertRateFromHours(file, resource, STANDARD_RATE, STANDARD_RATE_UNITS)`（及 `OVERTIME_RATE` 同伴） | [`MPPUtility::convert_rate_from_hours`] | `MPPUtility.convertRateFromHours` 已落地，其内部调用 [`crate::rate_helper::RateHelper::convert_from_hours`]；单位字段取自 `FieldValue::Integer`（`RATE_UNITS` 数据类型即以整数存放 `TimeUnit`，见 `field_map.rs`），单位缺失时与 Java 一样直接返回 |
 //! | `(data.length * 100) / maxSize`（`createTaskMap` 的启发式） | 先判断 `max_size == 0` 再取商 | Java 的 `||` 短路不会做除法（否则抛 `ArithmeticException`），Rust 侧同样避免「除以零」panic |
 //!
-//! # 跳过的 Java 代码（依赖未移植 / Rust 无写入口）
+//! # 跳过的 Java 代码
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `AvailabilityFactory.process(resource, data)` 的写入效果 | Java 直接向 `resource.getAvailability()` 追加行；Rust 的 [`crate::Resource::get_availability`] 只返回只读 `Ref`，`AvailabilityFactory::process` 改为**返回**应追加的行（见其文件头），而 `Resource` 没有暴露写入口，故本文件调用后只能丢弃返回值（`let _ = ...`）并注释说明。一旦 `Resource` 提供写入方法即可接上 |
 //! | 被注释掉的 `System.out.println(...)` 调试输出 | Java 源码中即为注释 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用 |
 //!
@@ -116,7 +115,6 @@ use crate::resource_type::ResourceType;
 use crate::task::Task;
 use crate::task_field::TaskField;
 use crate::task_mode::TaskMode;
-use crate::time_unit::TimeUnit;
 
 // ---------------------------------------------------------------------------
 // 常量（对应 Java 的静态常量）
@@ -2689,13 +2687,13 @@ impl Mpp14ReaderState {
             //       MPPUtility.convertRateFromHours(m_file, resource, ResourceField.OVERTIME_RATE, ResourceField.OVERTIME_RATE_UNITS);
             {
                 let mut resource_ref = resource.borrow_mut();
-                convert_rate_from_hours(
+                MPPUtility::convert_rate_from_hours(
                     &file,
                     &mut resource_ref,
                     ResourceField::StandardRate,
                     ResourceField::StandardRateUnits,
                 );
-                convert_rate_from_hours(
+                MPPUtility::convert_rate_from_hours(
                     &file,
                     &mut resource_ref,
                     ResourceField::OvertimeRate,
@@ -2731,9 +2729,9 @@ impl Mpp14ReaderState {
             // Process availability table
             //
             // Java: AvailabilityFactory af = new AvailabilityFactory(); af.process(resource, rscVarData.getByteArray(id, fieldMap.getVarDataKey(ResourceField.AVAILABILITY_DATA)));
-            // 说明：Rust 的 AvailabilityFactory::process 返回应追加的行（`Resource` 未暴露可用性表写入口，
-            //       见其文件头与本文件头差异表），故此处只能丢弃返回值。
-            let _ = AvailabilityFactory::new().process(
+            // 说明：`AvailabilityFactory::process` 按约定返回「应追加到可用性表的行」，此处经
+            //       `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
+            let availability_entries = AvailabilityFactory::new().process(
                 &resource.borrow(),
                 rsc_var_data
                     .get_byte_array(
@@ -2742,6 +2740,9 @@ impl Mpp14ReaderState {
                     )
                     .as_deref(),
             );
+            for entry in availability_entries {
+                resource.borrow_mut().add_availability(entry);
+            }
 
             //
             // Process resource type
@@ -3517,93 +3518,6 @@ fn resource_flag(field: ResourceField, offset: usize, mask: i32) -> MppBitFlag {
     )
 }
 
-/// 取「按小时费率 → 目标单位费率」的换算结果（金额）。
-///
-/// 对应 Java: `MPPUtility.convertRateFromHours` + `org.mpxj.common.RateHelper.convertFromHours`
-/// —— 两者**尚未移植**，故在此按 Java 源码逐行等价实现（见文件头「跳过的 Java 代码」）。
-///
-/// `defaults` 提供「每天 / 每周 / 每月分钟数」，与 Java 的 `TimeUnitDefaultsContainer` 一致。
-fn convert_amount_from_hours(
-    minutes_per_day: f64,
-    minutes_per_week: f64,
-    minutes_per_month: f64,
-    value: f64,
-    target_units: TimeUnit,
-) -> f64 {
-    // Java: switch (targetUnits) { ... }（其它单位（含 HOURS 与各 ELAPSED_*）保持不变）
-    let value = match target_units {
-        TimeUnit::Minutes => value / 60.0,
-        TimeUnit::Days => (value * minutes_per_day) / 60.0,
-        TimeUnit::Weeks => (value * minutes_per_week) / 60.0,
-        TimeUnit::Months => (value * minutes_per_month) / 60.0,
-        TimeUnit::Years => (value * minutes_per_week * 52.0) / 60.0,
-        _ => value,
-    };
-
-    // Java: return new Rate(NumberHelper.round(value, 2), targetUnits);
-    NumberHelper::round(value, 2.0)
-}
-
-/// 把资源的费率从「每小时」换算成目标单位。
-///
-/// 对应 Java: `MPPUtility.convertRateFromHours(ProjectFile file, Resource resource, ResourceField rateField, ResourceField unitsField)`
-fn convert_rate_from_hours(
-    file: &Rc<RefCell<ProjectFile>>,
-    resource: &mut Resource,
-    rate_field: ResourceField,
-    units_field: ResourceField,
-) {
-    // Java: Rate rate = (Rate) resource.getCachedValue(rateField); if (rate == null) { return; }
-    let Some(rate) = resource
-        .get_cached_value(FieldKey::Resource(rate_field))
-        .and_then(|value| value.as_rate())
-    else {
-        return;
-    };
-
-    // Java: TimeUnit targetUnits = (TimeUnit) resource.getCachedValue(unitsField); if (targetUnits == null) { return; }
-    // 说明：Rust 的 `FieldValue` 没有承载 `TimeUnit` 的变体，单位字段以整数（枚举取值）存储，
-    //       故这里按整数还原 TimeUnit（见 `field_map.rs` 的 `FieldItem::read_fixed_data`）。
-    let Some(mut target_units) = resource
-        .get_cached_value(FieldKey::Resource(units_field))
-        .and_then(|value| value.as_integer())
-        .map(TimeUnit::get_instance)
-    else {
-        return;
-    };
-
-    // For "flat" rates (for example, for cost or material resources) where there is
-    // no time component, the MPP file stores a time unit which we recognise
-    // as elapsed minutes. If we encounter this, reset the time units to hours
-    // so we don't try to change the value.
-    if target_units == TimeUnit::ElapsedMinutes {
-        target_units = TimeUnit::Hours;
-    }
-
-    let (minutes_per_day, minutes_per_week, minutes_per_month) = {
-        let file_ref = file.borrow();
-        let properties = file_ref.get_project_properties();
-        (
-            f64::from(properties.get_minutes_per_day().unwrap_or(0)),
-            f64::from(properties.get_minutes_per_week().unwrap_or(0)),
-            f64::from(properties.get_minutes_per_month().unwrap_or(0)),
-        )
-    };
-
-    // Java: resource.set(rateField, RateHelper.convertFromHours(file.getProjectProperties(), rate, targetUnits));
-    let amount = convert_amount_from_hours(
-        minutes_per_day,
-        minutes_per_week,
-        minutes_per_month,
-        rate.get_amount(),
-        target_units,
-    );
-    resource.set(
-        FieldKey::Resource(rate_field),
-        Some(FieldValue::Rate(crate::rate::Rate::new(amount, target_units))),
-    );
-}
-
 /// 构造 MPP14 的「分派备用变长数据」映射。
 ///
 /// 对应 Java: `private static final Map<FieldType, Integer> ALTERNATE_VAR_DATA` 的静态初始化块：
@@ -3876,6 +3790,7 @@ mod tests {
     use crate::project_entity_with_id::ProjectEntityWithID;
     use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
     use crate::relation_type::RelationType;
+    use crate::time_unit::TimeUnit;
     use crate::view_type::ViewType;
 
     /// 测试用的复合文档类型（`cfb::CompoundFile` 建在内存缓冲上）。

@@ -55,7 +55,7 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | 缺 [`crate::field_value::FieldValue`] 的 timephased 列表变体（`TimephasedDataFactory` 已落地，取舍同 [`crate::field_container`]） |
+//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | 由 [`crate::field_container::FieldContainer`] 的默认实现提供（等价 Java 中「字段不在 `TIMEPHASED_*_FUNCTIONS` 表中」的回落：全 `None` 列表），因为下一条的时间分段家族尚未移植 |
 //! | `getTimephasedPlannedWork` 等全部 `getTimephased*`、`reduceTimephasedWork` / `reduceTimephasedCost` / `reduceTimephasedMaterial`、`TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | `org.mpxj.TimephasedUtility` 未单独成模块（`addTimephasedDurations` / `addTimephasedNumbers` 目前内联在 [`crate::resource_assignment`] 的私有函数中，尚不可复用）；[`crate::resource_assignment::ResourceAssignment`] 的时间分段 API 已落地 |
 //! | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
 //! | `getCurrency` / `setCurrency` | `Currency` 属 P6/Primavera 专用数据（同上） |

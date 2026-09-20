@@ -126,7 +126,16 @@ impl Display for StructuredNotes {
     }
 }
 
-impl Notes for StructuredNotes {}
+impl Notes for StructuredNotes {
+    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+    fn to_box(&self) -> Box<dyn Notes> {
+        Box::new(StructuredNotes {
+            m_unique_id: self.m_unique_id,
+            m_topic: self.m_topic.clone(),
+            m_notes: self.m_notes.as_ref().map(|notes| notes.to_box()),
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {

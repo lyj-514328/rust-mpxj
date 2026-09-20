@@ -151,6 +151,21 @@ fn render_field_value(value: &FieldValue) -> String {
         FieldValue::DateTime(value) => value.to_string(),
         FieldValue::Duration(value) => value.to_string(),
         FieldValue::Rate(value) => value.to_string(),
+        FieldValue::Uuid(value) => value.to_string(),
+        FieldValue::TimeUnit(value) => value.to_string(),
+        FieldValue::Notes(value) => value.to_string(),
+        // Java 未覆写 `toString()` 的类型（`WorkContour` / 枚举）与集合 / 实体引用型取值：
+        // 本仓约定改用 `Debug` 渲染（见各文件头「Java 未覆写 toString 的类改为 Debug」），
+        // 它们不会出现在筛选表达式的操作数里。
+        FieldValue::WorkContour(_)
+        | FieldValue::RateSource(_)
+        | FieldValue::ResourceRequestType(_)
+        | FieldValue::Steps(_)
+        | FieldValue::Relations(_)
+        | FieldValue::Resource(_)
+        | FieldValue::TimephasedWork(_)
+        | FieldValue::TimephasedCost(_)
+        | FieldValue::TimeRanges(_) => format!("{value:?}"),
     }
 }
 

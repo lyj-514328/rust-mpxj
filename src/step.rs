@@ -32,10 +32,10 @@
 //! # 与 Java 的差异
 //!
 //! 1. **父任务引用**：Java 的 `m_task` 是强引用；Rust 侧存 `Weak<RefCell<Task>>`
-//!    （`Task` 的步骤列表在 Java 中由 `Task` 持有，用强引用会形成 `Rc` 循环；
-//!    另注：本 crate 的 `crate::task::Task` 在移植时跳过了 `getSteps` / `setSteps`，
-//!    见该文件的跳过清单，因此步骤目前只能独立构造）。
+//!    （`Task` 的步骤列表在 Java 中由 `Task` 持有，用强引用会形成 `Rc` 循环）。
 //!    [`Step::get_task`] 在父任务已释放时返回 `None`。
+//!    步骤列表的容器是 `crate::task::Task` 的 `TaskField.STEPS`（值类型
+//!    [`crate::field_value::FieldValue::Steps`]），见 `Task::get_steps` / `Task::set_steps`。
 //! 2. **`Notes` 字段**：Java 的 `m_description` 是 `Notes` 对象；Rust 的 `Notes` 是 trait，
 //!    故用 `Rc<dyn Notes>` 承载（可共享、可复制引用），[`Step::get_description_object`]
 //!    返回 `Option<&dyn Notes>`。
@@ -61,6 +61,12 @@ use crate::task::Task;
 /// 活动（activity）步骤。
 ///
 /// 对应 Java: `public final class Step`
+///
+/// 实现 `Clone`（Rust 特有）：Java 的 `Task.getSteps()` 返回字段表里的**活列表**，
+/// 而 Rust 侧的列表装在 `Rc<RefCell<Vec<Step>>>` 里，[`crate::task::Task::get_steps`]
+/// 返回其快照，因此需要浅拷贝单个步骤（`m_description` 与 `m_task` 均按引用共享，
+/// 与 Java 的对象共享语义一致）。
+#[derive(Clone)]
 pub struct Step {
     /// 父任务（弱引用）。
     ///

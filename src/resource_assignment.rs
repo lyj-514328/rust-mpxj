@@ -37,25 +37,25 @@
 //! [`ResourceAssignment::set_context`] / [`ResourceAssignment::set_task`] /
 //! [`ResourceAssignment::set_resource`] 接线（Rust 特有方法）。
 //!
-//! ## 3) `FieldValue` 无法承载的字段改用本类专属字段
+//! ## 3) 字段值一律存放于字段表
 //!
-//! [`crate::field_value::FieldValue`] 目前只有标量变体（见其「增量扩展说明」），无法表达
-//! `WorkContour` / `RateSource` / `ResourceRequestType` / `TimeUnit`(variable rate) /
-//! `UUID`(GUID) / `Notes` 对象 / `List<TimephasedWork>` / `List<TimephasedCost>`。
-//! 按任务约束**不修改既有文件**，这些值改存本类的 Rust 专属字段（见结构体注释）：
+//! Java 的 `get` / `set` 把所有字段值（含 `WorkContour` / `RateSource` /
+//! `ResourceRequestType` / `TimeUnit`(variable rate) / `UUID`(GUID) / `Notes` 对象 /
+//! `List<TimephasedWork>` / `List<TimephasedCost>` / `List<LocalDateTimeRange>`）
+//! 都放在 `AbstractFieldContainer` 的字段表里，Rust 侧同样如此，因此
+//! [`ResourceAssignment::get_field`] / [`ResourceAssignment::peek_cached_value`]
+//! 与 Java 的 `get` / `getCachedValue` 一致地能取到这些值
+//! （求值入口见 [`ResourceAssignment::calculate`]，与 Java 的 `CALCULATED_FIELD_MAP` 对应）。
 //!
-//! * 这些字段不参与 [`AbstractFieldContainer`] 的依赖清理与字段变更事件；
-//! * [`ResourceAssignment::get_field`] / [`ResourceAssignment::peek_cached_value`] 不覆盖
-//!   它们（类型上无法表达），需要时请用对应的专用访问器（原始 timephased 数据另配
-//!   Rust 特有的 `set_raw_timephased_*`，供 reader 写入）；
-//! * `AssignmentField::RESOURCE_ASSIGNMENT_CODE_VALUES` 依赖未移植的
-//!   `ResourceAssignmentCode` / `ResourceAssignmentCodeValue`，整体跳过。
+//! 唯一例外是 `AssignmentField::RESOURCE_ASSIGNMENT_CODE_VALUES`：它依赖未移植的
+//! `ResourceAssignmentCode` / `ResourceAssignmentCodeValue`，整体跳过。
+//! 另外 Java 的 `m_workgroup`（MPX 记录 76 的工作组字段）**不在**字段表里，Rust 侧
+//! 同样是本类的独立字段（见 [`ResourceAssignment::add_workgroup_assignment`]）。
 //!
 //! ## 4) 跳过的 Java 成员及原因
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `addWorkgroupAssignment()` / `getWorkgroupAssignment()` | `ResourceAssignmentWorkgroupFields` 未在本仓声明 |
 //! | `getCostAccount()` / `setCostAccount(CostAccount)` | `CostAccount` / `CostAccountContainer` 未在本仓声明（`getCostAccountUniqueID` / `setCostAccountUniqueID` 已移植） |
 //! | `getResourceAssignmentCodeValues()` / `addResourceAssignmentCodeValue(...)` | `ResourceAssignmentCode` / `ResourceAssignmentCodeValue` 未在本仓声明 |
 //! | `public CostRateTable getCostRateTable()` | [`ResourceAssignment::with_cost_rate_table`]（Rust 特有回调形式：资源按值持有 `CostRateTable` 且该类型未实现 `Clone`，无法返回所有权；`getEffectiveRate` / timephased 成本的调用点语义不变） |
@@ -154,6 +154,7 @@ use crate::project_file::ProjectFile;
 use crate::rate::Rate;
 use crate::rate_source::RateSource;
 use crate::resource::Resource;
+use crate::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
 use crate::resource_request_type::ResourceRequestType;
 use crate::resource_type::ResourceType;
 use crate::task::Task;
@@ -182,92 +183,20 @@ pub struct ResourceAssignment {
     resource: Weak<RefCell<Resource>>,
 
     /// 字段存储（组合替代 Java 的继承）。
+    ///
+    /// 笔记对象（`AssignmentField.NOTES`）、工时分布（`WORK_CONTOUR`）、费率来源
+    /// （`RATE_SOURCE`）、资源请求类型（`RESOURCE_REQUEST_TYPE`）、变动费率单位
+    /// （`VARIABLE_RATE_UNITS`）、GUID 以及原始 timephased 列表（`RAW_TIMEPHASED_*`）
+    /// 都与 Java 一致地存放在该字段表中（见 [`crate::field_value::FieldValue`]）。
     fields: AbstractFieldContainer,
 
-    /// 笔记对象（Rust 专属字段，见文件头第 3 节）。
+    /// 工作组字段（MPX 记录 76）。
     ///
-    /// 对应 Java 中 `AssignmentField.NOTES` 的值。
-    notes: Option<Box<dyn Notes>>,
-
-    /// 工时分布类型（Rust 专属字段）。
+    /// 对应 Java: `private ResourceAssignmentWorkgroupFields m_workgroup;`
     ///
-    /// 对应 Java 中 `AssignmentField.WORK_CONTOUR` 的值。
-    work_contour: Option<WorkContour>,
-
-    /// 费率来源（Rust 专属字段）。
-    ///
-    /// 对应 Java 中 `AssignmentField.RATE_SOURCE` 的值。
-    rate_source: Option<RateSource>,
-
-    /// 资源请求类型（Rust 专属字段）。
-    ///
-    /// 对应 Java 中 `AssignmentField.RESOURCE_REQUEST_TYPE` 的值。
-    resource_request_type: Option<ResourceRequestType>,
-
-    /// 变动费率单位（Rust 专属字段）。
-    ///
-    /// 对应 Java 中 `AssignmentField.VARIABLE_RATE_UNITS` 的值。
-    variable_rate_units: Option<TimeUnit>,
-
-    /// 分配的 GUID（Rust 专属字段）。
-    ///
-    /// 对应 Java 中 `AssignmentField.GUID` 的值。
-    guid: Option<Uuid>,
-
-    /// 原始 timephased 计划工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_PLANNED_WORK` 的值。
-    raw_timephased_planned_work: Vec<TimephasedWork>,
-
-    /// 原始 timephased 实际常规工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_ACTUAL_REGULAR_WORK` 的值。
-    raw_timephased_actual_regular_work: Vec<TimephasedWork>,
-
-    /// 原始 timephased 剩余常规工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_REMAINING_REGULAR_WORK` 的值。
-    raw_timephased_remaining_regular_work: Vec<TimephasedWork>,
-
-    /// 原始 timephased 实际加班工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_ACTUAL_OVERTIME_WORK` 的值。
-    raw_timephased_actual_overtime_work: Vec<TimephasedWork>,
-
-    /// 原始 timephased 剩余加班工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_REMAINING_OVERTIME_WORK` 的值。
-    raw_timephased_remaining_overtime_work: Vec<TimephasedWork>,
-
-    /// 原始 timephased 基准工时（下标 0 = Baseline，1..=10 = Baseline1..10）。
-    ///
-    /// 对应 Java 的 `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_WORKS[index]`。
-    raw_timephased_baseline_work: Vec<Vec<TimephasedWork>>,
-
-    /// 原始 timephased 基准预算工时（下标同上）。
-    ///
-    /// 对应 Java 的 `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_WORKS[index]`。
-    raw_timephased_baseline_budget_work: Vec<Vec<TimephasedWork>>,
-
-    /// 原始 timephased 基准成本（下标同上）。
-    ///
-    /// 对应 Java 的 `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_COSTS[index]`。
-    raw_timephased_baseline_cost: Vec<Vec<TimephasedCost>>,
-
-    /// 原始 timephased 基准预算成本（下标同上）。
-    ///
-    /// 对应 Java 的 `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_COSTS[index]`。
-    raw_timephased_baseline_budget_cost: Vec<Vec<TimephasedCost>>,
-
-    /// 原始 timephased 预算成本。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_BUDGET_COST` 的值。
-    raw_timephased_budget_cost: Vec<TimephasedCost>,
-
-    /// 原始 timephased 预算工时。
-    ///
-    /// 对应 Java 中 `AssignmentField.RAW_TIMEPHASED_BUDGET_WORK` 的值。
-    raw_timephased_budget_work: Vec<TimephasedWork>,
+    /// Java 侧不是字段表成员，而是本类的独立字段（由 `addWorkgroupAssignment()` 惰性创建），
+    /// 故 Rust 侧同样保留为独立字段。
+    workgroup_assignment: Option<ResourceAssignmentWorkgroupFields>,
 }
 
 impl Default for ResourceAssignment {
@@ -293,24 +222,7 @@ impl ResourceAssignment {
             task: Weak::new(),
             resource: Weak::new(),
             fields: AbstractFieldContainer::new(),
-            notes: None,
-            work_contour: None,
-            rate_source: None,
-            resource_request_type: None,
-            variable_rate_units: None,
-            guid: None,
-            raw_timephased_planned_work: Vec::new(),
-            raw_timephased_actual_regular_work: Vec::new(),
-            raw_timephased_remaining_regular_work: Vec::new(),
-            raw_timephased_actual_overtime_work: Vec::new(),
-            raw_timephased_remaining_overtime_work: Vec::new(),
-            // 下标 0..=10，与 Java 的 BASELINE* 数组一致
-            raw_timephased_baseline_work: vec![Vec::new(); 11],
-            raw_timephased_baseline_budget_work: vec![Vec::new(); 11],
-            raw_timephased_baseline_cost: vec![Vec::new(); 11],
-            raw_timephased_baseline_budget_cost: vec![Vec::new(); 11],
-            raw_timephased_budget_cost: Vec::new(),
-            raw_timephased_budget_work: Vec::new(),
+            workgroup_assignment: None,
         }
     }
 
@@ -381,6 +293,24 @@ impl ResourceAssignment {
     /// 对应 Java: 无（Java 经 `ProjectFile` 访问上下文）。
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
+    }
+
+    /// 创建（或在已有记录时返回）工作组字段记录。
+    ///
+    /// 对应 Java: `public ResourceAssignmentWorkgroupFields addWorkgroupAssignment()`
+    ///
+    /// Java 在已有记录时抛 `MPXJException(MAXIMUM_RECORDS)`；Rust 库代码不 panic，
+    /// 改为返回既有记录（见文件头「跳过的 Java 成员」）。
+    pub fn add_workgroup_assignment(&mut self) -> &mut ResourceAssignmentWorkgroupFields {
+        self.workgroup_assignment
+            .get_or_insert_with(ResourceAssignmentWorkgroupFields::new)
+    }
+
+    /// 取工作组字段记录；未创建时返回 `None`。
+    ///
+    /// 对应 Java: `public ResourceAssignmentWorkgroupFields getWorkgroupAssignment()`
+    pub fn get_workgroup_assignment(&self) -> Option<&ResourceAssignmentWorkgroupFields> {
+        self.workgroup_assignment.as_ref()
     }
 
     /// 把值写入字段表，并在值真正变化时执行 Java 的 `handleFieldChange`。
@@ -557,14 +487,18 @@ impl ResourceAssignment {
                 .calculate_material(self.get_baseline_work_by_index(10))
                 .map(FieldValue::Double),
             F::RateIndex => self.default_rate_index().map(FieldValue::Integer),
-            // Java 的计算结果 `RateSource.RESOURCE` / `List` 无法表达为 FieldValue（见文件头第 3 节）
-            F::RateSource => None,
+            F::RateSource => Some(FieldValue::RateSource(Self::default_rate_source())),
             F::CalculateCostsFromUnits => self
                 .default_calculate_costs_from_units()
                 .map(FieldValue::Boolean),
             F::ResourceAssignmentCodeValues => None,
-            F::RawTimephasedRemainingOvertimeWork
-            | F::RawTimephasedPlannedWork
+            // Java: `CALCULATED_FIELD_MAP` 的 `calculateTimephasedOvertimeWork`
+            F::RawTimephasedRemainingOvertimeWork => {
+                Some(FieldValue::TimephasedWork(self.calculate_timephased_overtime_work()))
+            }
+            // Java: 其余 `RAW_TIMEPHASED_*` 的默认值分别为
+            // `defaultTimephasedWork()` / `defaultTimephasedCost()`（空列表）。
+            F::RawTimephasedPlannedWork
             | F::RawTimephasedActualRegularWork
             | F::RawTimephasedRemainingRegularWork
             | F::RawTimephasedActualOvertimeWork
@@ -579,7 +513,21 @@ impl ResourceAssignment {
             | F::RawTimephasedBaseline8Work
             | F::RawTimephasedBaseline9Work
             | F::RawTimephasedBaseline10Work
-            | F::RawTimephasedBaselineCost
+            | F::RawTimephasedBudgetWork
+            | F::RawTimephasedBaselineBudgetWork
+            | F::RawTimephasedBaseline1BudgetWork
+            | F::RawTimephasedBaseline2BudgetWork
+            | F::RawTimephasedBaseline3BudgetWork
+            | F::RawTimephasedBaseline4BudgetWork
+            | F::RawTimephasedBaseline5BudgetWork
+            | F::RawTimephasedBaseline6BudgetWork
+            | F::RawTimephasedBaseline7BudgetWork
+            | F::RawTimephasedBaseline8BudgetWork
+            | F::RawTimephasedBaseline9BudgetWork
+            | F::RawTimephasedBaseline10BudgetWork => {
+                Some(FieldValue::TimephasedWork(Vec::new()))
+            }
+            F::RawTimephasedBaselineCost
             | F::RawTimephasedBaseline1Cost
             | F::RawTimephasedBaseline2Cost
             | F::RawTimephasedBaseline3Cost
@@ -591,29 +539,19 @@ impl ResourceAssignment {
             | F::RawTimephasedBaseline9Cost
             | F::RawTimephasedBaseline10Cost
             | F::RawTimephasedBudgetCost
-            | F::RawTimephasedBudgetWork
-            | F::RawTimephasedBaselineBudgetWork
             | F::RawTimephasedBaselineBudgetCost
-            | F::RawTimephasedBaseline1BudgetWork
             | F::RawTimephasedBaseline1BudgetCost
-            | F::RawTimephasedBaseline2BudgetWork
             | F::RawTimephasedBaseline2BudgetCost
-            | F::RawTimephasedBaseline3BudgetWork
             | F::RawTimephasedBaseline3BudgetCost
-            | F::RawTimephasedBaseline4BudgetWork
             | F::RawTimephasedBaseline4BudgetCost
-            | F::RawTimephasedBaseline5BudgetWork
             | F::RawTimephasedBaseline5BudgetCost
-            | F::RawTimephasedBaseline6BudgetWork
             | F::RawTimephasedBaseline6BudgetCost
-            | F::RawTimephasedBaseline7BudgetWork
             | F::RawTimephasedBaseline7BudgetCost
-            | F::RawTimephasedBaseline8BudgetWork
             | F::RawTimephasedBaseline8BudgetCost
-            | F::RawTimephasedBaseline9BudgetWork
             | F::RawTimephasedBaseline9BudgetCost
-            | F::RawTimephasedBaseline10BudgetWork
-            | F::RawTimephasedBaseline10BudgetCost => None,
+            | F::RawTimephasedBaseline10BudgetCost => {
+                Some(FieldValue::TimephasedCost(Vec::new()))
+            }
             _ => None,
         }
     }
@@ -1003,18 +941,24 @@ impl ResourceAssignment {
             .and_then(|parent_file| parent_file.get_resource_by_unique_id(resource_unique_id))
     }
 
-    /// 取工时分布类型（Rust 专属字段）。
+    /// 取工时分布类型。
     ///
     /// 对应 Java: `public WorkContour getWorkContour()`
     pub fn get_work_contour(&self) -> Option<WorkContour> {
-        self.work_contour.clone()
+        match self.assignment_value(AssignmentField::WorkContour) {
+            Some(FieldValue::WorkContour(work_contour)) => Some(work_contour),
+            _ => None,
+        }
     }
 
     /// 设置工时分布类型。
     ///
     /// 对应 Java: `public void setWorkContour(WorkContour workContour)`
     pub fn set_work_contour(&mut self, work_contour: Option<WorkContour>) {
-        self.work_contour = work_contour;
+        self.set_assignment_value(
+            AssignmentField::WorkContour,
+            work_contour.map(FieldValue::WorkContour),
+        );
     }
 
     /// 从项目中移除本资源分配；成功返回 `true`（Java 无返回值）。
@@ -1144,16 +1088,29 @@ impl ResourceAssignment {
     ///
     /// 对应 Java: `public RateSource getRateSource()`
     ///
-    /// Rust 侧读写本类专属字段；Java 的默认值由计算字段提供（见文件头第 3 节）。
+    /// Java 的 `get` 会回落到计算字段 `defaultRateSource()`（`RateSource.RESOURCE`）；
+    /// Rust 侧同样在 [`ResourceAssignment::calculate`] 中提供该默认值。
     pub fn get_rate_source(&self) -> RateSource {
-        self.rate_source.unwrap_or(RateSource::Resource)
+        self.assignment_value(AssignmentField::RateSource)
+            .and_then(|value| value.as_rate_source())
+            .unwrap_or_else(Self::default_rate_source)
     }
 
     /// 设置费率来源。
     ///
     /// 对应 Java: `public void setRateSource(RateSource source)`
     pub fn set_rate_source(&mut self, source: Option<RateSource>) {
-        self.rate_source = source;
+        self.set_assignment_value(
+            AssignmentField::RateSource,
+            source.map(FieldValue::RateSource),
+        );
+    }
+
+    /// 费率来源的默认取值。
+    ///
+    /// 对应 Java: `private RateSource defaultRateSource()`
+    fn default_rate_source() -> RateSource {
+        RateSource::Resource
     }
 
     /// 取本分配使用的有效日历。
@@ -1209,14 +1166,18 @@ impl ResourceAssignment {
     ///
     /// 对应 Java: `public TimeUnit getVariableRateUnits()`
     pub fn get_variable_rate_units(&self) -> Option<TimeUnit> {
-        self.variable_rate_units
+        self.assignment_value(AssignmentField::VariableRateUnits)
+            .and_then(|value| value.as_time_unit())
     }
 
     /// 设置变动费率单位。
     ///
     /// 对应 Java: `public void setVariableRateUnits(TimeUnit variableRateUnits)`
     pub fn set_variable_rate_units(&mut self, variable_rate_units: Option<TimeUnit>) {
-        self.variable_rate_units = variable_rate_units;
+        self.set_assignment_value(
+            AssignmentField::VariableRateUnits,
+            variable_rate_units.map(FieldValue::TimeUnit),
+        );
     }
 
     /// 取预算成本。
@@ -1852,31 +1813,42 @@ impl ResourceAssignment {
     ///
     /// 对应 Java: `public void setNotes(String notes)`
     pub fn set_notes(&mut self, notes: Option<String>) {
-        self.notes = notes.map(|text| Box::new(PlainNotes::new(Some(text))) as Box<dyn Notes>);
+        let value = notes.map(|text| {
+            let notes: Rc<dyn Notes> = Rc::new(PlainNotes::new(Some(text)));
+            FieldValue::Notes(notes)
+        });
+        self.set_assignment_value(AssignmentField::Notes, value);
     }
 
     /// 取笔记的纯文本表示；无笔记时返回空串。
     ///
     /// 对应 Java: `public String getNotes()`
     pub fn get_notes(&self) -> String {
-        self.notes
-            .as_ref()
+        self.notes_object()
             .map(|notes| notes.to_string())
             .unwrap_or_default()
     }
 
-    /// 设置笔记对象。
+    /// 设置笔记对象（`RtfNotes` / `HtmlNotes` / `StructuredNotes` 等子类型经
+    /// `Rc<dyn Notes>` 保真保存）。
     ///
     /// 对应 Java: `public void setNotesObject(Notes notes)`
     pub fn set_notes_object(&mut self, notes: Option<Box<dyn Notes>>) {
-        self.notes = notes;
+        let value = notes.map(|notes| FieldValue::Notes(Rc::from(notes)));
+        self.set_assignment_value(AssignmentField::Notes, value);
     }
 
     /// 取笔记对象。
     ///
     /// 对应 Java: `public Notes getNotesObject()`
-    pub fn get_notes_object(&self) -> Option<&dyn Notes> {
-        self.notes.as_deref()
+    pub fn get_notes_object(&self) -> Option<Rc<dyn Notes>> {
+        self.notes_object()
+    }
+
+    /// 取笔记对象（内部便捷方法）。
+    fn notes_object(&self) -> Option<Rc<dyn Notes>> {
+        self.assignment_value(AssignmentField::Notes)
+            .and_then(|value| value.as_notes().cloned())
     }
 
     /// 设置「已确认」标志。
@@ -2022,18 +1994,19 @@ impl ResourceAssignment {
         self.set_assignment_value(AssignmentField::Created, val.map(FieldValue::DateTime));
     }
 
-    /// 取分配的 GUID（Rust 专属字段）。
+    /// 取分配的 GUID。
     ///
     /// 对应 Java: `public UUID getGUID()`
     pub fn get_guid(&self) -> Option<Uuid> {
-        self.guid
+        self.assignment_value(AssignmentField::Guid)
+            .and_then(|value| value.as_uuid())
     }
 
     /// 设置分配的 GUID。
     ///
     /// 对应 Java: `public void setGUID(UUID value)`
     pub fn set_guid(&mut self, value: Option<Uuid>) {
-        self.guid = value;
+        self.set_assignment_value(AssignmentField::Guid, value.map(FieldValue::Uuid));
     }
 
     /// 设置「响应待处理」标志。
@@ -2145,18 +2118,22 @@ impl ResourceAssignment {
         self.set_string_value(AssignmentField::HyperlinkScreenTip, text);
     }
 
-    /// 取资源请求类型（Rust 专属字段）。
+    /// 取资源请求类型。
     ///
     /// 对应 Java: `public ResourceRequestType getResourceRequestType()`
     pub fn get_resource_request_type(&self) -> Option<ResourceRequestType> {
-        self.resource_request_type
+        self.assignment_value(AssignmentField::ResourceRequestType)
+            .and_then(|value| value.as_resource_request_type())
     }
 
     /// 设置资源请求类型。
     ///
     /// 对应 Java: `public void setResourceRequestType(ResourceRequestType type)`
     pub fn set_resource_request_type(&mut self, r#type: Option<ResourceRequestType>) {
-        self.resource_request_type = r#type;
+        self.set_assignment_value(
+            AssignmentField::ResourceRequestType,
+            r#type.map(FieldValue::ResourceRequestType),
+        );
     }
 
     /// 取停止时间。
@@ -2658,7 +2635,7 @@ impl ResourceAssignment {
         }
 
         let factor = remaining_overtime_minutes / remaining_regular_minutes;
-        self.raw_timephased_remaining_regular_work
+        self.get_raw_timephased_remaining_regular_work()
             .iter()
             .map(|item| TimephasedWork::from_work(item, factor))
             .collect()
@@ -2793,144 +2770,184 @@ impl ResourceAssignment {
     /// 取原始 timephased 计划工时。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedPlannedWork()`
-    pub fn get_raw_timephased_planned_work(&self) -> &[TimephasedWork] {
-        &self.raw_timephased_planned_work
+    ///
+    /// 未设置时与 Java 一致返回空列表（`CALCULATED_FIELD_MAP` 的
+    /// `defaultTimephasedWork()`）。
+    pub fn get_raw_timephased_planned_work(&self) -> Vec<TimephasedWork> {
+        self.timephased_work_value(AssignmentField::RawTimephasedPlannedWork)
     }
 
-    /// 设置原始 timephased 计划工时（Rust 特有 setter，见文件头第 3 节）。
+    /// 设置原始 timephased 计划工时（读者用它写回，语义等价 Java 的
+    /// `getRawTimephasedPlannedWork().addAll(...)`）。
     pub fn set_raw_timephased_planned_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_planned_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedPlannedWork, work);
     }
 
     /// 取原始 timephased 实际常规工时。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedActualRegularWork()`
-    pub fn get_raw_timephased_actual_regular_work(&self) -> &[TimephasedWork] {
-        &self.raw_timephased_actual_regular_work
+    pub fn get_raw_timephased_actual_regular_work(&self) -> Vec<TimephasedWork> {
+        self.timephased_work_value(AssignmentField::RawTimephasedActualRegularWork)
     }
 
-    /// 设置原始 timephased 实际常规工时（Rust 特有 setter）。
+    /// 设置原始 timephased 实际常规工时。
     pub fn set_raw_timephased_actual_regular_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_actual_regular_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedActualRegularWork, work);
     }
 
     /// 取原始 timephased 剩余常规工时。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedRemainingRegularWork()`
-    pub fn get_raw_timephased_remaining_regular_work(&self) -> &[TimephasedWork] {
-        &self.raw_timephased_remaining_regular_work
+    pub fn get_raw_timephased_remaining_regular_work(&self) -> Vec<TimephasedWork> {
+        self.timephased_work_value(AssignmentField::RawTimephasedRemainingRegularWork)
     }
 
-    /// 设置原始 timephased 剩余常规工时（Rust 特有 setter）。
+    /// 设置原始 timephased 剩余常规工时。
     pub fn set_raw_timephased_remaining_regular_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_remaining_regular_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedRemainingRegularWork, work);
     }
 
     /// 取原始 timephased 实际加班工时。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedActualOvertimeWork()`
-    pub fn get_raw_timephased_actual_overtime_work(&self) -> &[TimephasedWork] {
-        &self.raw_timephased_actual_overtime_work
+    pub fn get_raw_timephased_actual_overtime_work(&self) -> Vec<TimephasedWork> {
+        self.timephased_work_value(AssignmentField::RawTimephasedActualOvertimeWork)
     }
 
-    /// 设置原始 timephased 实际加班工时（Rust 特有 setter）。
+    /// 设置原始 timephased 实际加班工时。
     pub fn set_raw_timephased_actual_overtime_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_actual_overtime_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedActualOvertimeWork, work);
     }
 
-    /// 取原始 timephased 剩余加班工时；无数据时按剩余常规工时等比计算。
+    /// 取原始 timephased 剩余加班工时；无数据时由计算字段
+    /// `calculateTimephasedOvertimeWork` 提供。
     ///
-    /// 对应 Java: `AssignmentField.RAW_TIMEPHASED_REMAINING_OVERTIME_WORK` 的取值
-    /// （默认值由 `calculateTimephasedOvertimeWork` 提供）。
+    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedRemainingOvertimeWork()`
     pub fn get_raw_timephased_remaining_overtime_work(&self) -> Vec<TimephasedWork> {
-        if !self.raw_timephased_remaining_overtime_work.is_empty() {
-            return self.raw_timephased_remaining_overtime_work.clone();
-        }
-
-        self.calculate_timephased_overtime_work()
+        self.timephased_work_value(AssignmentField::RawTimephasedRemainingOvertimeWork)
     }
 
-    /// 设置原始 timephased 剩余加班工时（Rust 特有 setter）。
+    /// 设置原始 timephased 剩余加班工时。
     pub fn set_raw_timephased_remaining_overtime_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_remaining_overtime_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedRemainingOvertimeWork, work);
     }
 
     /// 取原始 timephased 基准工时（下标 0 = Baseline，1..=10 = Baseline1..10）。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBaselineWork(int index)`
     ///
-    /// 越界时返回空切片（Java 会抛 `ArrayIndexOutOfBoundsException`）。
-    pub fn get_raw_timephased_baseline_work(&self, index: i32) -> &[TimephasedWork] {
-        index_slice(&self.raw_timephased_baseline_work, index)
+    /// 越界时返回空列表（Java 会抛 `ArrayIndexOutOfBoundsException`）。
+    pub fn get_raw_timephased_baseline_work(&self, index: i32) -> Vec<TimephasedWork> {
+        raw_timephased_baseline_work_field(index)
+            .map(|field| self.timephased_work_value(field))
+            .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准工时（Rust 特有 setter）。
+    /// 设置原始 timephased 基准工时。
     pub fn set_raw_timephased_baseline_work(&mut self, index: i32, work: Vec<TimephasedWork>) {
-        set_index_slice(&mut self.raw_timephased_baseline_work, index, work);
+        if let Some(field) = raw_timephased_baseline_work_field(index) {
+            self.set_timephased_work_value(field, work);
+        }
     }
 
     /// 取原始 timephased 基准预算工时（下标同上）。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBaselineBudgetWork(int index)`
-    pub fn get_raw_timephased_baseline_budget_work(&self, index: i32) -> &[TimephasedWork] {
-        index_slice(&self.raw_timephased_baseline_budget_work, index)
+    pub fn get_raw_timephased_baseline_budget_work(&self, index: i32) -> Vec<TimephasedWork> {
+        raw_timephased_baseline_budget_work_field(index)
+            .map(|field| self.timephased_work_value(field))
+            .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准预算工时（Rust 特有 setter）。
+    /// 设置原始 timephased 基准预算工时。
     pub fn set_raw_timephased_baseline_budget_work(&mut self, index: i32, work: Vec<TimephasedWork>) {
-        set_index_slice(&mut self.raw_timephased_baseline_budget_work, index, work);
+        if let Some(field) = raw_timephased_baseline_budget_work_field(index) {
+            self.set_timephased_work_value(field, work);
+        }
     }
 
     /// 取原始 timephased 基准成本（下标同上）。
     ///
     /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBaselineCost(int index)`
-    pub fn get_raw_timephased_baseline_cost(&self, index: i32) -> &[TimephasedCost] {
-        index_slice(&self.raw_timephased_baseline_cost, index)
+    pub fn get_raw_timephased_baseline_cost(&self, index: i32) -> Vec<TimephasedCost> {
+        raw_timephased_baseline_cost_field(index)
+            .map(|field| self.timephased_cost_value(field))
+            .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准成本（Rust 特有 setter）。
+    /// 设置原始 timephased 基准成本。
     pub fn set_raw_timephased_baseline_cost(&mut self, index: i32, cost: Vec<TimephasedCost>) {
-        set_index_slice(&mut self.raw_timephased_baseline_cost, index, cost);
+        if let Some(field) = raw_timephased_baseline_cost_field(index) {
+            self.set_timephased_cost_value(field, cost);
+        }
     }
 
     /// 取原始 timephased 基准预算成本（下标同上）。
     ///
     /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBaselineBudgetCost(int index)`
-    pub fn get_raw_timephased_baseline_budget_cost(&self, index: i32) -> &[TimephasedCost] {
-        index_slice(&self.raw_timephased_baseline_budget_cost, index)
+    pub fn get_raw_timephased_baseline_budget_cost(&self, index: i32) -> Vec<TimephasedCost> {
+        raw_timephased_baseline_budget_cost_field(index)
+            .map(|field| self.timephased_cost_value(field))
+            .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准预算成本（Rust 特有 setter）。
+    /// 设置原始 timephased 基准预算成本。
     pub fn set_raw_timephased_baseline_budget_cost(
         &mut self,
         index: i32,
         cost: Vec<TimephasedCost>,
     ) {
-        set_index_slice(&mut self.raw_timephased_baseline_budget_cost, index, cost);
+        if let Some(field) = raw_timephased_baseline_budget_cost_field(index) {
+            self.set_timephased_cost_value(field, cost);
+        }
     }
 
     /// 取原始 timephased 预算成本。
     ///
     /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBudgetCost()`
-    pub fn get_raw_timephased_budget_cost(&self) -> &[TimephasedCost] {
-        &self.raw_timephased_budget_cost
+    pub fn get_raw_timephased_budget_cost(&self) -> Vec<TimephasedCost> {
+        self.timephased_cost_value(AssignmentField::RawTimephasedBudgetCost)
     }
 
-    /// 设置原始 timephased 预算成本（Rust 特有 setter）。
+    /// 设置原始 timephased 预算成本。
     pub fn set_raw_timephased_budget_cost(&mut self, cost: Vec<TimephasedCost>) {
-        self.raw_timephased_budget_cost = cost;
+        self.set_timephased_cost_value(AssignmentField::RawTimephasedBudgetCost, cost);
     }
 
     /// 取原始 timephased 预算工时。
     ///
     /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBudgetWork()`
-    pub fn get_raw_timephased_budget_work(&self) -> &[TimephasedWork] {
-        &self.raw_timephased_budget_work
+    pub fn get_raw_timephased_budget_work(&self) -> Vec<TimephasedWork> {
+        self.timephased_work_value(AssignmentField::RawTimephasedBudgetWork)
     }
 
-    /// 设置原始 timephased 预算工时（Rust 特有 setter）。
+    /// 设置原始 timephased 预算工时。
     pub fn set_raw_timephased_budget_work(&mut self, work: Vec<TimephasedWork>) {
-        self.raw_timephased_budget_work = work;
+        self.set_timephased_work_value(AssignmentField::RawTimephasedBudgetWork, work);
+    }
+
+    /// 取字段表中的 timephased 工时列表（未设置时为空列表）。
+    fn timephased_work_value(&self, field: AssignmentField) -> Vec<TimephasedWork> {
+        self.assignment_value(field)
+            .and_then(|value| value.as_timephased_work().map(<[TimephasedWork]>::to_vec))
+            .unwrap_or_default()
+    }
+
+    /// 把 timephased 工时列表写入字段表。
+    fn set_timephased_work_value(&mut self, field: AssignmentField, work: Vec<TimephasedWork>) {
+        self.set_assignment_value(field, Some(FieldValue::TimephasedWork(work)));
+    }
+
+    /// 取字段表中的 timephased 成本列表（未设置时为空列表）。
+    fn timephased_cost_value(&self, field: AssignmentField) -> Vec<TimephasedCost> {
+        self.assignment_value(field)
+            .and_then(|value| value.as_timephased_cost().map(<[TimephasedCost]>::to_vec))
+            .unwrap_or_default()
+    }
+
+    /// 把 timephased 成本列表写入字段表。
+    fn set_timephased_cost_value(&mut self, field: AssignmentField, cost: Vec<TimephasedCost>) {
+        self.set_assignment_value(field, Some(FieldValue::TimephasedCost(cost)));
     }
 
     /// 取本分配区间内的工作时间段。
@@ -4206,8 +4223,9 @@ impl ResourceAssignment {
     ///
     /// 对应 Java: `private List<TimephasedWork> getOrCreateRawTimephasedPlannedWork()`
     fn get_or_create_raw_timephased_planned_work(&self) -> Vec<TimephasedWork> {
-        if !self.raw_timephased_planned_work.is_empty() {
-            return self.raw_timephased_planned_work.clone();
+        let planned_work = self.get_raw_timephased_planned_work();
+        if !planned_work.is_empty() {
+            return planned_work;
         }
 
         let Some(work) = self.get_planned_work() else {
@@ -4379,6 +4397,29 @@ impl FieldContainer for ResourceAssignment {
     /// 对应 Java: `public Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
+    }
+
+    /// 对应 Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    ///
+    /// Java 经 `TIMEPHASED_WORK_FUNCTIONS` 分派；Rust 侧由本类同名普通方法承担（见文件头第 5 节）。
+    fn get_timephased_duration_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+        units: TimeUnit,
+    ) -> Vec<Option<Duration>> {
+        ResourceAssignment::get_timephased_duration_values(self, field, ranges, units)
+    }
+
+    /// 对应 Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    ///
+    /// Java 经 `TIMEPHASED_NUMERIC_FUNCTIONS` 分派；Rust 侧由本类同名普通方法承担。
+    fn get_timephased_numeric_values(
+        &self,
+        field: FieldKey,
+        ranges: &[LocalDateTimeRange],
+    ) -> Vec<Option<f64>> {
+        ResourceAssignment::get_timephased_numeric_values(self, field, ranges)
     }
 
     /// 对应 Java: `public void addFieldListener(FieldListener listener)`
@@ -4978,20 +5019,90 @@ fn dependency_map() -> &'static HashMap<FieldKey, Vec<FieldKey>> {
     })
 }
 
-/// 读取多值数组（timephased 基准数据）中的一项；越界返回空切片。
-fn index_slice<T>(table: &[Vec<T>], index: i32) -> &[T] {
-    usize::try_from(index)
-        .ok()
-        .and_then(|index| table.get(index))
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
+/// 按下标取「原始 timephased 基准工时」字段。
+///
+/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_WORKS[index]`
+///（下标 0 = Baseline，1..=10 = Baseline1..10）；越界返回 `None`
+///（Java 会抛 `ArrayIndexOutOfBoundsException`）。
+fn raw_timephased_baseline_work_field(index: i32) -> Option<AssignmentField> {
+    const FIELDS: [AssignmentField; 11] = [
+        AssignmentField::RawTimephasedBaselineWork,
+        AssignmentField::RawTimephasedBaseline1Work,
+        AssignmentField::RawTimephasedBaseline2Work,
+        AssignmentField::RawTimephasedBaseline3Work,
+        AssignmentField::RawTimephasedBaseline4Work,
+        AssignmentField::RawTimephasedBaseline5Work,
+        AssignmentField::RawTimephasedBaseline6Work,
+        AssignmentField::RawTimephasedBaseline7Work,
+        AssignmentField::RawTimephasedBaseline8Work,
+        AssignmentField::RawTimephasedBaseline9Work,
+        AssignmentField::RawTimephasedBaseline10Work,
+    ];
+
+    usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
-/// 写入多值数组（timephased 基准数据）中的一项；越界忽略。
-fn set_index_slice<T>(table: &mut [Vec<T>], index: i32, value: Vec<T>) {
-    if let Some(slot) = usize::try_from(index).ok().and_then(|index| table.get_mut(index)) {
-        *slot = value;
-    }
+/// 按下标取「原始 timephased 基准预算工时」字段。
+///
+/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_WORKS[index]`
+fn raw_timephased_baseline_budget_work_field(index: i32) -> Option<AssignmentField> {
+    const FIELDS: [AssignmentField; 11] = [
+        AssignmentField::RawTimephasedBaselineBudgetWork,
+        AssignmentField::RawTimephasedBaseline1BudgetWork,
+        AssignmentField::RawTimephasedBaseline2BudgetWork,
+        AssignmentField::RawTimephasedBaseline3BudgetWork,
+        AssignmentField::RawTimephasedBaseline4BudgetWork,
+        AssignmentField::RawTimephasedBaseline5BudgetWork,
+        AssignmentField::RawTimephasedBaseline6BudgetWork,
+        AssignmentField::RawTimephasedBaseline7BudgetWork,
+        AssignmentField::RawTimephasedBaseline8BudgetWork,
+        AssignmentField::RawTimephasedBaseline9BudgetWork,
+        AssignmentField::RawTimephasedBaseline10BudgetWork,
+    ];
+
+    usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
+}
+
+/// 按下标取「原始 timephased 基准成本」字段。
+///
+/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_COSTS[index]`
+fn raw_timephased_baseline_cost_field(index: i32) -> Option<AssignmentField> {
+    const FIELDS: [AssignmentField; 11] = [
+        AssignmentField::RawTimephasedBaselineCost,
+        AssignmentField::RawTimephasedBaseline1Cost,
+        AssignmentField::RawTimephasedBaseline2Cost,
+        AssignmentField::RawTimephasedBaseline3Cost,
+        AssignmentField::RawTimephasedBaseline4Cost,
+        AssignmentField::RawTimephasedBaseline5Cost,
+        AssignmentField::RawTimephasedBaseline6Cost,
+        AssignmentField::RawTimephasedBaseline7Cost,
+        AssignmentField::RawTimephasedBaseline8Cost,
+        AssignmentField::RawTimephasedBaseline9Cost,
+        AssignmentField::RawTimephasedBaseline10Cost,
+    ];
+
+    usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
+}
+
+/// 按下标取「原始 timephased 基准预算成本」字段。
+///
+/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_COSTS[index]`
+fn raw_timephased_baseline_budget_cost_field(index: i32) -> Option<AssignmentField> {
+    const FIELDS: [AssignmentField; 11] = [
+        AssignmentField::RawTimephasedBaselineBudgetCost,
+        AssignmentField::RawTimephasedBaseline1BudgetCost,
+        AssignmentField::RawTimephasedBaseline2BudgetCost,
+        AssignmentField::RawTimephasedBaseline3BudgetCost,
+        AssignmentField::RawTimephasedBaseline4BudgetCost,
+        AssignmentField::RawTimephasedBaseline5BudgetCost,
+        AssignmentField::RawTimephasedBaseline6BudgetCost,
+        AssignmentField::RawTimephasedBaseline7BudgetCost,
+        AssignmentField::RawTimephasedBaseline8BudgetCost,
+        AssignmentField::RawTimephasedBaseline9BudgetCost,
+        AssignmentField::RawTimephasedBaseline10BudgetCost,
+    ];
+
+    usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
 /// 全为 `None` 的工期列表。
@@ -5657,7 +5768,7 @@ mod tests {
         assert_eq!(assignment.get_units(), Some(100.0));
         // Java: RATE_INDEX 默认 0
         assert_eq!(assignment.get_rate_index(), Some(0));
-        // Java: RATE_SOURCE 默认 Resource（Rust 侧为专属字段）
+        // Java: RATE_SOURCE 默认 Resource（由计算字段 defaultRateSource 提供）
         assert_eq!(assignment.get_rate_source(), RateSource::Resource);
         // Java: COST_RATE_TABLE 越界时取 0
         assert_eq!(assignment.get_cost_rate_table_index(), 0);
@@ -5752,19 +5863,31 @@ mod tests {
     }
 
     #[test]
-    fn notes_and_guid_use_dedicated_fields() {
+    fn notes_and_guid_use_field_table() {
         let mut assignment = assignment();
 
         assignment.set_notes(Some("hello".to_owned()));
         assert_eq!(assignment.get_notes(), "hello");
         assert!(assignment.get_notes_object().is_some());
+        // Java 的 get(AssignmentField.NOTES) 取到的就是该对象
+        assert_eq!(
+            assignment
+                .get_field(FieldKey::Assignment(AssignmentField::Notes))
+                .map(|value| value.type_name()),
+            Some("Notes")
+        );
 
         assignment.set_notes(None);
         assert_eq!(assignment.get_notes(), "");
+        assert!(assignment.get_field(FieldKey::Assignment(AssignmentField::Notes)).is_none());
 
         let guid = Uuid::nil();
         assignment.set_guid(Some(guid));
         assert_eq!(assignment.get_guid(), Some(guid));
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(AssignmentField::Guid)),
+            Some(FieldValue::Uuid(value)) if value == guid
+        ));
 
         assignment.set_work_contour(Some(WorkContour::flat()));
         assert_eq!(
@@ -5773,15 +5896,146 @@ mod tests {
                 .and_then(|contour| contour.get_name().map(str::to_owned)),
             Some("FLAT".to_owned())
         );
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(AssignmentField::WorkContour)),
+            Some(FieldValue::WorkContour(_))
+        ));
 
         assignment.set_variable_rate_units(Some(TimeUnit::Hours));
         assert_eq!(assignment.get_variable_rate_units(), Some(TimeUnit::Hours));
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(AssignmentField::VariableRateUnits)),
+            Some(FieldValue::TimeUnit(TimeUnit::Hours))
+        ));
 
         assignment.set_resource_request_type(Some(ResourceRequestType::None));
         assert_eq!(
             assignment.get_resource_request_type(),
             Some(ResourceRequestType::None)
         );
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(AssignmentField::ResourceRequestType)),
+            Some(FieldValue::ResourceRequestType(ResourceRequestType::None))
+        ));
+
+        // RATE_SOURCE 未显式设置时由计算字段给出默认值（Java 的 defaultRateSource）
+        assert_eq!(
+            assignment
+                .get_field(FieldKey::Assignment(AssignmentField::RateSource))
+                .and_then(|value| value.as_rate_source()),
+            Some(RateSource::Resource)
+        );
+        assignment.set_rate_source(Some(RateSource::Override));
+        assert_eq!(assignment.get_rate_source(), RateSource::Override);
+        assert!(assignment
+            .peek_cached_value(FieldKey::Assignment(AssignmentField::RateSource))
+            .is_some());
+    }
+
+    #[test]
+    fn raw_timephased_values_are_visible_in_field_table() {
+        let mut assignment = assignment();
+
+        let mut item = TimephasedWork::new();
+        item.set_amount_per_hour(Some(Duration::get_instance(1.0, TimeUnit::Hours)));
+        assignment.set_raw_timephased_planned_work(vec![item]);
+
+        // Java 的 get(AssignmentField.RAW_TIMEPHASED_PLANNED_WORK) 取到的就是该列表
+        assert!(matches!(
+            assignment.peek_cached_value(FieldKey::Assignment(
+                AssignmentField::RawTimephasedPlannedWork
+            )),
+            Some(FieldValue::TimephasedWork(work)) if work.len() == 1
+        ));
+
+        // 未设置的 timephased 字段按 Java 的 defaultTimephasedWork / defaultTimephasedCost 回落为空列表
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(
+                AssignmentField::RawTimephasedBudgetWork
+            )),
+            Some(FieldValue::TimephasedWork(work)) if work.is_empty()
+        ));
+        assert!(matches!(
+            assignment.get_field(FieldKey::Assignment(
+                AssignmentField::RawTimephasedBaselineBudgetCost
+            )),
+            Some(FieldValue::TimephasedCost(cost)) if cost.is_empty()
+        ));
+    }
+
+    /// 经 [`FieldContainer`] trait 入口查询 timephased 数据（Java 的
+    /// `getTimephasedDurationValues` / `getTimephasedNumericValues`）。
+    #[test]
+    fn timephased_queries_via_field_container_trait() {
+        let start = NaiveDate::from_ymd_opt(2024, 1, 1)
+            .and_then(|date| date.and_hms_opt(9, 0, 0))
+            .expect("合法日期");
+        let finish = start + chrono::Duration::hours(8);
+
+        let ranges = [LocalDateTimeRange::new(
+            Some(start),
+            Some(start + chrono::Duration::hours(4)),
+        )];
+
+        let mut assignment = assignment();
+        let mut work = TimephasedWork::new();
+        work.set_start(Some(start));
+        work.set_finish(Some(finish));
+        work.set_total_amount(Some(Duration::get_instance(8.0, TimeUnit::Hours)));
+        work.set_amount_per_hour(Some(Duration::get_instance(1.0, TimeUnit::Hours)));
+        assignment.set_raw_timephased_planned_work(vec![work]);
+
+        let durations = FieldContainer::get_timephased_duration_values(
+            &assignment,
+            FieldKey::Assignment(AssignmentField::PlannedWork),
+            &ranges,
+            TimeUnit::Hours,
+        );
+        assert_eq!(durations.len(), 1);
+        assert!(durations[0].is_some());
+
+        let mut cost = TimephasedCost::new();
+        cost.set_start(Some(start));
+        cost.set_finish(Some(finish));
+        cost.set_total_amount(Some(100.0));
+        cost.set_amount_per_hour(Some(12.5));
+        assignment.set_raw_timephased_baseline_cost(0, vec![cost]);
+
+        let costs = FieldContainer::get_timephased_numeric_values(
+            &assignment,
+            FieldKey::Assignment(AssignmentField::BaselineCost),
+            &ranges,
+        );
+        assert_eq!(costs.len(), 1);
+        assert!(costs[0].is_some());
+
+        // 字段不在分派表中时与 Java 一致返回全 None 列表
+        let unsupported = FieldContainer::get_timephased_numeric_values(
+            &assignment,
+            FieldKey::Assignment(AssignmentField::TaskUniqueId),
+            &ranges,
+        );
+        assert_eq!(unsupported, vec![None]);
+    }
+
+    #[test]
+    fn workgroup_assignment_round_trip() {
+        let mut assignment = assignment();
+        assert!(assignment.get_workgroup_assignment().is_none());
+
+        assignment
+            .add_workgroup_assignment()
+            .set_message_unique_id(Some("MSG-1".to_owned()));
+        // Java 在已有记录时抛 MPXJException；Rust 侧返回既有记录
+        assignment
+            .add_workgroup_assignment()
+            .set_schedule_id(Some("SCHED-9".to_owned()));
+
+        let workgroup = assignment
+            .get_workgroup_assignment()
+            .expect("工作组字段已创建");
+        assert_eq!(workgroup.get_message_unique_id(), Some("MSG-1"));
+        assert_eq!(workgroup.get_schedule_id(), Some("SCHED-9"));
     }
 
     #[test]

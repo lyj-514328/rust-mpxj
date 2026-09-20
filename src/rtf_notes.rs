@@ -64,7 +64,15 @@ impl Display for RtfNotes {
     }
 }
 
-impl Notes for RtfNotes {}
+impl Notes for RtfNotes {
+    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+    fn to_box(&self) -> Box<dyn Notes> {
+        Box::new(RtfNotes {
+            m_text: self.m_text.clone(),
+            m_rtf: self.m_rtf.clone(),
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {

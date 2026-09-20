@@ -11,8 +11,11 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
 use mpxj::mpp::mpp_reader::MPPReader;
 use mpxj::reader::project_reader::ProjectReader;
+use mpxj::time_unit::TimeUnit;
 use mpxj::ProjectFile;
 
 /// 取 `mpxj/junit/data/` 下的样本文件路径。
@@ -22,6 +25,14 @@ fn sample(relative: &str) -> PathBuf {
         .join("junit")
         .join("data")
         .join(relative)
+}
+
+/// 构造测试用日期时间。
+fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
+    NaiveDateTime::new(
+        NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
+        NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间"),
+    )
 }
 
 /// 读取一个样本文件。
@@ -212,4 +223,128 @@ fn subproject_samples_expose_subproject_details() {
             Some("SubprojectB-9")
         );
     }
+}
+
+/// MPP8：每个资源都带一条可用性行（Java `MPP8Reader` 从字段直接构造）。
+///
+/// 回归 `MPP8Reader::process_resource_data` 里「可用性表」那一段：
+/// 修复前该段整体跳过，`Resource::get_availability()` 恒为空表。
+#[test]
+fn mpp8_resources_have_an_availability_row() {
+    let file = read_sample("assignment/assignment-deletion/assigned-resources-mpp8-project2003.mpp");
+    let file_ref = file.borrow();
+
+    let resources = file_ref.get_resources();
+    assert!(resources.len() > 0, "该样本应含资源");
+
+    for resource in resources.as_slice() {
+        let resource = resource.borrow();
+        let table = resource.get_availability();
+        assert_eq!(
+            table.len(),
+            1,
+            "资源 {:?} 应有一条可用性行",
+            resource.get_name()
+        );
+    }
+}
+
+/// MPP9 / MPP12 / MPP14：资源可用性表被真正写回资源。
+///
+/// 回归 `AvailabilityFactory::process` 的返回值此前被 `let _ = ...` 丢弃：
+/// 修复前 `Resource::get_availability()` 在全部 MPP 格式下都是空表。
+/// 期望值与 Java `AvailabilityTest.testAvailability` 一致。
+#[test]
+fn mpp_resource_availability_tables_are_populated() {
+    for (relative, expected_file_type) in [
+        ("mpp9availability.mpp", 9),
+        ("mpp12availability.mpp", 12),
+        ("mpp14availability.mpp", 14),
+    ] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+
+        assert_eq!(
+            file_ref.get_project_properties().get_mpp_file_type(),
+            Some(expected_file_type)
+        );
+
+        // 资源 1：只有一条「NA 区间」的默认行
+        let resource = file_ref
+            .get_resource_by_id(Some(1))
+            .unwrap_or_else(|| panic!("{relative} 缺少 ID 为 1 的资源"));
+        let resource = resource.borrow();
+        assert_eq!(resource.get_name().as_deref(), Some("Resource One"));
+        let table = resource.get_availability();
+        assert!(table.has_default_date_range());
+
+        // 资源 2：三条可用性行（Java 的期望值）
+        let resource = file_ref
+            .get_resource_by_id(Some(2))
+            .unwrap_or_else(|| panic!("{relative} 缺少 ID 为 2 的资源"));
+        let resource = resource.borrow();
+        assert_eq!(resource.get_name().as_deref(), Some("Resource Two"));
+
+        let table = resource.get_availability();
+        assert_eq!(table.len(), 3, "{relative}: 资源 2 应有 3 条可用性行");
+
+        let expected = [
+            (
+                date_time(2009, 6, 1, 0, 0),
+                date_time(2009, 7, 1, 23, 59),
+                100.0,
+            ),
+            (
+                date_time(2009, 7, 2, 0, 0),
+                date_time(2009, 8, 1, 23, 59),
+                60.0,
+            ),
+            (
+                date_time(2009, 8, 20, 0, 0),
+                date_time(2009, 8, 30, 23, 59),
+                75.0,
+            ),
+        ];
+
+        for (index, (start, end, units)) in expected.iter().enumerate() {
+            let entry = table.get(index).unwrap_or_else(|| {
+                panic!("{relative}: 缺失第 {index} 条可用性行")
+            });
+            assert_eq!(entry.get_range().get_start(), Some(*start), "{relative}");
+            assert_eq!(entry.get_range().get_end(), Some(*end), "{relative}");
+            assert_eq!(entry.get_units(), Some(*units), "{relative}");
+        }
+    }
+}
+
+/// 成本费率表：文件里按「每小时」存储的费率，按记录中的单位字段换算成目标单位。
+///
+/// 期望值与 Java `CostRateTableTest.testCostRateTable`（`mpp9costratetable.mpp` 的
+/// 资源 3）一致：表 A 第 1 行 = 20 分钟 / 25 小时，表 B 第 1 行 = 50 天 / 55 周。
+/// 回归 `RateHelper::convert_from_hours` 被就地重复实现、且换算未接线的问题。
+#[test]
+fn cost_rate_table_rates_are_converted_from_hours() {
+    let file = read_sample("mpp9costratetable.mpp");
+    let file_ref = file.borrow();
+
+    let resource = file_ref
+        .get_resource_by_id(Some(3))
+        .expect("缺少 ID 为 3 的资源");
+    let resource = resource.borrow();
+    assert_eq!(resource.get_name().as_deref(), Some("Resource Three"));
+
+    let table_a = resource.get_cost_rate_table(0).expect("缺少费率表 A");
+    let entry = table_a.get(1).expect("A 表应有第 1 行");
+    assert_eq!(entry.get_standard_rate().get_amount(), 20.0);
+    assert_eq!(entry.get_standard_rate().get_units(), TimeUnit::Minutes);
+    assert_eq!(entry.get_overtime_rate().get_amount(), 25.0);
+    assert_eq!(entry.get_overtime_rate().get_units(), TimeUnit::Hours);
+
+    let table_b = resource.get_cost_rate_table(1).expect("缺少费率表 B");
+    let entry = table_b.get(1).expect("B 表应有第 1 行");
+    assert_eq!(entry.get_standard_rate().get_amount(), 50.0);
+    assert_eq!(entry.get_standard_rate().get_units(), TimeUnit::Days);
+    assert_eq!(entry.get_overtime_rate().get_amount(), 55.0);
+    assert_eq!(entry.get_overtime_rate().get_units(), TimeUnit::Weeks);
+    assert_eq!(entry.get_cost_per_use(), Some(60.0));
 }

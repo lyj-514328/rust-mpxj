@@ -22,6 +22,7 @@ use crate::field_container::FieldContainer;
 use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 use crate::listener::field_listener::FieldListener;
+use crate::local_date_time_range::LocalDateTimeRange;
 use crate::mpxj_enum::MpxjEnum;
 use crate::notes::{Notes, PlainNotes};
 use crate::percent_complete_type::PercentCompleteType;
@@ -36,6 +37,7 @@ use crate::relation::{Builder as RelationBuilder, Relation};
 use crate::relation_type::RelationType;
 use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
+use crate::step::Step;
 use crate::task_field::TaskField;
 use crate::task_mode::TaskMode;
 use crate::task_type::TaskType;
@@ -118,22 +120,18 @@ use crate::time_unit::TimeUnit;
 //    Java 的 `compareTo` 按 ID 排序，与「同一性相等」不自洽，不满足 Rust
 //    `Ord` 的契约（`a == b` 必须与 `a.cmp(&b) == Equal` 一致），因此改为
 //    [`Task::compare_to`] 方法而非 `Ord` 实现。
-// 7. **枚举 / UUID / Notes 的字段值编码**：`crate::field_value::FieldValue` 目前只有
-//    标量变体（其文档说明实体引用与集合变体待后续补入）。为完整翻译访问器，Rust 侧
+// 7. **枚举 / UUID / Notes 的字段值编码**：`crate::field_value::FieldValue` 对枚举
+//    仍是标量变体（其文档说明哪些值用哪种变体）。为完整翻译访问器，Rust 侧
 //    采用无损的编码约定，并在读取时还原：
 //    * 枚举 → `FieldValue::Integer`（`MpxjEnum::value()`；`TaskType` 无 int 值，
 //      用声明序号即 `TaskType::ALL` 的下标；`Priority` 用 `get_value()`）；
 //    * `UUID` → `FieldValue::String`（`Uuid::to_string()` / `Uuid::parse_str`）；
-//    * `Notes` → `FieldValue::String`（纯文本，见跳过的 Java 方法第 8 条）。
-//    因此 `get_cached_value` 对这些字段返回的是编码后的标量，而非 Java 中的对象。
-//    这是本文件唯一的「表示层」取舍，字段读写与计算语义不受影响。
-// 8. **关系列表**：`TaskField.PREDECESSORS` / `TaskField.SUCCESSORS` 的取值是
-//    `List<Relation>`，`FieldValue` 同样没有对应变体。这两个字段在 Java 中属于
-//    「始终计算」集合（不读缓存、只现算），因此 Rust 侧的
-//    [`Task::get_predecessors`] / [`Task::get_successors`] 直接向
-//    `RelationContainer` 查询（对应 Java 的 `calculatePredecessors` /
-//    `calculateSuccessors`），不再经过字段表；`is_predecessor` / `is_successor`
-//    也随之可用。字段表层面这两个字段的 `get` 仍返回 `None`。
+//    * `Notes` → `FieldValue::Notes(Rc<dyn Notes>)`（子类型保真）。
+// 8. **关系列表**：Java 的 `TaskField.PREDECESSORS` / `TaskField.SUCCESSORS` 取值是
+//    `List<Relation>`，字段值用 [`FieldValue::Relations`] 承载，`get` 因此与 Java 一致
+//    返回关系列表（这两个字段属于「始终计算」集合，不读缓存、只现算）。
+//    [`Task::get_predecessors`] / [`Task::get_successors`] 仍直接向 `RelationContainer`
+//    查询（等价实现，见各自说明）。
 //
 // # 依赖模块的接口（已按并行翻译落地的真实签名书写）
 //
@@ -210,16 +208,13 @@ use crate::time_unit::TimeUnit;
 //
 // | Java 方法 | 跳过原因 |
 // |---|---|
-// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*`（共 43 个） | 缺 `FieldValue` 的 timephased 列表变体（`TimephasedDataFactory`、`ResourceAssignment` 的时间分段 API 均已落地；`org.mpxj.TimephasedUtility` 未单独成模块，其函数内联在 `resource_assignment.rs` 的私有实现中），且不属于 reader 读入路径 |
-// | `getWorkSplits` / `calculateWorkSplits` / `reduceWorkSplits` / `addWorkSplit` | 字段值 / 返回值为 `List<LocalDateTimeRange>`，`FieldValue` 无列表变体 |
+// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*`（共 43 个） | 时间分段取值家族（含固定成本的分摊 / 计提实现 `getTimephasedFixedCostProRata` 等）尚未移植。[`crate::field_container::FieldContainer`] 的两个入口已存在，由 trait 默认实现提供 —— 即 Java 中「字段不在 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` 表中」的回落（全 `None` 列表），因此不会给出与 Java 不符的数值 |
 // | `getActivityCodeValues` / `addActivityCodeValue` / `defaultActivityCodeValues` | `ActivityCode` / `ActivityCodeValue` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
 // | `getExpenseItems` / `setExpenseItems` / `defaultExpenseItems` | `ExpenseItem` 属 P6/Primavera 专用数据（同上） |
-// | `getSteps` / `setSteps` / `defaultSteps` | `FieldValue` 无列表变体，无法存储 `List<Step>` |
 // | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据（同上） |
 // | `getBaselineTask` / `getBaselineTask(int)` | Java 以 `Task` 对象（同一性）作 `Map` 键，Rust 无法表达（`ProjectFile` 的基线与 `Task` 均已落地，缺的是「按对象同一性查表」这一 Java 语义，见 [`crate::default_baseline_strategy`] 改用唯一 ID 作键的取舍） |
-// | `setNotesObject` 的 `Notes` 子类型保真 | Rust 侧 `Notes` 是 trait，`FieldValue` 无法承载 trait 对象，故只保留纯文本；`RtfNotes` / `HtmlNotes` / `StructuredNotes` 的具体子类型信息丢失 |
 // | `set(FieldType, boolean)`（私有重载） | Rust 无重载，由 `put_bool` 辅助方法承担 |
-// | 静态 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | 服务于上面已跳过的 timephased 方法 |
+// | 静态 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | 服务于上面已跳过的时间分段方法 |
 //
 // 反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`：`Task` 中未出现，无跳过。
 
@@ -598,8 +593,11 @@ impl Task {
             TaskField::ExternalProject => {
                 self.calculate_external_project().map(FieldValue::Boolean)
             }
-            // Java: CALCULATED_FIELD_MAP 中 PREDECESSORS / SUCCESSORS / WORK_SPLITS 的条目
-            // 依赖 List<Relation> / List<LocalDateTimeRange> 字段值，见文件头「跳过的 Java 方法」。
+            // Java: CALCULATED_FIELD_MAP 中 PREDECESSORS / SUCCESSORS / WORK_SPLITS / STEPS 的条目
+            TaskField::Predecessors => Some(FieldValue::Relations(self.calculate_predecessors())),
+            TaskField::Successors => Some(FieldValue::Relations(self.calculate_successors())),
+            TaskField::WorkSplits => Some(FieldValue::TimeRanges(self.calculate_work_splits())),
+            TaskField::Steps => Some(FieldValue::Steps(Self::default_steps())),
             TaskField::ActivityPercentComplete => self
                 .calculate_activity_percent_complete()
                 .map(FieldValue::Double),
@@ -1564,21 +1562,26 @@ impl Task {
     ///
     /// 对应 Java: `public void setNotes(String notes)`
     ///
-    /// Java 会包装成 `new Notes(notes)` 后存入字段表；Rust 侧 `Notes` 是 trait，
-    /// 字段值只保留纯文本（见文件头差异第 7 条），读取时以 [`PlainNotes`] 还原。
+    /// Java: `set(TaskField.NOTES, notes == null ? null : new Notes(notes));`
+    /// Rust 侧用 [`PlainNotes`] 承载「纯文本笔记」这一具体形态。
     pub fn set_notes(&mut self, notes: Option<String>) {
-        self.put_string(TaskField::Notes, notes);
+        let value = notes.map(|text| {
+            let notes: Rc<dyn Notes> = Rc::new(PlainNotes::new(Some(text)));
+            FieldValue::Notes(notes)
+        });
+        self.set_task_field(TaskField::Notes, value);
     }
 
-    /// 设置代表任务笔记的 `Notes` 实例。
+    /// 设置代表任务笔记的 `Notes` 实例（`RtfNotes` / `HtmlNotes` / `StructuredNotes` /
+    /// `ParentNotes` 的子类型信息经 [`FieldValue::Notes`] 保真保存）。
     ///
     /// 对应 Java: `public void setNotesObject(Notes notes)`
     ///
-    /// `Notes` 在 Rust 侧是 trait 对象，`FieldValue` 无法承载；此处只保存其纯文本
-    /// 表示，`RtfNotes` / `HtmlNotes` / `StructuredNotes` 的具体子类型信息丢失
-    /// （见文件头「跳过的 Java 方法」最后一条）。
+    /// Rust 侧 `Notes` 是 trait 对象，调用方只能交出借用，故经 [`Notes::to_rc`] 做一次
+    /// 子类型保真的浅拷贝（Java 直接存入同一个实例）。
     pub fn set_notes_object(&mut self, notes: Option<&dyn Notes>) {
-        self.put_string(TaskField::Notes, notes.map(|notes| notes.to_string()));
+        let value = notes.map(|notes| FieldValue::Notes(notes.to_rc()));
+        self.set_task_field(TaskField::Notes, value);
     }
 }
 
@@ -2997,19 +3000,217 @@ impl Task {
     /// 取任务笔记的纯文本表示（无笔记时返回空串）。
     ///
     /// 对应 Java: `public String getNotes()`
+    ///
+    /// Java: `Object notes = get(TaskField.NOTES); return notes == null ? "" : notes.toString();`
     pub fn get_notes(&self) -> String {
-        self.string_field(TaskField::Notes).unwrap_or_default()
+        self.notes_object()
+            .map(|notes| notes.to_string())
+            .unwrap_or_default()
     }
 
-    /// 取包含纯文本笔记的 `Notes` 实例。
+    /// 取代表任务笔记的 `Notes` 实例。
     ///
     /// 对应 Java: `public Notes getNotesObject()`
     ///
-    /// Rust 侧 `Notes` 是 trait，字段表只保存纯文本，故返回 [`PlainNotes`]
-    /// （格式化笔记的子类型信息已丢失，见文件头差异第 7 条）。
-    pub fn get_notes_object(&self) -> Option<Box<dyn Notes>> {
-        self.string_field(TaskField::Notes)
-            .map(|text| Box::new(PlainNotes::new(Some(text))) as Box<dyn Notes>)
+    /// 子类型（`RtfNotes` / `HtmlNotes` / `StructuredNotes` / `ParentNotes`）经
+    /// [`FieldValue::Notes`] 保真保存，因此返回的是原具体类型。
+    pub fn get_notes_object(&self) -> Option<Rc<dyn Notes>> {
+        self.notes_object()
+    }
+
+    /// 取字段表中的笔记对象（内部便捷方法）。
+    ///
+    /// 对应 Java: `(Notes) get(TaskField.NOTES)`
+    fn notes_object(&self) -> Option<Rc<dyn Notes>> {
+        match self.get_task_field(TaskField::Notes) {
+            Some(FieldValue::Notes(notes)) => Some(notes),
+            _ => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 步骤（TaskField.STEPS）
+    // -----------------------------------------------------------------------
+
+    /// 取本任务的步骤列表。
+    ///
+    /// 对应 Java: `@SuppressWarnings("unchecked") public List<Step> getSteps()`
+    ///
+    /// Java 返回字段表里的**活列表**（未设置时每次返回 `defaultSteps()` 造出的新空列表）；
+    /// Rust 侧的列表装在 [`FieldValue::Steps`] 的 `Rc<RefCell<...>>` 里，此处返回其快照，
+    /// 因此对返回值的修改不会写回任务。
+    pub fn get_steps(&self) -> Vec<Step> {
+        self.steps()
+            .and_then(|steps| steps.try_borrow().ok().map(|steps| steps.clone()))
+            .unwrap_or_default()
+    }
+
+    /// 设置本任务的步骤列表。
+    ///
+    /// 对应 Java: `public void setSteps(List<Step> steps)`
+    pub fn set_steps(&mut self, steps: Vec<Step>) {
+        let value = FieldValue::Steps(Rc::new(RefCell::new(steps)));
+        self.set_task_field(TaskField::Steps, Some(value));
+    }
+
+    /// 步骤列表的默认取值。
+    ///
+    /// 对应 Java: `private List<Step> defaultSteps()`（返回 `new ArrayList<>()`）
+    fn default_steps() -> Rc<RefCell<Vec<Step>>> {
+        Rc::new(RefCell::new(Vec::new()))
+    }
+
+    /// 取字段表中的步骤列表（共享列表，内部便捷方法）。
+    ///
+    /// 对应 Java: `(List<Step>) get(TaskField.STEPS)`
+    fn steps(&self) -> Option<Rc<RefCell<Vec<Step>>>> {
+        match self.get_task_field(TaskField::Steps) {
+            Some(FieldValue::Steps(steps)) => Some(steps),
+            _ => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 工作时间段（TaskField.WORK_SPLITS）
+    // -----------------------------------------------------------------------
+
+    /// 取本任务区间内的工作时间段。
+    ///
+    /// 对应 Java: `@SuppressWarnings("unchecked") public List<LocalDateTimeRange> getWorkSplits()`
+    ///
+    /// 该字段属于 Java 的 `ALWAYS_CALCULATED_FIELDS`，取值即
+    /// [`Task::calculate_work_splits`]。
+    pub fn get_work_splits(&self) -> Vec<LocalDateTimeRange> {
+        match self.get_task_field(TaskField::WorkSplits) {
+            Some(FieldValue::TimeRanges(ranges)) => ranges,
+            _ => Vec::new(),
+        }
+    }
+
+    /// 合并各资源分配的工作时间段。
+    ///
+    /// 对应 Java: `private List<LocalDateTimeRange> calculateWorkSplits()`
+    fn calculate_work_splits(&self) -> Vec<LocalDateTimeRange> {
+        // In MS Project, summary tasks do not show splits.
+        if self.get_summary() {
+            return Vec::new();
+        }
+
+        let mut result: Option<Vec<LocalDateTimeRange>> = None;
+        for assignment in self.get_resource_assignments() {
+            // 逐元素借用：调用期间不持有整份分配的借用（Java 无借用限制）。
+            let Ok(assignment) = assignment.try_borrow() else {
+                continue;
+            };
+
+            let splits = assignment.get_work_splits();
+            result = Some(match result {
+                None => splits,
+                Some(previous) => self.reduce_work_splits(previous, splits),
+            });
+        }
+
+        result.unwrap_or_default()
+    }
+
+    /// 合并两组工作时间段。
+    ///
+    /// 对应 Java: `private List<LocalDateTimeRange> reduceWorkSplits(List<LocalDateTimeRange> list1, List<LocalDateTimeRange> list2)`
+    fn reduce_work_splits(
+        &self,
+        list1: Vec<LocalDateTimeRange>,
+        list2: Vec<LocalDateTimeRange>,
+    ) -> Vec<LocalDateTimeRange> {
+        if list1 == list2 {
+            return list1;
+        }
+
+        let mut index1 = 0;
+        let mut index2 = 0;
+        let mut result: Vec<LocalDateTimeRange> = Vec::new();
+        let calendar = self.get_effective_calendar();
+
+        while index1 < list1.len() && index2 < list2.len() {
+            let range1 = list1[index1];
+            let range2 = list2[index2];
+
+            if range1.is_before(&range2) {
+                Self::add_work_split(calendar.as_ref(), &mut result, range1);
+                index1 += 1;
+                continue;
+            }
+
+            if range2.is_before(&range1) {
+                Self::add_work_split(calendar.as_ref(), &mut result, range2);
+                index2 += 1;
+                continue;
+            }
+
+            if range1 == range2 {
+                Self::add_work_split(calendar.as_ref(), &mut result, range1);
+                index1 += 1;
+                index2 += 1;
+                continue;
+            }
+
+            Self::add_work_split(
+                calendar.as_ref(),
+                &mut result,
+                LocalDateTimeRange::new(
+                    LocalDateTimeHelper::min(range1.get_start(), range2.get_start()),
+                    LocalDateTimeHelper::max(range1.get_end(), range2.get_end()),
+                ),
+            );
+            index1 += 1;
+            index2 += 1;
+        }
+
+        if index1 != list1.len() {
+            for range in &list1[index1..] {
+                Self::add_work_split(calendar.as_ref(), &mut result, *range);
+            }
+        } else if index2 != list2.len() {
+            for range in &list2[index2..] {
+                Self::add_work_split(calendar.as_ref(), &mut result, *range);
+            }
+        }
+
+        result
+    }
+
+    /// 把一个工作时间段并入结果列表（必要时与上一段合并）。
+    ///
+    /// 对应 Java: `private void addWorkSplit(ProjectCalendar calendar, List<LocalDateTimeRange> ranges, LocalDateTimeRange range)`
+    ///
+    /// Java 在 `calendar` / 区间端点为 `null` 时会抛 `NullPointerException`；Rust 侧
+    /// 日历缺失或日期为空时按「无工作时间」处理（`0.0`），仍不 panic。
+    fn add_work_split(
+        calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
+        ranges: &mut Vec<LocalDateTimeRange>,
+        range: LocalDateTimeRange,
+    ) {
+        if let Some(last_range) = ranges.last().copied() {
+            let adjacent = last_range.get_end() == range.get_start();
+            let no_working_time = work_hours(calendar, last_range.get_end(), range.get_start()) == 0.0;
+
+            if adjacent || last_range.intersects_with(&range) || no_working_time {
+                // Ignore range if it is entirely within lastRange
+                let extends_last = match (range.get_end(), last_range.get_end()) {
+                    (Some(range_end), Some(last_end)) => range_end > last_end,
+                    _ => false,
+                };
+                if extends_last {
+                    ranges.pop();
+                    ranges.push(LocalDateTimeRange::new(
+                        last_range.get_start(),
+                        range.get_end(),
+                    ));
+                }
+                return;
+            }
+        }
+
+        ranges.push(range);
     }
 
     /// 设置自定义数字字段。
@@ -6067,6 +6268,26 @@ fn optional_display<T: Display>(value: Option<T>) -> String {
     value.map_or_else(|| "null".to_owned(), |value| value.to_string())
 }
 
+/// 取日历上两个时刻之间的工时（小时）。
+///
+/// 对应 Java: `calendar.getWork(start, finish, TimeUnit.HOURS).getDuration()`。
+/// 日历缺失、日期为空或日历正被借用时返回 `0.0`（Java 会抛 `NullPointerException`）。
+fn work_hours(
+    calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
+    start: Option<NaiveDateTime>,
+    finish: Option<NaiveDateTime>,
+) -> f64 {
+    match (calendar, start, finish) {
+        (Some(calendar), Some(start), Some(finish)) => match calendar.try_borrow() {
+            Ok(calendar) => calendar
+                .get_work(start, finish, TimeUnit::Hours)
+                .get_duration(),
+            Err(_) => 0.0,
+        },
+        _ => 0.0,
+    }
+}
+
 impl FieldContainer for Task {
     /// 对应 Java: `@Override public void set(FieldType field, Object value)`
     fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
@@ -6123,7 +6344,10 @@ impl ProjectEntityWithID for Task {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::html_notes::HtmlNotes;
     use crate::notes::PlainNotes;
+    use crate::rtf_notes::RtfNotes;
+    use crate::step::Builder as StepBuilder;
 
     fn datetime(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         chrono::NaiveDate::from_ymd_opt(year, month, day)
@@ -6351,12 +6575,13 @@ mod tests {
     }
 
     #[test]
-    fn notes_are_stored_as_plain_text() {
+    fn notes_objects_keep_their_subtype() {
         let mut task = Task::new();
 
         assert_eq!(task.get_notes(), "");
         assert!(task.get_notes_object().is_none());
 
+        // Java: setNotes(String) → new Notes(notes)
         task.set_notes(Some("hello".to_owned()));
         assert_eq!(task.get_notes(), "hello");
         assert_eq!(
@@ -6367,6 +6592,67 @@ mod tests {
         let plain = PlainNotes::new(Some("object".to_owned()));
         task.set_notes_object(Some(&plain));
         assert_eq!(task.get_notes(), "object");
+
+        // Java: setNotesObject(new RtfNotes(rtf))；RtfNotes 的纯文本已去掉 RTF 标记，
+        // 因此能打印出 "hello" 即证明子类型未退化为纯文本笔记。
+        let rtf = RtfNotes::new(Some("{\\rtf1 hello}".to_owned()));
+        task.set_notes_object(Some(&rtf));
+        assert_eq!(task.get_notes(), "hello");
+        assert_eq!(
+            task.get_cached_value(FieldKey::Task(TaskField::Notes))
+                .map(|value| value.type_name()),
+            Some("Notes")
+        );
+
+        // Java: setNotesObject(new HtmlNotes(html))；同样以「纯文本已去标记」佐证子类型保真
+        let html = HtmlNotes::new(Some("<html><body>world</body></html>".to_owned()));
+        task.set_notes_object(Some(&html));
+        assert_eq!(task.get_notes(), "world");
+
+        task.set_notes_object(None);
+        assert_eq!(task.get_notes(), "");
+        assert!(task.get_notes_object().is_none());
+    }
+
+    #[test]
+    fn steps_round_trip_through_the_field_table() {
+        let mut task = Task::new();
+        // Java: getSteps() 未设置时返回 defaultSteps()（空列表）
+        assert!(task.get_steps().is_empty());
+        assert!(matches!(
+            task.get(FieldKey::Task(TaskField::Steps)),
+            Some(FieldValue::Steps(_))
+        ));
+
+        let step = StepBuilder::new(&Rc::new(RefCell::new(Task::new())))
+            .unique_id(Some(7))
+            .name(Some("Design".to_owned()))
+            .percent_complete(Some(100.0))
+            .build();
+        task.set_steps(vec![step]);
+
+        let steps = task.get_steps();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].get_unique_id(), Some(7));
+        assert_eq!(steps[0].get_name(), Some("Design"));
+        assert!(steps[0].get_complete());
+    }
+
+    #[test]
+    fn work_splits_follow_assignment_splits() {
+        // 无资源分配、非摘要任务 ⇒ 空列表（Java 的 calculateWorkSplits）
+        let task = Task::new();
+        assert!(!task.get_summary());
+        assert!(task.get_work_splits().is_empty());
+        assert!(matches!(
+            task.get(FieldKey::Task(TaskField::WorkSplits)),
+            Some(FieldValue::TimeRanges(_))
+        ));
+
+        // 摘要任务不显示分段（Java 注释：In MS Project, summary tasks do not show splits）
+        let mut summary = Task::new();
+        summary.set_summary(true);
+        assert!(summary.get_work_splits().is_empty());
     }
 
     #[test]

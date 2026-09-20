@@ -3,6 +3,7 @@
 use chrono::{Duration as ChronoDuration, NaiveDate, NaiveDateTime, NaiveTime};
 
 use crate::availability::Availability;
+use crate::common::local_date_time_helper::LocalDateTimeHelper;
 use crate::local_date_time_range::LocalDateTimeRange;
 
 /// 资源的可用性表（按日期区间给出可用单位数）。
@@ -12,11 +13,10 @@ use crate::local_date_time_range::LocalDateTimeRange;
 /// 移植说明：
 /// - Java 侧继承 `ArrayList<Availability>`；Rust 侧改为持有 `Vec<Availability>` 的独立
 ///   容器，并只提供翻译所需的集合操作（长度、按下标取元素、追加、迭代）。
-/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 在本文件内以私有函数复刻：
-///   该工具类**已启用**（[`crate::common::local_date_time_helper`] 提供同值的
-///   `start_date_na()` / `end_date_na()`），这里的复刻属历史遗留（待清理）。
-///   注意：Java 本类的 `END_DATE_NA`（23:58）与 helper 的（23:59）取值不同，
-///   见 [`AvailabilityTable::end_date_na`]（两者不可互相替换）。
+/// - Java 的 `START_DATE_NA` 取自 `LocalDateTimeHelper`（本 crate 已启用，直接调用
+///   [`LocalDateTimeHelper::start_date_na`]）；`END_DATE_NA` 则是**本类自己的常量**
+///   （23:58，与 helper 的 23:59 不同），见 [`AvailabilityTable::end_date_na`]。
+///   两者不可互相替换，本文件内所有取值都分别指向上述来源。
 ///
 /// 未移植的 Java 方法：无（`ArrayList` 继承而来的方法不计入本类翻译范围）。
 #[derive(Debug, Clone, Default)]
@@ -131,11 +131,12 @@ impl AvailabilityTable {
                 let range = entry.get_range();
                 let start_is_na = match range.get_start() {
                     None => true,
-                    Some(start) => start == start_date_na(),
+                    Some(start) => start == LocalDateTimeHelper::start_date_na(),
                 };
+                // Java: range.getEnd().isAfter(END_DATE_NA)（本类自己的 23:58，非 helper 的 23:59）
                 let end_is_na = match range.get_end() {
                     None => true,
-                    Some(end) => end > end_date_na(),
+                    Some(end) => end > Self::end_date_na(),
                 };
                 start_is_na && end_is_na
             }
@@ -161,7 +162,9 @@ impl AvailabilityTable {
         for availability in &self.entries {
             let current_range = availability.get_range();
 
-            let range_start = current_range.get_start().unwrap_or_else(start_date_na);
+            let range_start = current_range
+                .get_start()
+                .unwrap_or_else(LocalDateTimeHelper::start_date_na);
 
             // 目标日期是否早于本区间？
             if date < range_start {
@@ -174,11 +177,11 @@ impl AvailabilityTable {
             let range_end = current_range.get_end();
             let within_range = match range_end {
                 None => true,
-                Some(range_end) => range_end > end_date_na() || date <= range_end,
+                Some(range_end) => range_end > Self::end_date_na() || date <= range_end,
             };
 
             if within_range {
-                return if range_start == start_date_na() {
+                return if range_start == LocalDateTimeHelper::start_date_na() {
                     None
                 } else {
                     Some(range_start)
@@ -211,14 +214,18 @@ impl AvailabilityTable {
         for availability in &self.entries {
             let current_range = availability.get_range();
 
-            let range_end = current_range.get_end().unwrap_or_else(end_date_na);
+            let range_end = current_range
+                .get_end()
+                .unwrap_or_else(Self::end_date_na);
 
             // 目标日期是否晚于本区间？
             if date > range_end {
                 continue;
             }
 
-            let range_start = current_range.get_start().unwrap_or_else(start_date_na);
+            let range_start = current_range
+                .get_start()
+                .unwrap_or_else(LocalDateTimeHelper::start_date_na);
 
             // 目标日期是否早于本区间？
             if date < range_start {
@@ -226,7 +233,7 @@ impl AvailabilityTable {
             }
 
             // 目标日期落在本区间内
-            return if range_end > end_date_na() {
+            return if range_end > Self::end_date_na() {
                 None
             } else {
                 Some(range_end)
@@ -251,31 +258,6 @@ impl AvailabilityTable {
     }
 }
 
-/// 对应 Java: `LocalDateTimeHelper.START_DATE_NA`（1984-01-01 00:00）。
-///
-/// [`crate::common::local_date_time_helper`] 已启用并提供同值方法，此处为历史遗留的复刻
-/// （待清理），取值与 Java 完全一致。
-fn start_date_na() -> NaiveDateTime {
-    match (
-        NaiveDate::from_ymd_opt(1984, 1, 1),
-        NaiveTime::from_hms_opt(0, 0, 0),
-    ) {
-        (Some(date), Some(time)) => NaiveDateTime::new(date, time),
-        _ => NaiveDateTime::default(),
-    }
-}
-
-/// 对应 Java: `LocalDateTimeHelper.END_DATE_NA`（2049-12-31 23:59）。
-fn end_date_na() -> NaiveDateTime {
-    match (
-        NaiveDate::from_ymd_opt(2049, 12, 31),
-        NaiveTime::from_hms_opt(23, 59, 0),
-    ) {
-        (Some(date), Some(time)) => NaiveDateTime::new(date, time),
-        _ => NaiveDateTime::default(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,6 +267,21 @@ mod tests {
         NaiveDateTime::new(
             NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
             NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间"),
+        )
+    }
+
+    /// 构造带秒的测试用日期时间（用于区分 `END_DATE_NA` 的 23:58 与 23:59）。
+    fn date_time_with_seconds(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+    ) -> NaiveDateTime {
+        NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
+            NaiveTime::from_hms_opt(hour, minute, second).expect("合法时间"),
         )
     }
 
@@ -358,7 +355,7 @@ mod tests {
         // 单条 NA 区间（1984-01-01 -> 大于 2049-12-31 23:58）视为默认
         let mut table = AvailabilityTable::new();
         table.add(availability(
-            Some(start_date_na()),
+            Some(LocalDateTimeHelper::start_date_na()),
             Some(date_time(2050, 1, 1, 0, 0)),
         ));
         assert!(table.has_default_date_range());
@@ -425,9 +422,69 @@ mod tests {
 
     #[test]
     fn end_date_na_matches_java_constant() {
+        // Java: `AvailabilityTable.END_DATE_NA`（本类自己的常量）
         assert_eq!(
             AvailabilityTable::end_date_na(),
             date_time(2049, 12, 31, 23, 58)
         );
+        // 与 helper 的取值不同（23:59），两者不可互换
+        assert_eq!(
+            LocalDateTimeHelper::end_date_na(),
+            date_time(2049, 12, 31, 23, 59)
+        );
+        assert_ne!(
+            AvailabilityTable::end_date_na(),
+            LocalDateTimeHelper::end_date_na()
+        );
+    }
+
+    /// **使用点**取的是本类常量（23:58）：`has_default_date_range` 的 `end.isAfter(END_DATE_NA)`。
+    ///
+    /// 结束时间取 2049-12-31 23:58:30，正好落在两个常量之间：按本类的 23:58 判为 NA
+    /// （默认区间）；若误用 helper 的 23:59 则会判为具体区间。
+    #[test]
+    fn has_default_date_range_uses_the_class_end_date_na() {
+        let mut table = AvailabilityTable::new();
+        table.add(availability(
+            Some(LocalDateTimeHelper::start_date_na()),
+            Some(date_time_with_seconds(2049, 12, 31, 23, 58, 30)),
+        ));
+
+        assert!(table.has_default_date_range());
+    }
+
+    /// **使用点**取的是本类常量（23:58）：`available_from` 的 `rangeEnd.isAfter(END_DATE_NA)`。
+    ///
+    /// 首条区间结束于 23:58:30、目标日期为 23:58:40：按本类的 23:58，该结束时间算「超过 NA」
+    /// 的开放区间，目标日期落在区间内 -> 返回区间起始；若误用 helper 的 23:59，
+    /// 则会返回「上一条的结束时间 + 1 分钟」（23:58:31）。
+    #[test]
+    fn available_from_uses_the_class_end_date_na() {
+        let mut table = AvailabilityTable::new();
+        table.add(availability(
+            Some(date_time(2023, 10, 10, 0, 0)),
+            Some(date_time_with_seconds(2049, 12, 31, 23, 58, 30)),
+        ));
+        table.add(availability(Some(date_time(2050, 6, 1, 0, 0)), None));
+
+        assert_eq!(
+            table.available_from(date_time_with_seconds(2049, 12, 31, 23, 58, 40)),
+            Some(date_time(2023, 10, 10, 0, 0))
+        );
+    }
+
+    /// **使用点**取的是本类常量（23:58）：`available_to` 末尾的 `rangeEnd.isAfter(END_DATE_NA)`。
+    ///
+    /// 区间结束于 23:58:30：按本类的 23:58 判定为「超过 NA」-> 返回 `None`；
+    /// 若误用 helper 的 23:59，则会返回区间结束时间本身。
+    #[test]
+    fn available_to_uses_the_class_end_date_na() {
+        let mut table = AvailabilityTable::new();
+        table.add(availability(
+            Some(date_time(2023, 10, 10, 0, 0)),
+            Some(date_time_with_seconds(2049, 12, 31, 23, 58, 30)),
+        ));
+
+        assert_eq!(table.available_to(date_time(2024, 1, 1, 0, 0)), None);
     }
 }

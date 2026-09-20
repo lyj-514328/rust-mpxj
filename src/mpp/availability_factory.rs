@@ -7,7 +7,7 @@
 //!
 //! | Java | Rust | 说明 |
 //! |---|---|---|
-//! | `public void process(Resource resource, byte[] data)` | `process(&self, resource: &Resource, data: Option<&[u8]>) -> Vec<Availability>` | Java 直接向 `resource.getAvailability()` 追加并排序；Rust 的 [`Resource::get_availability`] 只返回只读的 `Ref<'_, AvailabilityTable>`（`availability` 字段为 `RefCell` 且未对外暴露可变入口），工厂无法就地写入，故**返回应追加的行**（`data` 分支已按 Java 语义排序），由调用方写入资源 |
+//! | `public void process(Resource resource, byte[] data)` | `process(&self, resource: &Resource, data: Option<&[u8]>) -> Vec<Availability>` | Java 直接向 `resource.getAvailability()` 追加并排序；Rust 的 [`Resource::get_availability`] 只返回只读的 `Ref<'_, AvailabilityTable>`，工厂无法就地写入，故**返回应追加的行**（`data` 分支已按 Java 语义排序），由调用方经 [`Resource::add_availability`] 写入（4 个 MPP 读取器均如此接线） |
 //! | `byte[] data` | `Option<&[u8]>` | Java 的 `null` 表示「文件中没有可用性块」 |
 //! | `LocalDateTime` | `Option<NaiveDateTime>` | `MPPUtility.getTimestampFromTenths` 可能取不到值（Java 在此处会 NPE），Rust 侧保留 `None` |
 //! | `endDate.minusMinutes(1)` | 仅在取到值时减 1 分钟 | 同上 |

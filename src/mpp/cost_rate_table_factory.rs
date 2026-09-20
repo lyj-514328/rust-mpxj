@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | 按全包约定共享；仅在 `RateHelper.convertFromHours` 处读取项目属性 |
 //! | `public void process(Resource resource, int index, byte[] data)` | `process(&self, resource: &mut Resource, index: i32, data: Option<&[u8]>)` | `null` → `None`；`setCostRateTable` 需要 `&mut Resource` |
-//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | 本文件内的私有函数 [`convert_from_hours`] | `org.mpxj.common.RateHelper` 尚未单独成模块，故按等价逻辑就地实现（只用到「每天 / 每周 / 每月分钟数」）。**已知重复**：同一换算在 `mpp14_reader.rs` 的私有函数 `convert_amount_from_hours` 中又实现了一遍，待提取为公共模块（如 `src/rate_helper.rs`）后合并 |
+//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | [`RateHelper::convert_from_hours`]（`crate::rate_helper`，即 Java 的 `org.mpxj.common.RateHelper`） | 单一实现，与 `MPPUtility.convertRateFromHours` 共用（此前本文件与 `mpp14_reader` 各有一份拷贝，已合并） |
 //! | `MPPUtility.getTimestampFromTenths` 返回 `null` | `Option<NaiveDateTime>`，取不到时跳过该记录 | Java 在此处会 NPE；Rust 侧把无法解析的记录视为非法数据 |
 //! | `endDate.minusMinutes(1)` / `plusMinutes(1)` | `checked_sub_signed` / `checked_add_signed` | 越界时保持原值（不 panic） |
 //! | `ByteArrayHelper.getShort` | `get_short_safe` | 越界返回 0 |
@@ -30,8 +30,8 @@ use crate::cost_rate_table_entry::CostRateTableEntry;
 use crate::mpp::abstract_calendar_factory::get_short_safe;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::project_file::ProjectFile;
-use crate::project_properties::ProjectProperties;
 use crate::rate::Rate;
+use crate::rate_helper::RateHelper;
 use crate::resource::Resource;
 use crate::resource_field::ResourceField;
 use crate::time_unit::TimeUnit;
@@ -123,26 +123,27 @@ impl CostRateTableFactory {
             Some(data) => {
                 // Java: m_file.getProjectProperties()（供 RateHelper.convertFromHours 使用）
                 let file_ref = self.file.try_borrow().ok();
-                let defaults = file_ref
-                    .as_ref()
-                    .map(|file| file.get_project_properties());
+                let defaults = file_ref.as_ref().map(|file| file.get_project_properties());
+
+                // Java: RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)
+                //（项目文件正被可变借用时保持原值 —— Java 侧文件始终可用，无此情况）
+                let convert_from_hours = |value: f64, target_units: TimeUnit| match defaults {
+                    Some(defaults) => RateHelper::convert_from_hours(defaults, value, target_units),
+                    None => Rate::new(value, target_units),
+                };
 
                 let mut i = DATA_OFFSET;
                 while i + ITEM_SIZE <= data.len() {
                     // Java: TimeUnit standardRateFormat = getFormat(ByteArrayHelper.getShort(data, i + 8));
                     let standard_rate_format = self.get_format(get_short_safe(data, i + 8));
                     // Java: Rate standardRate = RateHelper.convertFromHours(m_file.getProjectProperties(), MPPUtility.getDouble(data, i), standardRateFormat);
-                    let standard_rate = convert_from_hours(
-                        defaults,
-                        MPPUtility::get_double(data, i),
-                        standard_rate_format,
-                    );
+                    let standard_rate =
+                        convert_from_hours(MPPUtility::get_double(data, i), standard_rate_format);
 
                     // Java: TimeUnit overtimeRateFormat = getFormat(ByteArrayHelper.getShort(data, i + 24));
                     let overtime_rate_format = self.get_format(get_short_safe(data, i + 24));
                     // Java: Rate overtimeRate = RateHelper.convertFromHours(..., MPPUtility.getDouble(data, i + 16), overtimeRateFormat);
                     let overtime_rate = convert_from_hours(
-                        defaults,
                         MPPUtility::get_double(data, i + 16),
                         overtime_rate_format,
                     );
@@ -260,38 +261,6 @@ impl CostRateTableFactory {
     }
 }
 
-/// 把「每小时金额」换算成目标单位的费率。
-///
-/// 对应 Java: `RateHelper.convertFromHours(TimeUnitDefaultsContainer defaults, double value, TimeUnit targetUnits)`
-/// （`RateHelper` 尚未单独成模块，按等价逻辑就地实现；`defaults` 为 `None` 时各分钟数按 0 处理。
-/// 同一换算在 `mpp14_reader.rs` 的 `convert_amount_from_hours` 中重复了一次，见文件头差异表）
-fn convert_from_hours(
-    defaults: Option<&ProjectProperties>,
-    value: f64,
-    target_units: TimeUnit,
-) -> Rate {
-    let (minutes_per_day, minutes_per_week, minutes_per_month) = match defaults {
-        Some(defaults) => (
-            f64::from(defaults.get_minutes_per_day().unwrap_or(0)),
-            f64::from(defaults.get_minutes_per_week().unwrap_or(0)),
-            f64::from(defaults.get_minutes_per_month().unwrap_or(0)),
-        ),
-        None => (0.0, 0.0, 0.0),
-    };
-
-    let value = match target_units {
-        TimeUnit::Minutes => value / 60.0,
-        TimeUnit::Days => (value * minutes_per_day) / 60.0,
-        TimeUnit::Weeks => (value * minutes_per_week) / 60.0,
-        TimeUnit::Months => (value * minutes_per_month) / 60.0,
-        TimeUnit::Years => (value * minutes_per_week * 52.0) / 60.0,
-        _ => value,
-    };
-
-    // Java: return new Rate(NumberHelper.round(value, 2), targetUnits);
-    Rate::new(NumberHelper::round(value, 2.0), target_units)
-}
-
 /// 取资源字段的缓存费率值。
 ///
 /// 对应 Java: `(Rate) resource.getCachedValue(field)`
@@ -316,6 +285,7 @@ mod tests {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
     use crate::project_file::ProjectFile;
+    use crate::time_unit_defaults::TimeUnitDefaults;
 
     /// 时间戳：以「自 1983-12-31 起的秒数 / 6」为单位的 4 字节整数。
     fn timestamp_tenths(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i32 {
@@ -482,19 +452,21 @@ mod tests {
 
     #[test]
     fn rate_conversion_matches_rate_helper() {
-        // defaults 为 None 时仅 MINUTES / HOURS / YEARS 可换算
+        // 换算由 `RateHelper` 提供（本文件不再自带实现）
+        let defaults = TimeUnitDefaults::new();
+
         assert_eq!(
-            convert_from_hours(None, 60.0, TimeUnit::Minutes),
+            RateHelper::convert_from_hours(&defaults, 60.0, TimeUnit::Minutes),
             Rate::new(1.0, TimeUnit::Minutes)
         );
         assert_eq!(
-            convert_from_hours(None, 12.345, TimeUnit::Hours),
+            RateHelper::convert_from_hours(&defaults, 12.345, TimeUnit::Hours),
             Rate::new(12.35, TimeUnit::Hours)
         );
-        // 每天分钟数缺失（0）→ 结果为 0（Java 会抛 NPE）
+        // 每天 480 分钟：100/h -> 800/d
         assert_eq!(
-            convert_from_hours(None, 100.0, TimeUnit::Days),
-            Rate::new(0.0, TimeUnit::Days)
+            RateHelper::convert_from_hours(&defaults, 100.0, TimeUnit::Days),
+            Rate::new(800.0, TimeUnit::Days)
         );
         assert_eq!(
             LocalDateTimeHelper::start_date_na().time(),

@@ -93,6 +93,7 @@ pub mod project_file;
 pub mod project_properties;
 pub mod project_time_format;
 pub mod rate;
+pub mod rate_helper;
 pub mod rate_source;
 pub mod recurrence_type;
 pub mod recurring_data;

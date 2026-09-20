@@ -42,7 +42,7 @@
 //! | `Pair<ProjectCalendar, Integer>` | [`crate::common::pair::Pair`] | 同名类型已移植 |
 //! | `NumberHelper.getDouble(double)` | 直接传 `Some(f64)` | Java 该重载只是把原始 `double` 装箱，无额外语义 |
 //! | `data[268] & data[303]`（`byte`） | `data[268] & data[303]`（`u8`） | 按位与对有无符号完全等价，无需保留 `& 0xFF` |
-//! | `resource.getAvailability().add(...)` | **跳过**（见下） | `Resource::get_availability` 只返回只读 `Ref<'_, AvailabilityTable>`，`availability` 字段没有对外可变入口，无法就地追加；与 `AvailabilityFactory` 的同类取舍一致 |
+//! | `resource.getAvailability().add(new Availability(...))` | `resource.add_availability(Availability::new(...))` | `get_availability()` 只借出只读 `Ref`，故经 `Resource` 的写入口追加（Java 直接持有可变对象） |
 //! | `FileNotFoundException` → `addIgnoredError` | [`MpxjError`] + `add_ignored_error` | `TBkndCons` 缺失是可容忍的（Java 明确注释过） |
 //! | `throws MPXJException, IOException` | `MpxjResult<()>` | 各私有方法统一返回 `MpxjResult<()>` |
 //! | `StringBuilder`（表格名去 `&`） | `chars().filter()` | 语义一致 |
@@ -56,7 +56,6 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `resource.getAvailability().add(new Availability(...))` | 见上表：模型层没有可变入口，本批不得改动已存在文件 |
 //! | 各处被注释掉的 `dumpUnknownData(...)` 与 `UNKNOWN_*_DATA` 常量、`System.out.println(table)` | Java 源码中即为注释（调试工具），不参与解析 |
 //! | `__propertiesVersion` 等 MPP12/14 才有的流 | MPP8Reader（Java）不读取它们；MPP8 的属性来自 `Props` 流 |
 //!
@@ -74,6 +73,7 @@ use std::rc::Rc;
 use chrono::Weekday;
 
 use crate::accrue_type::AccrueType;
+use crate::availability::Availability;
 use crate::column::Column;
 use crate::common::day_of_week_helper::DayOfWeekHelper;
 use crate::common::field_type_helper::FieldTypeHelper;
@@ -1591,10 +1591,18 @@ impl MPP8ReaderState {
                 // resource.getAvailability().add(new Availability(availableFrom, availableTo,
                 //     NumberHelper.getDouble(((double) ByteArrayHelper.getInt(data, 52)) / 100)));
                 //
-                // 本批跳过：`Resource::get_availability` 只返回只读的 `Ref<'_, AvailabilityTable>`，
-                // `availability` 字段没有对外可变入口（Java 直接持有可变对象），
-                // 与 `AvailabilityFactory` 的同类取舍一致 —— 该工厂改为「返回应追加的行」由调用方写入，
-                // 而本类同样无法写入，故此处不写入（详见文件头差异表）。
+                // 说明：`NumberHelper.getDouble(double)` 只是把原始 `double` 装箱（见文件头差异表），
+                //       故此处直接传 `Some(f64)`；写入口为 `Resource::add_availability`
+                //       （Java 直接向 `resource.getAvailability()` 追加）。
+                let available_from = MPPUtility::get_timestamp(data, 28)
+                    .unwrap_or_else(LocalDateTimeHelper::start_date_na);
+                let available_to = MPPUtility::get_timestamp(data, 32)
+                    .unwrap_or_else(LocalDateTimeHelper::end_date_na);
+                resource_ref.add_availability(Availability::new(
+                    Some(available_from),
+                    Some(available_to),
+                    Some(f64::from(get_int_safe(data, 52)) / 100.0),
+                ));
             }
 
             // Java: m_eventManager.fireResourceReadEvent(resource);

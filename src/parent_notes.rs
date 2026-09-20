@@ -63,7 +63,17 @@ impl Display for ParentNotes {
     }
 }
 
-impl Notes for ParentNotes {}
+impl Notes for ParentNotes {
+    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+    fn to_box(&self) -> Box<dyn Notes> {
+        Box::new(ParentNotes::new(
+            self.m_child_notes
+                .iter()
+                .map(|notes| notes.to_box())
+                .collect(),
+        ))
+    }
+}
 
 #[cfg(test)]
 mod tests {
