@@ -15,7 +15,6 @@
 //! | Java | 原因 |
 //! |---|---|
 //! | `convertFromHours(TimeUnitDefaultsContainer, BigDecimal, TimeUnit)` | 只服务于 MSPDI 的写入路径（`BigDecimal` 精度与 `YEARS` 分支的截断），本 crate 只做 reader，无调用点 |
-//! | `convertToHours(TimeUnitDefaultsContainer, Rate)` | 其唯一调用点（`ResourceAssignment::getRatePerHour`）在 `resource_assignment.rs` 内已有等价的私有实现 `rate_to_hours`，接线不在本批文件范围内 |
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
 
@@ -61,6 +60,37 @@ impl RateHelper {
         // Java: return new Rate(NumberHelper.round(value, 2), targetUnits);
         Rate::new(NumberHelper::round(value, 2.0), target_units)
     }
+
+    /// 把费率换算成「每小时金额」。
+    ///
+    /// 对应 Java: `public static double convertToHours(TimeUnitDefaultsContainer defaults, Rate rate)`
+    ///
+    /// 只处理 `MINUTES` / `DAYS` / `WEEKS` / `MONTHS` / `YEARS` 五个分支，其余单位
+    /// （`HOURS` 与各 `ELAPSED_*`）保持原值。与 [`RateHelper::convert_from_hours`] 不同，
+    /// Java 这里**不取整**，故不做 `NumberHelper::round`。
+    pub fn convert_to_hours(defaults: &dyn TimeUnitDefaultsContainer, rate: &Rate) -> f64 {
+        let amount = rate.get_amount();
+
+        // Java: switch (rate.getUnits()) { … }
+        match rate.get_units() {
+            TimeUnit::Minutes => amount * 60.0,
+            TimeUnit::Days => {
+                (amount * 60.0) / f64::from(defaults.get_minutes_per_day().unwrap_or(0))
+            }
+            TimeUnit::Weeks => {
+                (amount * 60.0) / f64::from(defaults.get_minutes_per_week().unwrap_or(0))
+            }
+            TimeUnit::Months => {
+                (amount * 60.0) / f64::from(defaults.get_minutes_per_month().unwrap_or(0))
+            }
+            // Java: (amount * 60.0) / (defaults.getMinutesPerWeek().intValue() * 52)
+            // 注意这里的 52 是**整数**乘法（与 `convert_from_hours` 的 `* 52` 同值）。
+            TimeUnit::Years => {
+                (amount * 60.0) / f64::from(defaults.get_minutes_per_week().unwrap_or(0) * 52)
+            }
+            _ => amount,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -98,6 +128,46 @@ mod tests {
         assert_eq!(
             RateHelper::convert_from_hours(&defaults, 100.0, TimeUnit::Years),
             Rate::new(208000.0, TimeUnit::Years)
+        );
+    }
+
+    /// `convert_to_hours` 是 `convert_from_hours` 的逆向换算（Java 侧两者互不影响，此处用
+    /// 同一组基数验证往返一致）。
+    #[test]
+    fn converts_to_hours_is_the_inverse_of_from_hours() {
+        let defaults = defaults();
+
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(1.0, TimeUnit::Minutes)),
+            60.0
+        );
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(800.0, TimeUnit::Days)),
+            100.0
+        );
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(4000.0, TimeUnit::Weeks)),
+            100.0
+        );
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(16000.0, TimeUnit::Months)),
+            100.0
+        );
+        // 每年按 52 周计算
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(208000.0, TimeUnit::Years)),
+            100.0
+        );
+    }
+
+    /// 每小时费率原样返回（Java 的 `default: break`）。
+    #[test]
+    fn convert_to_hours_leaves_other_units_unchanged() {
+        let defaults = defaults();
+
+        assert_eq!(
+            RateHelper::convert_to_hours(&defaults, &Rate::new(12.34, TimeUnit::Hours)),
+            12.34
         );
     }
 

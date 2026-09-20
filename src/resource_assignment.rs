@@ -61,7 +61,7 @@
 //! | `public CostRateTable getCostRateTable()` | [`ResourceAssignment::with_cost_rate_table`]（Rust 特有回调形式：资源按值持有 `CostRateTable` 且该类型未实现 `Clone`，无法返回所有权；`getEffectiveRate` / timephased 成本的调用点语义不变） |
 //! | `getEffectiveCalendar()` 里的 `CombinedCalendar` / `ManuallyScheduledTaskCalendar` 包装 | 两者位于 `org.mpxj.common`，本仓未声明；Rust 侧返回未包装的日历（见方法注释） |
 //! | `calculatePercentWorkComplete` / `calculateStartVariance` / `calculateFinishVariance` 使用的 `ProjectProperties` | 经 `ProjectFile.get_project_properties()` 取值（与 `cpm::microsoft_slack_calculator` 的假设一致）；父文件未接线时退化为有效日历 / `TimeUnit::Days` |
-//! | `getRatePerHour` 使用的 `RateHelper.convertToHours` | `RateHelper` 未移植；本文件内私有函数 [`rate_to_hours`] 按其逻辑等价实现 |
+//! | `getRatePerHour` 使用的 `RateHelper.convertToHours` | 直接调用 [`crate::rate_helper::RateHelper::convert_to_hours`]（`getEffectiveCalendar()` 在 Rust 侧是 `Option<&Rc<RefCell<ProjectCalendar>>>`，未接线或借用冲突时按原值返回） |
 //! | `TimephasedUtility`（`org.mpxj.TimephasedUtility`，本仓未声明） | 在文件末尾以私有函数等价移植：`segment_work` / `segment_cost` / `segment_material` / `add_timephased_durations` / `add_timephased_numbers` |
 //! | `TimephasedUtility` 的 `validateRanges` / `validateTimephasedWork` / `validateTimephasedCost` | Java 抛 `IllegalArgumentException`；Rust 库代码不 panic，故不校验 |
 //! | `getFieldByAlias` / `setFieldByAlias` | 经上下文的自定义字段容器按别名解析（Java 经 `ProjectFile.getResourceAssignments().getFieldTypeByAlias()`，二者等价） |
@@ -152,6 +152,7 @@ use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUnique
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use crate::project_file::ProjectFile;
 use crate::rate::Rate;
+use crate::rate_helper::RateHelper;
 use crate::rate_source::RateSource;
 use crate::resource::Resource;
 use crate::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
@@ -3761,8 +3762,15 @@ impl ResourceAssignment {
             return rate;
         }
 
-        Rate::value_of(Some(rate_to_hours(Some(rate), calendar)), TimeUnit::Hours)
-            .unwrap_or(Rate::ZERO)
+        // Java: RateHelper.convertToHours(getEffectiveCalendar(), rate)
+        let amount = match calendar.and_then(|calendar| calendar.try_borrow().ok()) {
+            Some(calendar) => RateHelper::convert_to_hours(&*calendar, &rate),
+            // Java 的 getEffectiveCalendar() 恒非 null（日历引用稳定）；Rust 侧未接线或
+            // 借用冲突时按原值返回，不 panic
+            None => rate.get_amount(),
+        };
+
+        Rate::value_of(Some(amount), TimeUnit::Hours).unwrap_or(Rate::ZERO)
     }
 
     /// 取成本资源的 timephased 剩余成本。
@@ -5176,52 +5184,6 @@ fn convert_units(
             Err(_) => duration,
         },
         None => duration,
-    }
-}
-
-/// 把费率换算为「每小时金额」。
-///
-/// 对应 Java: `RateHelper.convertToHours(TimeUnitDefaultsContainer defaults, Rate rate)`
-///（`RateHelper` 未移植，按等价逻辑就地实现）。
-fn rate_to_hours(rate: Option<Rate>, calendar: Option<&Rc<RefCell<ProjectCalendar>>>) -> f64 {
-    let Some(rate) = rate else {
-        return 0.0;
-    };
-
-    let amount = rate.get_amount();
-
-    // 对应 Java 的 `defaults.getMinutesPerDay()` 等取值
-    let (minutes_per_day, minutes_per_week, minutes_per_month) = match calendar {
-        Some(calendar) => match calendar.try_borrow() {
-            Ok(calendar) => (
-                calendar.get_minutes_per_day().map(f64::from).unwrap_or(0.0),
-                calendar.get_minutes_per_week().map(f64::from).unwrap_or(0.0),
-                calendar.get_minutes_per_month().map(f64::from).unwrap_or(0.0),
-            ),
-            Err(_) => (0.0, 0.0, 0.0),
-        },
-        None => (0.0, 0.0, 0.0),
-    };
-
-    // 除数为 0 时按原值返回（Java 会抛 NPE）
-    let scale = |amount: f64, divisor: f64| {
-        if divisor == 0.0 {
-            amount
-        } else {
-            (amount * 60.0) / divisor
-        }
-    };
-
-    match rate.get_units() {
-        TimeUnit::Minutes => amount * 60.0,
-        TimeUnit::Days => scale(amount, minutes_per_day),
-        TimeUnit::Weeks => scale(amount, minutes_per_week),
-        TimeUnit::Months => scale(amount, minutes_per_month),
-        TimeUnit::Years => {
-            let divisor = minutes_per_week * 52.0;
-            scale(amount, divisor)
-        }
-        _ => amount,
     }
 }
 

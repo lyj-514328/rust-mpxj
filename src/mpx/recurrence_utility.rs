@@ -3,13 +3,14 @@
 //! # 移植取舍（`RecurringTask` 接口）
 //!
 //! Java 的 `getDurationUnits(RecurringTask)` 与 `getDays(RecurringTask)` 接收
-//! `org.mpxj.RecurringTask`（由 `Task` 实现，提供 `getDuration()` 与 `getWeeklyDay()`）。
-//! 本 crate 未移植 `RecurringTask`（见 `task`、`recurring_data` 文件头的说明），因此：
+//! `org.mpxj.RecurringTask`（提供 `getDuration()` 与 `getWeeklyDay()`）。
+//! 本 crate 的 [`crate::recurring_task::RecurringTask`] 位于模型层，读取链路不使用这两个
+//! 方法（Java 侧的使用方是 `MPXWriter`，未移植），故按 Java 的**取值**而非对象拆参：
 //!
 //! - `getDurationUnits` 改为直接接收工期（`Option<Duration>`），对应 Java 中
 //!   `recurrence.getDuration()` 的取值结果；
-//! - `getDays` 改为接收 [`RecurringData`]，其 `get_weekly_day` 提供与 Java
-//!   `RecurringTask.getWeeklyDay()` 相同的信息。
+//! - `getDays` 改为接收 [`RecurringData`]（即 `RecurringTask` 的父类部分），
+//!   其 `get_weekly_day` 提供与 Java `RecurringTask.getWeeklyDay()` 相同的信息。
 //!
 //! 其余方法均与 Java 逐一对应；Java 抛异常的分支（`NumberFormatException`、
 //! `DateTimeException`、`ArrayIndexOutOfBoundsException`）在 Rust 侧改为返回 `None`。
