@@ -4242,7 +4242,7 @@ mod tests {
         file
     }
 
-    /// 项目 `Props` 流：只放一份子项目数据（`SUBPROJECT_DATA`）。
+    /// 项目 `Props` 流：子项目数据与 8 小时工作日的换算属性。
     fn project_props() -> Vec<u8> {
         let mut data = vec![0u8; 160];
 
@@ -4267,7 +4267,12 @@ mod tests {
         data[124..128].copy_from_slice(&42i32.to_le_bytes());
         data[128..132].copy_from_slice(&SUBPROJECT_LISTEND.to_le_bytes());
 
-        props9(&[(PropsKey::SubprojectData.get_value(), data)])
+        props9(&[
+            (PropsKey::SubprojectData.get_value(), data),
+            (PropsKey::MinutesPerDay.get_value(), 480i32.to_le_bytes().to_vec()),
+            (PropsKey::MinutesPerWeek.get_value(), 2400i32.to_le_bytes().to_vec()),
+            (PropsKey::DaysPerMonth.get_value(), 20i16.to_le_bytes().to_vec()),
+        ])
     }
 
     /// 打开测试文件的根存储。
@@ -4610,4 +4615,3 @@ mod tests {
         assert_eq!(task_aliases.get(&287), Some(&FieldKey::Task(TaskField::Cost10)));
     }
 }
-

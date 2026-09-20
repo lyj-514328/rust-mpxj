@@ -134,6 +134,29 @@ fn reads_an_mpp14_file() {
     assert!(summary.assignments > 0, "该样本含资源分配");
 }
 
+/// 对应 Java: `ProjectPropertiesReader.process` 的时间单位设置及后续任务工期换算。
+/// 具体值来自同一批样本的 Java ProjectFile JSON 快照。
+#[test]
+fn mpp_task_durations_use_project_minutes_per_day() {
+    for (relative, unique_id, expected_days) in [
+        ("mpp9baselines.mpp", 1, 1.0),
+        ("mpp12nulltasks.mpp", 1, 10.0),
+        ("mpp14timephased.mpp", 1, 10.0),
+        ("generated/task-baselines/sf259.mpp", 147302, 0.22857142857142856),
+    ] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+        let task = file_ref.get_task_by_unique_id(Some(unique_id)).expect("测试任务");
+        let duration = task.borrow().get_duration().expect("任务工期");
+        assert_eq!(duration.get_units(), TimeUnit::Days, "{relative}");
+        assert!(
+            (duration.get_duration() - expected_days).abs() < 1e-12,
+            "{relative}: 工期应为 {expected_days} 天，实际为 {}",
+            duration.get_duration()
+        );
+    }
+}
+
 /// 对应 Java: `AbstractCalendarFactory.processCalendar`；跨 MPP9/12/14 核对实体引用。
 #[test]
 fn calendar_samples_preserve_ids_parents_and_resource_links() {

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.mpxj.Duration;
 import org.mpxj.ProjectFile;
@@ -151,6 +152,9 @@ public final class JsonSnapshot
       {
          System.setOut(output);
       }
-      output.println(new ObjectMapper().writeValueAsString(value));
+      // 在使用 GBK 等系统编码时转义非 ASCII 字符，避免 stdout 将项目名称替换成 '?'。
+      ObjectMapper mapper = new ObjectMapper();
+      mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
+      output.println(mapper.writeValueAsString(value));
    }
 }

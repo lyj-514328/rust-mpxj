@@ -53,6 +53,7 @@
 //! | `ph.setCustomProperties(Map<String, Object>)` | `set_custom_properties(HashMap<String, FieldValue>)` | `FieldValue` 能承载的值与 Java 的 `Object` 的子集对应（见 [`custom_property_field_value`]） |
 //! | `summaryInformation.getEditTime()`（`long`） | `get_edit_time()` 返回 `i64`，写入时窄化为 `i32` | 与 Java 的 `(int)` 强转一致 |
 //! | 属性集解析失败 | 记录「忽略错误」并按空属性处理 | Java 的 `SummaryInformation` 流损坏会向上抛出异常（整个读取失败）；Rust 侧选择继续读取（不 panic） |
+//! | 属性 setter 即时更新 `ProjectContext` 的时长单位默认值 | `process` 完成属性赋值并释放 `ProjectFile` 借用后，同步每天/每周分钟数及每月天数 | 长时间持有 `ProjectFile` 可变借用时 setter 的反向借用会失败；任务读取开始前保持与 Java 一致的最终值 |
 //!
 //! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 //!
@@ -1169,6 +1170,16 @@ impl ProjectPropertiesReader {
             ph.set_resource_pool_file(resource_pool);
         }
 
+        // Java 的三个 setter 会经 ProjectFile 即时更新上下文；此时文件借用已释放。
+        let context = file.borrow().get_project_context();
+        let mut context_ref = context.try_borrow_mut().map_err(|_| {
+            MpxjError::new("项目上下文借用冲突，无法更新时长单位默认值")
+        })?;
+        let defaults = context_ref.get_time_unit_defaults_mut();
+        defaults.set_minutes_per_day(Some(props.get_int(PropsKey::MinutesPerDay)));
+        defaults.set_minutes_per_week(Some(props.get_int(PropsKey::MinutesPerWeek)));
+        defaults.set_days_per_month(Some(props.get_short(PropsKey::DaysPerMonth)));
+
         Ok(())
     }
 
@@ -1648,8 +1659,9 @@ mod tests {
         props.put(PropsKey::Title.get_value(), utf16("From props"));
         props.put(PropsKey::Subject.get_value(), utf16("Subject"));
         props.put(PropsKey::Manager.get_value(), utf16("Manager"));
-        props.put(PropsKey::MinutesPerDay.get_value(), 480i32.to_le_bytes().to_vec());
-        props.put(PropsKey::DaysPerMonth.get_value(), 20u16.to_le_bytes().to_vec());
+        props.put(PropsKey::MinutesPerDay.get_value(), 450i32.to_le_bytes().to_vec());
+        props.put(PropsKey::MinutesPerWeek.get_value(), 2250i32.to_le_bytes().to_vec());
+        props.put(PropsKey::DaysPerMonth.get_value(), 22u16.to_le_bytes().to_vec());
 
         let file = ProjectFile::new();
         ProjectPropertiesReader
@@ -1665,8 +1677,10 @@ mod tests {
         assert_eq!(properties.get_subject().as_deref(), Some("Subject"));
         assert_eq!(properties.get_manager().as_deref(), Some("Manager"));
         assert_eq!(properties.get_company().as_deref(), Some("Acme"));
-        assert_eq!(properties.get_minutes_per_day(), Some(480));
-        assert_eq!(properties.get_days_per_month(), Some(20));
+        assert_eq!(properties.get_minutes_per_day(), Some(450));
+        assert_eq!(properties.get_minutes_per_week(), Some(2250));
+        assert_eq!(properties.get_minutes_per_month(), Some(9900));
+        assert_eq!(properties.get_days_per_month(), Some(22));
         // 自定义文档属性
         assert_eq!(
             properties.get_custom_properties().get("Checked by"),
