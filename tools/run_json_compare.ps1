@@ -1,9 +1,16 @@
 ﻿param(
-    [string[]]$Samples = @("mpxj/junit/data/legacy/sample.mpx", "mpxj/junit/data/legacy/sample.mpp")
+    [string[]]$Samples
 )
 
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if (-not $PSBoundParameters.ContainsKey("Samples")) {
+    $Samples = @(Get-Content -Encoding utf8 (Join-Path $PSScriptRoot "json_compare_samples.txt") |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith("#") })
+}
+if ($Samples.Count -eq 0) { throw "没有待对拍的样本" }
+
 $output = Join-Path $repo "_tmp_json_compare"
 $classes = Join-Path $output "classes"
 New-Item -ItemType Directory -Force -Path $classes | Out-Null
@@ -48,4 +55,5 @@ foreach ($sample in $Samples) {
     elseif ($LASTEXITCODE -ne 0) { throw "JSON 对拍工具失败: $sample" }
 }
 Write-Host "原始 JSON: $output"
+Write-Host "已对拍样本: $($Samples.Count)，存在差异: $failed"
 if ($failed -ne 0) { exit 1 }

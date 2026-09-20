@@ -38,11 +38,84 @@ fn data_sample(name: &str) -> PathBuf {
 
 /// 读取样本文件。
 fn read_sample(name: &str) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
-    let path = sample(name);
+    read_file_at(sample(name))
+}
+
+/// 读取 `mpxj/junit/data/` 下的 MPX 样本。
+fn read_data_sample(relative: &str) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
+    read_file_at(data_sample(relative))
+}
+
+/// 对应 Java: `MPXReader.read(File)`；测试工具负责报告具体失败路径。
+fn read_file_at(path: PathBuf) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
     let mut reader = MPXReader::new();
     reader
         .read_file(&path)
         .unwrap_or_else(|error| panic!("读取 {} 失败：{}", path.display(), error.message()))
+}
+
+/// 对应 Java: `MPXReader.validateCalendars`；空文件需创建带 ID 的默认日历。
+#[test]
+fn empty_mpx_creates_standard_calendar_with_id() {
+    let file = read_data_sample("empty.mpx");
+    let file_ref = file.borrow();
+
+    assert_eq!(file_ref.get_tasks().len(), 1);
+    assert_eq!(file_ref.get_calendars().len(), 1);
+    assert_eq!(file_ref.get_resources().len(), 0);
+    assert_eq!(
+        file_ref
+            .get_project_properties()
+            .get_default_calendar_unique_id(),
+        Some(1)
+    );
+    let standard = file_ref
+        .get_calendar_by_name(Some("Standard"))
+        .expect("自动创建的默认日历");
+    assert_eq!(standard.borrow().get_unique_id(), Some(1));
+}
+
+/// 对应 Java: `MPXReader.populateCalendar`；生成样本包含三个基准和两个资源日历。
+#[test]
+fn generated_calendar_sample_keeps_ids_parents_and_resource_links() {
+    let file = read_data_sample("generated/calendar-calendars/calendar-calendars-project98.mpx");
+    let file_ref = file.borrow();
+    assert_eq!(file_ref.get_calendars().len(), 5);
+
+    for (name, id, parent_id, calendar_type) in [
+        ("Standard", 1, None, CalendarType::Global),
+        ("Calendar1", 2, None, CalendarType::Global),
+        ("Calendar2", 3, None, CalendarType::Global),
+        ("Resource One", 4, Some(1), CalendarType::Resource),
+        ("Resource Two", 5, Some(1), CalendarType::Resource),
+    ] {
+        let calendar = file_ref
+            .get_calendar_by_name(Some(name))
+            .expect("生成样本日历存在");
+        let calendar = calendar.borrow();
+        assert_eq!(calendar.get_unique_id(), Some(id), "{name} 的 ID");
+        assert_eq!(
+            calendar
+                .get_parent()
+                .and_then(|parent| parent.borrow().get_unique_id()),
+            parent_id,
+            "{name} 的父日历"
+        );
+        assert_eq!(calendar.get_type(), calendar_type, "{name} 的类型");
+    }
+
+    assert_eq!(
+        file_ref
+            .get_project_properties()
+            .get_default_calendar_unique_id(),
+        Some(1)
+    );
+    for (id, name, calendar_id) in [(1, "Resource One", 4), (2, "Resource Two", 5)] {
+        let resource = file_ref.get_resource_by_id(Some(id)).expect("生成样本资源存在");
+        let resource = resource.borrow();
+        assert_eq!(resource.get_name().as_deref(), Some(name));
+        assert_eq!(resource.get_calendar_unique_id(), Some(calendar_id));
+    }
 }
 
 /// 对应 Java: `MPXReader.populateCalendar` / `validateCalendars` 与 `Resource.addCalendar`。

@@ -1,11 +1,10 @@
 //! MPP 读取链路的端到端冒烟测试：用仓库内的真实样本文件跑通 [`MPPReader`]。
 //!
 //! 样本来自 MPXJ 自带测试数据 `mpxj/junit/data/`（该目录下有 600+ 个真实 MPP 文件）。
-//! 这里每种格式各取一个，验证「OLE 复合文档 → Props → FieldMap → Var2Data/FixedData →
-//! ProjectFile」整条链路能跑通并产出合理的数据量。
+//! 每种格式至少取一个，验证「OLE 复合文档 → Props → FieldMap → Var2Data/FixedData →
+//! ProjectFile」整条链路，并对日历样本核对具体 ID 与引用。
 //!
-//! 注意：本测试只验证**能解析出合理规模的数据**，不逐字段比对期望值 ——
-//! 逐字段对拍计划在后续单独进行（用户已确认放到最后做）。
+//! 更多字段的 Java/Rust 快照对拍见 `tools/run_json_compare.ps1`。
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -16,7 +15,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use mpxj::mpp::mpp_reader::MPPReader;
 use mpxj::reader::project_reader::ProjectReader;
 use mpxj::time_unit::TimeUnit;
-use mpxj::ProjectFile;
+use mpxj::{CalendarType, ProjectFile};
 
 /// 取 `mpxj/junit/data/` 下的样本文件路径。
 fn sample(relative: &str) -> PathBuf {
@@ -133,6 +132,44 @@ fn reads_an_mpp14_file() {
     );
     assert!(summary.resources > 0, "该样本含资源");
     assert!(summary.assignments > 0, "该样本含资源分配");
+}
+
+/// 对应 Java: `AbstractCalendarFactory.processCalendar`；跨 MPP9/12/14 核对实体引用。
+#[test]
+fn calendar_samples_preserve_ids_parents_and_resource_links() {
+    for (relative, file_type) in [
+        ("mpp9calendar.mpp", 9),
+        ("mpp12calendar.mpp", 12),
+        ("mpp14calendar.mpp", 14),
+    ] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+        assert_eq!(file_ref.get_project_properties().get_mpp_file_type(), Some(file_type));
+        assert_eq!(
+            file_ref.get_project_properties().get_default_calendar_unique_id(),
+            Some(1),
+            "{relative} 的默认日历"
+        );
+
+        let base = file_ref.get_calendar_by_unique_id(Some(5)).expect("测试基准日历");
+        assert_eq!(base.borrow().get_name(), Some("Test Calendar"));
+
+        let derived = file_ref.get_calendar_by_unique_id(Some(4)).expect("资源日历");
+        let derived = derived.borrow();
+        assert_eq!(derived.get_name(), Some("Test Resource 1"));
+        assert_eq!(derived.get_type(), CalendarType::Resource);
+        assert_eq!(
+            derived
+                .get_parent()
+                .and_then(|parent| parent.borrow().get_unique_id()),
+            Some(1),
+            "{relative} 的父日历"
+        );
+
+        let resource = file_ref.get_resource_by_id(Some(1)).expect("测试资源");
+        assert_eq!(resource.borrow().get_name().as_deref(), Some("Test Resource 1"));
+        assert_eq!(resource.borrow().get_calendar_unique_id(), Some(4));
+    }
 }
 
 #[test]

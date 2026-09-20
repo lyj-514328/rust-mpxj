@@ -1,0 +1,35 @@
+# MPX：子模块中全部 19 份样本，覆盖空文件、本地化、日历、周期任务和字段模型。
+mpxj/junit/data/empty.mpx
+mpxj/junit/data/mpxrecurring.mpx
+mpxj/junit/data/sample.de.mpx
+mpxj/junit/data/legacy/sample.mpx
+mpxj/junit/data/legacy/sample1.mpx
+mpxj/junit/data/legacy/mpxpriority.mpx
+mpxj/junit/data/legacy/headertest.mpx
+mpxj/junit/data/legacy/caltest98.mpx
+mpxj/junit/data/legacy/calendarExceptions.mpx
+mpxj/junit/data/generated/calendar-calendars/calendar-calendars-project98.mpx
+mpxj/junit/data/generated/resource-misc/resource-misc-project98.mpx
+mpxj/junit/data/generated/task-costs/task-costs-project98.mpx
+mpxj/junit/data/generated/task-durations/task-durations-project98.mpx
+mpxj/junit/data/generated/task-finishes/task-finishes-project98.mpx
+mpxj/junit/data/generated/task-flags/task-flags-project98.mpx
+mpxj/junit/data/generated/task-links/task-links-project98.mpx
+mpxj/junit/data/generated/task-numbers/task-numbers-project98.mpx
+mpxj/junit/data/generated/task-starts/task-starts-project98.mpx
+mpxj/junit/data/generated/task-text/task-text-project98.mpx
+
+# MPP：按格式和数据路径选取稳定的对拍样本。
+mpxj/junit/data/legacy/sample.mpp
+mpxj/junit/data/assignment/assignment-deletion/assigned-resources-mpp8-project2003.mpp
+mpxj/junit/data/generated/assignment-assignments/assignment-assignments-project2000-mpp9.mpp
+mpxj/junit/data/mpp9calendar.mpp
+mpxj/junit/data/mpp12calendar.mpp
+mpxj/junit/data/mpp14calendar.mpp
+mpxj/junit/data/generated/calendar-calendars/calendar-calendars-project2013-mpp9.mpp
+mpxj/junit/data/generated/calendar-calendars/calendar-calendars-project2016-mpp12.mpp
+mpxj/junit/data/generated/calendar-calendars/calendar-calendars-project2016-mpp14.mpp
+mpxj/junit/data/mpp9relations.mpp
+mpxj/junit/data/mpp12relations.mpp
+mpxj/junit/data/mpp14relations.mpp
+mpxj/junit/data/mpp14availability.mpp
