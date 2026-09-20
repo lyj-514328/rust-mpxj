@@ -1,32 +1,32 @@
 //! 对应 Java: `org/mpxj/mpx/PriorityUtility.java`
 //!
-//! # 移植取舍（本地化名表 / `ResourceBundle`）
+//! # 区域设置名表
 //!
 //! Java 用 `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)` 从 `ResourceBundle`
-//! 取本地化的优先级名表；Rust 标准库没有 `ResourceBundle`，各语言的资源表由同包的
-//! `locale_data_XX` 模块（并行移植）承载。本模块不依赖它们，一律使用英文默认名表
-//! （`LocaleData.PRIORITY_TYPES_DATA`），`locale` 参数保留以对齐 Java 签名
-//! （详见 `locale_utility` 文件头的取舍说明）。
+//! 取本地化的优先级名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份数据
+//! 由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的
+//! 方式**按区域设置取名表**。
 //!
 //! 未移植的成员：无。
 
+use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 use crate::priority::Priority;
 
 /// 英文（默认）优先级名表。
 ///
 /// 对应 Java: `LocaleData.PRIORITY_TYPES_DATA`（下标 + 1 再乘 100 即 `Priority` 的值）。
-const PRIORITY_TYPES: [&str; 10] = [
-    "Lowest",
-    "Very Low",
-    "Lower",
-    "Low",
-    "Medium",
-    "High",
-    "Higher",
-    "Very High",
-    "Highest",
-    "Do Not Level",
+const PRIORITY_TYPES: [Option<&str>; 10] = [
+    Some("Lowest"),
+    Some("Very Low"),
+    Some("Lower"),
+    Some("Low"),
+    Some("Medium"),
+    Some("High"),
+    Some("Higher"),
+    Some("Very High"),
+    Some("Highest"),
+    Some("Do Not Level"),
 ];
 
 /// 管理 MPX 文件中 `Priority` 实例的工具方法。
@@ -45,9 +45,12 @@ impl PriorityUtility {
 
         if priority.is_some() {
             for (loop_index, name) in priority_types(locale).iter().enumerate() {
-                if equals_ignore_case(name, priority) {
-                    index = loop_index;
-                    break;
+                // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+                if let Some(name) = name {
+                    if equals_ignore_case(name, priority) {
+                        index = loop_index;
+                        break;
+                    }
                 }
             }
         }
@@ -66,9 +69,9 @@ const DEFAULT_PRIORITY_INDEX: usize = 4;
 ///
 /// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)`
 ///
-/// 取舍见文件头：目前一律返回英文默认名表。
-fn priority_types(_locale: MpxLocale) -> &'static [&'static str] {
-    &PRIORITY_TYPES
+/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+fn priority_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
+    LocaleData::get_string_array(locale, LocaleData::PRIORITY_TYPES).unwrap_or(&PRIORITY_TYPES)
 }
 
 #[cfg(test)]
@@ -78,10 +81,11 @@ mod tests {
     #[test]
     fn priority_round_trips_through_mpx_name() {
         for (index, name) in PRIORITY_TYPES.iter().enumerate() {
+            let name = name.expect("英文名表没有空元素");
             let value = PriorityUtility::get_instance(MpxLocale::En, Some(name));
             assert_eq!(value.get_value(), (index as i32 + 1) * 100);
             let name_index = (value.get_value() / 100 - 1) as usize;
-            assert_eq!(PRIORITY_TYPES[name_index], *name);
+            assert_eq!(PRIORITY_TYPES[name_index], Some(name));
         }
     }
 
@@ -114,11 +118,16 @@ mod tests {
     }
 
     #[test]
-    fn priority_uses_english_table_for_non_english_locales() {
-        // 取舍：本地化名表未移植，非英文区域设置同样使用英文名表。
+    fn priority_uses_the_locale_table() {
+        // Java: LocaleData_de.PRIORITY_TYPES_DATA[8] = "Am höchsten"
         assert_eq!(
-            PriorityUtility::get_instance(MpxLocale::Fr, Some("Highest")).get_value(),
+            PriorityUtility::get_instance(MpxLocale::De, Some("Am höchsten")).get_value(),
             Priority::HIGHEST
+        );
+        // 英文名表里的值在德语名表中不存在，回落「中」
+        assert_eq!(
+            PriorityUtility::get_instance(MpxLocale::De, Some("Highest")).get_value(),
+            Priority::MEDIUM
         );
     }
 }

@@ -1,30 +1,30 @@
 //! 对应 Java: `org/mpxj/mpx/ConstraintTypeUtility.java`
 //!
-//! # 移植取舍（本地化名表 / `ResourceBundle`）
+//! # 区域设置名表
 //!
-//! Java 用 `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)` 从
-//! `ResourceBundle` 取本地化的约束类型名表；Rust 标准库没有 `ResourceBundle`，
-//! 各语言的资源表由同包的 `locale_data_XX` 模块（并行移植）承载。
-//! 本模块不依赖它们，一律使用英文默认名表（`LocaleData.CONSTRAINT_TYPES_DATA`），
-//! `locale` 参数保留以对齐 Java 签名（详见 `locale_utility` 文件头的取舍说明）。
+//! Java 用 `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)` 从 `ResourceBundle`
+//! 取本地化的约束类型名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份数据
+//! 由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的
+//! 方式**按区域设置取名表**。
 //!
 //! 未移植的成员：无。
 
 use crate::constraint_type::ConstraintType;
+use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 
 /// 英文（默认）约束类型名表。
 ///
 /// 对应 Java: `LocaleData.CONSTRAINT_TYPES_DATA`（顺序即 `ConstraintType` 的 int 值 0..7）。
-const CONSTRAINT_TYPES: [&str; 8] = [
-    "As Soon As Possible",
-    "As Late As Possible",
-    "Must Start On",
-    "Must Finish On",
-    "Start No Earlier Than",
-    "Start No Later Than",
-    "Finish No Earlier Than",
-    "Finish No Later Than",
+const CONSTRAINT_TYPES: [Option<&str>; 8] = [
+    Some("As Soon As Possible"),
+    Some("As Late As Possible"),
+    Some("Must Start On"),
+    Some("Must Finish On"),
+    Some("Start No Earlier Than"),
+    Some("Start No Later Than"),
+    Some("Finish No Earlier Than"),
+    Some("Finish No Later Than"),
 ];
 
 /// 管理 MPX 文件中 `ConstraintType` 实例的工具方法。
@@ -43,9 +43,12 @@ impl ConstraintTypeUtility {
         let mut index = 0;
 
         for (loop_index, name) in constraint_types(locale).iter().enumerate() {
-            if equals_ignore_case(name, r#type) {
-                index = loop_index;
-                break;
+            // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+            if let Some(name) = name {
+                if equals_ignore_case(name, r#type) {
+                    index = loop_index;
+                    break;
+                }
             }
         }
 
@@ -58,9 +61,9 @@ impl ConstraintTypeUtility {
 ///
 /// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)`
 ///
-/// 取舍见文件头：目前一律返回英文默认名表。
-fn constraint_types(_locale: MpxLocale) -> &'static [&'static str] {
-    &CONSTRAINT_TYPES
+/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+fn constraint_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
+    LocaleData::get_string_array(locale, LocaleData::CONSTRAINT_TYPES).unwrap_or(&CONSTRAINT_TYPES)
 }
 
 #[cfg(test)]
@@ -71,9 +74,10 @@ mod tests {
     #[test]
     fn constraint_type_round_trips_through_mpx_name() {
         for name in CONSTRAINT_TYPES {
+            let name = name.expect("英文名表没有空元素");
             let value = ConstraintTypeUtility::get_instance(MpxLocale::En, Some(name));
             // 名表下标即 ConstraintType 的 int 值，转换回来应与名表一一对应。
-            assert_eq!(CONSTRAINT_TYPES[value.value() as usize], name);
+            assert_eq!(CONSTRAINT_TYPES[value.value() as usize], Some(name));
             assert_eq!(
                 ConstraintTypeUtility::get_instance(MpxLocale::En, Some(name)),
                 value
@@ -116,11 +120,20 @@ mod tests {
     }
 
     #[test]
-    fn constraint_type_uses_english_table_for_non_english_locales() {
-        // 取舍：本地化名表未移植，非英文区域设置同样使用英文名表。
+    fn constraint_type_uses_the_locale_table() {
+        // Java: LocaleData_de.CONSTRAINT_TYPES_DATA[4] = "Anfang nicht früher als"
         assert_eq!(
-            ConstraintTypeUtility::get_instance(MpxLocale::Zh, Some("Must Start On")),
-            ConstraintType::MustStartOn
+            ConstraintTypeUtility::get_instance(MpxLocale::De, Some("Anfang nicht früher als")),
+            ConstraintType::StartNoEarlierThan
+        );
+        assert_eq!(
+            ConstraintTypeUtility::get_instance(MpxLocale::De, Some("So früh wie möglich")),
+            ConstraintType::AsSoonAsPossible
+        );
+        // 英文名表里的值在德语名表中不存在，回落「越早越好」
+        assert_eq!(
+            ConstraintTypeUtility::get_instance(MpxLocale::De, Some("Must Start On")),
+            ConstraintType::AsSoonAsPossible
         );
     }
 }

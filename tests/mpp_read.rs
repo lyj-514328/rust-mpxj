@@ -162,3 +162,54 @@ fn an_unreadable_input_reports_an_error_instead_of_panicking() {
     let result = reader.read_reader(&mut std::io::Cursor::new(bytes));
     assert!(result.is_err(), "截断的 MPP 应报错而不是 panic");
 }
+
+/// 子项目样本：`mpp9subproject*.mpp` 的任务带子项目信息。
+///
+/// 回归 `MPP9Reader::process_task_data` 里「取子项目任务 unique ID 后回写掩码」那一段：
+/// 修复前 `if let Some(id) = task.borrow().get_subproject_task_unique_id()` 的临时借用会
+/// 活到 `if let` 作用域结束，作用域内的 `task.borrow_mut()` 于是撞上未释放的借用，
+/// 触发 `RefCell already borrowed` panic（Java 能正常读出数据）。
+///
+/// 期望值与 Java `MppSubprojectTest.testSubprojects` 一致。
+#[test]
+fn subproject_samples_expose_subproject_details() {
+    for relative in [
+        "mpp9subproject.mpp",
+        "mpp9subproject-from12.mpp",
+        "mpp9subproject-from14.mpp",
+    ] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+
+        let normal = file_ref
+            .get_task_by_unique_id(Some(1))
+            .unwrap_or_else(|| panic!("{relative} 缺少 unique ID 为 1 的任务"));
+        assert_eq!(normal.borrow().get_name().as_deref(), Some("Normal Task"));
+
+        let subproject_a = file_ref
+            .get_task_by_unique_id(Some(2))
+            .unwrap_or_else(|| panic!("{relative} 缺少 unique ID 为 2 的任务"));
+        let subproject_a = subproject_a.borrow();
+
+        assert_eq!(subproject_a.get_name().as_deref(), Some("SubprojectA-9"));
+        assert!(
+            subproject_a
+                .get_subproject_file()
+                .unwrap_or_default()
+                .contains("SubprojectA-9.mpp"),
+            "子项目文件名应指向 SubprojectA-9.mpp"
+        );
+        // Java: assertFalse(taskSubprojectA.getSubprojectReadOnly());
+        assert!(!subproject_a.get_subproject_read_only());
+        // Java: assertEquals(Integer.valueOf(0), taskSubprojectA.getSubprojectTaskUniqueID())
+        assert_eq!(subproject_a.get_subproject_task_unique_id(), Some(0));
+
+        let subproject_b = file_ref
+            .get_task_by_unique_id(Some(3))
+            .unwrap_or_else(|| panic!("{relative} 缺少 unique ID 为 3 的任务"));
+        assert_eq!(
+            subproject_b.borrow().get_name().as_deref(),
+            Some("SubprojectB-9")
+        );
+    }
+}

@@ -1,22 +1,22 @@
 //! 对应 Java: `org/mpxj/mpx/AccrueTypeUtility.java`
 //!
-//! # 移植取舍（本地化名表 / `ResourceBundle`）
+//! # 区域设置名表
 //!
 //! Java 用 `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)` 从 `ResourceBundle`
-//! 取本地化的成本计提方式名表；Rust 标准库没有 `ResourceBundle`，各语言的资源表由同包的
-//! `locale_data_XX` 模块（并行移植）承载。本模块不依赖它们，一律使用英文默认名表
-//! （`LocaleData.ACCRUE_TYPES_DATA`），`locale` 参数保留以对齐 Java 签名
-//! （详见 `locale_utility` 文件头的取舍说明）。
+//! 取本地化的成本计提方式名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份
+//! 数据由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按
+//! Java 的方式**按区域设置取名表**。
 //!
 //! 未移植的成员：无。
 
 use crate::accrue_type::AccrueType;
+use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 
 /// 英文（默认）成本计提方式名表。
 ///
 /// 对应 Java: `LocaleData.ACCRUE_TYPES_DATA`（下标 + 1 即 `AccrueType` 的 int 值）。
-const ACCRUE_TYPES: [&str; 3] = ["Start", "End", "Prorated"];
+const ACCRUE_TYPES: [Option<&str>; 3] = [Some("Start"), Some("End"), Some("Prorated")];
 
 /// 管理 MPX 文件中 `AccrueType` 实例的工具方法。
 ///
@@ -34,10 +34,13 @@ impl AccrueTypeUtility {
         let mut result = None;
 
         for (loop_index, name) in accrue_types(locale).iter().enumerate() {
-            if equals_ignore_case(name, r#type) {
-                // Java: AccrueType.getInstance(loop + 1)
-                result = AccrueType::get_instance((loop_index + 1) as i32);
-                break;
+            // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+            if let Some(name) = name {
+                if equals_ignore_case(name, r#type) {
+                    // Java: AccrueType.getInstance(loop + 1)
+                    result = AccrueType::get_instance((loop_index + 1) as i32);
+                    break;
+                }
             }
         }
 
@@ -50,9 +53,9 @@ impl AccrueTypeUtility {
 ///
 /// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)`
 ///
-/// 取舍见文件头：目前一律返回英文默认名表。
-fn accrue_types(_locale: MpxLocale) -> &'static [&'static str] {
-    &ACCRUE_TYPES
+/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+fn accrue_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
+    LocaleData::get_string_array(locale, LocaleData::ACCRUE_TYPES).unwrap_or(&ACCRUE_TYPES)
 }
 
 #[cfg(test)]
@@ -63,9 +66,10 @@ mod tests {
     #[test]
     fn accrue_type_round_trips_through_mpx_name() {
         for (index, name) in ACCRUE_TYPES.iter().enumerate() {
+            let name = name.expect("英文名表没有空元素");
             let value = AccrueTypeUtility::get_instance(Some(name), MpxLocale::En);
             assert_eq!(value.value(), (index + 1) as i32);
-            assert_eq!(ACCRUE_TYPES[(value.value() - 1) as usize], *name);
+            assert_eq!(ACCRUE_TYPES[(value.value() - 1) as usize], Some(name));
         }
     }
 
@@ -98,11 +102,20 @@ mod tests {
     }
 
     #[test]
-    fn accrue_type_uses_english_table_for_non_english_locales() {
-        // 取舍：本地化名表未移植，非英文区域设置同样使用英文名表。
+    fn accrue_type_uses_the_locale_table() {
+        // Java: LocaleData_de.ACCRUE_TYPES_DATA = { "Anfang", "Ende", "Anteilig" }
         assert_eq!(
-            AccrueTypeUtility::get_instance(Some("End"), MpxLocale::De),
+            AccrueTypeUtility::get_instance(Some("Ende"), MpxLocale::De),
             AccrueType::End
+        );
+        assert_eq!(
+            AccrueTypeUtility::get_instance(Some("Anteilig"), MpxLocale::De),
+            AccrueType::Prorated
+        );
+        // 英文名表里的值在德语名表中不存在，回落「按比例分摊」
+        assert_eq!(
+            AccrueTypeUtility::get_instance(Some("Start"), MpxLocale::De),
+            AccrueType::Prorated
         );
     }
 }

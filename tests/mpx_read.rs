@@ -7,11 +7,12 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use chrono::{NaiveDate, NaiveTime};
+use mpxj::mpx::locale_utility::MpxLocale;
 use mpxj::mpx::mpx_reader::MPXReader;
 use mpxj::project_entity_with_id::ProjectEntityWithID;
 use mpxj::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use mpxj::reader::project_reader::ProjectReader;
-use mpxj::{Duration, TimeUnit};
+use mpxj::{Duration, RelationType, TimeUnit};
 
 /// 取 `mpxj/junit/data/legacy/` 下的样本文件路径。
 fn sample(name: &str) -> PathBuf {
@@ -20,6 +21,15 @@ fn sample(name: &str) -> PathBuf {
         .join("junit")
         .join("data")
         .join("legacy")
+        .join(name)
+}
+
+/// 取 `mpxj/junit/data/` 下的样本文件路径。
+fn data_sample(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("mpxj")
+        .join("junit")
+        .join("data")
         .join(name)
 }
 
@@ -412,6 +422,113 @@ fn sample_mpx_relations_are_resolved() {
         Some(10)
     );
     assert_eq!(with_lag.borrow().get_lag(), Some(Duration::get_instance(1.0, TimeUnit::Days)));
+}
+
+/// 德语区样本 `sample.de.mpx`：MPX 的文本内容随微软项目的语言版本本地化，
+/// 因此必须按 MPXJ 的用法**显式指定德语区域设置**（对应 Java `LocaleTest.testReadGerman`
+/// 里的 `reader.setLocale(Locale.GERMAN)`）。
+///
+/// 修复点：`RelationTypeUtility` / `TimeUnitUtility` / `ConstraintTypeUtility` 等工具
+/// 此前忽略 `locale` 参数、一律使用英文名表，`LocaleData_de`（德语名表）虽已移植却从未被
+/// 使用 —— 于是关系串 `10EA+1t`（`EA` = 德语「Ende-Anfang」，`t` = Tage）无法识别，
+/// 整个文件报 `Invalid format '10EA+1t'`。按 Java 走本地化名表后，德语样本读出的数据
+/// 与英文区样本 `legacy/sample.mpx` 等价。
+#[test]
+fn reads_german_sample_with_german_locale() {
+    let path = data_sample("sample.de.mpx");
+
+    // 用默认（英文）区域设置读取同一份文件必然失败：`EA` / `t` 都不在英文名表里
+    let mut english = MPXReader::new();
+    assert!(
+        english.read_file(&path).is_err(),
+        "英文区域设置不应能读出德语样本（Java 同样需要 setLocale）"
+    );
+
+    let mut reader = MPXReader::new();
+    reader.set_locale(MpxLocale::De);
+    let file = reader
+        .read_file(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败：{}", path.display(), error.message()));
+    let file_ref = file.borrow();
+
+    // ---- 数量：与 `legacy/sample.mpx` 一致 -------------------------------------
+    assert_eq!(file_ref.get_tasks().len(), 20, "`70;` 记录共 20 条");
+    assert_eq!(file_ref.get_resources().len(), 2, "`50;` 记录共 2 条");
+    assert_eq!(file_ref.get_calendars().len(), 4);
+    assert_eq!(file_ref.get_resource_assignments().len(), 2, "`75;` 记录共 2 条");
+    // 德语样本里的前置关系字段：`8`、`10EA+1t`、`12EA-1t`、`14AA`、`16EE`、`18AE` 共 6 处
+    assert_eq!(file_ref.get_relations().len(), 6);
+
+    // ---- 任务抽样（`70;0;0;sample;50t;Nein;0;50t;...`）--------------------------
+    let first = file_ref.get_task_by_id(Some(0)).expect("ID 为 0 的任务");
+    let first = first.borrow();
+
+    assert_eq!(first.get_name().as_deref(), Some("sample"));
+    // 工期单位 `t` = Tage（德语名表），英文区域设置下无法识别
+    assert_eq!(
+        first.get_duration(),
+        Some(Duration::get_instance(50.0, TimeUnit::Days))
+    );
+    assert_eq!(first.get_start(), Some(date(2003, 1, 7)));
+    assert_eq!(first.get_finish(), Some(date(2003, 3, 18)));
+    assert_eq!(
+        first.get_work(),
+        Some(Duration::get_instance(500.0, TimeUnit::Hours))
+    );
+    assert_eq!(first.get_cost(), Some(3526.25));
+
+    // ---- 约束类型（`Anfang nicht früher als` = Start No Earlier Than）-----------
+    let last = file_ref.get_task_by_id(Some(19)).expect("ID 为 19 的任务");
+    assert_eq!(last.borrow().get_name().as_deref(), Some("Related Task 6b"));
+    assert_eq!(
+        last.borrow().get_constraint_type(),
+        Some(mpxj::ConstraintType::StartNoEarlierThan)
+    );
+
+    // ---- 关系类型（德语缩写：EA/AA/EE/AE）--------------------------------------
+    let relations: Vec<Rc<std::cell::RefCell<mpxj::Relation>>> =
+        file_ref.get_relations().iter().cloned().collect();
+
+    let relation_to = |successor_id: i32| {
+        relations
+            .iter()
+            .find(|relation| {
+                relation
+                    .borrow()
+                    .get_successor_task()
+                    .and_then(|task| task.borrow().get_id())
+                    == Some(successor_id)
+            })
+            .cloned()
+            .unwrap_or_else(|| panic!("ID 为 {successor_id} 的任务应有前置关系"))
+    };
+
+    // `10EA+1t`：EA = Ende-Anfang（Finish-Start），延隔 +1 Tage
+    let relation = relation_to(11);
+    let relation = relation.borrow();
+    assert_eq!(
+        relation
+            .get_predecessor_task()
+            .and_then(|task| task.borrow().get_id()),
+        Some(10)
+    );
+    assert_eq!(relation.get_type(), RelationType::FinishStart);
+    assert_eq!(
+        relation.get_lag(),
+        Some(Duration::get_instance(1.0, TimeUnit::Days))
+    );
+    drop(relation);
+
+    // `14AA` = Anfang-Anfang（Start-Start）、`16EE` = Ende-Ende（Finish-Finish）、
+    // `18AE` = Anfang-Ende（Start-Finish）
+    for (successor_id, expected) in [
+        (15, RelationType::StartStart),
+        (17, RelationType::FinishFinish),
+        (19, RelationType::StartFinish),
+    ] {
+        let relation = relation_to(successor_id);
+        assert_eq!(relation.borrow().get_type(), expected);
+    }
 }
 
 /// 其余样本文件也应能被读取（仅校验不报错与基本结构）。

@@ -1687,7 +1687,10 @@ impl<'a> MPP9ReaderState<'a> {
             task.borrow_mut().set_unique_id(Some(unique_id));
 
             // Java: switch (task.getConstraintType()) { … }
-            match task.borrow().get_constraint_type() {
+            // 先把值取出来再释放借用：`match` 的 scrutinee 临时量会活到最后一条语句结束，
+            // 否则下面分支里的 `borrow_mut()` 会撞上未释放的 `borrow()`
+            let constraint_type = task.borrow().get_constraint_type();
+            match constraint_type {
                 //
                 // Adjust the start and finish dates if the task
                 // is constrained to start as late as possible.
@@ -1792,9 +1795,9 @@ impl<'a> MPP9ReaderState<'a> {
 
                 // Java: Integer subprojectTaskUniqueID = task.getSubprojectTaskUniqueID();
                 //       if (subprojectTaskUniqueID != null) { task.setSubprojectTaskUniqueID(subprojectTaskUniqueID & 0xFFFF); }
-                if let Some(subproject_task_unique_id) =
-                    task.borrow().get_subproject_task_unique_id()
-                {
+                // 先把值取出来再释放借用，避免在 `if let` 作用域内再次 `borrow_mut()`
+                let subproject_task_unique_id = task.borrow().get_subproject_task_unique_id();
+                if let Some(subproject_task_unique_id) = subproject_task_unique_id {
                     task.borrow_mut()
                         .set_subproject_task_unique_id(Some(subproject_task_unique_id & 0xFFFF));
                 }

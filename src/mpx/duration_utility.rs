@@ -185,12 +185,18 @@ mod tests {
 
     #[test]
     fn duration_uses_locale_time_unit_table() {
-        // 取舍：本地化名表未移植，非英文区域设置同样使用英文名表
-        // （Java 德语名表用 "t" 表示天）。
+        // 单位后缀按区域设置的名字表解析（Java 德语名表用 "t" 表示天）
         assert_eq!(
-            DurationUtility::get_instance(Some("2d"), MpxLocale::De),
+            DurationUtility::get_instance(Some("2t"), MpxLocale::De),
             Some(Duration::get_instance(2.0, TimeUnit::Days))
         );
-        assert_eq!(DurationUtility::get_instance(Some("2t"), MpxLocale::De), None);
+        assert_eq!(
+            DurationUtility::get_instance(Some("2d"), MpxLocale::De),
+            None
+        );
+        assert_eq!(
+            DurationUtility::get_instance(Some("2d"), MpxLocale::En),
+            Some(Duration::get_instance(2.0, TimeUnit::Days))
+        );
     }
 }

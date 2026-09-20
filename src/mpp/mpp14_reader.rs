@@ -1895,7 +1895,10 @@ impl Mpp14ReaderState {
             }
 
             // Java: switch (task.getConstraintType()) { case AS_LATE_AS_POSSIBLE: ... case START_NO_LATER_THAN: case FINISH_NO_LATER_THAN: ... default: break; }
-            match task.borrow().get_constraint_type() {
+            // 先把值取出来再释放借用：`match` 的 scrutinee 临时量会活到最后一条语句结束，
+            // 否则下面分支里的 `borrow_mut()` 会撞上未释放的 `borrow()`
+            let constraint_type = task.borrow().get_constraint_type();
+            match constraint_type {
                 //
                 // Adjust the start and finish dates if the task
                 // is constrained to start as late as possible.

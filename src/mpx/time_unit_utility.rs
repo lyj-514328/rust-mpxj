@@ -1,16 +1,16 @@
 //! 对应 Java: `org/mpxj/mpx/TimeUnitUtility.java`
 //!
-//! # 移植取舍（本地化名表 / `ResourceBundle`）
+//! # 区域设置名表
 //!
 //! Java 用 `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)` 从 `ResourceBundle` 取
 //! 「小写名 → `TimeUnit` 的 int 值」映射，该映射由各语言的 `TIME_UNITS_ARRAY_DATA`
-//! （每个单位可有多个别名，如 `"d"` / `"days"`）展开而来。Rust 标准库没有 `ResourceBundle`，
-//! 各语言的资源表由同包的 `locale_data_XX` 模块（并行移植）承载。本模块不依赖它们，
-//! 一律使用英文默认名表（`LocaleData.TIME_UNITS_ARRAY_DATA`），`locale` 参数保留以对齐
-//! Java 签名（详见 `locale_utility` 文件头的取舍说明）。
+//! （每个单位可有多个别名，如 `"d"` / `"days"`）展开而来。Rust 侧同一份数据由 [`LocaleData`]
+//! 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的方式**按区域设置取
+//! 名表** —— 德语文件里的 `1t`（Tage）只有走德语名表才能识别。
 //!
 //! 未移植的成员：无。
 
+use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::MpxLocale;
 use crate::time_unit::TimeUnit;
 
@@ -67,9 +67,9 @@ impl TimeUnitUtility {
 /// 对应 Java: `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)`（其数据源为
 /// `TIME_UNITS_ARRAY_DATA`）
 ///
-/// 取舍见文件头：目前一律返回英文默认名表。
-fn time_units_array(_locale: MpxLocale) -> &'static [&'static [&'static str]] {
-    &TIME_UNITS_ARRAY
+/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+fn time_units_array(locale: MpxLocale) -> &'static [&'static [&'static str]] {
+    LocaleData::get_string_arrays(locale, LocaleData::TIME_UNITS_ARRAY).unwrap_or(&TIME_UNITS_ARRAY)
 }
 
 #[cfg(test)]
@@ -133,13 +133,19 @@ mod tests {
     }
 
     #[test]
-    fn time_unit_uses_english_table_for_non_english_locales() {
-        // 取舍：本地化名表未移植，非英文区域设置同样使用英文名表
-        // （Java 德语名表为 "m"/"h"/"t"/"w"/"mon"/…）。
+    fn time_unit_uses_the_locale_table() {
+        // Java: LocaleData_de.TIME_UNITS_ARRAY_DATA 用 "t" 表示天（Tage）
+        assert_eq!(
+            TimeUnitUtility::get_instance(Some("t"), MpxLocale::De),
+            Some(TimeUnit::Days)
+        );
         assert_eq!(
             TimeUnitUtility::get_instance(Some("h"), MpxLocale::De),
             Some(TimeUnit::Hours)
         );
-        assert_eq!(TimeUnitUtility::get_instance(Some("t"), MpxLocale::De), None);
+        // 英文名表里的 "d"/"days" 在德语名表中不存在
+        assert_eq!(TimeUnitUtility::get_instance(Some("d"), MpxLocale::De), None);
+        // 英文名表里的 "t" 也不是任何单位
+        assert_eq!(TimeUnitUtility::get_instance(Some("t"), MpxLocale::En), None);
     }
 }

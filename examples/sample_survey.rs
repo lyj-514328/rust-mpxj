@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 use mpxj::mpp::mpp_reader::MPPReader;
+use mpxj::mpx::locale_utility::MpxLocale;
 use mpxj::mpx::mpx_reader::MPXReader;
 use mpxj::reader::project_reader::ProjectReader;
 use mpxj::ProjectFile;
@@ -102,9 +103,25 @@ fn read_mpp(path: &Path) -> Outcome {
     }
 }
 
+/// 从样本文件名推断 MPX 文件所用的区域设置。
+///
+/// MPX 的文本内容随微软项目的语言版本本地化，读取非英语版本必须先指定区域设置
+/// （见 `mpxj/mkdocs/docs/howto-read-mpx.md` 的 “Locale” 一节）。样本文件名形如
+/// `sample.de.mpx`，语言后缀即区域设置；没有语言后缀时用英文（`MPXReader` 的默认值）。
+fn locale_for(path: &Path) -> MpxLocale {
+    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
+
+    stem.rsplit('.')
+        .next()
+        .and_then(MpxLocale::get_instance)
+        .unwrap_or(MpxLocale::En)
+}
+
 /// 解析单个 MPX 样本。
 fn read_mpx(path: &Path) -> Outcome {
     let mut reader = MPXReader::new();
+    // 对应 Java `LocaleTest.testReadGerman`：`reader.setLocale(Locale.GERMAN)`
+    reader.set_locale(locale_for(path));
     match reader.read_file(path) {
         Ok(_) => Outcome::Ok,
         Err(error) => Outcome::Error(error.message().to_owned()),
