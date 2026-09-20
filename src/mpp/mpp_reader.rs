@@ -39,7 +39,7 @@
 //! | `projectFile.getCalendars().removeIf(predicate)` | 先收集待删下标、再逆序 [`ProjectCalendarContainer::remove`] | 容器未提供 `remove_if`，且 `remove` 接收 `&ProjectCalendar`；逆序按下标移除与 `removeIf` 的逐个移除语义一致 |
 //! | `m_readPassword`（`String`，可为 `null`） | `Option<String>` | —— |
 //!
-//! # 对并行模块的接口假设（本批四个 variant reader 任务）
+//! # 对变体 reader 的接口假设（已核对：四个变体均已落地）
 //!
 //! - 变体类型位于 `crate::mpp::mpp{8,9,12,14}_reader`，类型名 `MPP8Reader` / `MPP9Reader` /
 //!   `MPP12Reader` / `MPP14Reader`；
@@ -51,9 +51,8 @@
 //! 其中 `reader: &MPPReader`（而非 `&Rc<RefCell<MPPReader>>`）是刻意的选择：变体 reader 只需
 //! 读五个开关，而「`&Rc<RefCell<MPPReader>>`」无法由 [`ProjectReader`] 的 `&mut self` 入口
 //! 提供（`RefCell` 不在 `self: Rc<Self>` 之类合法接收者之列），会让 [`MPPReader::read`] 无法
-//! 把 `this`（Java 语义）原样交给 `process`。`MPP9Reader` / `MPP12Reader` / `MPP14Reader`
-//! 已按该签名落地；`MPP8Reader` 落地前，本文件的 `use crate::mpp::mpp8_reader::MPP8Reader`
-//! 会报「未解析的导入」，属并行开发的中间状态。
+//! 把 `this`（Java 语义）原样交给 `process`。四个变体 reader（含 `MPP8Reader`）均已按该签名落地，
+//! 本文件的 `use crate::mpp::mpp8_reader::MPP8Reader` 可正常解析。
 //!
 //! # 跳过的 Java 代码及原因
 //!

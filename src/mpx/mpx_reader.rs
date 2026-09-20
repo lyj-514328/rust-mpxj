@@ -80,9 +80,9 @@
 //! | `TASK_MODEL_TEXT`(60) / `TASK_MODEL_NUMERIC`(61) | `TaskModel::update` |
 //! | `TASK_RECORD`(70) | `addTask()` + [`MPXReader::populate_task`] + 层级挂接 + 事件 |
 //! | `TASK_NOTES`(71) | `setNotes` |
-//! | `RECURRING_TASK`(72) | `setRecurring(true)`（周期性任务详情见「跳过的 Java 代码」） |
+//! | `RECURRING_TASK`(72) | `setRecurring(true)` + `addRecurringTask()` + [`MPXReader::populate_recurring_task`] |
 //! | `RESOURCE_ASSIGNMENT`(75) | `addResourceAssignment` + [`MPXReader::populate_resource_assignment`] |
-//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`(76) | 忽略（见「跳过的 Java 代码」） |
+//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`(76) | [`MPXReader::populate_resource_assignment_workgroup_fields`]（接线待 `ResourceAssignment` 接口，见「跳过的 Java 代码」） |
 //! | `FILE_CREATION`(999) | [`MPXReader::populate_file_creation_record`] |
 //! | 其它 | `Err(INVALID_RECORD)` |
 //!
@@ -97,7 +97,7 @@
 //! |---|---|---|
 //! | `AssignmentField.RESOURCE` | 由 `Task.addResourceAssignment(resource)` 内部经字段写入 | [`crate::Task::add_resource_assignment`]（经 `resource unique ID` 关联） |
 //! | `TaskField.PREDECESSORS` / `UNIQUE_ID_PREDECESSORS` | `populateRelationList` 收集后建 `Relation` | [`MPXReader::populate_relation_list`] + [`crate::Task::add_predecessor`]（存入延迟处理列表，不写字段表） |
-//! | `ResourceField.MAX_UNITS` | `resource.getAvailability().add(new Availability(...))` | 见「与 Java 的差异」第 3 条 |
+//! | `ResourceField.MAX_UNITS` | `resource.getAvailability().add(new Availability(...))` | [`crate::Resource::add_availability`]（Rust 特有的写通道，语义与 Java 的 `getAvailability().add(...)` 相同，见「与 Java 的差异」第 3 条） |
 //! | 枚举字段（`CONSTRAINT_TYPE` / `PRIORITY` / `TYPE`） | `task.set(taskField, ConstraintType/Priority/TaskType)` | 字段表以 `Integer`（枚举的 `getValue()`）编码，或直接调用 `set_type`（见「与 Java 的差异」第 4 条） |
 //!
 //! `TaskField.NOTES` / `TaskField.SUCCESSORS` 在 Java 中被显式忽略（MS Project 不写备注列、
@@ -118,11 +118,8 @@
 //!    [`MPXReader::with_project_config`] 每次现场取配置，等价于 Java 的
 //!    `m_projectConfig.getXxx()`。
 //! 3. **`ResourceField.MAX_UNITS`**：Java 走 `resource.getAvailability().add(new Availability(...))`。
-//!    本仓的 `AvailabilityTable` 只提供 `get_availability() -> Ref<_>`（不可变），
-//!    `Resource` 未提供可变的可用性表入口，`Resource::setMaxUnits` 在 Java 中也不存在，
-//!    因此该分支改为经字段表写入 `ResourceField::MAX_UNITS`（`FieldValue::Double`）：
-//!    值可经 `Resource::get_cached_value` 取回，但 `Resource::get_max_units()` 是按可用性表
-//!    计算的字段，仍会返回 `None`（**已知的数据丢失点**，见模块测试与集成测试说明）。
+//!    本仓 `Resource::get_availability()` 只借出只读 `Ref`，故经 [`crate::Resource::add_availability`]
+//!    写入可用性表（与 Java 完全一致：值不落字段表，`Resource::get_max_units()` 由可用性表计算）。
 //! 4. **枚举字段**：`FieldValue` 没有枚举变体，Java 的 `task.set(taskField, enumValue)`
 //!    在 Rust 侧统一按「枚举的 `getValue()` → `FieldValue::Integer`」写入字段表
 //!    （与 `Task::set_priority` / `Task::set_constraint_type` 的内部编码一致，读回时
@@ -179,14 +176,16 @@
 //!     **同一批** `MPXJFormats` 格式对象，解析结果与错误消息与 Java 一致
 //!     （仅 `NUMBER1..5` 一处的消息按 Java 的 `"Failed to parse number"` 重写，
 //!     因为 `Record::get_float` 的消息是 `"Failed to parse float"`）。这样 `MPXJFormats`
-//!     无需层层下传到各 populate 方法。
+//!     无需层层下传到各 populate 方法；只有需要格式对象**本身**的调用点例外：
+//!     `populate_task` 经 [`Record::get_formats`] 取回，`populate_relation`（不接收
+//!     `Record`）则由 [`MPXReader::read_impl`] 逐层传入（两者都用于
+//!     `DurationUtility.getInstance(..., m_formats.getDurationDecimalFormat(), ...)`）。
 //!
 //! # 跳过的 Java 代码及原因
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS` 记录（76）：`ResourceAssignmentWorkgroupFields` + `populateResourceAssignmentWorkgroupFields` + `ResourceAssignment.addWorkgroupAssignment()` | `ResourceAssignmentWorkgroupFields` 未在本仓声明（见 [`crate::resource_assignment`] 文件头「跳过的 Java 成员」），该记录被静默忽略 |
-//! | `RECURRING_TASK` 记录（72）的 `m_lastTask.addRecurringTask()` + `populateRecurringTask` | `RecurringTask` 模块未在本仓声明（见 [`crate::task`] 文件头），仅保留 `setRecurring(true)` |
+//! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS` 记录（76）里 `m_lastResourceAssignment.addWorkgroupAssignment()` 的**落位** | [`crate::ResourceAssignment`] 尚未提供 `add_workgroup_assignment()` / `get_workgroup_assignment()`（该文件由并行任务修改）。[`crate::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields`] 与 [`MPXReader::populate_resource_assignment_workgroup_fields`] 均已按 Java 落地，接口就绪后解开记录 76 分支里的注释即可 |
 //! | `m_lastResourceAssignment.disableEvents()` / `enableEvents()` | [`crate::ResourceAssignment`] 未提供这两个方法（字段容器未对外暴露），属纯性能 / 事件抑制手段，省略不影响写入结果 |
 //! | `MPXWriter` | 按任务要求不移植（本文件只含读取链路） |
 //! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
@@ -200,6 +199,7 @@ use std::rc::Rc;
 
 use chrono::{NaiveTime, Weekday};
 
+use crate::availability::Availability;
 use crate::common::day_of_week_helper::DayOfWeekHelper;
 use crate::common::input_stream_tokenizer::ByteSource;
 use crate::common::local_date_helper::LocalDateHelper;
@@ -222,6 +222,7 @@ use crate::mpx::mpx_task_field::MPXTaskField;
 use crate::mpx::mpxj_formats::MPXJFormats;
 use crate::mpx::priority_utility::PriorityUtility;
 use crate::mpx::record::Record;
+use crate::mpx::recurrence_utility::RecurrenceUtility;
 use crate::mpx::relation_type_utility::RelationTypeUtility;
 use crate::mpx::resource_model::ResourceModel;
 use crate::mpx::task_model::TaskModel;
@@ -242,9 +243,11 @@ use crate::reader::abstract_project_stream_reader::{
     read_stream_into_cursor, AbstractProjectStreamReader,
 };
 use crate::reader::project_reader::ProjectReader;
+use crate::recurrence_type::RecurrenceType;
 use crate::relation::Builder as RelationBuilder;
 use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
+use crate::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
 use crate::resource_field::ResourceField;
 use crate::task::Task;
 use crate::task_field::TaskField;
@@ -673,7 +676,9 @@ impl MPXReader {
         }
 
         // Java: processDeferredRelationships(); validateCalendars();
-        self.process_deferred_relationships()?;
+        // Rust 特有：Java 的 `populateRelation` 直接读成员 `m_formats`，本仓的格式集合是
+        // 局部变量（见文件头差异第 1 条），故逐层传入。
+        self.process_deferred_relationships(&formats)?;
         self.validate_calendars()?;
 
         // Java: m_projectFile.updateStructure();
@@ -960,8 +965,7 @@ impl MPXReader {
 
                     // Java: RecurringTask task = m_lastTask.addRecurringTask();
                     //       populateRecurringTask(record, task);
-                    // 本仓未声明 `RecurringTask` 模块（见 [`crate::task`] 文件头），
-                    // 故周期性任务的明细字段无法落位，只保留 recurring 标志。
+                    self.populate_recurring_task(record, &task)?;
                 }
                 false
             }
@@ -986,12 +990,17 @@ impl MPXReader {
 
             MPXConstants::RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER => {
                 // Java:
-                // ResourceAssignmentWorkgroupFields workgroup =
-                //     m_lastResourceAssignment.addWorkgroupAssignment();
-                // populateResourceAssignmentWorkgroupFields(record, workgroup);
+                // if (m_lastResourceAssignment != null) {
+                //    ResourceAssignmentWorkgroupFields workgroup =
+                //        m_lastResourceAssignment.addWorkgroupAssignment();
+                //    populateResourceAssignmentWorkgroupFields(record, workgroup);
+                // }
                 //
-                // `ResourceAssignmentWorkgroupFields` 未在本仓声明（见
-                // [`crate::resource_assignment`] 文件头），该记录静默忽略。
+                // ⚠️ 接线尚未完成：`addWorkgroupAssignment()` / `getWorkgroupAssignment()` 需要
+                // [`crate::ResourceAssignment`] 增加一个字段与两个方法（该文件由并行任务修改，
+                // 本任务不得改动，见汇报）。逐字段解析逻辑已按 Java 实现于
+                // [`MPXReader::populate_resource_assignment_workgroup_fields`]，上述接口就绪后
+                // 把注释里的三行解开即可。
                 false
             }
 
@@ -1334,11 +1343,12 @@ impl MPXReader {
                 ResourceField::MaxUnits => {
                     // Java: resource.getAvailability().add(
                     //           new Availability(START_DATE_NA, END_DATE_NA, record.getUnits(i)));
-                    // 本仓的可用性表只提供不可变访问，改为写入字段表（见文件头差异第 3 条）。
-                    resource.borrow_mut().set(
-                        FieldKey::Resource(ResourceField::MaxUnits),
-                        record.get_units(index)?.map(FieldValue::Double),
-                    );
+                    let units = record.get_units(index)?;
+                    resource.borrow_mut().add_availability(Availability::new(
+                        Some(LocalDateTimeHelper::start_date_na()),
+                        Some(LocalDateTimeHelper::end_date_na()),
+                        units,
+                    ));
                 }
 
                 ResourceField::PercentWorkComplete | ResourceField::Peak => {
@@ -1478,13 +1488,16 @@ impl MPXReader {
     /// 遍历全部延迟关系并逐条处理。
     ///
     /// 对应 Java: `private void processDeferredRelationships() throws MPXJException`
-    fn process_deferred_relationships(&mut self) -> MpxjResult<()> {
+    ///
+    /// `formats` 为 Rust 特有参数（见文件头差异第 1 条）：Java 的 `populateRelation`
+    /// 直接读成员 `m_formats`。
+    fn process_deferred_relationships(&mut self, formats: &MPXJFormats) -> MpxjResult<()> {
         // Java 遍历成员列表；Rust 侧先取出列表再处理，避免「遍历 &self 字段」与
         // 「&mut self 处理」的借用冲突。
         let deferred = std::mem::take(&mut self.m_deferred_relationships);
 
         for relationship in &deferred {
-            self.process_deferred_relationship(relationship)?;
+            self.process_deferred_relationship(relationship, formats)?;
         }
 
         Ok(())
@@ -1493,7 +1506,11 @@ impl MPXReader {
     /// 处理一条延迟关系（其中的数据可能包含多条关系）。
     ///
     /// 对应 Java: `private void processDeferredRelationship(DeferredRelationship dr) throws MPXJException`
-    fn process_deferred_relationship(&self, dr: &DeferredRelationship) -> MpxjResult<()> {
+    fn process_deferred_relationship(
+        &self,
+        dr: &DeferredRelationship,
+        formats: &MPXJFormats,
+    ) -> MpxjResult<()> {
         let Some(data) = dr.get_data().map(|data| data.trim().to_owned()) else {
             return Ok(());
         };
@@ -1521,7 +1538,7 @@ impl MPXReader {
 
                 if start != end {
                     // Java: populateRelation(dr.getField(), task, data.substring(start, end).trim());
-                    self.populate_relation(field, &task, data[start..end].trim())?;
+                    self.populate_relation(field, &task, data[start..end].trim(), formats)?;
                 }
 
                 start = end + self.m_delimiter.len_utf8();
@@ -1534,11 +1551,15 @@ impl MPXReader {
     /// 创建并填充一条新的任务关系。
     ///
     /// 对应 Java: `private void populateRelation(TaskField field, Task sourceTask, String relationship) throws MPXJException`
+    ///
+    /// `formats` 为 Rust 特有参数（见文件头差异第 1 条）：Java 直接读成员 `m_formats`
+    /// 取「工期小数格式」解析延隔时间。
     fn populate_relation(
         &self,
         field: TaskField,
         source_task: &Rc<RefCell<Task>>,
         relationship: &str,
+        formats: &MPXJFormats,
     ) -> MpxjResult<()> {
         let length = relationship.len();
 
@@ -1620,9 +1641,9 @@ impl MPXReader {
 
                         // Java: lag = DurationUtility.getInstance(
                         //           relationship.substring(index), m_formats.getDurationDecimalFormat(), m_locale);
-                        // （本仓的 DurationUtility 不接收格式参数，见其文件头。）
                         let lag = DurationUtility::get_instance(
                             relationship.get(index..),
+                            formats.get_duration_decimal_format(),
                             self.m_locale,
                         );
 
@@ -1779,7 +1800,12 @@ impl MPXReader {
                 | TaskField::LevelingDelay => {
                     // Java: task.set(taskField, DurationUtility.getInstance(
                     //           field, m_formats.getDurationDecimalFormat(), m_locale));
-                    let value = DurationUtility::get_instance(Some(&field), self.m_locale);
+                    // Rust 特有：格式集合经 [`Record::get_formats`] 取回（见文件头差异第 1 条）。
+                    let value = DurationUtility::get_instance(
+                        Some(&field),
+                        record.get_formats().get_duration_decimal_format(),
+                        self.m_locale,
+                    );
                     task.borrow_mut().set(
                         FieldKey::Task(task_field),
                         value.map(FieldValue::Duration),
@@ -2008,6 +2034,129 @@ impl MPXReader {
         Ok(())
     }
 
+    /// 填充周期性任务记录（`RECURRING_TASK_RECORD_NUMBER`）。
+    ///
+    /// 对应 Java: `private void populateRecurringTask(Record record, RecurringTask task)`
+    fn populate_recurring_task(
+        &self,
+        record: &Record<'_>,
+        task: &Rc<RefCell<Task>>,
+    ) -> MpxjResult<()> {
+        // Java: RecurrenceUtility.getDuration(m_projectFile.getProjectProperties(), ...)
+        let file = self.file()?;
+
+        // 本仓约定：共享对象用 `try_borrow_mut`（Java 无此分支，借用冲突时跳过该记录而不 panic）。
+        let Ok(mut task_ref) = task.try_borrow_mut() else {
+            return Ok(());
+        };
+
+        // Java: RecurringTask task = m_lastTask.addRecurringTask();
+        let recurring = task_ref.add_recurring_task();
+
+        // Java: task.setStartDate(LocalDateHelper.getLocalDate(record.getDateTime(1)));
+        recurring.set_start_date(LocalDateHelper::get_local_date(record.get_date_time(1)));
+        // Java: task.setFinishDate(LocalDateHelper.getLocalDate(record.getDateTime(2)));
+        recurring.set_finish_date(LocalDateHelper::get_local_date(record.get_date_time(2)));
+
+        // Java: task.setDuration(RecurrenceUtility.getDuration(
+        //           m_projectFile.getProjectProperties(), record.getInteger(3), record.getInteger(4)));
+        {
+            let Ok(file_ref) = file.try_borrow() else {
+                return Ok(());
+            };
+            recurring.set_duration(RecurrenceUtility::get_duration(
+                file_ref.get_project_properties(),
+                record.get_integer(3),
+                record.get_integer(4),
+            ));
+        }
+
+        // Java: task.setOccurrences(record.getInteger(5));
+        recurring.set_occurrences(record.get_integer(5));
+        // Java: task.setRecurrenceType(RecurrenceUtility.getRecurrenceType(record.getInteger(6)));
+        recurring.set_recurrence_type(RecurrenceUtility::get_recurrence_type(record.get_integer(6)));
+
+        // Java: task.setUseEndDate(NumberHelper.getInt(record.getInteger(8)) == 1);
+        //       task.setWorkingDaysOnly(NumberHelper.getInt(record.getInteger(9)) == 1);
+        // 本仓 `NumberHelper` 只有 `get_int(Option<f64>)`，整数入参下 `getInt(x) == 1`
+        // 等价于 `x == Some(1)`（null / 其它值都为 false）。
+        recurring.set_use_end_date(record.get_integer(8) == Some(1));
+        recurring.set_working_days_only(record.get_integer(9) == Some(1));
+
+        // Java: task.setWeeklyDaysFromBitmap(
+        //           RecurrenceUtility.getDays(record.getString(10)), RecurrenceUtility.RECURRING_TASK_DAY_MASKS);
+        recurring.set_weekly_days_from_bitmap(
+            RecurrenceUtility::get_days_from_string(record.get_string(10).as_deref()),
+            &RecurrenceUtility::RECURRING_TASK_DAY_MASKS,
+        );
+
+        //
+        // Java: RecurrenceType type = task.getRecurrenceType();
+        //       if (type != null) { switch (task.getRecurrenceType()) { ... } }
+        //
+        match recurring.get_recurrence_type() {
+            Some(RecurrenceType::Daily) => {
+                // Java: task.setFrequency(record.getInteger(13));
+                recurring.set_frequency(record.get_integer(13));
+            }
+
+            Some(RecurrenceType::Weekly) => {
+                // Java: task.setFrequency(record.getInteger(14));
+                recurring.set_frequency(record.get_integer(14));
+            }
+
+            Some(RecurrenceType::Monthly) => {
+                // Java: task.setRelative(NumberHelper.getInt(record.getInteger(11)) == 1);
+                recurring.set_relative(record.get_integer(11) == Some(1));
+
+                if recurring.get_relative() {
+                    // Java: task.setFrequency(record.getInteger(17));
+                    //       task.setDayNumber(record.getInteger(15));
+                    //       task.setDayOfWeek(RecurrenceUtility.getDay(record.getInteger(16)));
+                    recurring.set_frequency(record.get_integer(17));
+                    recurring.set_day_number(record.get_integer(15));
+                    // 本仓 `RecurringData::set_day_of_week` 接收非空 `Weekday`
+                    //（Java 的 `DayOfWeek` 可为 null），取不到时跳过。
+                    if let Some(day) = RecurrenceUtility::get_day(record.get_integer(16)) {
+                        recurring.set_day_of_week(day);
+                    }
+                } else {
+                    // Java: task.setFrequency(record.getInteger(19));
+                    //       task.setDayNumber(record.getInteger(18));
+                    recurring.set_frequency(record.get_integer(19));
+                    recurring.set_day_number(record.get_integer(18));
+                }
+            }
+
+            Some(RecurrenceType::Yearly) => {
+                // Java: task.setRelative(NumberHelper.getInt(record.getInteger(12)) != 1);
+                recurring.set_relative(record.get_integer(12) != Some(1));
+
+                if recurring.get_relative() {
+                    // Java: task.setDayNumber(record.getInteger(20));
+                    //       task.setDayOfWeek(RecurrenceUtility.getDay(record.getInteger(21)));
+                    //       task.setMonthNumber(record.getInteger(22));
+                    recurring.set_day_number(record.get_integer(20));
+                    if let Some(day) = RecurrenceUtility::get_day(record.get_integer(21)) {
+                        recurring.set_day_of_week(day);
+                    }
+                    recurring.set_month_number(record.get_integer(22));
+                } else {
+                    // Java: task.setYearlyAbsoluteFromDate(
+                    //           LocalDateHelper.getLocalDate(record.getDateTime(23)));
+                    recurring.set_yearly_absolute_from_date(LocalDateHelper::get_local_date(
+                        record.get_date_time(23),
+                    ));
+                }
+            }
+
+            // Java: type == null 时不进入 switch
+            None => {}
+        }
+
+        Ok(())
+    }
+
     /// 取资源分配记录对应的资源。
     ///
     /// 对应 Java: `private Resource getResourceForAssignment(Record record)`
@@ -2087,6 +2236,37 @@ impl MPXReader {
         self.with_event_manager(|manager| manager.fire_assignment_read_event(assignment));
 
         Ok(())
+    }
+
+    /// 填充一个资源分配的工作组字段实例（`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER`）。
+    ///
+    /// 对应 Java: `private void populateResourceAssignmentWorkgroupFields(Record record, ResourceAssignmentWorkgroupFields workgroup)`
+    ///
+    /// 取舍：Java 侧本方法是 `private`；Rust 侧设为 `pub`，因为在
+    /// [`crate::ResourceAssignment`] 提供 `add_workgroup_assignment()` 之前，记录 76 的
+    /// 接线点只能保持注释（该文件由并行任务修改），此处先以公开方法承载 Java 的逐字段逻辑，
+    /// 便于回归测试与后续接线（见 [`MPXConstants::RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER`]
+    /// 分支的说明）。
+    pub fn populate_resource_assignment_workgroup_fields(
+        record: &Record<'_>,
+        workgroup: &mut ResourceAssignmentWorkgroupFields,
+    ) {
+        // Java: workgroup.setMessageUniqueID(record.getString(0));
+        workgroup.set_message_unique_id(record.get_string(0));
+
+        // Java: workgroup.setConfirmed(NumberHelper.getInt(record.getInteger(1)) == 1);
+        //       workgroup.setResponsePending(NumberHelper.getInt(record.getInteger(1)) == 1);
+        // 注意：两行的字段下标相同（均为 1）—— 与 Java 源码逐字一致，不做「纠正」。
+        // 整数入参下 `getInt(x) == 1` 等价于 `x == Some(1)`（见 `populate_recurring_task`）。
+        workgroup.set_confirmed(record.get_integer(1) == Some(1));
+        workgroup.set_response_pending(record.get_integer(1) == Some(1));
+
+        // Java: workgroup.setUpdateStart(record.getDateTime(3));
+        workgroup.set_update_start(record.get_date_time(3));
+        // Java: workgroup.setUpdateFinish(record.getDateTime(4));
+        workgroup.set_update_finish(record.get_date_time(4));
+        // Java: workgroup.setScheduleID(record.getString(5));
+        workgroup.set_schedule_id(record.get_string(5));
     }
 
     /// 校验项目的日历并修正问题。

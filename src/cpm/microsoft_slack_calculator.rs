@@ -1,9 +1,9 @@
 //! 对应 Java: `org/mpxj/cpm/MicrosoftSlackCalculator.java`
 //!
-//! # 依赖说明（重要）
+//! # 用到的模型层接口
 //!
-//! `Task`、`Relation`、`ProjectFile`、`ProjectCalendar`、`ProjectProperties` 由并行任务
-//! 翻译中，当前可能尚未落地。本文件按下列签名使用它们：
+//! `Task`、`Relation`、`ProjectFile`、`ProjectCalendar`、`ProjectProperties` 均已落地，
+//! 本文件按下列签名使用它们：
 //!
 //! ```text
 //! Task::get_duration(&self) -> Option<Duration>
@@ -32,12 +32,12 @@
 //!   `getLag()` 为 `null` 时会抛 `NullPointerException`；Rust 侧不 panic，
 //!   分别按「跳过该关系 / 返回零工期 / 视为无 lag」处理。
 //! - **日历借用**：`Task::get_effective_calendar` 返回 `Rc<RefCell<ProjectCalendar>>`。
-//!   Java 通过 `LocalDateTimeHelper.getVariance` 计算日期差值，但
-//!   `crate::common::local_date_time_helper` 目前未在 `crate::common::mod` 中启用
-//!   （其注释写明待 `project_calendar` 落地后再开启）。因此本文件与
-//!   `crate::availability_table` / `crate::cost_rate_table_entry` 一样，
-//!   在私有方法 [`MicrosoftSlackCalculator::get_variance`] 中内联 `LocalDateTimeHelper.getVariance`
-//!   的行为（日历缺失或日期缺失时返回 0 工期，否则调用 `ProjectCalendar::get_work`）。
+//!   Java 通过 `LocalDateTimeHelper.getVariance` 计算日期差值；该工具类**已启用**
+//!   （`crate::common::local_date_time_helper` 已加入 `crate::common::mod`，
+//!   `get_variance(Option<&ProjectCalendar>, Option<NaiveDateTime>, Option<NaiveDateTime>, TimeUnit)`
+//!   与 Java 同语义）。本文件**尚未接线**，仍在私有方法
+//!   [`MicrosoftSlackCalculator::get_variance`] 中内联同一行为
+//!   （日历缺失或日期缺失时返回 0 工期，否则调用 `ProjectCalendar::get_work`）。
 
 use chrono::NaiveDateTime;
 

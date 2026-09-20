@@ -59,7 +59,7 @@ use crate::time_unit::TimeUnit;
 // | `private final ProjectFile m_parentFile` | `parent_file: Weak<RefCell<ProjectFile>>` |
 // | `private Task m_parent` | `parent: Weak<RefCell<Task>>` |
 // | `private final List<Task> m_children` | `children: Vec<Rc<RefCell<Task>>>` |
-// | `private RecurringTask m_recurringTask` | 未移植（见「跳过的 Java 方法」） |
+// | `private RecurringTask m_recurringTask` | `recurring_task: Option<RecurringTask>`（惰性创建，见 [`Task::add_recurring_task`]） |
 // | `AbstractFieldContainer` 的 `m_fields` | `fields: AbstractFieldContainer` |
 //
 // # 引用关系与生命周期（Java → Rust）
@@ -168,7 +168,7 @@ use crate::time_unit::TimeUnit;
 // Duration::convert_units(&self, TimeUnit, &dyn TimeUnitDefaultsContainer)
 // ```
 //
-// 仍未落地、按「与 Java 等价的 Rust 签名」假设的是 `crate::project_file::ProjectFile`：
+// 下面 `crate::project_file::ProjectFile`（同样已落地）的签名：
 //
 // ```text
 // ProjectFile::get_project_config(&self) -> &ProjectConfig
@@ -210,14 +210,13 @@ use crate::time_unit::TimeUnit;
 //
 // | Java 方法 | 跳过原因 |
 // |---|---|
-// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*`（共 43 个） | 依赖 `ResourceAssignment` 的 timephased API 与 `TimephasedUtility`（均未移植），且不属于 reader 读入路径 |
+// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*`（共 43 个） | 缺 `FieldValue` 的 timephased 列表变体（`TimephasedDataFactory`、`ResourceAssignment` 的时间分段 API 均已落地；`org.mpxj.TimephasedUtility` 未单独成模块，其函数内联在 `resource_assignment.rs` 的私有实现中），且不属于 reader 读入路径 |
 // | `getWorkSplits` / `calculateWorkSplits` / `reduceWorkSplits` / `addWorkSplit` | 字段值 / 返回值为 `List<LocalDateTimeRange>`，`FieldValue` 无列表变体 |
-// | `getActivityCodeValues` / `addActivityCodeValue` / `defaultActivityCodeValues` | `ActivityCode` / `ActivityCodeValue` 模块未在 `src/lib.rs` 声明 |
-// | `getExpenseItems` / `setExpenseItems` / `defaultExpenseItems` | `ExpenseItem` 模块未在 `src/lib.rs` 声明 |
+// | `getActivityCodeValues` / `addActivityCodeValue` / `defaultActivityCodeValues` | `ActivityCode` / `ActivityCodeValue` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
+// | `getExpenseItems` / `setExpenseItems` / `defaultExpenseItems` | `ExpenseItem` 属 P6/Primavera 专用数据（同上） |
 // | `getSteps` / `setSteps` / `defaultSteps` | `FieldValue` 无列表变体，无法存储 `List<Step>` |
-// | `addRecurringTask` / `getRecurringTask` | `RecurringTask` 模块未在 `src/lib.rs` 声明（Java 侧 `RecurringTask extends Task implements RecurringData`，`crate::recurring_data` 只移植了 `RecurringData` 数据部分） |
-// | `getLocation` / `setLocation` | `Location` 模块未在 `src/lib.rs` 声明 |
-// | `getBaselineTask` / `getBaselineTask(int)` | Java 以 `Task` 对象（同一性）作 `Map` 键，Rust 无法表达；且 `ProjectFile` 的基线任务映射尚未落地 |
+// | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据（同上） |
+// | `getBaselineTask` / `getBaselineTask(int)` | Java 以 `Task` 对象（同一性）作 `Map` 键，Rust 无法表达（`ProjectFile` 的基线与 `Task` 均已落地，缺的是「按对象同一性查表」这一 Java 语义，见 [`crate::default_baseline_strategy`] 改用唯一 ID 作键的取舍） |
 // | `setNotesObject` 的 `Notes` 子类型保真 | Rust 侧 `Notes` 是 trait，`FieldValue` 无法承载 trait 对象，故只保留纯文本；`RtfNotes` / `HtmlNotes` / `StructuredNotes` 的具体子类型信息丢失 |
 // | `set(FieldType, boolean)`（私有重载） | Rust 无重载，由 `put_bool` 辅助方法承担 |
 // | 静态 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | 服务于上面已跳过的 timephased 方法 |
@@ -6137,9 +6136,9 @@ mod tests {
         Duration::get_instance(value, TimeUnit::Days)
     }
 
-    /// 注：需要父 `ProjectFile` 的构造方法（[`Task::new_in_file`]）与 `add_task` /
-    /// `get_calendar` / `get_resource_assignments` 等访问器无法在单元测试中构造
-    /// 依赖（`ProjectFile` 尚未落地），故此处只覆盖不依赖父文件的路径。
+    /// 注：此处只覆盖不依赖父文件的路径 —— 需要父 `ProjectFile` 的
+    /// [`Task::new_in_file`] 与 `add_task` / `get_calendar` / `get_resource_assignments`
+    /// 等访问器不在本测试范围内。
     #[test]
     fn field_values_round_trip() {
         let mut task = Task::new();

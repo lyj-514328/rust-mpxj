@@ -5,16 +5,18 @@
 /// 对应 Java: `public final class UnitOfMeasure implements ProjectEntityWithUniqueID`
 ///
 /// 移植说明：
-/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该接口尚未移植，Rust 侧保留同名的
-///   [`UnitOfMeasure::get_unique_id`] 方法，待接口移植后再补上 `impl`。
+/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该接口**已落地**
+///   （[`crate::project_entity_with_unique_id`]），但本类型尚未 `impl`，仍只保留同名的
+///   [`UnitOfMeasure::get_unique_id`] 方法。
 /// - Java 的构造方法是私有的，实例一律通过 [`Builder`] 构建，Rust 侧保持不变。
 ///
 /// 被跳过的 Java 代码：
 /// - `Builder(UniqueIdObjectSequenceProvider sequenceProvider)` 构造方法中的
 ///   `sequenceProvider` 参数，以及私有构造方法里的
 ///   `m_sequenceProvider.getUniqueIdObjectSequence(UnitOfMeasure.class).syncOrGetNext(m_uniqueID)`：
-///   原因是对应的 `UniqueIdObjectSequenceProvider` / `ObjectSequence` 尚未移植，
-///   Rust 侧由外部直接把 unique ID 交给 [`Builder::unique_id`]。
+///   `UniqueIdObjectSequenceProvider` / `ObjectSequence` **均已落地**
+///   （见 [`crate::unique_id_object_sequence_provider`] / [`crate::common::object_sequence`]），
+///   但本类型尚未接线，Rust 侧仍由外部直接把 unique ID 交给 [`Builder::unique_id`]。
 ///
 /// 未移植的 Java 方法：无（`getUniqueID()` 见上，已映射为 [`UnitOfMeasure::get_unique_id`]）。
 #[derive(Debug, Clone)]
@@ -89,7 +91,7 @@ impl Builder {
     ///
     /// 对应 Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的 `sequenceProvider` 参数依赖尚未移植的 `UniqueIdObjectSequenceProvider`，
+    /// `UniqueIdObjectSequenceProvider` 已落地（见类型说明），但本类型尚未接收该参数，
     /// Rust 侧构造方法无参数。
     pub fn new() -> Self {
         Self::default()

@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | 按全包约定共享；仅在 `RateHelper.convertFromHours` 处读取项目属性 |
 //! | `public void process(Resource resource, int index, byte[] data)` | `process(&self, resource: &mut Resource, index: i32, data: Option<&[u8]>)` | `null` → `None`；`setCostRateTable` 需要 `&mut Resource` |
-//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | 本文件内的私有函数 [`convert_from_hours`] | `RateHelper` 尚未移植，按等价逻辑就地实现（只用到「每天 / 每周 / 每月分钟数」） |
+//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | 本文件内的私有函数 [`convert_from_hours`] | `org.mpxj.common.RateHelper` 尚未单独成模块，故按等价逻辑就地实现（只用到「每天 / 每周 / 每月分钟数」）。**已知重复**：同一换算在 `mpp14_reader.rs` 的私有函数 `convert_amount_from_hours` 中又实现了一遍，待提取为公共模块（如 `src/rate_helper.rs`）后合并 |
 //! | `MPPUtility.getTimestampFromTenths` 返回 `null` | `Option<NaiveDateTime>`，取不到时跳过该记录 | Java 在此处会 NPE；Rust 侧把无法解析的记录视为非法数据 |
 //! | `endDate.minusMinutes(1)` / `plusMinutes(1)` | `checked_sub_signed` / `checked_add_signed` | 越界时保持原值（不 panic） |
 //! | `ByteArrayHelper.getShort` | `get_short_safe` | 越界返回 0 |
@@ -263,7 +263,8 @@ impl CostRateTableFactory {
 /// 把「每小时金额」换算成目标单位的费率。
 ///
 /// 对应 Java: `RateHelper.convertFromHours(TimeUnitDefaultsContainer defaults, double value, TimeUnit targetUnits)`
-/// （`RateHelper` 未移植，按等价逻辑就地实现；`defaults` 为 `None` 时各分钟数按 0 处理）
+/// （`RateHelper` 尚未单独成模块，按等价逻辑就地实现；`defaults` 为 `None` 时各分钟数按 0 处理。
+/// 同一换算在 `mpp14_reader.rs` 的 `convert_amount_from_hours` 中重复了一次，见文件头差异表）
 fn convert_from_hours(
     defaults: Option<&ProjectProperties>,
     value: f64,

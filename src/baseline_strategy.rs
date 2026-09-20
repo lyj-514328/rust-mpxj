@@ -2,8 +2,7 @@
 //!
 //! # 依赖说明
 //!
-//! 本 trait 的参数类型 `ProjectFile` 由并行任务翻译中（`crate::project_file`），
-//! 当前 `src/project_file.rs` 可能尚未落地：本文件按下列签名使用它。
+//! 本 trait 用到的 `ProjectFile`（`crate::project_file`）接口如下：
 //!
 //! ```text
 //! ProjectFile::get_tasks(&self) -> Vec<Rc<RefCell<Task>>>      // Java: TaskContainer getTasks()

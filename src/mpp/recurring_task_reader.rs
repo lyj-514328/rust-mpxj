@@ -29,8 +29,8 @@
 //! |---|---|---|
 //! | `final class RecurringTaskReader` | `pub struct RecurringTaskReader` | Rust 无包级可见性 |
 //! | `RecurringTaskReader(ProjectProperties properties)` | [`RecurringTaskReader::new`] 接收 `&ProjectProperties`，只保留其**父文件弱引用** | `ProjectProperties` 由 `ProjectFile` 持有且不是 `Clone`，Rust 侧无法保存一份属性副本；读取工期时需要属性里的「每天 / 每周分钟数」，故按弱引用回到父文件按需借用（Java 持有稳定引用） |
-//! | `processRecurringTask(Task task, byte[] data)`（`task.addRecurringTask()` 返回 `RecurringTask`） | [`RecurringTaskReader::process_recurring_task`] 接收 `&[u8]` 并**返回** [`RecurringTask`] | `Task` / `RecurringTask` 在 Rust 侧未移植（`src/lib.rs` 未声明 `recurring_task` 模块），`Task` 也没有 `addRecurringTask()`；故由调用方拿到读取结果后自行挂到任务上 |
-//! | `RecurringTask extends RecurringData`（额外持有 `m_duration`） | 本文件的 [`RecurringTask`] 用**组合 + 转发**表达：持有一个 [`RecurringData`] 与一个 `Option<Duration>` | 遵循「Java 继承 → 组合」约定；`RecurringData` 已存在且本批不得改动，故 duration 无法放进 `RecurringData` |
+//! | `processRecurringTask(Task task, byte[] data)`（`task.addRecurringTask()` 返回 `RecurringTask`） | [`RecurringTaskReader::process_recurring_task`] 接收 `&[u8]` 并**返回**本文件的 [`RecurringTask`] | 「读取」与「挂到任务上」拆成两步：Java 在方法内部 `task.addRecurringTask()` 取到实例后逐字段写入；Rust 侧写入任务需要 `&mut Task`，故由调用方拿到读取结果后自行经 `Task::add_recurring_task()`（已落地，见 `crate::task::Task::add_recurring_task`）挂到任务上 |
+//! | `RecurringTask extends RecurringData`（额外持有 `m_duration`） | 本文件的 [`RecurringTask`] 用**组合 + 转发**表达：持有一个 [`RecurringData`] 与一个 `Option<Duration>` | 遵循「Java 继承 → 组合」约定（`RecurringData` 无 `m_duration`，故 duration 只能放在本类型上）。**已知重复**：`crate::recurring_task::RecurringTask` 是同一 Java 类的另一份实现（用 `Deref` 还原继承，访问器名为 `get_recurring_data` / `get_recurring_data_mut`）；合并两者会牵动调用方（`mpx_reader.rs`），故本文件暂留同名类型 |
 //! | `ByteArrayHelper.getShort/getInt` 越界 | 先判长度，不足返回 0 | Java 抛 `ArrayIndexOutOfBoundsException` |
 //! | `switch (rt.getRecurrenceType())` 在类型为 `null` 时 | `match` 的 `None` 分支（不进入任何 case） | Java 对 `null` 枚举做 `switch` 会抛 `NullPointerException` |
 //! | `DayOfWeekHelper.getInstance(int)` 返回 `null` 时 `setDayOfWeek(null)` | 跳过该次设置 | Java 会在 `EnumSet.add(null)` 抛 `NullPointerException` |

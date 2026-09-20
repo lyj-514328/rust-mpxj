@@ -32,6 +32,7 @@
 //!   属已存在文件，本批不得改动）。
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use std::fmt;
 use uuid::Uuid;
 
 use crate::common::byte_array_helper::ByteArrayHelper;
@@ -80,7 +81,8 @@ const MS_PER_MINUTE: i64 = 60 * 1000;
 /// MPP 文件中的颜色值。
 ///
 /// 对应 Java: `java.awt.Color`（GUI 类型，属跳过项）。Rust 侧只保留
-/// `MPPUtility.getColor` 真正用到的三个分量与取值方法。
+/// `MPPUtility.getColor` 真正用到的三个分量与取值方法，并实现 [`fmt::Display`]
+/// 以复刻 Java 的 `toString()` 文本（各处展示类共用，避免各自复刻一份）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
     /// 红色分量。
@@ -118,6 +120,22 @@ impl Color {
     /// 对应 Java: `int getBlue()`
     pub fn get_blue(&self) -> u8 {
         self.blue
+    }
+}
+
+impl fmt::Display for Color {
+    /// 对应 Java: `java.awt.Color.toString()`
+    ///
+    /// Java 的 `java.awt.Color` 的字符串形式为 `java.awt.Color[r=<r>,g=<g>,b=<b>]`；
+    /// 各 MPP 展示类的 `toString()` 直接拼接该结果，故这里提供同一文本，
+    /// 使调用方无需各自复刻（`null` 分支仍由调用方用 `Option` 的 `format_optional_display`
+    /// 一类辅助处理）。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "java.awt.Color[r={},g={},b={}]",
+            self.red, self.green, self.blue
+        )
     }
 }
 
@@ -858,6 +876,19 @@ mod tests {
     }
 
     // ---- 小端读数 ----
+
+    /// [`Color`] 的 `Display` 与 Java `java.awt.Color.toString()` 的文本一致。
+    ///
+    /// 该文本是各展示类（`GridLines` / `TableFontStyle` / `FontStyle` 等）拼接输出的公共片段，
+    /// 此前各自复刻了一份 `format_color`；本测试锁定单一来源的输出格式。
+    #[test]
+    fn color_display_matches_java_awt_color_to_string() {
+        assert_eq!(
+            Color::new(255, 0, 18).to_string(),
+            "java.awt.Color[r=255,g=0,b=18]"
+        );
+        assert_eq!(Color::new(0, 0, 0).to_string(), "java.awt.Color[r=0,g=0,b=0]");
+    }
 
     #[test]
     fn get_byte_returns_unsigned_value() {

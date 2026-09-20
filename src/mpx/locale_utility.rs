@@ -8,12 +8,12 @@
 //! Rust 标准库没有对应物，本模块的处理方式：
 //!
 //! - 用本模块定义的 [`MpxLocale`] 取代 `java.util.Locale`，只承载 MPX 关心的语言代码
-//!   （EN/DE/FR/IT/PT/SV/ZH/ES/RU，即 Java 侧 `SUPPORTED_LOCALES`）。
-//! - 各语言的资源表（Java 的 `LocaleData_XX`）由同包的 `locale_data_XX` 模块（并行移植）
-//!   承载；本模块**不依赖**它们，[`LocaleUtility::set_locale`] 一律落到 Java 的英文默认资源
-//!   （`LocaleData.RESOURCE_DATA`）。因此非英文区域设置会拿到英文的货币符号、分隔符、
-//!   日期/时间格式等属性；需要完整本地化时由调用方在 `set_locale` 之后用 `locale_data_XX`
-//!   的值覆盖。
+//!   （EN/DE/FR/IT/PT/SV/ZH/ES/RU，即 Java 侧 `SUPPORTED_LOCALES`）；
+//! - 资源包的「变体覆盖 + 父包回落」语义由 [`crate::mpx::locale_data::LocaleData`] 承载
+//!   （各语言变体的 `OVERRIDES` 覆盖 [`crate::mpx::locale_data::RESOURCE_DATA`] 的默认值），
+//!   [`LocaleUtility::set_locale`] 逐键调用其 `get_string` / `get_char` / `get_integer` /
+//!   `get_code_page` 等，与 Java 的 `ResourceBundle` 取值一一对应，因此德语、法语等
+//!   非英语区域设置会得到各自的货币符号、分隔符、日期 / 时间格式等属性；
 //! - Java 的 `DateFormatSymbols` 在本类中并未使用（MPX 的日期/数字格式由 `MPXJFormats`
 //!   处理），此处不涉及。
 //!
@@ -21,12 +21,8 @@
 
 use chrono::NaiveTime;
 
-use crate::code_page::CodePage;
-use crate::currency_symbol_position::CurrencySymbolPosition;
-use crate::date_order::DateOrder;
-use crate::project_date_format::ProjectDateFormat;
+use crate::mpx::locale_data::LocaleData;
 use crate::project_properties::ProjectProperties;
-use crate::project_time_format::ProjectTimeFormat;
 
 /// MPX 支持的区域设置标识，替代 Java 的 `java.util.Locale`。
 ///
@@ -119,34 +115,90 @@ impl LocaleUtility {
     ///
     /// 对应 Java: `public static void setLocale(ProjectProperties properties, Locale locale)`
     ///
-    /// 取舍：Java 通过 `ResourceBundle` 按 `locale` 取本地化资源；Rust 侧统一使用英文默认资源
-    /// （见文件头说明），`locale` 用于选择资源表（目前除英语外都回落到英文）。
+    /// 取舍：Java 经 `ResourceBundle` 按 `locale` 取本地化资源（变体覆盖 + 英文默认值回落）；
+    /// Rust 侧由 [`LocaleData`] 的同名取键方法承担该语义，逐项对应 Java 的
+    /// `LocaleData.getString/getChar/getObject/getInteger`。
+    ///
+    /// 注：Java 的 `getChar` / `getObject` 对缺失键抛 `MissingResourceException`（这些键在
+    /// 资源包中必定存在）；Rust 侧的 `get_char` 对未取到值返回 `None`，此处为不 panic
+    /// 而只在取到值时设置。
     pub fn set_locale(properties: &mut ProjectProperties, locale: MpxLocale) {
-        let data = resources_for(locale);
+        // ---- MPX 特有的属性 ----
+        // Java: properties.setMpxDelimiter(LocaleData.getChar(locale, LocaleData.FILE_DELIMITER));
+        if let Some(delimiter) = LocaleData::get_char(locale, LocaleData::FILE_DELIMITER) {
+            properties.set_mpx_delimiter(delimiter);
+        }
 
-        // MPX 特有的属性
-        properties.set_mpx_delimiter(data.file_delimiter);
-        properties.set_mpx_program_name(Some(data.program_name.to_owned()));
-        properties.set_mpx_code_page(Some(data.code_page));
-        properties.set_date_separator(data.date_separator);
-        properties.set_time_separator(data.time_separator);
-        properties.set_time_format(Some(data.time_format));
-        properties.set_date_order(Some(data.date_order));
-        properties.set_am_text(Some(data.am_text.to_owned()));
-        properties.set_pm_text(Some(data.pm_text.to_owned()));
-        properties.set_date_format(Some(data.date_format));
-        properties.set_bar_text_date_format(Some(data.date_format));
+        // Java: properties.setMpxProgramName(LocaleData.getString(locale, LocaleData.PROGRAM_NAME));
+        properties.set_mpx_program_name(
+            LocaleData::get_string(locale, LocaleData::PROGRAM_NAME).map(str::to_owned),
+        );
 
-        // 通用属性
-        properties.set_currency_symbol(Some(data.currency_symbol.to_owned()));
-        properties.set_symbol_position(Some(data.currency_symbol_position));
-        properties.set_currency_digits(Some(data.currency_digits));
-        properties.set_thousands_separator(data.currency_thousands_separator);
-        properties.set_decimal_separator(data.currency_decimal_separator);
+        // Java: properties.setMpxCodePage((CodePage) LocaleData.getObject(locale, LocaleData.CODE_PAGE));
+        properties.set_mpx_code_page(Some(LocaleData::get_code_page(locale)));
+
+        // Java: properties.setDateSeparator(LocaleData.getChar(locale, LocaleData.DATE_SEPARATOR));
+        if let Some(separator) = LocaleData::get_char(locale, LocaleData::DATE_SEPARATOR) {
+            properties.set_date_separator(separator);
+        }
+
+        // Java: properties.setTimeSeparator(LocaleData.getChar(locale, LocaleData.TIME_SEPARATOR));
+        if let Some(separator) = LocaleData::get_char(locale, LocaleData::TIME_SEPARATOR) {
+            properties.set_time_separator(separator);
+        }
+
+        // Java: properties.setTimeFormat((ProjectTimeFormat) LocaleData.getObject(locale, LocaleData.TIME_FORMAT));
+        properties.set_time_format(Some(LocaleData::get_time_format(locale)));
+
+        // Java: properties.setDateOrder((DateOrder) LocaleData.getObject(locale, LocaleData.DATE_ORDER));
+        properties.set_date_order(Some(LocaleData::get_date_order(locale)));
+
+        // Java: properties.setAMText(LocaleData.getString(locale, LocaleData.AM_TEXT));
+        properties
+            .set_am_text(LocaleData::get_string(locale, LocaleData::AM_TEXT).map(str::to_owned));
+
+        // Java: properties.setPMText(LocaleData.getString(locale, LocaleData.PM_TEXT));
+        properties
+            .set_pm_text(LocaleData::get_string(locale, LocaleData::PM_TEXT).map(str::to_owned));
+
+        // Java: properties.setDateFormat((ProjectDateFormat) LocaleData.getObject(locale, LocaleData.DATE_FORMAT));
+        //       properties.setBarTextDateFormat((ProjectDateFormat) LocaleData.getObject(locale, LocaleData.DATE_FORMAT));
+        let date_format = LocaleData::get_date_format(locale);
+        properties.set_date_format(Some(date_format));
+        properties.set_bar_text_date_format(Some(date_format));
+
+        // ---- 通用属性 ----
+        // Java: properties.setCurrencySymbol(LocaleData.getString(locale, LocaleData.CURRENCY_SYMBOL));
+        properties.set_currency_symbol(
+            LocaleData::get_string(locale, LocaleData::CURRENCY_SYMBOL).map(str::to_owned),
+        );
+
+        // Java: properties.setSymbolPosition((CurrencySymbolPosition) LocaleData.getObject(locale, LocaleData.CURRENCY_SYMBOL_POSITION));
+        properties.set_symbol_position(Some(LocaleData::get_currency_symbol_position(locale)));
+
+        // Java: properties.setCurrencyDigits(LocaleData.getInteger(locale, LocaleData.CURRENCY_DIGITS));
+        properties
+            .set_currency_digits(LocaleData::get_integer(locale, LocaleData::CURRENCY_DIGITS));
+
+        // Java: properties.setThousandsSeparator(LocaleData.getChar(locale, LocaleData.CURRENCY_THOUSANDS_SEPARATOR));
+        if let Some(separator) =
+            LocaleData::get_char(locale, LocaleData::CURRENCY_THOUSANDS_SEPARATOR)
+        {
+            properties.set_thousands_separator(separator);
+        }
+
+        // Java: properties.setDecimalSeparator(LocaleData.getChar(locale, LocaleData.CURRENCY_DECIMAL_SEPARATOR));
+        if let Some(separator) =
+            LocaleData::get_char(locale, LocaleData::CURRENCY_DECIMAL_SEPARATOR)
+        {
+            properties.set_decimal_separator(separator);
+        }
 
         // Java: LocalTime.ofSecondOfDay(LocaleData.getInteger(locale, DEFAULT_START_TIME) * 60L)
         // 越界时 Java 抛 DateTimeException，Rust 侧忽略该属性（返回 None）。
-        if let Some(time) = time_of_day_from_minutes(data.default_start_time_minutes) {
+        if let Some(time) = LocaleData::get_integer(locale, LocaleData::DEFAULT_START_TIME)
+            .and_then(time_of_day_from_minutes)
+        {
             properties.set_default_start_time(Some(time));
         }
     }
@@ -156,89 +208,6 @@ impl LocaleUtility {
     /// 对应 Java: `public static Locale[] getSupportedLocales()`
     pub fn get_supported_locales() -> &'static [MpxLocale] {
         &MpxLocale::ALL
-    }
-}
-
-/// 一个区域设置所需的资源集合，对应 Java `LocaleData` 资源包中的键值。
-///
-/// 这里只包含 [`LocaleUtility::set_locale`] 用到的键；Java 的 `LocaleData` 还包含
-/// `TIME_UNITS_ARRAY`、`ACCRUE_TYPES`、`TASK_NAMES` 等，由 `locale_data` / `locale_data_XX`
-/// 模块承载（本模块不依赖）。
-struct LocaleResources {
-    /// 对应资源键 `FILE_DELIMITER`
-    file_delimiter: char,
-    /// 对应资源键 `PROGRAM_NAME`
-    program_name: &'static str,
-    /// 对应资源键 `CODE_PAGE`
-    code_page: CodePage,
-    /// 对应资源键 `CURRENCY_SYMBOL`
-    currency_symbol: &'static str,
-    /// 对应资源键 `CURRENCY_SYMBOL_POSITION`
-    currency_symbol_position: CurrencySymbolPosition,
-    /// 对应资源键 `CURRENCY_DIGITS`
-    currency_digits: i32,
-    /// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
-    currency_thousands_separator: char,
-    /// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
-    currency_decimal_separator: char,
-    /// 对应资源键 `DATE_ORDER`
-    date_order: DateOrder,
-    /// 对应资源键 `TIME_FORMAT`
-    time_format: ProjectTimeFormat,
-    /// 对应资源键 `DEFAULT_START_TIME`（单位：自午夜起的分钟数）
-    default_start_time_minutes: i32,
-    /// 对应资源键 `DATE_SEPARATOR`
-    date_separator: char,
-    /// 对应资源键 `TIME_SEPARATOR`
-    time_separator: char,
-    /// 对应资源键 `AM_TEXT`
-    am_text: &'static str,
-    /// 对应资源键 `PM_TEXT`
-    pm_text: &'static str,
-    /// 对应资源键 `DATE_FORMAT`
-    date_format: ProjectDateFormat,
-}
-
-/// 英文（默认）资源，取自 Java `LocaleData.RESOURCE_DATA`。
-///
-/// Java 的 `LocaleData_en` 资源包为空，即英语完全使用这组默认值。
-static EN_RESOURCES: LocaleResources = LocaleResources {
-    file_delimiter: ',',
-    program_name: "Microsoft Project for Windows",
-    code_page: CodePage::Ansi,
-    currency_symbol: "$",
-    currency_symbol_position: CurrencySymbolPosition::Before,
-    currency_digits: 2,
-    currency_thousands_separator: ',',
-    currency_decimal_separator: '.',
-    date_order: DateOrder::Dmy,
-    time_format: ProjectTimeFormat::TwelveHour,
-    default_start_time_minutes: 480,
-    date_separator: '/',
-    time_separator: ':',
-    am_text: "am",
-    pm_text: "pm",
-    date_format: ProjectDateFormat::DdMmYyyy,
-};
-
-/// 取区域设置对应的资源集合。
-///
-/// 对应 Java: `ResourceBundle.getBundle(LocaleData.class.getName(), locale)`
-///
-/// 取舍：Java 会按语言加载 `LocaleData_de` / `LocaleData_fr` / … 覆盖默认值；Rust 侧这些
-/// 本地化资源由并行的 `locale_data_XX` 模块承载，本模块不依赖它们，因此除英语外统一回落到
-/// 英文默认资源（见文件头说明）。
-fn resources_for(locale: MpxLocale) -> &'static LocaleResources {
-    match locale {
-        MpxLocale::En => &EN_RESOURCES,
-        MpxLocale::De
-        | MpxLocale::Fr
-        | MpxLocale::It
-        | MpxLocale::Pt
-        | MpxLocale::Sv
-        | MpxLocale::Zh
-        | MpxLocale::Es
-        | MpxLocale::Ru => &EN_RESOURCES,
     }
 }
 
@@ -272,6 +241,7 @@ mod tests {
     use std::rc::Weak;
 
     use super::*;
+    use crate::code_page::CodePage;
 
     /// 构造一个用于测试的项目属性（无父文件）。
     fn properties() -> ProjectProperties {
@@ -316,13 +286,34 @@ mod tests {
         );
     }
 
+    /// 非英语区域设置按其本地化资源取值（修复前一律回落到英文默认资源）。
+    ///
+    /// 期望值与 Java 的 `LocaleData_de` / `LocaleData_fr` 一致（见 `locale_data_de` /
+    /// `locale_data_fr` 的常量）。
     #[test]
-    fn set_locale_keeps_working_for_non_english_locales() {
-        // 取舍：非英文区域设置目前回落到英文默认资源（见文件头）。
-        let mut properties = properties();
-        LocaleUtility::set_locale(&mut properties, MpxLocale::De);
-        assert_eq!(properties.get_mpx_delimiter(), ',');
-        assert_eq!(properties.get_mpx_code_page(), CodePage::Ansi);
+    fn set_locale_applies_localised_values_for_non_english_locales() {
+        // 德语：分隔符 ';'、日期分隔符 '.'、24 小时制、货币符号后置且带空格
+        let mut german_properties = properties();
+        LocaleUtility::set_locale(&mut german_properties, MpxLocale::De);
+
+        assert_eq!(german_properties.get_mpx_delimiter(), ';');
+        assert_eq!(german_properties.get_mpx_code_page(), CodePage::Ansi);
+        assert_eq!(german_properties.get_date_separator(), '.');
+        assert_eq!(german_properties.get_time_separator(), ':');
+        assert_eq!(german_properties.get_thousands_separator(), '.');
+        assert_eq!(german_properties.get_decimal_separator(), ',');
+        assert_eq!(german_properties.get_currency_symbol(), "€");
+        assert_eq!(
+            german_properties.get_default_start_time(),
+            NaiveTime::from_hms_opt(8, 0, 0).unwrap()
+        );
+
+        // 法语：分隔符 ';'、货币符号为空字符串
+        let mut french_properties = properties();
+        LocaleUtility::set_locale(&mut french_properties, MpxLocale::Fr);
+
+        assert_eq!(french_properties.get_mpx_delimiter(), ';');
+        assert_eq!(french_properties.get_currency_symbol(), "");
     }
 
     #[test]

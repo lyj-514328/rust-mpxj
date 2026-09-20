@@ -220,6 +220,16 @@ impl<'a> Record<'a> {
         self.m_record_number
     }
 
+    /// 取本记录使用的格式集合（Rust 特有入口）。
+    ///
+    /// 对应 Java: 无此方法 —— Java 的 `MPXReader` 直接访问成员 `m_formats`，而 Rust 侧
+    /// `MPXReader` 不持有格式集合（见其文件头差异第 1 条），需要格式对象的调用点
+    /// （如 `DurationUtility.getInstance(field, m_formats.getDurationDecimalFormat(), locale)`）
+    /// 改为经本方法取回。
+    pub fn get_formats(&self) -> &'a MPXJFormats {
+        self.m_formats
+    }
+
     /// 取指定序号字段的文本内容。
     ///
     /// 对应 Java: `public String getString(int field)`
@@ -397,7 +407,11 @@ impl<'a> Record<'a> {
             return Ok(None);
         };
 
-        Ok(DurationUtility::get_instance(Some(text), self.m_locale))
+        Ok(DurationUtility::get_instance(
+            Some(text),
+            self.m_formats.get_duration_decimal_format(),
+            self.m_locale,
+        ))
     }
 
     /// 取指定序号字段的「单位数」值（解析结果乘以 100）。

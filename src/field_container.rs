@@ -12,8 +12,10 @@ use crate::listener::field_listener::FieldListener;
 ///
 /// Java 的 `List<Duration> getTimephasedDurationValues(FieldType, List<LocalDateTimeRange>, TimeUnit)`
 /// 与 `List<Number> getTimephasedNumericValues(FieldType, List<LocalDateTimeRange>)`
-/// 暂未移植 —— 它们服务于 timephased 查询，不属于 reader 读入路径，
-/// 待 `TimephasedDataFactory` 落地后再补。
+/// 未移植：`TimephasedDataFactory`（`crate::mpp::timephased_data_factory`）与
+/// [`crate::timephased_work::TimephasedWork`] / [`crate::timephased_cost::TimephasedCost`]
+/// 均已落地，缺的是 [`crate::FieldValue`] 承载 timephased 列表的变体；且它们服务于
+/// timephased 查询，不属于 reader 读入路径。
 ///
 /// 另外 Java 的 `removeFieldListener(FieldListener)` 按对象身份移除监听器，
 /// Rust 无法表达，改为 [`FieldContainer::clear_field_listeners`]。

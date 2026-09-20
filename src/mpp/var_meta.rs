@@ -22,7 +22,7 @@
 //! | `Integer[] getUniqueIdentifierArray()` | `Vec<i32>` | 元素顺序与 Java 的 `TreeMap.keySet()` 一致（升序） |
 //! | `Set<Integer> getUniqueIdentifierSet()` / `Set<Integer> getTypes(Integer)` | `BTreeSet<i32>` | Java 返回 `TreeMap.keySet()` 的升序**实时视图**，Rust 返回升序集合副本 |
 //! | `int[] getOffsets()` | `&[i32]` | Java 返回内部数组，Rust 返回内部切片的借用（避免复制；调用方无法改写） |
-//! | `String toString(FieldMap fieldMap)` | `to_string_with_field_map(Option<&dyn VarDataKeyResolver>)` | `FieldMap` 尚未移植，改用只声明所需能力的 [`VarDataKeyResolver`]；`null` → `None` |
+//! | `String toString(FieldMap fieldMap)` | `to_string_with_field_map(Option<&dyn VarDataKeyResolver>)` | `FieldMap` 已落地（[`crate::mpp::field_map::FieldMap`] 且已 `impl VarDataKeyResolver`），但仍以只声明所需能力的 [`VarDataKeyResolver`] 取参：Java 的 `getFieldTypeFromVarDataKey` 返回 `FieldType` 接口，本 crate 的 `FieldType` trait 带 `Option<Self>` 返回值、非对象安全，无法以 trait 对象形式返回；`null` → `None` |
 //!
 //! 跳过的 Java 方法：无。
 //!
@@ -35,8 +35,8 @@ use std::collections::BTreeSet;
 /// 对应 Java: `org.mpxj.mpp.FieldMap#getFieldTypeFromVarDataKey(Integer key)`
 ///
 /// Java 的 `AbstractVarMeta#toString(FieldMap)` 仅用它把 VarData 键翻译成字段名（调试输出）。
-/// Rust 侧 `FieldMap` 尚未移植（也不在 `mpp/mod.rs` 的模块清单内），故这里只声明该方法所需的
-/// 最小能力，避免 `AbstractVarMeta` 依赖一个不存在的模块：
+/// Rust 侧 [`crate::mpp::field_map::FieldMap`] 已落地并已 `impl VarDataKeyResolver`，本 trait
+/// 仍只声明该方法所需的最小能力（使 `AbstractVarMeta` 不依赖 `FieldMap` 的具体类型）：
 ///
 /// - Java 返回 `FieldType`（`org.mpxj.FieldType` 接口），但 Rust 的 `FieldType` trait
 ///   带 `Option<Self>` 返回值、不是对象安全类型，无法以 trait 对象形式返回，故改返回**字段显示名**；

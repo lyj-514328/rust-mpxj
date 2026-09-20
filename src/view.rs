@@ -11,9 +11,10 @@
 //!
 //! # 与 Java 的差异
 //!
-//! - **实现类**：Java 的实现类位于 `org.mpxj.mpp`（`MPPView` 等），本 crate 只移植
-//!   `org.mpxj` 根包的 reader 领域模型，这些实现类未在本仓声明，因此本 trait 只提供
-//!   契约，由使用方（或后续移植的 MPP reader）自行实现。
+//! - **实现类**：Java 的实现类位于 `org.mpxj.mpp`（`MPPView` 等），本 crate 已在 `src/mpp/`
+//!   落地全部实现类（`AbstractView` / `AbstractMppView` / `GanttChartView` / `GenericView` /
+//!   `View8` / `SplitView9` 等，均 `impl View`）；本 trait 只提供契约，其余使用方
+//!   （如 `ViewContainer` 的测试替身）也自行实现。
 //! - **可空返回**：Java 的实现允许返回 `null`，Rust 侧用 `Option` 表达；
 //!   名称类返回值用 `Option<&str>`（避免字符串拷贝）。
 //! - **`getTable()`**：Java 返回 `Table` 引用；Rust 侧返回

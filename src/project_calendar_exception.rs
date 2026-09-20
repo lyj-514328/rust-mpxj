@@ -2,11 +2,10 @@
 //!
 //! 跳过的 Java 方法：无。
 //!
-//! # 依赖说明（重要）
+//! # 用到的 `RecurringData` 接口
 //!
-//! 本文件依赖 `org.mpxj.RecurringData`（对应 Rust 模块 `crate::recurring_data`）。
-//! 该类型当前尚未移植，`src/lib.rs` 中也还未声明 `pub mod recurring_data;`，
-//! 因此本文件目前会产生「未声明的模块」编译错误，需要在本模块落地后补上模块声明。
+//! 本文件依赖 `org.mpxj.RecurringData`（对应已落地的 [`crate::recurring_data::RecurringData`]；
+//! `src/lib.rs` 已声明 `pub mod recurring_data;`）。
 //! 本文件按下列（由 Java getter/setter 一一对应的）签名使用 `RecurringData`：
 //!
 //! ```text

@@ -12,8 +12,11 @@ use crate::local_date_time_range::LocalDateTimeRange;
 /// 移植说明：
 /// - Java 侧继承 `ArrayList<Availability>`；Rust 侧改为持有 `Vec<Availability>` 的独立
 ///   容器，并只提供翻译所需的集合操作（长度、按下标取元素、追加、迭代）。
-/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 因该工具类尚未启用
-///   （依赖未移植的 `ProjectCalendar`），在本文件内以私有函数复刻。
+/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 在本文件内以私有函数复刻：
+///   该工具类**已启用**（[`crate::common::local_date_time_helper`] 提供同值的
+///   `start_date_na()` / `end_date_na()`），这里的复刻属历史遗留（待清理）。
+///   注意：Java 本类的 `END_DATE_NA`（23:58）与 helper 的（23:59）取值不同，
+///   见 [`AvailabilityTable::end_date_na`]（两者不可互相替换）。
 ///
 /// 未移植的 Java 方法：无（`ArrayList` 继承而来的方法不计入本类翻译范围）。
 #[derive(Debug, Clone, Default)]
@@ -250,8 +253,8 @@ impl AvailabilityTable {
 
 /// 对应 Java: `LocalDateTimeHelper.START_DATE_NA`（1984-01-01 00:00）。
 ///
-/// 该工具类尚未在 Rust 侧启用（其 `getVariance` 依赖未移植的 `ProjectCalendar`），
-/// 故此处局部复刻，取值与 Java 完全一致。
+/// [`crate::common::local_date_time_helper`] 已启用并提供同值方法，此处为历史遗留的复刻
+/// （待清理），取值与 Java 完全一致。
 fn start_date_na() -> NaiveDateTime {
     match (
         NaiveDate::from_ymd_opt(1984, 1, 1),

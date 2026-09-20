@@ -7,15 +7,14 @@
 //!   故把基类的实现（`clearBaseline` / `populateBaseline` / `getKeyForTask` /
 //!   `getBaselineFields` / `getSourceFields`）原样并入本类型。
 //! - **`TaskFieldLists`**：Java 从 `org.mpxj.common.TaskFieldLists` 取 baseline 字段数组；
-//!   该类型不在本次移植范围内，故把用到的 7 个数组 `const` 定义在本文件内。
+//!   Rust 侧引用同一份已落地的常量（[`crate::common::task_field_lists::TaskFieldLists`]），
+//!   不在本文件内另定义一份，避免两边取值漂移。
 //! - **单例 `INSTANCE`**：Java 的 `public static final DefaultBaselineStrategy INSTANCE`
 //!   在 Rust 侧用同名常量 [`DefaultBaselineStrategy::INSTANCE`] 表达。本类型无可变字段，
 //!   可以直接 `const` 构造，因此无需 `OnceLock` / `instance()` 函数
 //!   （`crate::project_config::ProjectConfig` 也按 `DefaultBaselineStrategy::INSTANCE` 使用）。
 //!
-//! # 依赖说明（重要）
-//!
-//! `ProjectFile`、`Task` 由并行任务翻译中，当前可能尚未落地。本文件按下列签名使用它们：
+//! # 用到的 `ProjectFile` / `Task` 接口
 //!
 //! ```text
 //! ProjectFile::new() -> ProjectFile
@@ -36,6 +35,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::baseline_strategy::BaselineStrategy;
+use crate::common::task_field_lists::TaskFieldLists;
 use crate::field_key::FieldKey;
 use crate::project_file::ProjectFile;
 use crate::task::Task;
@@ -81,13 +81,13 @@ impl DefaultBaselineStrategy {
         };
 
         let fields = [
-            BASELINE_COSTS.get(offset),
-            BASELINE_DURATIONS.get(offset),
-            BASELINE_FINISHES.get(offset),
-            BASELINE_FIXED_COST_ACCRUALS.get(offset),
-            BASELINE_FIXED_COSTS.get(offset),
-            BASELINE_STARTS.get(offset),
-            BASELINE_WORKS.get(offset),
+            TaskFieldLists::BASELINE_COSTS.get(offset),
+            TaskFieldLists::BASELINE_DURATIONS.get(offset),
+            TaskFieldLists::BASELINE_FINISHES.get(offset),
+            TaskFieldLists::BASELINE_FIXED_COST_ACCRUALS.get(offset),
+            TaskFieldLists::BASELINE_FIXED_COSTS.get(offset),
+            TaskFieldLists::BASELINE_STARTS.get(offset),
+            TaskFieldLists::BASELINE_WORKS.get(offset),
         ];
 
         fields.into_iter().flatten().copied().collect()
@@ -220,104 +220,6 @@ const BASELINE0_FIELDS: [TaskField; 7] = [
     TaskField::BaselineWork,
 ];
 
-/// 对应 Java: `TaskFieldLists.BASELINE_COSTS`
-const BASELINE_COSTS: [TaskField; 10] = [
-    TaskField::Baseline1Cost,
-    TaskField::Baseline2Cost,
-    TaskField::Baseline3Cost,
-    TaskField::Baseline4Cost,
-    TaskField::Baseline5Cost,
-    TaskField::Baseline6Cost,
-    TaskField::Baseline7Cost,
-    TaskField::Baseline8Cost,
-    TaskField::Baseline9Cost,
-    TaskField::Baseline10Cost,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_DURATIONS`
-const BASELINE_DURATIONS: [TaskField; 10] = [
-    TaskField::Baseline1Duration,
-    TaskField::Baseline2Duration,
-    TaskField::Baseline3Duration,
-    TaskField::Baseline4Duration,
-    TaskField::Baseline5Duration,
-    TaskField::Baseline6Duration,
-    TaskField::Baseline7Duration,
-    TaskField::Baseline8Duration,
-    TaskField::Baseline9Duration,
-    TaskField::Baseline10Duration,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_FINISHES`
-const BASELINE_FINISHES: [TaskField; 10] = [
-    TaskField::Baseline1Finish,
-    TaskField::Baseline2Finish,
-    TaskField::Baseline3Finish,
-    TaskField::Baseline4Finish,
-    TaskField::Baseline5Finish,
-    TaskField::Baseline6Finish,
-    TaskField::Baseline7Finish,
-    TaskField::Baseline8Finish,
-    TaskField::Baseline9Finish,
-    TaskField::Baseline10Finish,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_FIXED_COST_ACCRUALS`
-const BASELINE_FIXED_COST_ACCRUALS: [TaskField; 10] = [
-    TaskField::Baseline1FixedCostAccrual,
-    TaskField::Baseline2FixedCostAccrual,
-    TaskField::Baseline3FixedCostAccrual,
-    TaskField::Baseline4FixedCostAccrual,
-    TaskField::Baseline5FixedCostAccrual,
-    TaskField::Baseline6FixedCostAccrual,
-    TaskField::Baseline7FixedCostAccrual,
-    TaskField::Baseline8FixedCostAccrual,
-    TaskField::Baseline9FixedCostAccrual,
-    TaskField::Baseline10FixedCostAccrual,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_FIXED_COSTS`
-const BASELINE_FIXED_COSTS: [TaskField; 10] = [
-    TaskField::Baseline1FixedCost,
-    TaskField::Baseline2FixedCost,
-    TaskField::Baseline3FixedCost,
-    TaskField::Baseline4FixedCost,
-    TaskField::Baseline5FixedCost,
-    TaskField::Baseline6FixedCost,
-    TaskField::Baseline7FixedCost,
-    TaskField::Baseline8FixedCost,
-    TaskField::Baseline9FixedCost,
-    TaskField::Baseline10FixedCost,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_STARTS`
-const BASELINE_STARTS: [TaskField; 10] = [
-    TaskField::Baseline1Start,
-    TaskField::Baseline2Start,
-    TaskField::Baseline3Start,
-    TaskField::Baseline4Start,
-    TaskField::Baseline5Start,
-    TaskField::Baseline6Start,
-    TaskField::Baseline7Start,
-    TaskField::Baseline8Start,
-    TaskField::Baseline9Start,
-    TaskField::Baseline10Start,
-];
-
-/// 对应 Java: `TaskFieldLists.BASELINE_WORKS`
-const BASELINE_WORKS: [TaskField; 10] = [
-    TaskField::Baseline1Work,
-    TaskField::Baseline2Work,
-    TaskField::Baseline3Work,
-    TaskField::Baseline4Work,
-    TaskField::Baseline5Work,
-    TaskField::Baseline6Work,
-    TaskField::Baseline7Work,
-    TaskField::Baseline8Work,
-    TaskField::Baseline9Work,
-    TaskField::Baseline10Work,
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,5 +300,31 @@ mod tests {
         let strategy = DefaultBaselineStrategy::INSTANCE;
         assert!(strategy.get_baseline_fields(-1).is_empty());
         assert!(strategy.get_baseline_fields(11).is_empty());
+    }
+
+    /// 去重回归：baseline 1-10 的字段必须与 [`TaskFieldLists`] 的 7 个常量**同源**。
+    ///
+    /// 本文件曾自备一份 `BASELINE_*` 常量数组，与 `TaskFieldLists` 的取值各自演化；
+    /// 本测试把「两边取值一致」锁死。
+    #[test]
+    fn numbered_baseline_fields_track_task_field_lists() {
+        let strategy = DefaultBaselineStrategy::INSTANCE;
+
+        for index in 1..=10 {
+            let offset = (index - 1) as usize;
+            assert_eq!(
+                strategy.get_baseline_fields(index),
+                vec![
+                    TaskFieldLists::BASELINE_COSTS[offset],
+                    TaskFieldLists::BASELINE_DURATIONS[offset],
+                    TaskFieldLists::BASELINE_FINISHES[offset],
+                    TaskFieldLists::BASELINE_FIXED_COST_ACCRUALS[offset],
+                    TaskFieldLists::BASELINE_FIXED_COSTS[offset],
+                    TaskFieldLists::BASELINE_STARTS[offset],
+                    TaskFieldLists::BASELINE_WORKS[offset],
+                ],
+                "baseline {index} 的字段应与 TaskFieldLists 的同名常量一致"
+            );
+        }
     }
 }

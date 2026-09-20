@@ -12,13 +12,12 @@
 //! [`MPPComponent::read_byte_array`]，输入源换成字节切片，游标（读取位置）由调用方持有并前移，
 //! 逐个方法的语义与 Java 完全一致。
 //!
-//! 既有子类**已经各自实现了等价的私有读取助手**，本模块不依赖它们，它们也不依赖本模块
-//! （按本批约定不得改动这两个文件）：
+//! 既有子类的读取助手已改为**转发**到本模块，不再各自复刻一份等价实现：
 //!
-//! | 已落地模块 | 等价实现 |
+//! | 已落地模块 | 转发方式 |
 //! |---|---|
-//! | `props.rs` | 私有 `InputStreamCursor`（`read_int` / `read_short` / `read` / `skip` / `available`） |
-//! | `abstract_var_meta.rs` | 私有函数 `read_byte` / `read_int` / `read_short` |
+//! | `props.rs` | `InputStreamCursor` 的 `read_int` / `read_short` / `read` 转发到本模块；其 `available` / `skip` 对应的是 `InputStream.available()` / `InputStreamHelper.skip`（本模块没有等价成员），仍留在该文件 |
+//! | `abstract_var_meta.rs` | crate 内自由函数 `read_byte` / `read_int` / `read_short` 转发到本模块 |
 //!
 //! # 与 Java 的差异
 //!

@@ -52,19 +52,17 @@
 //!   [`crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider`] 改用
 //!   [`std::any::TypeId`] 作键、返回共享的 [`ObjectSequence`]（`Rc<ObjectSequence>`，
 //!   与 Java 侧 `computeIfAbsent` 返回同一实例的语义一致）。
-//! - **已知的跨模块接口分歧**：`crate::structured_notes`（既有文件）按「类名字符串」调用
-//!   `get_unique_id_object_sequence("org.mpxj.StructuredNotes")`，并假设
-//!   `ObjectSequence::getNext()` / `syncOrGetNext()` 返回 `Option<i32>`；这与已落地的
+//! - **跨模块接口已对齐**：`crate::structured_notes` 已改为按
+//!   `get_unique_id_object_sequence::<StructuredNotes>(context)`（[`std::any::TypeId`] 键）
+//!   取序列，并直接使用 `sync_or_get_next` 的 `i32` 返回值，与
 //!   [`crate::unique_id_object_sequence_provider`] / [`crate::common::object_sequence`]
-//!   （`TypeId` 键、`i32` 返回值）不一致。本文件按已落地的 trait 实现，该调用方待对齐
-//!   （`crate::project_calendar` 已对齐到 `TypeId`，无需再改）。
-//! - 未派生 `Debug`：字段的调试输出依赖仍未落地的 `EventManager` / `ResourceContainer`
-//!   等模块是否实现 `Debug`，待这些模块落地后再决定是否补上。
+//!   完全一致（`crate::project_calendar` 同样已对齐到 `TypeId`）。
+//! - 未派生 `Debug`：字段类型里的 `EventManager`（以及 `ProjectFile`）未实现 `Debug`，
+//!   故本类型也只能手工实现（相关模块均已落地，缺的是各自的 `Debug` 实现）。
 //!
-//! # 本文件对并行模块接口的假设（集成时如不一致需对齐）
+//! # 用到的各容器构造签名（已核对一致）
 //!
-//! 下列构造表达式按各模块已落地的签名书写；仍未落地的模块（`ResourceContainer` /
-//! `EventManager` / `ProjectFile`）按「与 Java 构造方法等价的 Rust 签名」假设：
+//! 下列构造表达式按各模块已落地的签名书写：
 //! `UnitOfMeasureContainer::new()`、`WorkContourContainer::new(sequence_provider)`、
 //! `NotesTopicContainer::new(sequence_provider)`、`CustomFieldContainer::new()`（返回
 //! `Rc<RefCell<Self>>`）、`UserDefinedFieldContainer::new()`、`ShiftContainer::new()`、

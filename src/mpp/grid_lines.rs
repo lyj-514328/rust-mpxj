@@ -112,33 +112,19 @@ impl Display for GridLines {
         write!(
             f,
             "[GridLines NormalLineColor={} NormalLineStyle={} IntervalNumber={} IntervalLineStyle={} IntervalLineColor={}]",
-            format_color(self.normal_line_color),
+            format_optional_display(self.normal_line_color),
             format_optional_display(self.normal_line_style),
             self.interval_number,
             format_optional_display(self.interval_line_style),
-            format_color(self.interval_line_color)
+            format_optional_display(self.interval_line_color)
         )
     }
 }
 
-/// 把 `Option<Color>` 格式化成 Java 的 `java.awt.Color.toString()` 形式（`None` 输出 `null`）。
-///
-/// 说明：与 `crate::mpp::font_style` 中的同名辅助函数重复，原因是要保持
-/// [`crate::mpp::mpp_utility::Color`]（已落地文件，不得修改）不含 `Display`，
-/// 且本批不允许新增模块来放置公共辅助函数。
-fn format_color(color: Option<Color>) -> String {
-    match color {
-        Some(color) => format!(
-            "java.awt.Color[r={},g={},b={}]",
-            color.get_red(),
-            color.get_green(),
-            color.get_blue()
-        ),
-        None => "null".to_owned(),
-    }
-}
-
 /// 把可选对象按 Java 的字符串拼接语义输出（`None` 输出 `null`）。
+///
+/// [`Color`] 与 [`LineStyle`] 都实现了 [`Display`]：前者输出 `java.awt.Color[r=..,g=..,b=..]`
+/// （见 `crate::mpp::mpp_utility::Color` 的 `Display`），后者是枚举常量名，与 Java 的拼接结果一致。
 fn format_optional_display<T: Display>(value: Option<T>) -> String {
     match value {
         Some(value) => value.to_string(),

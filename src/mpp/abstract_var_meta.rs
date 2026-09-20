@@ -11,9 +11,9 @@
 //!   使 `AbstractVarMeta` 值本身与 `dyn VarMeta` 都能直接调用；
 //! - `extends MPPComponent` → Java 的 `MPPComponent` 只提供 4 个读取助手
 //!   （`readByte` / `readShort` / `readInt` / `readByteArray`，均接收 `InputStream`），
-//!   Rust 侧按约定把输入源统一为 `&[u8]`，因此把它们改写为「字节切片 + 游标」形式的
-//!   [`read_byte`] / [`read_short`] / [`read_int`] 三个 crate 内可见的自由函数，
-//!   供 `VarMeta9` / `VarMeta12` / `Var2Data` 复用；
+//!   Rust 侧已把它落地为 [`crate::mpp::mpp_component::MPPComponent`]（输入源统一为
+//!   `&[u8]`）；本文件的 [`read_byte`] / [`read_short`] / [`read_int`] 三个 crate 内可见的
+//!   自由函数**直接转发**到它，供 `VarMeta9` / `VarMeta12` / `Var2Data` 沿用既有引用路径；
 //! - `VarMeta9 / VarMeta12 extends AbstractVarMeta` → 组合 + 转发（见各自文件）。
 //!
 //! # 与 Java 的差异
@@ -24,7 +24,7 @@
 //! | `TreeMap<Integer, Map<Integer, Integer>>` | `BTreeMap<i32, BTreeMap<i32, i32>>` | `getUniqueIdentifierArray` / `getUniqueIdentifierSet` / `toString` 都依赖 `TreeMap` 的升序遍历顺序，故用有序的 `BTreeMap`（而非约定的 `HashMap`） |
 //! | `Integer` 参数（可空） | `Option<i32>` | 遵循「`null` → `Option<T>`」约定 |
 //! | `Set<Integer>` | `BTreeSet<i32>` | Rust 侧返回升序集合副本，而非 `TreeMap.keySet()` 的实时视图 |
-//! | `FieldMap` 参数 | `Option<&dyn VarDataKeyResolver>` | `FieldMap` 未移植，仅声明 `toString` 所需能力（见 [`VarDataKeyResolver`]） |
+//! | `FieldMap` 参数 | `Option<&dyn VarDataKeyResolver>` | `FieldMap` 已落地（[`crate::mpp::field_map::FieldMap`] 并已 `impl VarDataKeyResolver`），但本文件仍以 [`VarDataKeyResolver`] 取参：Java 的 `getFieldTypeFromVarDataKey` 返回 `FieldType` 接口，而本 crate 的 `FieldType` trait 带 `Option<Self>` 返回值、不是对象安全类型，无法以 trait 对象形式返回，故只声明 `toString` 所需的最小能力（返回字段显示名） |
 //! | `toString()` | `impl Display` | Java 的 `toString()` 内部调用 `toString(null)` |
 //! | 读取越界抛 `EOFException` / `IndexOutOfBoundsException` | 返回 `None`、提前结束解析 | 遵循「库代码不 panic」约定，见 [`read_int`] |
 //!
@@ -36,52 +36,40 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
-use crate::common::byte_array_helper::ByteArrayHelper;
+use crate::mpp::mpp_component::MPPComponent;
 use crate::mpp::var_meta::{VarDataKeyResolver, VarMeta};
 
 /// 从字节切片中按小端读取一个 4 字节整数并前移游标。
 ///
 /// 对应 Java: `MPPComponent.readInt(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
 ///
+/// 实现转发到已落地的 [`MPPComponent::read_int`]，本文件不再复刻一份字节解析逻辑；
+/// 保留本函数是为了让 `VarMeta9` / `VarMeta12` / `Var2Data` 沿用「按模块取读取助手」的
+/// 既有引用路径（`crate::mpp::abstract_var_meta::read_int`）。
+///
 /// 剩余字节不足 4 个时 Java 抛 `EOFException`，Rust 侧返回 `None`（游标不动），由调用方决定
 /// 提前结束解析的方式 —— 绝不 panic。
 pub(crate) fn read_int(data: &[u8], position: &mut usize) -> Option<i32> {
-    let end = position.checked_add(4)?;
-    if end > data.len() {
-        return None;
-    }
-
-    let result = ByteArrayHelper::get_int(data, *position);
-    *position = end;
-    Some(result)
+    MPPComponent::read_int(data, position)
 }
 
 /// 从字节切片中按小端读取一个 2 字节整数并前移游标。
 ///
 /// 对应 Java: `MPPComponent.readShort(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
 ///
-/// 返回值为 `0..=65535`；剩余字节不足 2 个时返回 `None`（Java 抛 `EOFException`）。
+/// 实现转发到 [`MPPComponent::read_short`]；返回值为 `0..=65535`，
+/// 剩余字节不足 2 个时返回 `None`（Java 抛 `EOFException`）。
 pub(crate) fn read_short(data: &[u8], position: &mut usize) -> Option<i32> {
-    let end = position.checked_add(2)?;
-    if end > data.len() {
-        return None;
-    }
-
-    let result = ByteArrayHelper::get_short(data, *position);
-    *position = end;
-    Some(result)
+    MPPComponent::read_short(data, position)
 }
 
 /// 从字节切片中读取一个无符号字节（`0..=255`）并前移游标。
 ///
 /// 对应 Java: `MPPComponent.readByte(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
 ///
-/// 到达末尾时返回 `None`（Java 抛 `EOFException`）。
+/// 实现转发到 [`MPPComponent::read_byte`]；到达末尾时返回 `None`（Java 抛 `EOFException`）。
 pub(crate) fn read_byte(data: &[u8], position: &mut usize) -> Option<i32> {
-    let value = data.get(*position)?;
-    let result = i32::from(*value);
-    *position += 1;
-    Some(result)
+    MPPComponent::read_byte(data, position)
 }
 
 /// 变长数据块的元数据（`VarMeta` 的基类实现）。
@@ -409,5 +397,48 @@ mod tests {
         assert_eq!(position, 3);
         assert_eq!(read_byte(&data, &mut position), None);
         assert_eq!(position, 3);
+    }
+
+    /// 去重回归：本文件的读取助手与 [`MPPComponent`] 的同名方法取值、游标推进完全一致。
+    ///
+    /// 这两个模块曾各存一份等价实现（另有 `props.rs` 的 `InputStreamCursor`），
+    /// 如今前者**转发**到后者；本测试把「两边行为一致」锁死。
+    #[test]
+    fn read_helpers_match_mpp_component() {
+        let data = [0xFFu8, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0x01];
+
+        let mut helper_position = 0usize;
+        let mut component_position = 0usize;
+
+        assert_eq!(
+            read_byte(&data, &mut helper_position),
+            MPPComponent::read_byte(&data, &mut component_position)
+        );
+        assert_eq!(helper_position, component_position);
+
+        assert_eq!(
+            read_short(&data, &mut helper_position),
+            MPPComponent::read_short(&data, &mut component_position)
+        );
+        assert_eq!(helper_position, component_position);
+
+        assert_eq!(
+            read_int(&data, &mut helper_position),
+            MPPComponent::read_int(&data, &mut component_position)
+        );
+        assert_eq!(helper_position, component_position);
+        // 1（byte）+ 2（short）+ 4（int）= 7
+        assert_eq!(helper_position, 7);
+
+        // 越界：两边同样返回 None，且都不移动游标
+        let short = [0x01u8];
+        let mut helper_position = 1usize;
+        let mut component_position = 1usize;
+        assert_eq!(
+            read_int(&short, &mut helper_position),
+            MPPComponent::read_int(&short, &mut component_position)
+        );
+        assert_eq!(helper_position, component_position);
+        assert_eq!(helper_position, 1);
     }
 }

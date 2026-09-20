@@ -13,7 +13,7 @@
 //! | 继承来的 `process()` / `getTypedValue(...)` / `protected` 字段 | 逐一转发到 `base`（见各方法说明） |
 //! | 构造方法中按 `m_properties.getApplicationVersion()` 分支赋值的三个偏移 | 构造后调用 `base.set_*_offset`，判定逻辑同 Java |
 //! | `NumberHelper.getInt(m_properties.getApplicationVersion())` | [`ProjectProperties::get_application_version`]（`Option<i32>`）+ `unwrap_or(0)`，与 Java 把 `null` 视为 0 一致 |
-//! | `ApplicationVersion.PROJECT_2010` | 本文件的私有常量 [`PROJECT_2010`] | Java 的 `ApplicationVersion` 是常量类，其 Rust 模块（`crate::mpp::application_version`）在本批次尚未落地，为避免依赖未落地的模块，这里就地以私有常量表达；该模块落地后可改为引用（见下方注释） |
+//! | `ApplicationVersion.PROJECT_2010` | 本文件的私有常量 [`PROJECT_2010`] | Java 的 `ApplicationVersion` 是常量类，其 Rust 模块 [`crate::mpp::application_version`] **已落地**并提供同值的 `ApplicationVersion::PROJECT_2010`；本文件的私有常量是并行开发期留下的等价定义，尚未改为引用（取值相同，属待清理的重复定义） |
 //!
 //! 跳过的 Java 方法：无（本类只有 1 个构造方法，无其它方法）。
 //!
@@ -38,9 +38,8 @@ use crate::project_file::ProjectFile;
 ///
 /// 对应 Java: `ApplicationVersion.PROJECT_2010`
 ///
-/// 说明：Java 的常量类 `org.mpxj.mpp.ApplicationVersion` 对应的 Rust 模块
-///（`crate::mpp::application_version`）在本批次尚未落地，故在此就地定义同名的私有常量；
-/// 该模块落地后可改为 `use crate::mpp::application_version::PROJECT_2010;`。
+/// 说明：[`crate::mpp::application_version`] 已落地并提供同值常量，本私有常量是并行
+/// 开发期留下的等价定义（待清理，见文件头差异表）。
 const PROJECT_2010: i32 = 14;
 
 /// MPP14 取值列表读取器。

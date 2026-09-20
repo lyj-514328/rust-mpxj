@@ -38,10 +38,15 @@
 //! - Java LENIENT 模式下的字段溢出归一化（如 `31/02` 被归一化）不实现：非法日期
 //!   直接返回 `None`。
 //! - `F` / `w` 只参与解析 / 打印，不参与日期还原（仅凭这两个字段 Java 也无法还原日期）。
-//! - 月份名 / 星期名：Java 通过 `withLocale(m_locale)` 取 JDK 的本地化文本，Rust 侧暂用
-//!   英文常量占位，集中放在 [`english_names`]，待 `crate::mpx::locale_data` 落地后改为
-//!   按 [`MpxLocale`] 取值。上午 / 下午文本与 Java 一致，取自项目属性的
-//!   `getAmText` / `getPmText`（Java 侧编入 `appendText` 的映射表）。
+//! - 月份名 / 星期名（**真硬限制**）：Java 通过 `withLocale(m_locale)` 取 **JDK `java.time`**
+//!   的本地化文本，Rust 侧一律落到英文常量（[`english_names`]），因此所有区域设置的
+//!   月份 / 星期名都是英文。注意：`crate::mpx::locale_data` **已落地**，但它不含月份 /
+//!   星期名（Java 的 `org.mpxj.mpx.LocaleData` 里也没有），所以**不能**靠它还原 ——
+//!   数据源在 JDK 的本地化数据里。真实可行的修复路径只有两条：
+//!   （a）自建 9 个受支持语种的月份 / 星期表；（b）启用 chrono 的 `unstable-locales`
+//!   特性（需新增依赖，与本工程「不新增依赖」的约定冲突）。
+//!   上午 / 下午文本不受此限制：与 Java 一样取自项目属性的 `getAmText` / `getPmText`
+//!   （Java 侧编入 `appendText` 的映射表）。
 //!
 //! ## 其他结构性取舍
 //!
@@ -664,10 +669,10 @@ fn weekday_name(tables: &TextTable, weekday: chrono::Weekday) -> &'static str {
 
 /// 一组本地化文本常量。
 ///
-/// 取舍：Java 通过 `DateTimeFormatter.withLocale(m_locale)` 取 JDK 的本地化文本；
-/// Rust 侧暂无本地化文本来源，目前只有 [`english_names::ENGLISH`] 一组（占位）。
-/// 待 `crate::mpx::locale_data` 落地后，按 [`MpxLocale`] 增加对应表并在
-/// [`names_for_locale`] 中分派即可，无需改动其他代码。
+/// 取舍：Java 通过 `DateTimeFormatter.withLocale(m_locale)` 取 JDK `java.time` 的本地化文本；
+/// Rust 侧没有该数据源，目前只有 [`english_names::ENGLISH`] 一组（所有区域设置共用）。
+/// 若将来自建多语种表，按 [`MpxLocale`] 增加对应表并在 [`names_for_locale`] 中分派即可，
+/// 无需改动其他代码。
 #[derive(Debug)]
 struct TextTable {
     /// 月份缩写（对应 JDK 的 `MMM`）
@@ -723,8 +728,9 @@ mod english_names {
 
 /// 取区域设置对应的文本常量表。
 ///
-/// 取舍：Java 用 `withLocale(m_locale)` 取 JDK 的本地化月份名 / 星期名；Rust 侧的
-/// `crate::mpx::locale_data` 尚未落地，所有区域设置统一回落到英文常量（见文件头）。
+/// 取舍：Java 用 `withLocale(m_locale)` 取 JDK `java.time` 的本地化月份名 / 星期名；
+/// 这些文本既不在已落地的 `crate::mpx::locale_data` 里，也无法由该项目数据还原，
+/// 故所有区域设置统一回落到英文常量（**真硬限制**，修复路径见文件头「降级与未实现」）。
 fn names_for_locale(_locale: MpxLocale) -> &'static TextTable {
     &english_names::ENGLISH
 }

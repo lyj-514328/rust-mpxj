@@ -38,9 +38,11 @@ use crate::field_type_class::FieldTypeClass;
 ///   （`FieldKey` 是本 crate 对 `FieldType` 接口的运行时擦除，但**不包含**
 ///   `UserDefinedField`，因此本容器目前只能保存内置字段的配置）。
 /// - `Map<Integer, CustomFieldValueItem>` / `Map<UUID, CustomFieldValueItem>` →
-///   值为 `Rc<RefCell<CustomFieldValueItem>>`；其中 `CustomFieldValueItem` 是
-///   [`crate::custom_field_lookup_table`] 中为尚未移植的 `org.mpxj.mpp.CustomFieldValueItem`
-///   提供的占位实现。
+///   值为 `Rc<RefCell<CustomFieldValueItem>>`；元素类型取自
+///   [`crate::custom_field_lookup_table::CustomFieldValueItem`]，即
+///   `org.mpxj.mpp.CustomFieldValueItem` 在 Rust 侧的字段载体
+///   （`mpp` 侧的 [`crate::mpp::custom_field_value_item::CustomFieldValueItem`] 是它的
+///   共享句柄，两者读写同一份字段）。
 /// - `Map<Pair<FieldTypeClass, String>, FieldType>` → `HashMap<(FieldTypeClass, String), FieldKey>`。
 /// - Java 的 `stream()`（`Stream<CustomField>`）未移植：Rust 侧由
 ///   [`iter`](CustomFieldContainer::iter) 提供等价能力。

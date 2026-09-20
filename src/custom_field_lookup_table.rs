@@ -22,12 +22,19 @@ use crate::list_with_callbacks::ListWithCallbacks;
 /// 因此三个回调保持未注册状态（等价于 Java 的空实现）；持有方可用
 /// [`ListWithCallbacks::set_added_callback`] 等自行注册。
 ///
-/// # 与 Java 的差异：元素类型用占位实现
+/// # 元素类型：字段载体 + `mpp` 侧的共享句柄
 ///
-/// Java 的元素类型是 `org.mpxj.mpp.CustomFieldValueItem`。该类型位于 `org.mpxj.mpp` 包，
-/// 其 Rust 模块（`src/mpp/`）尚未落地且未在 [`crate`] 的模块清单中声明，本文件无法引用。
-/// 为避免引用不存在的模块，本文件内提供了**同名占位实现** [`CustomFieldValueItem`]
-/// （字段与 Java 一一对应）；待 mpp 模块落地后，应把占位实现移出并改为 `use` 正式类型。
+/// Java 的元素类型是 `org.mpxj.mpp.CustomFieldValueItem`，Rust 侧该类型分两半落地：
+///
+/// - 本文件的 [`CustomFieldValueItem`]：Java 那 8 个字段的**载体**（访问器取 `&mut self`），
+///   也是本列表与 [`crate::custom_field_container::CustomFieldContainer`] 的元素类型；
+/// - [`crate::mpp::custom_field_value_item::CustomFieldValueItem`]：同一 Java 类的**共享句柄**
+///   （内部持 `Rc<RefCell<载体>>`，访问器取 `&self`），供 MPP reader 复现 Java 的
+///   「同一个取值项既进容器又进查找表」（该模块以
+///   `use crate::custom_field_lookup_table::CustomFieldValueItem as StoredValueItem` 引用本类型）。
+///
+/// 二者共用同一份字段（不存在两份状态），因此不能合并为单一类型：列表按值存储、
+/// 句柄按下标共享，两种语义都需要。
 ///
 /// 未移植的 Java 方法：无。
 #[derive(Debug)]
@@ -271,13 +278,14 @@ impl Default for CustomFieldLookupTable {
     }
 }
 
-/// 自定义字段的一个候选取值（占位实现）。
+/// 自定义字段的一个候选取值（Java 8 个字段的载体）。
 ///
 /// 对应 Java: `org.mpxj.mpp.CustomFieldValueItem`
 ///
-/// **本类型是占位实现**：`org.mpxj.mpp` 的 Rust 模块尚未落地且未在 [`crate`] 的模块清单中
-/// 声明，[`CustomFieldLookupTable`] 无法引用正式类型，故在此按 Java 字段一一对应地先行落地。
-/// mpp 模块移植后，应删除本类型并改为 `use` 正式实现。
+/// 本类型是该 Java 类在 Rust 侧的**字段载体**：[`CustomFieldLookupTable`] 与
+/// [`crate::custom_field_container::CustomFieldContainer`] 都以它为元素类型；
+/// `mpp` 侧的 [`crate::mpp::custom_field_value_item::CustomFieldValueItem`] 是同一 Java 类的
+/// **共享句柄**，内部持 `Rc<RefCell<本类型>>`（见文件头「元素类型」一节）。
 ///
 /// # 与 Java 的差异
 ///
@@ -606,5 +614,28 @@ mod tests {
             item.to_string(),
             "[CustomFieldValueItem uniqueID=4 guid=null parentId=2 value=null description=desc]"
         );
+    }
+
+    /// 去重回归：`mpp` 侧的共享句柄与本地载体读写的是**同一份字段**（不存在两份状态）。
+    #[test]
+    fn stored_item_and_mpp_handle_share_the_same_fields() {
+        use crate::mpp::custom_field_value_item::CustomFieldValueItem as Handle;
+
+        let handle = Handle::new(5);
+        handle.set_description(Some("shared".to_owned()));
+        handle.set_value(Some(FieldValue::Integer(9)));
+
+        // 句柄 → 载体：取值一致
+        let stored = handle.to_stored_item();
+        assert_eq!(stored.get_unique_id(), 5);
+        assert_eq!(stored.get_description(), Some("shared"));
+        assert_eq!(stored.get_value(), Some(&FieldValue::Integer(9)));
+
+        // 载体 → 句柄：经共享句柄改写后，句柄侧看到同一份数据
+        let stored = handle.stored_item();
+        stored
+            .borrow_mut()
+            .set_description(Some("updated".to_owned()));
+        assert_eq!(handle.get_description(), Some("updated".to_owned()));
     }
 }

@@ -28,8 +28,8 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | 构造方法中 `uniqueID == null` 时经 `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` 的自动 unique ID 分配 | 依赖尚未落地的 `Task::get_parent_file()` / `ProjectFile`（`org.mpxj.ProjectFile` 由并行任务翻译）。Rust 侧改为完全由调用方经 [`Builder::unique_id`] 提供；待 `ProjectFile` 落地后可在 [`crate::relation_container::RelationContainer::add_predecessor`] 中按 Java 逻辑补回（容器持有父文件与序号生成器）。 |
-//! | `setUniqueID` 中的 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` | 同上（依赖 `ProjectFile` / `Task`）。Rust 侧容器按 unique ID 线性查找（见 [`crate::relation_container::RelationContainer`] 文件头），不需要回调维护索引；序号生成器同步由调用方经 `RelationContainer::update_unique_id` 完成。 |
+//! | 构造方法中 `uniqueID == null` 时经 `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` 的自动 unique ID 分配 | 未接线：Rust 侧完全由调用方经 [`Builder::unique_id`] 提供 | 依赖均已落地（`Task::get_parent_file`、`ProjectFile`、`ProjectConfig::get_auto_relation_unique_id`），缺的是把该逻辑接回 [`crate::relation_container::RelationContainer::add_predecessor`]（容器持有父文件与序号生成器）。 |
+//! | `setUniqueID` 中的 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` | 未接线：Rust 侧容器按 unique ID 线性查找（见 [`crate::relation_container::RelationContainer`] 文件头），不需要回调维护索引；序号生成器同步由调用方经 `RelationContainer::update_unique_id` 完成 | 同上（依赖 `ProjectFile` / `Task` 均已落地），缺的是接线。 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
 //!
 //! # 与 Java 的差异
@@ -132,7 +132,7 @@ impl Relation {
     /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
     ///
     /// Java 还会调用 `m_successorTask.getParentFile().getRelations().updateUniqueID(...)` 同步
-    /// 容器的 unique ID 索引与序号生成器；该逻辑依赖尚未落地的 `ProjectFile` / `Task`，
+    /// 容器的 unique ID 索引与序号生成器；该接线**尚未补回**（`ProjectFile` / `Task` 均已落地），
     /// Rust 侧容器改为按 unique ID 线性查找（无需维护索引），见文件头。
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.unique_id = unique_id;

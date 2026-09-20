@@ -324,12 +324,15 @@ impl Display for TableFontStyle {
             ));
         }
         if self.color_changed {
-            result.push_str(&format!(" color={}", format_color(self.get_color())));
+            result.push_str(&format!(
+                " color={}",
+                format_optional_display(self.get_color().as_ref())
+            ));
         }
         if self.background_color_changed {
             result.push_str(&format!(
                 " backgroundColor={}",
-                format_color(self.get_background_color())
+                format_optional_display(self.get_background_color().as_ref())
             ));
         }
         if self.background_pattern_changed {
@@ -352,22 +355,6 @@ impl fmt::Debug for TableFontStyle {
     }
 }
 
-/// 把颜色渲染成 Java 的 `java.awt.Color.toString()` 形式（`None` 输出 `null`）。
-///
-/// 与 [`crate::mpp::font_style`] 中的同名私有辅助函数保持一致（该函数未公开，故此处重复
-/// 一份，避免修改已落地文件）。
-fn format_color(color: Option<Color>) -> String {
-    match color {
-        Some(color) => format!(
-            "java.awt.Color[r={},g={},b={}]",
-            color.get_red(),
-            color.get_green(),
-            color.get_blue()
-        ),
-        None => "null".to_owned(),
-    }
-}
-
 /// 把字段类型按 Java 的字符串拼接语义渲染（`None` 输出 `null`）。
 fn format_field_type(field_type: Option<&MppFieldType>) -> String {
     match field_type {
@@ -377,6 +364,9 @@ fn format_field_type(field_type: Option<&MppFieldType>) -> String {
 }
 
 /// 把可选对象按 Java 的字符串拼接语义渲染（`None` 输出 `null`）。
+///
+/// [`Color`] 的 [`Display`] 输出 `java.awt.Color[r=..,g=..,b=..]`（见
+/// `crate::mpp::mpp_utility::Color`），与 Java 直接拼接 `java.awt.Color` 的结果一致。
 fn format_optional_display<T: Display>(value: Option<&T>) -> String {
     match value {
         Some(value) => value.to_string(),

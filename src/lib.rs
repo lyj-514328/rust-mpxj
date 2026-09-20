@@ -104,6 +104,7 @@ pub mod relationship_lag_calendar;
 pub mod resource;
 pub mod resource_assignment;
 pub mod resource_assignment_container;
+pub mod resource_assignment_workgroup_fields;
 pub mod resource_container;
 pub mod resource_field;
 pub mod resource_request_type;

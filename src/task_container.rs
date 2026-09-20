@@ -30,7 +30,7 @@
 //! | Java | 原因 |
 //! |---|---|
 //! | `public Set<FieldType> getPopulatedFields()`（内部用 `org.mpxj.common.PopulatedFields`） | `PopulatedFields` 未移植（`src/common` 无对应文件），且其构造函数需要 `ProjectFile` / `UserDefinedFieldContainer` 的完整接口。待其落地后补回。 |
-//! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | `ResourceAssignment` / `ResourceAssignmentContainer` 未落地（`src` 无对应文件）。Java 原逻辑保留在方法注释中，待其落地后补回。 |
+//! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | 未接线：`ResourceAssignment` / `ResourceAssignmentContainer` **均已落地**（`src/resource_assignment.rs` / `src/resource_assignment_container.rs`），缺的是在 [`TaskContainer::removed`] 中接回该逻辑（Java 原逻辑已保留在方法注释中）。 |
 //! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
 //!
 //! # 继承体系的还原：组合 + 转发
@@ -141,7 +141,7 @@
 //! Task::clear_child_tasks(&Rc<RefCell<Task>>)                      // 同上
 //! ```
 //!
-//! `ProjectFile`（`src/project_file.rs`）仍未落地，本文件按下列签名使用：
+//! `ProjectFile`（`src/project_file.rs`）已落地，本文件按下列签名使用：
 //!
 //! ```text
 //! ProjectFile::new() -> ProjectFile
@@ -408,8 +408,8 @@ impl TaskContainer {
         // while (iter.hasNext()) { ResourceAssignment assignment = iter.next();
         //    if (assignment.getTaskUniqueID().equals(task.getUniqueID())) { iter.remove(); } }
         //
-        // ResourceAssignment / ResourceAssignmentContainer 尚未落地（见文件头），
-        // 待其落地后在此补回。
+        // ResourceAssignment / ResourceAssignmentContainer 均已落地（见文件头），
+        // 但该逻辑尚未接线，待补回。
 
         //
         // Java: 递归移除子任务

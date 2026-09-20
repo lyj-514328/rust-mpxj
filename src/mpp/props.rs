@@ -10,9 +10,11 @@
 //! extends Props`。Rust 无继承，故：
 //!
 //! - `MPPComponent`（只提供基于 `InputStream` 的 `readByte` / `readShort` / `readInt` /
-//!   `readByteArray`）按本工程约定把 `InputStream` 换成 `&[u8]`，由本文件的
-//!   [`InputStreamCursor`] 提供等价操作；[`Props`] 自身不再需要父类（`MPPComponent`
-//!   的类级翻译由并行任务负责，本文件不依赖它）。
+//!   `readByteArray`）按本工程约定把 `InputStream` 换成 `&[u8]`，已由
+//!   [`crate::mpp::mpp_component::MPPComponent`] 落地；本文件的 [`InputStreamCursor`]
+//!   在提供「游标」便利的同时，其 `read_int` / `read_short` / `read` 直接转发给它，
+//!   不再复刻一份字节解析逻辑。[`Props`] 自身不需要父类（Java 的
+//!   `extends MPPComponent` 只是复用 4 个读取助手）。
 //! - `Props8/9/12/14/PropsBlock` 各自**持有一个 [`Props`]**（私有字段 `props`），并把它
 //!   的全部公开方法原样转发；`Props8/9/12/14` 另实现 `Deref`/`DerefMut`（目标为 [`Props`]），
 //!   使 `&Props9` 之类的引用能自动强转成 `&Props` —— 与 Java 的继承（子类实例可直接传给
@@ -54,6 +56,7 @@ use chrono::{NaiveDateTime, NaiveTime};
 use uuid::Uuid;
 
 use crate::common::byte_array_helper::ByteArrayHelper;
+use crate::mpp::mpp_component::MPPComponent;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::props_key::PropsKey;
 
@@ -245,7 +248,13 @@ impl fmt::Display for Props {
 /// Rust 特有：Java 的 `Props8/9/12/14` 构造方法接收 `InputStream`，并用
 /// `MPPComponent.readInt/readShort`、`InputStreamHelper.read/skip` 与
 /// `InputStream.available()` 读取数据。本工程约定把 `InputStream` 换成 `&[u8]`，
-/// 故用本结构提供一一对应的操作（`MPPComponent.readByte` 本批未使用，故未提供）。
+/// 故用本结构提供一一对应的操作。
+///
+/// 其中 `read_int` / `read_short` / `read` 直接转发到已落地的
+/// [`crate::mpp::mpp_component::MPPComponent`]（对应 `MPPComponent.readInt/readShort` 与
+/// `InputStreamHelper.read`），本文件不再复刻一份等价实现；
+/// `available` / `skip` 对应的是 `InputStream.available()` 与 `InputStreamHelper.skip`，
+/// `MPPComponent` 中没有等价方法，故仍在本文件实现。
 ///
 /// 越界（Java 会抛 `EOFException` / `RuntimeException`）一律返回 `None` / 不移动位置，
 /// 由调用方决定是「返回 `Err`」还是「中断解析」，绝不 panic。
@@ -264,44 +273,42 @@ impl<'a> InputStreamCursor<'a> {
     /// 剩余字节数。
     ///
     /// 对应 Java: `InputStream.available()`
+    ///
+    /// `MPPComponent` 没有等价成员，故保留在本文件。
     pub(crate) fn available(&self) -> usize {
         self.data.len().saturating_sub(self.position)
     }
 
     /// 读一个四字节小端整数。
     ///
-    /// 对应 Java: `MPPComponent.readInt(InputStream)`
+    /// 对应 Java: `MPPComponent.readInt(InputStream)`（转发到
+    /// [`MPPComponent::read_int`]）
     pub(crate) fn read_int(&mut self) -> Option<i32> {
-        let item = self.read(4)?;
-        Some(ByteArrayHelper::get_int(item, 0))
+        MPPComponent::read_int(self.data, &mut self.position)
     }
 
     /// 读一个两字节小端短整数（0..65535）。
     ///
-    /// 对应 Java: `MPPComponent.readShort(InputStream)`
+    /// 对应 Java: `MPPComponent.readShort(InputStream)`（转发到
+    /// [`MPPComponent::read_short`]）
     pub(crate) fn read_short(&mut self) -> Option<i32> {
-        let item = self.read(2)?;
-        Some(ByteArrayHelper::get_short(item, 0))
+        MPPComponent::read_short(self.data, &mut self.position)
     }
 
     /// 读指定长度的字节切片。
     ///
     /// 对应 Java: `InputStreamHelper.read(InputStream, int)`
-    /// （长度不足时 Java 抛异常，Rust 返回 `None`）
+    /// （转发到 [`MPPComponent::read_byte_array`]；长度不足时 Java 抛异常，Rust 返回 `None`）
     pub(crate) fn read(&mut self, size: usize) -> Option<&'a [u8]> {
-        if self.available() < size {
-            return None;
-        }
-
-        let start = self.position;
-        self.position += size;
-        Some(&self.data[start..self.position])
+        MPPComponent::read_byte_array(self.data, &mut self.position, size)
     }
 
     /// 跳过指定长度的字节。
     ///
     /// 对应 Java: `InputStreamHelper.skip(InputStream, long)`
     /// （Java 在无法跳过时抛 `IOException`，Rust 侧直接定位到末尾）
+    ///
+    /// `MPPComponent` 没有等价成员，故保留在本文件。
     pub(crate) fn skip(&mut self, size: usize) {
         self.position = (self.position + size).min(self.data.len());
     }

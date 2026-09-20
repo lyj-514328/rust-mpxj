@@ -28,8 +28,9 @@ const MAX_RATE_COUNT: usize = 5;
 /// - Java 的两个公开构造方法（`Rate...` 与 `ShiftPeriod, Rate...` 重载）在 Rust 中不能重名，
 ///   第二个在 Rust 侧命名为 [`CostRateTableEntry::new_with_shift_period`]；可变参数 `Rate...`
 ///   映射为 `&[Rate]`。
-/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 因该工具类尚未启用
-///   （依赖未移植的 `ProjectCalendar`），在本文件内以私有函数复刻。
+/// - Java 的 `LocalDateTimeHelper.START_DATE_NA` / `END_DATE_NA` 在本文件内以私有函数复刻
+///   （[`crate::common::local_date_time_helper`] **已启用**并提供同值方法，
+///   这里的复刻属历史遗留，待清理）。
 /// - Java 的 `DEFAULT_ENTRY` / `MAX_RATES` 为 `public static final`；`LocalDateTime` 与数组
 ///   均无法 `const` 构造，`DEFAULT_ENTRY` 改为 [`CostRateTableEntry::default_entry`] 函数，
 ///   `MAX_RATES` 保留为常量。
@@ -171,8 +172,8 @@ impl CostRateTableEntry {
 }
 
 impl fmt::Debug for CostRateTableEntry {
-    /// 手工实现 `Debug`：Java 侧本类未覆写 `toString` 之外的调试输出，这里同样不依赖
-    /// 尚未移植的 `ShiftPeriod` 的 `Debug` 实现，班次时段只输出是否存在。
+    /// 手工实现 `Debug`：Java 侧本类未覆写调试输出，这里保持简要形式，
+    /// 班次时段只输出是否存在（`ShiftPeriod` 已落地并派生 `Debug`，此处不需要它的完整内容）。
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("CostRateTableEntry")
             .field("m_range", &self.m_range)
@@ -236,8 +237,8 @@ impl PartialEq for CostRateTableEntry {
     /// Java 侧未覆写 `equals`/`hashCode`（沿用对象标识比较）；Rust 侧因 [`Ord`]
     /// 需要 `Eq` 父 trait，这里按「区间、每次使用成本、费率数组」做值比较。
     ///
-    /// 说明：`m_shiftPeriod` 未参与比较——Java 侧同样未把它纳入任何相等性判断，
-    /// 且其 Rust 实现尚未落地，无法依赖其相等性。
+    /// 说明：`m_shiftPeriod` 未参与比较——Java 侧同样未把它纳入任何相等性判断
+    /// （`ShiftPeriod` 已落地并实现 `PartialEq`，此处只是照搬 Java 的语义）。
     fn eq(&self, other: &Self) -> bool {
         self.m_range == other.m_range
             && self.m_cost_per_use == other.m_cost_per_use

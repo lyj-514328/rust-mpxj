@@ -10,7 +10,7 @@
 //!   [`Resource::handle_field_change`]；`getAlwaysCalculatedField` →
 //!   [`is_always_calculated`]；`getCalculationMethod` → [`Resource::calculate`] 的 `match`。
 //! - **无法用 `FieldValue` 表达的值**：[`crate::field_value::FieldValue`] 目前只有标量变体
-//!   （无枚举 / `Notes` / `UUID` / 集合变体），且不得修改既有文件，故下列 Java 字段在字段
+//!   （无枚举 / `Notes` / `UUID` / 集合变体），故下列 Java 字段在字段
 //!   容器中改用等价的标量编码，类型化访问器负责转换：
 //!
 //!   | Java 字段 | Rust 编码 |
@@ -55,11 +55,11 @@
 //!
 //! | Java | 原因 |
 //! |---|---|
-//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | 依赖未在 `src/lib.rs` 声明的 `TimephasedDataFactory`（同 [`crate::field_container`] 的取舍） |
-//! | `getTimephasedPlannedWork` 等全部 `getTimephased*`、`reduceTimephasedWork` / `reduceTimephasedCost` / `reduceTimephasedMaterial`、`TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | 依赖未在 `src/lib.rs` 声明的 `timephased_utility`（`TimephasedUtility.addTimephasedDurations` / `addTimephasedNumbers`）与 `ResourceAssignment` 的时间分段 API |
-//! | `getLocation` / `setLocation` | `Location` 未在 `src/lib.rs` 声明 |
-//! | `getCurrency` / `setCurrency` | `Currency` 未在 `src/lib.rs` 声明 |
-//! | `getResourceCodeValues` / `addResourceCodeValue` / `getRoleCodeValues` / `addRoleCodeValue` | `ResourceCode` / `RoleCode` / `ResourceCodeValue` / `RoleCodeValue` 未在 `src/lib.rs` 声明，`FieldValue` 亦无集合变体 |
+//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | 缺 [`crate::field_value::FieldValue`] 的 timephased 列表变体（`TimephasedDataFactory` 已落地，取舍同 [`crate::field_container`]） |
+//! | `getTimephasedPlannedWork` 等全部 `getTimephased*`、`reduceTimephasedWork` / `reduceTimephasedCost` / `reduceTimephasedMaterial`、`TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | `org.mpxj.TimephasedUtility` 未单独成模块（`addTimephasedDurations` / `addTimephasedNumbers` 目前内联在 [`crate::resource_assignment`] 的私有函数中，尚不可复用）；[`crate::resource_assignment::ResourceAssignment`] 的时间分段 API 已落地 |
+//! | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
+//! | `getCurrency` / `setCurrency` | `Currency` 属 P6/Primavera 专用数据（同上） |
+//! | `getResourceCodeValues` / `addResourceCodeValue` / `getRoleCodeValues` / `addRoleCodeValue` | `ResourceCode` / `RoleCode` / `ResourceCodeValue` / `RoleCodeValue` 属 P6/Primavera 专用数据（同上），`FieldValue` 亦无集合变体 |
 //!
 //! 被跳过的 Java 机制：反射、`Serializable`（本类未使用）。
 //!
@@ -2496,6 +2496,17 @@ impl Resource {
     /// 对应 Java: `public AvailabilityTable getAvailability()`
     pub fn get_availability(&self) -> Ref<'_, AvailabilityTable> {
         self.availability.borrow()
+    }
+
+    /// 向本资源的可用性表追加一行（Rust 特有）。
+    ///
+    /// 对应 Java: `resource.getAvailability().add(entry)`
+    ///
+    /// Java 的 `getAvailability()` 直接返回**可变**的 `m_availability`，调用方就地追加；
+    /// Rust 侧 [`Resource::get_availability`] 只借出只读 `Ref`，故补本入口作为等价的写通道。
+    /// MPP/MPX 读取器填充可用性表时都经此方法（Java 的顺序与排序逻辑由调用方保证，此处不额外处理）。
+    pub fn add_availability(&mut self, entry: Availability) {
+        self.availability.get_mut().add(entry);
     }
 
     /// 取当前日期生效的可用性表行。

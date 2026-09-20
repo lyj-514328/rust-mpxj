@@ -32,8 +32,9 @@ use crate::graphical_indicator::GraphicalIndicator;
 /// # 被跳过的 Java 代码
 ///
 /// - `getUniqueID()` 中「未显式设置时回落到 `FieldTypeHelper.getFieldID(m_field)`」的惰性求值：
-///   `FieldTypeHelper.getFieldID` 依赖 `org.mpxj.mpp.MPPTaskField` 等 MPP 字段 ID 表，
-///   这些类型尚未移植。Rust 侧的 [`CustomField::get_unique_id`] 只返回显式设置过的值，
+///   该回落**尚未接线**，但依赖已齐 —— `FieldTypeHelper::get_field_id` 与 `MPPTaskField` 等
+///   字段 ID 表均已落地（见 [`crate::common::field_type_helper`]）。Rust 侧的
+///   [`CustomField::get_unique_id`] 取 `&self`、无法把回落结果写回缓存，故只返回显式设置过的值，
 ///   未设置时返回 `None`（对应 Java 中「尚未缓存过 MPP 字段 ID」的状态）。
 ///
 /// # 与 Java 的差异

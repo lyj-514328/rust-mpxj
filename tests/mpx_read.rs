@@ -7,11 +7,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use chrono::{NaiveDate, NaiveTime};
-use mpxj::mpx::locale_utility::MpxLocale;
+use mpxj::mpx::locale_utility::{LocaleUtility, MpxLocale};
 use mpxj::mpx::mpx_reader::MPXReader;
+use mpxj::mpx::mpxj_formats::MPXJFormats;
+use mpxj::mpx::record::Record;
 use mpxj::project_entity_with_id::ProjectEntityWithID;
 use mpxj::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use mpxj::reader::project_reader::ProjectReader;
+use mpxj::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
 use mpxj::{Duration, RelationType, TimeUnit};
 
 /// 取 `mpxj/junit/data/legacy/` 下的样本文件路径。
@@ -178,20 +181,21 @@ fn reads_sample_mpx_end_to_end() {
     // 备注记录（`51,Test Resource Notes`）落在第二个资源上
     assert_eq!(second_resource.get_notes(), "Test Resource Notes");
 
-    // 已知差异（见 `mpx/mpx_reader.rs` 文件头差异第 3 条）：Java 把 MAX_UNITS 写进可用性表，
-    // 本仓的可用性表只有不可变入口，故值落在字段表里 —— `get_max_units()`（按可用性表计算）
-    // 返回 None，但 `get_cached_value` 能取回 `1 × 100 = 100`。
+    // Java: `ResourceField.MAX_UNITS` 写进资源的可用性表
+    // （`resource.getAvailability().add(new Availability(START_DATE_NA, END_DATE_NA, units))`），
+    // `get_max_units()` 由 `calculateMaxUnits()` 从「当前」可用性表行算出
+    // （`50,First Resource,FR,200h,...,1,...` → 1 × 100 = 100）。
     println!(
-        "资源[0] MaxUnits: get_max_units={:?} cached={:?}",
-        first_resource.get_max_units(),
-        first_resource
-            .get_cached_value(mpxj::FieldKey::Resource(mpxj::ResourceField::MaxUnits))
+        "资源[0] MaxUnits: availability={} max_units={:?}",
+        first_resource.get_availability().len(),
+        first_resource.get_max_units()
     );
-    assert_eq!(first_resource.get_max_units(), None);
-    assert!(matches!(
-        first_resource.get_cached_value(mpxj::FieldKey::Resource(mpxj::ResourceField::MaxUnits)),
-        Some(mpxj::FieldValue::Double(value)) if *value == 100.0
-    ));
+    assert_eq!(
+        first_resource.get_availability().len(),
+        1,
+        "sample.mpx 的 `50,` 记录写了一个 MaxUnits 行"
+    );
+    assert_eq!(first_resource.get_max_units(), Some(100.0));
 
     // ---- 日历抽样（`20,Standard,...` 与 `20,Night Shift,...`，另有 2 个资源日历）----
     let calendars: Vec<Rc<std::cell::RefCell<mpxj::ProjectCalendar>>> =
@@ -529,6 +533,155 @@ fn reads_german_sample_with_german_locale() {
         let relation = relation_to(successor_id);
         assert_eq!(relation.borrow().get_type(), expected);
     }
+}
+
+/// 记录 72（`RECURRING_TASK`）的明细字段必须落到任务上。
+///
+/// `sample.mpx` 中有三条该记录：`72,1,Tue 07/01/03,Tue 18/03/03,480,0,2,8,0,1,0,0000000,...`
+/// 挂在 `Recurring Task`（ID 4）上，另两条只有 `72,1` 两列（挂在 ID 5 / 6 上）。
+///
+/// 修复前只做了 `Task::set_recurring(true)`，起止日期、工期、出现次数、重现类型等全部丢失。
+#[test]
+fn recurring_task_record_details_are_read() {
+    let file = read_sample("sample.mpx");
+    let file_ref = file.borrow();
+
+    // `70,Recurring Task,1.3,1,...,Yes,...` 后面紧跟 `72,1,Tue 07/01/03,...`
+    let recurring = file_ref.get_task_by_id(Some(4)).expect("ID 为 4 的任务");
+    let recurring = recurring.borrow();
+
+    assert_eq!(recurring.get_name().as_deref(), Some("Recurring Task"));
+    assert!(recurring.get_recurring());
+
+    let record = recurring
+        .get_recurring_task()
+        .expect("应存在周期性任务记录");
+
+    println!("记录 72: {record}");
+
+    // Java: task.setStartDate(LocalDateHelper.getLocalDate(record.getDateTime(1)))
+    assert_eq!(
+        record.get_start_date(),
+        NaiveDate::from_ymd_opt(2003, 1, 7),
+        "起始日期取自记录第 2 列"
+    );
+    assert_eq!(
+        record.get_finish_date(),
+        NaiveDate::from_ymd_opt(2003, 3, 18)
+    );
+    // 工期 480 分钟 + 单位 0（天）→ 1 天（项目默认 480 分钟 / 天）
+    assert_eq!(
+        record.get_duration(),
+        Some(Duration::get_instance(1.0, TimeUnit::Days))
+    );
+    assert_eq!(record.get_occurrences(), Some(2));
+    // 记录第 7 列 8 → MONTHLY
+    assert_eq!(
+        record.get_recurrence_type(),
+        Some(mpxj::RecurrenceType::Monthly)
+    );
+    assert!(record.get_use_end_date());
+    assert!(!record.get_working_days_only());
+    // `0000000` 位图 → 一周七天都不选
+    for day in [
+        chrono::Weekday::Sun,
+        chrono::Weekday::Mon,
+        chrono::Weekday::Tue,
+        chrono::Weekday::Wed,
+        chrono::Weekday::Thu,
+        chrono::Weekday::Fri,
+        chrono::Weekday::Sat,
+    ] {
+        assert!(!record.get_weekly_day(day), "{day:?} 不应被选中");
+    }
+    // 按月重复、非「相对」方式：频率取第 20 列（1）、日取第 19 列（1）
+    assert!(!record.get_relative());
+    assert_eq!(record.get_frequency(), Some(1));
+    assert_eq!(record.get_day_number(), Some(1));
+
+    // 只有 `72,1` 两条列的两条记录：周期性任务记录已创建，但明细全部为空
+    for task_id in [5, 6] {
+        let task = file_ref
+            .get_task_by_id(Some(task_id))
+            .unwrap_or_else(|| panic!("ID 为 {task_id} 的任务"));
+        let task = task.borrow();
+
+        assert!(task.get_recurring());
+        let record = task.get_recurring_task().expect("应存在周期性任务记录");
+        assert_eq!(record.get_start_date(), None);
+        assert_eq!(record.get_recurrence_type(), None);
+    }
+}
+
+/// 记录 76（`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`）的字段解析。
+///
+/// `sample.mpx` 的第 36 / 38 行即该记录（`76,0,0,0,NA,NA`，各自紧跟一条 `75,` 记录）。
+/// Java 把它落到 `m_lastResourceAssignment.addWorkgroupAssignment()` 上，本仓的
+/// [`mpxj::ResourceAssignment`] 尚未提供该入口（见 `mpx/mpx_reader.rs` 文件头与任务汇报），
+/// 故这里直接验证按 Java 逐字段实现的 `MPXReader::populate_resource_assignment_workgroup_fields`。
+#[test]
+fn workgroup_fields_record_is_parsed() {
+    let file = mpxj::ProjectFile::new();
+    LocaleUtility::set_locale(
+        file.borrow_mut().get_project_properties_mut(),
+        MpxLocale::En,
+    );
+    let formats = MPXJFormats::new(MpxLocale::En, "NA", Rc::downgrade(&file));
+
+    // ---- 真实样本行 `76,0,0,0,NA,NA`（记录号在构造 `Record` 时被弹出）----
+    let record = Record::from_fields(
+        MpxLocale::En,
+        &formats,
+        Some(76),
+        vec![
+            Some("0".to_owned()),
+            Some("0".to_owned()),
+            Some("0".to_owned()),
+            Some("NA".to_owned()),
+            Some("NA".to_owned()),
+        ],
+    );
+
+    let mut workgroup = ResourceAssignmentWorkgroupFields::new();
+    MPXReader::populate_resource_assignment_workgroup_fields(&record, &mut workgroup);
+
+    println!("记录 76（样本行）: {workgroup:?}");
+
+    assert_eq!(workgroup.get_message_unique_id(), Some("0"));
+    // 第 2 列是 0 → 两个布尔标志都为 false（Java 的两行读的是同一列）
+    assert!(!workgroup.get_confirmed());
+    assert!(!workgroup.get_response_pending());
+    assert_eq!(workgroup.get_update_start(), None);
+    assert_eq!(workgroup.get_update_finish(), None);
+    // 样本行没有第 6 列
+    assert_eq!(workgroup.get_schedule_id(), None);
+
+    // ---- 各列都有值的记录，覆盖非空分支 ----
+    // 日期用 4 位年份：无需依赖文件里的 `DATE_TIME_SETTINGS` 记录即可按英文默认
+    // 日期格式（`dd/MM/yyyy`）解析。
+    let record = Record::from_fields(
+        MpxLocale::En,
+        &formats,
+        Some(76),
+        vec![
+            Some("MSG-1".to_owned()),
+            Some("1".to_owned()),
+            Some("0".to_owned()),
+            Some("07/01/2003".to_owned()),
+            Some("18/03/2003".to_owned()),
+            Some("SCHED-9".to_owned()),
+        ],
+    );
+
+    let mut workgroup = ResourceAssignmentWorkgroupFields::new();
+    MPXReader::populate_resource_assignment_workgroup_fields(&record, &mut workgroup);
+
+    assert_eq!(workgroup.get_message_unique_id(), Some("MSG-1"));
+    assert!(workgroup.get_confirmed());
+    assert!(workgroup.get_response_pending());
+    assert_eq!(workgroup.get_update_start(), Some(date(2003, 1, 7)));
+    assert_eq!(workgroup.get_update_finish(), Some(date(2003, 3, 18)));
+    assert_eq!(workgroup.get_schedule_id(), Some("SCHED-9"));
 }
 
 /// 其余样本文件也应能被读取（仅校验不报错与基本结构）。
