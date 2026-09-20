@@ -40,7 +40,8 @@
 //! | `SummaryInformation` 的 `getThumbnail` / `getPageCount` / `getWordCount` / `getCharCount` / `getSecurity` | 不暴露 | `ProjectPropertiesReader` 不使用这些属性（[`SummaryInformation`] 只提供 reader 用到的 getter） |
 //! | `DocumentSummaryInformation` 的 `getByteCount` / `getLineCount` / `getParCount` / `getSlideCount` / `getNoteCount` / `getHiddenCount` / `getMultimediaClipCount` / `getScale` / `getHeadingPairs` / `getDocumentParts` / `getLinksDirty` | 不暴露 | 同上（reader 不使用） |
 //! | `CustomProperty` | [`PropertyValue`] 的键值对 | Rust 侧用 `BTreeMap<String, PropertyValue>` 表达名称字典 + 取值（Java 的 `CustomProperties` 是有序的 `TreeMap`） |
-//! | `new String(bytes, codepage)` | [`decode_lpstr`] 支持 Windows-1250..1258、UTF-8 与 UTF-16LE | `encoding_rs` 替代 Java/POI 的代码页查找；未知代码页退回 Windows-1252 |
+//! | `new String(bytes, codepage)` | [`decode_lpstr`] 经 [`codepage_to_encoding`] 映射到 `encoding_rs` | POI 的 `CodePageUtil.codepageToEncoding` 用 Java 字符集名。无 `encoding_rs` 实现的代码页（EBCDIC `cp037`、Johab、MacArabic 等）退回 [`DEFAULT_CODEPAGE`]（POI 会因字符集不可用而失败） |
+//! | 代码页属性（ID 1）缺失时 POI 用 `Property.DEFAULT_CODEPAGE`（Windows-1252） | [`DEFAULT_CODEPAGE`] | 与 POI 一致，**不是** Java 平台默认字符集；字典名也按 section 代码页解码（对应 `Section.readDictionary`） |
 //!
 //! # 与 Java 的差异（`ProjectPropertiesReader` 本身）
 //!
@@ -99,13 +100,19 @@ const SECTION_DESCRIPTOR_SIZE: usize = 20;
 
 /// 默认代码页（Windows-1252），用于 `VT_LPSTR` 且 section 未声明代码页时。
 ///
-/// 对应 Java: POI 在 `codepage == null` 时用平台默认字符集解码
+/// 对应 Java: POI 的 `Property.DEFAULT_CODEPAGE`（即 `CodePageUtil.CP_WINDOWS_1252`）。
+/// POI 在 section 的代码页属性（ID 1）缺失时把代码页置为 `-1`，解码时回落到该常量，
+/// **不是** Java 平台默认字符集。
 const DEFAULT_CODEPAGE: u16 = 1252;
 
 /// 代码页：UTF-8。
+///
+/// 对应 Java: `CodePageUtil.CP_UTF8`
 const CODEPAGE_UTF8: u16 = 65001;
 
 /// 代码页：UTF-16LE。
+///
+/// 对应 Java: `CodePageUtil.CP_UTF16`
 const CODEPAGE_UTF16LE: u16 = 1200;
 
 /// 资源池文件名数据块中，文件名之前的固定头部长度。
@@ -212,12 +219,27 @@ impl PropertyValue {
 /// 属性集流中的一个 section。
 ///
 /// 对应 Java: `org.apache.poi.hpsf.Section`
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Section {
     /// 属性 ID → 已解码的值。
     properties: BTreeMap<i32, PropertyValue>,
     /// 属性 ID → 类型字段之后的原始字节（供字典等复合属性使用）。
     raw: BTreeMap<i32, Vec<u8>>,
+    /// section 声明的代码页，`VT_LPSTR` 与字典名解码用；缺失时为 [`DEFAULT_CODEPAGE`]。
+    ///
+    /// 对应 Java: POI `Section` 的 `codepage`（无 ID 1 时为 `-1`，解码时回落
+    /// `Property.DEFAULT_CODEPAGE`）。
+    codepage: u16,
+}
+
+impl Default for Section {
+    fn default() -> Self {
+        Self {
+            properties: BTreeMap::new(),
+            raw: BTreeMap::new(),
+            codepage: DEFAULT_CODEPAGE,
+        }
+    }
 }
 
 impl Section {
@@ -631,6 +653,7 @@ fn parse_section(data: &[u8], section_offset: usize) -> Option<Section> {
         .unwrap_or(DEFAULT_CODEPAGE);
 
     let mut section = Section::default();
+    section.codepage = codepage;
     for (id, offset) in entries {
         let start = section_offset + offset;
         let end = sorted_offsets
@@ -751,7 +774,7 @@ fn parse_custom_properties(section: &Section) -> BTreeMap<String, PropertyValue>
         return result;
     };
 
-    on_dictionary_entries(names, &mut |id, name| {
+    on_dictionary_entries(names, section.codepage, &mut |id, name| {
         if id == PID_DICTIONARY || id == PID_CODEPAGE {
             return;
         }
@@ -765,8 +788,9 @@ fn parse_custom_properties(section: &Section) -> BTreeMap<String, PropertyValue>
 
 /// 遍历名称字典中的 (属性 ID, 名称) 条目。
 ///
-/// 数据损坏时提前结束（不 panic）。
-fn on_dictionary_entries(data: &[u8], callback: &mut impl FnMut(i32, &str)) {
+/// `codepage` 为 section 声明的代码页（缺失时为 [`DEFAULT_CODEPAGE`]），与 POI
+/// `Section.readDictionary(leis, length, codepage)` 一致。数据损坏时提前结束（不 panic）。
+fn on_dictionary_entries(data: &[u8], codepage: u16, callback: &mut impl FnMut(i32, &str)) {
     let Some(count) = read_i32(data, 0) else {
         return;
     };
@@ -790,7 +814,7 @@ fn on_dictionary_entries(data: &[u8], callback: &mut impl FnMut(i32, &str)) {
         let begin = position + 8;
         let bytes = bounded(data, begin, length as usize, data.len());
         // Java: 名称以 NUL 结尾，POI 会去掉结尾的 NUL
-        let name = decode_lpstr(bytes, DEFAULT_CODEPAGE);
+        let name = decode_lpstr(bytes, codepage);
         let name = name.trim_end_matches('\0');
         callback(id, name);
 
@@ -823,25 +847,82 @@ fn filetime_to_datetime(ticks: i64) -> Option<NaiveDateTime> {
 
 /// 按代码页解码 `VT_LPSTR` 的字节（去掉结尾的 NUL 字符）。
 ///
-/// 对应 Java: `new String(bytes, codepage)`
+/// 对应 Java: `new String(bytes, codepage)`（POI 的 `CodePageUtil.getStringFromCodePage`）
 fn decode_lpstr(bytes: &[u8], codepage: u16) -> String {
-    let value = match codepage {
-        CODEPAGE_UTF8 => String::from_utf8_lossy(bytes).into_owned(),
-        CODEPAGE_UTF16LE => decode_utf16le(bytes),
-        1250 => encoding_rs::WINDOWS_1250.decode(bytes).0.into_owned(),
-        1251 => encoding_rs::WINDOWS_1251.decode(bytes).0.into_owned(),
-        1252 => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
-        1253 => encoding_rs::WINDOWS_1253.decode(bytes).0.into_owned(),
-        1254 => encoding_rs::WINDOWS_1254.decode(bytes).0.into_owned(),
-        1255 => encoding_rs::WINDOWS_1255.decode(bytes).0.into_owned(),
-        1256 => encoding_rs::WINDOWS_1256.decode(bytes).0.into_owned(),
-        1257 => encoding_rs::WINDOWS_1257.decode(bytes).0.into_owned(),
-        1258 => encoding_rs::WINDOWS_1258.decode(bytes).0.into_owned(),
-        // Java 的平台默认字符集在无法识别代码页时按 Windows-1252 处理。
-        _ => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
+    let value = match codepage_to_encoding(codepage) {
+        Some(encoding) => encoding.decode(bytes).0.into_owned(),
+        // 无对应 `encoding_rs` 实现的代码页：POI 在解析 Java 字符集名时失败；
+        // Rust 侧退回默认代码页（见文件头差异表）。
+        None => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
     };
 
     value.trim_end_matches('\0').to_owned()
+}
+
+/// 把 OLE 属性集的代码页号映射为 `encoding_rs` 的字符集。
+///
+/// 对应 Java: `org.apache.poi.util.CodePageUtil.codepageToEncoding(int)`。
+///
+/// POI 对显式列出的代码页返回固定 Java 字符集名，其余返回 `"cp" + 代码页号`；Rust 侧只
+/// 映射 `encoding_rs`（WHATWG Encoding 标准）有实现且 POI 会产出的取值。无法映射的
+/// （EBCDIC `cp037`、Johab、MacArabic / MacHebrew / MacGreek / MacThai / MacCentralEurope /
+/// MacIceland / MacTurkish / MacCroatian、ISO-2022-KR、US-ASCII 等）返回 `None`，
+/// 由调用方退回 [`DEFAULT_CODEPAGE`]。
+///
+/// 个别映射是 WHATWG 标准对 Java 名字的等价归并：`ISO-8859-1` → `windows-1252`、
+/// `ISO-8859-9` → `windows-1254`（WHATWG 把这两个标签指向对应 windows 代码页），
+/// `GB2312` → `GBK`、Mac 版中文/日文/韩文代码页 → 对应的中日韩编码。
+fn codepage_to_encoding(codepage: u16) -> Option<&'static encoding_rs::Encoding> {
+    Some(match codepage {
+        // CodePageUtil.CP_UTF16 / CP_UTF16_BE / CP_UTF8
+        CODEPAGE_UTF16LE => encoding_rs::UTF_16LE,
+        1201 => encoding_rs::UTF_16BE,
+        CODEPAGE_UTF8 => encoding_rs::UTF_8,
+        // CP_SJIS(932) / CP_MAC_JAPAN(10001) → "SJIS"
+        932 | 10001 => encoding_rs::SHIFT_JIS,
+        // CP_GBK(936) / CP_GB2312(52936) / CP_MAC_CHINESE_SIMPLE(10008) → "GBK"/"GB2312"/"EUC_CN"
+        936 | 52936 | 10008 => encoding_rs::GBK,
+        // CP_MS949(949) / CP_EUC_KR(51949) / CP_MAC_KOREAN(10003) → "ms949"/"EUC-KR"
+        949 | 51949 | 10003 => encoding_rs::EUC_KR,
+        // CP_MAC_CHINESE_TRADITIONAL(10002) → "Big5"；POI 默认分支的 cp950 同理
+        950 | 10002 => encoding_rs::BIG5,
+        // POI 默认分支的 cp874
+        874 => encoding_rs::WINDOWS_874,
+        // CP_WINDOWS_1250..1258 / CP_WINDOWS_1252_BIFF23(32769)
+        1250 => encoding_rs::WINDOWS_1250,
+        1251 => encoding_rs::WINDOWS_1251,
+        1252 | 32769 => encoding_rs::WINDOWS_1252,
+        1253 => encoding_rs::WINDOWS_1253,
+        1254 => encoding_rs::WINDOWS_1254,
+        1255 => encoding_rs::WINDOWS_1255,
+        1256 => encoding_rs::WINDOWS_1256,
+        1257 => encoding_rs::WINDOWS_1257,
+        1258 => encoding_rs::WINDOWS_1258,
+        // CP_MAC_ROMAN(10000) / CP_MAC_ROMAN_BIFF23(32768) → "MacRoman"
+        10000 | 32768 => encoding_rs::MACINTOSH,
+        // CP_MAC_CYRILLIC(10007) → "MacCyrillic"
+        10007 => encoding_rs::X_MAC_CYRILLIC,
+        // CP_KOI8_R(20866)
+        20866 => encoding_rs::KOI8_R,
+        // CP_ISO_8859_1(28591)：WHATWG 把 iso-8859-1 归到 windows-1252
+        28591 => encoding_rs::WINDOWS_1252,
+        28592 => encoding_rs::ISO_8859_2,
+        28593 => encoding_rs::ISO_8859_3,
+        28594 => encoding_rs::ISO_8859_4,
+        28595 => encoding_rs::ISO_8859_5,
+        28596 => encoding_rs::ISO_8859_6,
+        28597 => encoding_rs::ISO_8859_7,
+        28598 => encoding_rs::ISO_8859_8,
+        // CP_ISO_8859_9(28599)：WHATWG 把 iso-8859-9 归到 windows-1254
+        28599 => encoding_rs::WINDOWS_1254,
+        // CP_ISO_2022_JP1..3(50220/50221/50222)
+        50220 | 50221 | 50222 => encoding_rs::ISO_2022_JP,
+        // CP_EUC_JP(51932)
+        51932 => encoding_rs::EUC_JP,
+        // CP_GB18030(54936)
+        54936 => encoding_rs::GB18030,
+        _ => return None,
+    })
 }
 
 /// 按 UTF-16LE 解码（去掉结尾的 NUL 字符）。
@@ -1445,6 +1526,66 @@ mod tests {
         assert_eq!(decode_lpstr(&[b'\x77', b'\xF0', 0], 1251), "wр");
     }
 
+    /// 声明的代码页按 POI 的 `codepageToEncoding` 逐项映射（字节均取自对应编码）。
+    #[test]
+    fn lpstr_honours_poi_code_page_mapping() {
+        // GBK(936) 与 GB18030(54936)
+        assert_eq!(decode_lpstr(&[0xD6, 0xD0, 0], 936), "中");
+        assert_eq!(decode_lpstr(&[0xD6, 0xD0, 0], 54936), "中");
+        // Shift_JIS(932)：0x82 0xA0 → 「あ」
+        assert_eq!(decode_lpstr(&[0x82, 0xA0, 0], 932), "あ");
+        // EUC-KR(949)：0xB0 0xA1 → 「가」
+        assert_eq!(decode_lpstr(&[0xB0, 0xA1, 0], 949), "가");
+        // Big5(950)：0xA4 0xA4 → 「中」
+        assert_eq!(decode_lpstr(&[0xA4, 0xA4, 0], 950), "中");
+        // UTF-16BE(1201)：0x4E 0x2D → 「中」
+        assert_eq!(decode_lpstr(&[0x4E, 0x2D, 0, 0], 1201), "中");
+        // windows-874(874)：0xA1 → 「ก」
+        assert_eq!(decode_lpstr(&[0xA1, 0], 874), "ก");
+        // ISO-8859-5(28595)：0xB0 → 「А」（同一字节在 cp1251 里是「°」）
+        assert_eq!(decode_lpstr(&[0xB0, 0], 28595), "А");
+        // KOI8-R(20866)：0xD2 → 「р」（同一字节在 cp1251 里是「Т」）
+        assert_eq!(decode_lpstr(&[0xD2, 0], 20866), "р");
+    }
+
+    /// 无 `encoding_rs` 实现的代码页退回默认代码页（Windows-1252），不 panic。
+    #[test]
+    fn lpstr_falls_back_to_the_default_code_page() {
+        // cp037（EBCDIC）在 encoding_rs 中无实现
+        assert_eq!(decode_lpstr(&[0xF0, 0], 37), "ð");
+        // 未知代码页同样退回默认
+        assert_eq!(decode_lpstr(&[0xF0, 0], 9999), "ð");
+    }
+
+    /// 名字典按 section 声明的代码页解码（对应 POI `Section.readDictionary`）。
+    #[test]
+    fn dictionary_names_use_the_section_codepage() {
+        // 一条目：ID=2、名称长度=3（含结尾 NUL）、名称 "wр" 的 cp1251 字节 0x77 0xF0 0x00
+        let mut data = 1i32.to_le_bytes().to_vec();
+        data.extend_from_slice(&2i32.to_le_bytes());
+        data.extend_from_slice(&3i32.to_le_bytes());
+        data.extend_from_slice(&[0x77, 0xF0, 0x00]);
+
+        let mut names = Vec::new();
+        on_dictionary_entries(&data, 1251, &mut |id, name| names.push((id, name.to_owned())));
+        assert_eq!(names, vec![(2, "wр".to_owned())]);
+    }
+
+    /// `parse_section` 记录 section 声明的代码页；未声明时回落默认值。
+    #[test]
+    fn section_records_the_declared_codepage() {
+        let stream = property_set_stream(&[vec![
+            (PID_CODEPAGE, TestProperty::U16(1251)),
+            (PIDSI_TITLE, TestProperty::LpStr(lpstr("x"))),
+        ]]);
+        let sections = parse_property_set(&stream).expect("属性集可解析");
+        assert_eq!(sections[0].codepage, 1251);
+
+        let stream = property_set_stream(&[vec![(PIDSI_TITLE, TestProperty::LpStr(lpstr("x")))]]);
+        let sections = parse_property_set(&stream).expect("属性集可解析");
+        assert_eq!(sections[0].codepage, DEFAULT_CODEPAGE);
+    }
+
     /// 文档摘要信息：标准属性 + 自定义属性（字符串 / 整数 / 布尔）。
     #[test]
     fn document_summary_information_reads_custom_properties() {
@@ -1517,7 +1658,7 @@ mod tests {
         let sections = parse_property_set(&data.get_data()).expect("解析属性集");
         let section = sections.get(1).expect("自定义属性区");
         let mut link_id = None;
-        on_dictionary_entries(section.raw.get(&PID_DICTIONARY).expect("名字典"), &mut |id, name| {
+        on_dictionary_entries(section.raw.get(&PID_DICTIONARY).expect("名字典"), section.codepage, &mut |id, name| {
             if name == "_PID_LINKBASE" { link_id = Some(id); }
         });
         let id = link_id.expect("_PID_LINKBASE");
