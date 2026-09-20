@@ -7,7 +7,7 @@
 //! # 结构取舍：Java 的实例状态 → 私有状态结构体
 //!
 //! Java 的 `MPP9Reader` 采用「无参构造 + 实例字段保存中间状态 + `process` 结束时
-//! `clearMemberData()` 置空」的形状；而本批固定的 [`MPPVariantReader::process`] 签名是
+//! `clearMemberData()` 置空」的形状；而 [`MPPVariantReader::process`] 的签名是
 //! `&self`（见 `mpp_variant_reader.rs` 文件头给出的三种实现风格）。这里采用其中的
 //! **风格 (2)**「把状态装进局部结构体，再把 `&mut` 传给各私有方法」，它最贴近 Java 的
 //! 逐方法翻译，且不引入内部可变性：
@@ -46,7 +46,7 @@
 //!   及其两张常量表（Java 中同样是注释掉的调试代码）—— 未翻译注释掉的死代码。
 //! * 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
 //!
-//! # 接口假设（已与并行模块核对一致）
+//! # 接口假设（已核对一致）
 //!
 //! ```text
 //! pub trait MPPVariantReader {

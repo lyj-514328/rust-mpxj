@@ -2,8 +2,8 @@
 //!
 //! # 依赖说明
 //!
-//! 本 trait 的参数类型 `Task` 由并行任务翻译中（`crate::task`），当前
-//! `src/task.rs` 可能尚未落地：本文件只按 `&Task` 引用使用它，不依赖其具体方法。
+//! 本 trait 的参数类型 `Task`（[`crate::task::Task`]）已落地；本文件只按 `&Task`
+//! 引用使用它，不依赖其具体方法。
 
 use crate::duration::Duration;
 use crate::task::Task;

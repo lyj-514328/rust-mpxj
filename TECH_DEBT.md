@@ -73,13 +73,14 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | `84df880` · 六 | `project_calendar`：`set_parent` 的 `calendar != this` 守卫（按地址同一性还原）、`ProjectCalendar(ProjectFile)`、`get_tasks` / `get_resources` / `get_resource_count` / `get_derived_calendars_for_project`，并实现 `ProjectEntityWithUniqueID` / `ProjectEntityWithMutableUniqueID` |
 | `84df880` · 六 | `project_calendar_container`：`get_by_name` 改用 `equals_ignore_case`；`removed()` 的派生日历清理改为**扫描容器元素**（原先经上下文查询必然失败 ⇒ 实为死代码，现已真正生效，并有回归测试） |
 | `84df880` · 四 | `project_calendar` / `project_calendar_container` / `external_project_container` / `project_properties` / `project_file` 等处过期措辞订正 |
+| `6a6ed58` · 三 | `format_optional_display` 族收敛：`font_style` / `grid_lines` / `table_font_style` / `timescale_tier` 的 4 份拷贝，以及 `gantt_bar_common_style` 的 `format_option` / `format_field`、`table_font_style` 的 `format_field_type`，全部改为 [`mpp_utility::format_optional_display`]；`format_color` 转调它 |
 
 ### ⬜ 仍欠
 
 | 章节 | 条目 | 状态 |
 |---|---|---|
 | 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败 | 已核实，非债 |
-| 三 | `format_optional_display` 族仍有 **4 份**拷贝（`mpp/font_style.rs`、`mpp/grid_lines.rs`、`mpp/table_font_style.rs`、`mpp/timescale_tier.rs`；签名分 `Option<T>` 与 `Option<&T>` 两种），`mpp/gantt_bar_common_style.rs` 的 `format_option` / `format_field` 与 `mpp/table_font_style.rs` 的 `format_field_type` 亦属同族 | 待收敛 |
+| 三 | ~~`format_optional_display` 族 4 份拷贝~~ | ✅ `6a6ed58` 已收敛 |
 | 四 | 白名单外仍有过期措辞的文件：`mpp14_reader.rs`、`mpp9_reader.rs`、`mpp8_reader.rs`、`mpp12_reader.rs`、`shift_period.rs`、`shift_period_container.rs`、`shift_container.rs`、`unit_of_measure_container.rs`、`work_contour.rs`、`notes_topic.rs`、`slack_calculator.rs`、`mpx/task_model.rs`、`mpx/resource_model.rs`、`mpp/mpp_variant_reader.rs` | 待订正 |
 | 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 仍未移植（需新增该类型 + 容器的 `get_populated_fields`） | 待接线 |
 | 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类：`ProjectCalendar` 现已实现所需 trait，但基类 `new` 要求**构造时**就有序号提供者，而容器在上下文成型前构造 —— 需先重构 `ProjectContext::shared` 的接线顺序 | 待定调 |

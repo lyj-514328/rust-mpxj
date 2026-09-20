@@ -11,7 +11,7 @@
 //! | Java | Rust | 说明 |
 //! |---|---|---|
 //! | `final class TaskModel`（包级可见） | [`TaskModel`] | 模块路径 `crate::mpx::task_model` 已限定范围 |
-//! | `TaskModel(ProjectFile, Locale, UserDefinedFieldMap)` | [`TaskModel::new`] | `Locale` → [`MpxLocale`]；`ProjectFile` → `Weak<RefCell<ProjectFile>>`；`UserDefinedFieldMap` 未移植，故不接收该参数（见下） |
+//! | `TaskModel(ProjectFile, Locale, UserDefinedFieldMap)` | [`TaskModel::new`] | `Locale` → [`MpxLocale`]；`ProjectFile` → `Weak<RefCell<ProjectFile>>`；`UserDefinedFieldMap` 尚未接线，故暂不接收该参数（见下） |
 //! | `void setLocale(Locale locale)` | [`TaskModel::set_locale`] | |
 //! | `public int[] getModel()` | [`TaskModel::get_model`] | 返回整个定长数组（`-1` 为终止符），因需写入终止符而接收 `&mut self` |
 //! | `public void update(Record, boolean) throws MPXJException` | [`TaskModel::update`] | `Record` 来自 `crate::mpx::record`，Rust 侧带借用生命周期（`&Record<'_>`） |
@@ -32,12 +32,14 @@
 //!   `Weak<RefCell<ProjectFile>>`；父文件已释放或正被可变借用时，[`TaskModel::populate_model`]
 //!   退化为「没有任何任务」、[`TaskModel::get_delimiter`] 退化为默认分隔符 `','`
 //!   （Java 中父文件必然存在，无此情形）。
-//! - **`UserDefinedFieldMap` 尚未移植**：Java 用它把「自定义字段名」映射回源字段
-//!   （`getSource`）。Rust 侧相关逻辑被隔离在模块私有函数 [`user_defined_source_field`] 中，
-//!   当前退化为「不匹配自定义字段名」（恒等函数）。由于 Java 的 `getSource` 在无映射时
-//!   原样返回入参，该退化等价于「映射表为空」，接入时只需让该函数与构造方法接收映射表即可。
+//! - **`UserDefinedFieldMap` 尚未接线**：Java 用它把「自定义字段名」映射回源字段
+//!   （`getSource`）。该类型已落地（[`crate::mpp::user_defined_field_map::UserDefinedFieldMap`]），
+//!   但本仓的构造方法尚未接收它（属待接线项，见 `TECH_DEBT.md` 六），因此 Rust 侧相关逻辑被
+//!   隔离在模块私有函数 [`user_defined_source_field`] 中，当前退化为「不匹配自定义字段名」
+//!   （恒等函数）。由于 Java 的 `getSource` 在无映射时原样返回入参，该退化等价于
+//!   「映射表为空」，接入时只需让该函数与构造方法接收映射表即可。
 //! - **`Record` / `LocaleData` 的依赖**：`crate::mpx::record`（`Record`）与
-//!   `crate::mpx::locale_data`（`LocaleData`）由其他模块并行移植，本文件按 Java 的用法调用：
+//!   `crate::mpx::locale_data`（`LocaleData`）均已落地，本文件按 Java 的用法调用：
 //!   `Record::get_length()`（Java 返回 `int`，Rust 侧是 `usize`，此处转回 `i32` 以匹配
 //!   `Record::get_string(i32)` / `get_integer(i32)`）、
 //!   `LocaleData::get_string_array(locale, LocaleData::TASK_NAMES)`
@@ -121,7 +123,7 @@ impl TaskModel {
     ///
     /// 对应 Java: `TaskModel(ProjectFile file, Locale locale, UserDefinedFieldMap userDefinedFieldMap)`
     ///
-    /// 差异：`Locale` → [`MpxLocale`]；`ProjectFile` → 弱引用；`UserDefinedFieldMap` 尚未移植，
+    /// 差异：`Locale` → [`MpxLocale`]；`ProjectFile` → 弱引用；`UserDefinedFieldMap` 尚未接线，
     /// 故不接收该参数（见文件头说明）。
     pub fn new(file: Weak<RefCell<ProjectFile>>, locale: MpxLocale) -> Self {
         let mut model = Self {
@@ -384,9 +386,10 @@ fn localised_task_names(locale: MpxLocale) -> &'static [Option<&'static str>] {
 ///
 /// 对应 Java: `m_userDefinedFieldMap.getSource(field)`（仅在 `m_userDefinedFieldMap != null` 时执行）。
 ///
-/// 依赖尚未移植的 `org.mpxj.mpp.UserDefinedFieldMap`：Java 的 `getSource` 在没有映射时
-/// 原样返回入参，因此这里退化为恒等函数（等价于映射表为空 / 未接线）。
-/// 待该类型移植后，让本函数（以及构造方法）接收映射表并在此查表即可，其余逻辑无需改动。
+/// 依赖尚未接线的 [`crate::mpp::user_defined_field_map::UserDefinedFieldMap`]：
+/// Java 的 `getSource` 在没有映射时原样返回入参，因此这里退化为恒等函数
+/// （等价于映射表为空 / 未接线）。待接线后，让本函数（以及构造方法）接收映射表并在此查表即可，
+/// 其余逻辑无需改动。
 fn user_defined_source_field(field: TaskField) -> TaskField {
     field
 }

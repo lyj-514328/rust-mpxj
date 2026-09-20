@@ -44,7 +44,7 @@
 //! | `MPPUtility.convertRateFromHours(m_file, resource, STANDARD_RATE/OvertimeRate, …_UNITS)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | [`MPPUtility::convert_rate_from_hours`]（内部按整数还原 `TimeUnit`） | `FieldValue` 没有承载 `TimeUnit` 的变体，单位字段以整数存放；换算逻辑由 `RateHelper::convert_from_hours` 提供 |
 //! | `AvailabilityFactory.process(resource, data)` 直接向 `resource.getAvailability()` 追加 | 工厂返回「应追加的行」，调用点经 [`crate::Resource::add_availability`] 写回 | `get_availability()` 只借出只读 `Ref` |
 //!
-//! # 与并行模块的接口（已核对一致）
+//! # 与相关模块的接口（已核对一致）
 //!
 //! `mpp_variant_reader.rs` / `mpp_reader.rs` 与本文件同期落地，实际签名为：
 //!

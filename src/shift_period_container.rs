@@ -2,7 +2,8 @@
 //!
 //! 跳过的 Java 方法与原因：无本类自定义方法，Java 侧全部行为来自基类
 //! `ProjectEntityContainer<ShiftPeriod>`（其上层为 `ProjectEntityWithIDContainer` /
-//! `ListWithCallbacks`），这些基类尚未移植，取舍与
+//! `ListWithCallbacks`）；本仓**未组合**这些基类（它们均已落地，属待接线项，见
+//! `TECH_DEBT.md` 六），取舍与
 //! [`crate::unit_of_measure_container::UnitOfMeasureContainer`] 一致：
 //!
 //! | Java（继承自基类） | Rust |
@@ -10,12 +11,12 @@
 //! | `add(E element)` | [`ShiftPeriodContainer::add`] |
 //! | `get(int index)` / `size()` / `isEmpty()` / `iterator()` | [`ShiftPeriodContainer::get`] / [`ShiftPeriodContainer::len`] / [`ShiftPeriodContainer::is_empty`] / [`ShiftPeriodContainer::iter`] |
 //! | `getByUniqueID(Integer id)` | [`ShiftPeriodContainer::get_by_unique_id`] |
-//! | `updateUniqueID(element, oldID, newID)`、`fixUniqueIdClashes()`、`getSequenceProvider()`、`ListWithCallbacks` 的回调 | 未移植（依赖尚未移植的基类与 `UniqueIdObjectSequenceProvider`） |
+//! | `updateUniqueID(element, oldID, newID)`、`fixUniqueIdClashes()`、`getSequenceProvider()`、`ListWithCallbacks` 的回调 | 未接线（`ProjectEntityContainer` 与 `UniqueIdObjectSequenceProvider` 均已落地，见 `TECH_DEBT.md` 六） |
 //!
 //! # 与 Java 的差异
 //!
 //! - **构造方法**：Java 的 `ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
-//!   把序列提供者交给基类，仅用于尚未移植的基类方法，Rust 侧构造方法无参数。
+//!   把序列提供者交给基类，仅用于基类方法（本仓未组合基类），Rust 侧构造方法无参数。
 //! - **元素形态**：Java 存的是 `ShiftPeriod` 引用；Rust 侧
 //!   [`crate::shift_period::ShiftPeriod`] 是值类型（内部以 `Weak<Shift>` 回指父班次），
 //!   故容器直接存 `ShiftPeriod`，与 [`crate::shift::Shift`] 内部的
@@ -41,7 +42,7 @@ impl ShiftPeriodContainer {
     ///
     /// 对应 Java: `public ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的 `sequenceProvider` 参数只用于尚未移植的基类方法，Rust 侧构造方法无参数
+    /// Java 的 `sequenceProvider` 参数只用于基类方法（本仓未组合基类），Rust 侧构造方法无参数
     /// （见文件头说明）。
     pub fn new() -> Self {
         Self { items: Vec::new() }
@@ -104,8 +105,8 @@ impl ShiftPeriodContainer {
     ///
     /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `clear()`。
     ///
-    /// 注：Java 的 `ListWithCallbacks` 会在逐个移除时触发回调，Rust 侧基类尚未移植，
-    /// 此处只清空列表。
+    /// 注：Java 的 `ListWithCallbacks` 会在逐个移除时触发回调，Rust 侧未组合该基类
+    /// （见文件头），此处只清空列表。
     pub fn clear(&mut self) {
         self.items.clear();
     }

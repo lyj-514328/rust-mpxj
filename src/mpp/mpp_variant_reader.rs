@@ -8,7 +8,7 @@
 //! [`MPPReader::read`](crate::mpp::mpp_reader::MPPReader::read) 从 `\1CompObj` 流拿到
 //! 文件格式字符串后，据此选出一个变体并调用 [`MPPVariantReader::process`]。
 //!
-//! # 最终确定的 trait 签名（本批四个并行任务的对接点）
+//! # 最终确定的 trait 签名（四个变体 reader 的对接点）
 //!
 //! ```ignore
 //! pub trait MPPVariantReader {

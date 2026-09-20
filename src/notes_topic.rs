@@ -151,7 +151,8 @@ impl Builder {
     ///
     /// 对应 Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// 序列提供者尚未移植，Rust 侧不接收该参数（见文件头说明）。
+    /// Java 的序列提供者用于经 `ObjectSequence` 分配 unique ID；本仓尚未接线
+    /// （`UniqueIdObjectSequenceProvider` 已落地），故不接收该参数（见文件头说明）。
     pub fn new() -> Self {
         Self::default()
     }

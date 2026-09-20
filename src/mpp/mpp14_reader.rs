@@ -22,7 +22,7 @@
 //! |---|---|---|
 //! | `process(MPPReader reader, ProjectFile file, DirectoryEntry root)` | `MPPVariantReader::process(&self, reader: &MPPReader, file: &Rc<RefCell<ProjectFile>>, root: &DirectoryEntry) -> MpxjResult<()>` | 与 [`crate::mpp::mpp_variant_reader`] 已落地的 trait 签名一致；本文件只读 `get_read_properties_only` / `get_read_presentation_data` / `get_use_raw_timephased_data` 三个开关 |
 //! | `throws MPXJException, IOException` | `-> MpxjResult<()>` | 统一用 [`MpxjError`]（`io::Error` 可经 `?` 自动转换） |
-//! | `new DocumentInputStream((DocumentEntry) dir.getEntry(name))` | `dir.get_document(name)?` 的 `get_data()` 字节切片 | 按本批约定，凡接收 `InputStream` 的构造方法一律改接收 `&[u8]` |
+//! | `new DocumentInputStream((DocumentEntry) dir.getEntry(name))` | `dir.get_document(name)?` 的 `get_data()` 字节切片 | 按项目约定，凡接收 `InputStream` 的构造方法一律改接收 `&[u8]` |
 //! | `m_inputStreamFactory.getInstance(dir, name)` | `self.read_stream(dir, name)`（内部 `MppInputStream::to_bytes()`） | 加密文件由 `DocumentInputStreamFactory` 解密 |
 //! | `DirectoryEntry` 缺失时 POI 抛异常 | `None` → `MpxjError` | [`crate::mpp::ole::DirectoryEntry`] 的约定 |
 //! | `byte`（有符号）与 `(byte) 0x99` 之类的 case 标签 | `u8` 与无符号字面量 | 仅位模式不同，见 [`Mpp14ReaderState::process_sub_project_data`] 的说明 |

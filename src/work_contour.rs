@@ -7,8 +7,10 @@ use std::fmt::{self, Display, Formatter};
 /// 对应 Java: `public final class WorkContour implements ProjectEntityWithUniqueID`
 ///
 /// 移植说明：
-/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该接口尚未移植，Rust 侧保留同名的
-///   [`WorkContour::get_unique_id`] 方法，待接口移植后再补上 `impl`。
+/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该 trait 已落地，本仓的 `impl` 写在
+///   [`crate::work_contour_container`]（并行开发期为避免跨文件冲突而放在容器文件内，
+///   属待归位项，见 `TECH_DEBT.md` 六），本类型自身仍保留同名的
+///   [`WorkContour::get_unique_id`] 方法。
 /// - Java 的 `double... curveValues` 可变参数映射为 `Option<Vec<f64>>`：`null` 表示曲线
 ///   已被手工编辑（`CONTOURED`），与 Java 的 `null` 语义一致。
 /// - Java 的 `public static final` 常量（`FLAT`、`BACK_LOADED` 等）无法在 Rust 中 `const`

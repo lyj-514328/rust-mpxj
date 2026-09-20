@@ -6,10 +6,10 @@
 //!
 //! - **唯一 ID 分配**：Java 的构造方法通过
 //!   `UniqueIdObjectSequenceProvider#getUniqueIdObjectSequence(ShiftPeriod.class).syncOrGetNext(...)`
-//!   分配/同步唯一 ID。`ObjectSequence`、`UniqueIdObjectSequenceProvider` 尚未移植
-//!   （`src/lib.rs` 未声明），因此 Rust 侧 [`Builder`] 不再接收序列提供者，
-//!   直接使用调用方通过 [`Builder::unique_id`] 传入的值；`ShiftPeriod` 也未实现
-//!   `ProjectEntityWithUniqueID`（该接口尚未移植），但仍提供 `get_unique_id()`。
+//!   分配/同步唯一 ID。`ObjectSequence`、`UniqueIdObjectSequenceProvider` 均已落地，但本仓
+//!   的 [`Builder`] 尚未接线，仍直接使用调用方通过 [`Builder::unique_id`] 传入的值；
+//!   `ShiftPeriod` 也未实现 `ProjectEntityWithUniqueID`（该 trait 已落地，属待接线项，
+//!   见 `TECH_DEBT.md` 六），但仍提供 `get_unique_id()`。
 //! - **父班次引用**：Java 用强引用 `Shift m_parentShift` 回指父班次（构造时还会把自身
 //!   加入父班次的 `TreeSet`）。Rust 侧用 [`Weak`] 弱引用表达回指（避免与
 //!   `Shift.periods` 形成循环引用），[`ShiftPeriod::get_parent_shift`] 在父班次已释放时
@@ -165,7 +165,8 @@ impl Builder {
     ///
     /// 对应 Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider, Shift shift)`
     ///
-    /// 序列提供者尚未移植，Rust 侧不接收该参数（见文件头说明）。
+    /// Java 的序列提供者用于经 `ObjectSequence` 分配 unique ID；本仓尚未接线
+    /// （`UniqueIdObjectSequenceProvider` 已落地），故不接收该参数（见文件头说明）。
     pub fn new(shift: &Rc<Shift>) -> Self {
         Self {
             shift: Rc::clone(shift),

@@ -8,18 +8,19 @@ use crate::unit_of_measure::{Builder, UnitOfMeasure};
 ///
 /// 移植说明：
 /// - Java 里它继承自 `ProjectEntityContainer<UnitOfMeasure>`（其上层是
-///   `ProjectEntityWithIDContainer` / `ListWithCallbacks` 体系），这些基类尚未移植，
-///   Rust 侧**先按独立的简单容器实现**：内部 `Vec<UnitOfMeasure>` + 按 id/uniqueId 查找；
-///   待 `ProjectEntityContainer` / `ProjectEntityWithIDContainer` 移植后再对齐继承关系
+///   `ProjectEntityWithIDContainer` / `ListWithCallbacks` 体系）；本仓**未组合**这些基类
+///   （它们均已落地，属待接线项，见 `TECH_DEBT.md` 六），Rust 侧**先按独立的简单容器实现**：
+///   内部 `Vec<UnitOfMeasure>` + 按 id/uniqueId 查找；待接线后再对齐继承关系
 ///   （含回调、unique ID 冲突处理等行为）。
-/// - Java 构造方法接收 `UniqueIdObjectSequenceProvider` 用于分配 unique ID；该类尚未移植，
+/// - Java 构造方法接收 `UniqueIdObjectSequenceProvider` 用于分配 unique ID；该类型已落地，
 ///   Rust 侧构造方法无参数，unique ID 在
 ///   [`UnitOfMeasureContainer::build_unit_of_measure`] 内按「当前最大 unique ID + 1」近似
 ///   分配（Java 侧由 `ObjectSequence` 从 1 起递增分配）。
 ///
 /// 被跳过的 Java 代码：`ProjectEntityContainer` 继承而来的方法（`getByUniqueID` 已映射为
 /// [`UnitOfMeasureContainer::get_by_unique_id`]；`updateUniqueID`、`fixUniqueIdClashes`、
-/// `getSequenceProvider`、`ListWithCallbacks` 的回调等），原因是这些基类尚未移植。
+/// `getSequenceProvider`、`ListWithCallbacks` 的回调等），原因是本仓未组合这些基类
+/// （见 `TECH_DEBT.md` 六）。
 ///
 /// 未移植的 Java 方法：无。
 #[derive(Debug, Clone, Default)]
@@ -35,8 +36,8 @@ impl UnitOfMeasureContainer {
     ///
     /// 对应 Java: `public UnitOfMeasureContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的 `sequenceProvider` 参数依赖尚未移植的 `UniqueIdObjectSequenceProvider`，
-    /// Rust 侧构造方法无参数。
+    /// Java 的 `sequenceProvider` 参数用于经基类分配 unique ID（本仓未组合基类且尚未接线，
+    /// `UniqueIdObjectSequenceProvider` 已落地），Rust 侧构造方法无参数。
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
@@ -129,7 +130,7 @@ impl UnitOfMeasureContainer {
     /// Java 侧返回新建的 `UnitOfMeasure` 实例；Rust 侧为避免在库代码中 panic，改为返回
     /// 下标，由调用方通过 `get` 借用。
     fn build_unit_of_measure(&mut self, name: &str) -> usize {
-        // Java: UniqueIdObjectSequenceProvider 分配 unique ID（尚未移植，此处近似实现）
+        // Java: UniqueIdObjectSequenceProvider 分配 unique ID（本仓未接线，此处近似实现）
         let unique_id = self
             .items
             .iter()

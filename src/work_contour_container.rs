@@ -24,9 +24,9 @@ use crate::work_contour::WorkContour;
 /// - `fixUniqueIdClashes()` **未**转发：Java 中只有 unique ID 可变的实体才会进入冲突列表，
 ///   而 `WorkContour` 的 unique ID 是 `final`（其 `ProjectEntityWithUniqueID` 实现只有读取
 ///   方法），冲突列表恒为空，转发该方法没有意义。
-/// - Java 的 `WorkContour implements ProjectEntityWithUniqueID`：Rust 侧的该 `impl` 放在本文件，
-///   因为 `src/work_contour.rs` 不在本次改动范围内（避免并行开发冲突），其文件头亦注明
-///   「待接口移植后再补上 `impl`」。整合时可将该 `impl` 移回 `src/work_contour.rs`。
+/// - Java 的 `WorkContour implements ProjectEntityWithUniqueID`：Rust 侧的该 `impl` 目前写在
+///   本文件（并行开发期为避免跨文件冲突而放在容器文件内），属待归位项 ——
+///   见 `TECH_DEBT.md` 六；归位后本文件只需保留上面的容器逻辑。
 ///
 /// 被跳过的 Java 代码：`fixUniqueIdClashes()`（见上）。
 ///
