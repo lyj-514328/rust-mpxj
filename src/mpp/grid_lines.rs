@@ -18,7 +18,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpp::line_style::LineStyle;
-use crate::mpp::mpp_utility::Color;
+use crate::mpp::mpp_utility::{format_optional_display, Color};
 
 /// 一组网格线的属性。
 ///
@@ -112,23 +112,12 @@ impl Display for GridLines {
         write!(
             f,
             "[GridLines NormalLineColor={} NormalLineStyle={} IntervalNumber={} IntervalLineStyle={} IntervalLineColor={}]",
-            format_optional_display(self.normal_line_color),
-            format_optional_display(self.normal_line_style),
+            format_optional_display(self.normal_line_color.as_ref()),
+            format_optional_display(self.normal_line_style.as_ref()),
             self.interval_number,
-            format_optional_display(self.interval_line_style),
-            format_optional_display(self.interval_line_color)
+            format_optional_display(self.interval_line_style.as_ref()),
+            format_optional_display(self.interval_line_color.as_ref())
         )
-    }
-}
-
-/// 把可选对象按 Java 的字符串拼接语义输出（`None` 输出 `null`）。
-///
-/// [`Color`] 与 [`LineStyle`] 都实现了 [`Display`]：前者输出 `java.awt.Color[r=..,g=..,b=..]`
-/// （见 `crate::mpp::mpp_utility::Color` 的 `Display`），后者是枚举常量名，与 Java 的拼接结果一致。
-fn format_optional_display<T: Display>(value: Option<T>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
     }
 }
 

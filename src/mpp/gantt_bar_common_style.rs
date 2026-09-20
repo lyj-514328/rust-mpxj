@@ -27,7 +27,7 @@ use crate::mpp::chart_pattern::ChartPattern;
 use crate::mpp::gantt_bar_middle_shape::GanttBarMiddleShape;
 use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
-use crate::mpp::mpp_utility::{format_color, Color};
+use crate::mpp::mpp_utility::{format_color, format_optional_display, Color};
 
 /// 甘特图条形样式（普通 / 例外）的共有部分。
 ///
@@ -279,40 +279,24 @@ impl Display for GanttBarCommonStyle {
     /// 对应 Java: `@Override public String toString()`
     ///
     /// 逐行输出各属性，格式与 Java 的 `PrintWriter.println` 完全一致（含结尾换行）。
+    ///
+    /// 说明：文本字段（`leftText` 等）Java 打印的是枚举常量的 `name()`（如 `START`），
+    /// Rust 的 [`MppFieldType`] 以 [`Display`] 暴露显示名（如 `Start`），两者大小写风格不同。
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "      StartShape={}", format_option(self.start_shape))?;
-        writeln!(f, "      StartType={}", format_option(self.start_type))?;
+        writeln!(f, "      StartShape={}", format_optional_display(self.start_shape.as_ref()))?;
+        writeln!(f, "      StartType={}", format_optional_display(self.start_type.as_ref()))?;
         writeln!(f, "      StartColor={}", format_color(self.start_color))?;
-        writeln!(f, "      MiddleShape={}", format_option(self.middle_shape))?;
-        writeln!(f, "      MiddlePattern={}", format_option(self.middle_pattern))?;
+        writeln!(f, "      MiddleShape={}", format_optional_display(self.middle_shape.as_ref()))?;
+        writeln!(f, "      MiddlePattern={}", format_optional_display(self.middle_pattern.as_ref()))?;
         writeln!(f, "      MiddleColor={}", format_color(self.middle_color))?;
-        writeln!(f, "      EndShape={}", format_option(self.end_shape))?;
-        writeln!(f, "      EndType={}", format_option(self.end_type))?;
+        writeln!(f, "      EndShape={}", format_optional_display(self.end_shape.as_ref()))?;
+        writeln!(f, "      EndType={}", format_optional_display(self.end_type.as_ref()))?;
         writeln!(f, "      EndColor={}", format_color(self.end_color))?;
-        writeln!(f, "      LeftText={}", format_field(self.left_text.as_ref()))?;
-        writeln!(f, "      RightText={}", format_field(self.right_text.as_ref()))?;
-        writeln!(f, "      TopText={}", format_field(self.top_text.as_ref()))?;
-        writeln!(f, "      BottomText={}", format_field(self.bottom_text.as_ref()))?;
-        writeln!(f, "      InsideText={}", format_field(self.inside_text.as_ref()))
-    }
-}
-
-/// 打印可空的枚举 / 模式值，`None` 对应 Java 的 `null`。
-fn format_option<T: Display>(value: Option<T>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
-    }
-}
-
-/// 打印可空的文本字段，`None` 对应 Java 的 `null`。
-///
-/// 说明：Java 打印的是枚举常量的 `name()`（如 `START`），Rust 的 [`MppFieldType`]
-/// 以 [`Display`] 暴露显示名（如 `Start`），两者大小写风格不同。
-fn format_field(value: Option<&MppFieldType>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
+        writeln!(f, "      LeftText={}", format_optional_display(self.left_text.as_ref()))?;
+        writeln!(f, "      RightText={}", format_optional_display(self.right_text.as_ref()))?;
+        writeln!(f, "      TopText={}", format_optional_display(self.top_text.as_ref()))?;
+        writeln!(f, "      BottomText={}", format_optional_display(self.bottom_text.as_ref()))?;
+        writeln!(f, "      InsideText={}", format_optional_display(self.inside_text.as_ref()))
     }
 }
 

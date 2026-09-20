@@ -21,7 +21,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::font_base::FontBase;
-use crate::mpp::mpp_utility::{format_color, Color};
+use crate::mpp::mpp_utility::{format_color, format_optional_display, Color};
 
 /// 字体样式（基础字体 + 颜色 / 字型属性）。
 ///
@@ -163,14 +163,6 @@ impl Display for FontStyle {
             format_color(self.background_color),
             self.background_pattern
         )
-    }
-}
-
-/// 把可选对象按 Java 的字符串拼接语义输出（`None` 输出 `null`）。
-fn format_optional_display<T: Display>(value: Option<&T>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
     }
 }
 

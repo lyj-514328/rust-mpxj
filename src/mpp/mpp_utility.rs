@@ -149,6 +149,17 @@ impl fmt::Display for Color {
     }
 }
 
+/// 把可选值按 Java 的字符串拼接语义输出（`None` → `"null"`）。
+///
+/// 对应 Java: 字符串拼接中的 `String.valueOf(obj)` —— `null` 输出 `"null"`。
+/// 各展示类的 `toString()` 都用这一约定，故集中提供，避免各文件各自复刻。
+pub fn format_optional_display<T: fmt::Display + ?Sized>(value: Option<&T>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "null".to_owned(),
+    }
+}
+
 /// 把可空颜色渲染成 Java `java.awt.Color.toString()` 的形式（`None` → `"null"`）。
 ///
 /// Java 的展示类在 `toString()` 里直接拼接 `java.awt.Color`，`null` 时拼出 `"null"`
@@ -156,10 +167,7 @@ impl fmt::Display for Color {
 /// 一遍（`crate::mpp::font_style` / `crate::mpp::gantt_bar_common_style` /
 /// `crate::group_clause` 曾各有一份拷贝）。
 pub fn format_color(value: Option<Color>) -> String {
-    match value {
-        Some(color) => color.to_string(),
-        None => "null".to_owned(),
-    }
+    format_optional_display(value.as_ref())
 }
 
 impl MPPUtility {

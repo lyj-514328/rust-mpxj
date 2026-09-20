@@ -19,6 +19,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
+use crate::mpp::mpp_utility::format_optional_display;
 use crate::mpp::timescale_alignment::TimescaleAlignment;
 use crate::mpp::timescale_format::TimescaleFormat;
 use crate::timescale_units::TimescaleUnits;
@@ -171,19 +172,11 @@ impl Display for TimescaleTier {
             "[TimescaleTier UsesFiscalYear={} TickLines={} Units={} Count={} Format=[{}] Alignment={}]",
             self.uses_fiscal_year,
             self.tick_lines,
-            format_optional_display(self.units),
+            format_optional_display(self.units.as_ref()),
             self.count,
-            format_optional_display(self.format),
-            format_optional_display(self.alignment)
+            format_optional_display(self.format.as_ref()),
+            format_optional_display(self.alignment.as_ref())
         )
-    }
-}
-
-/// 把可选对象按 Java 的字符串拼接语义输出（`None` 输出 `null`）。
-fn format_optional_display<T: Display>(value: Option<T>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
     }
 }
 

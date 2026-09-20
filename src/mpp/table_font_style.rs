@@ -35,7 +35,7 @@ use crate::common::mpp_field_type::MppFieldType;
 use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::font_base::FontBase;
 use crate::mpp::font_style::FontStyle;
-use crate::mpp::mpp_utility::Color;
+use crate::mpp::mpp_utility::{format_optional_display, Color};
 
 /// 表格列 / 行 / 单元格的字体样式。
 ///
@@ -302,7 +302,7 @@ impl Display for TableFontStyle {
         let mut result = format!(
             "[ColumnFontStyle rowUniqueID={} fieldType={}",
             self.row_unique_id,
-            format_field_type(self.field_type.as_ref())
+            format_optional_display(self.field_type.as_ref())
         );
 
         if self.italic_changed {
@@ -352,25 +352,6 @@ impl fmt::Debug for TableFontStyle {
     /// 未实现 `Debug` 而无法派生）。
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
-    }
-}
-
-/// 把字段类型按 Java 的字符串拼接语义渲染（`None` 输出 `null`）。
-fn format_field_type(field_type: Option<&MppFieldType>) -> String {
-    match field_type {
-        Some(field_type) => field_type.to_string(),
-        None => "null".to_owned(),
-    }
-}
-
-/// 把可选对象按 Java 的字符串拼接语义渲染（`None` 输出 `null`）。
-///
-/// [`Color`] 的 [`Display`] 输出 `java.awt.Color[r=..,g=..,b=..]`（见
-/// `crate::mpp::mpp_utility::Color`），与 Java 直接拼接 `java.awt.Color` 的结果一致。
-fn format_optional_display<T: Display>(value: Option<&T>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_owned(),
     }
 }
 
