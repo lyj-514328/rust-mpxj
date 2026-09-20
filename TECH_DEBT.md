@@ -85,7 +85,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | 三 | ~~`format_optional_display` 族 4 份拷贝~~ | ✅ `6a6ed58` 已收敛 |
 | 四 | ~~白名单外仍有过期措辞的文件（14 个）~~ | ✅ `b66f7cd` 已订正 |
 | 四 | 约 25 处残留「并行 / 本批」措辞（审计清单未覆盖，含 `resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs` 等 30 个文件） | ✅ `dedfa4d` 已订正（纯注释，已用 `git diff -U0` 自检确认未动任何代码行） |
-| 二 | **新发现**：`ProjectContext::shared()` 未接线 `resources.set_context(&context)`（`project_context.rs:186-201` 只接线了日历容器与序号提供者适配器）⇒ `ResourceContainer` 的上下文弱引用为空 | 待接线 |
+| 二 | **新发现**：`ProjectContext::shared()` 未接线 `resources.set_context(&context)`（只接线了日历容器与序号提供者适配器）⇒ `ResourceContainer` 的上下文弱引用为空、内部序号生成器退化为自带计数器 | ✅ `69c6648` 已接线 |
 | 六 | `mpp/fix_defer_fix.rs` 的 `copy_bytes` / `get_unicode_string` 与 `MPPUtility::get_byte_array` / `get_unicode_string` 是**重复实现**且语义略有差异（本文件越界返回 `None`，`MPPUtility` 版静默不复制）——现已在注释中如实说明，但是否合流需先定调 | 待定调 |
 | 六 | `mpp/custom_field_value_reader14.rs:16` 的私有常量 `PROJECT_2010` 与已落地的 `crate::mpp::application_version::ApplicationVersion::PROJECT_2010` **取值相同但重复定义**，应改为引用 | 待接线 |
 | 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 仍未移植（需新增该类型 + 容器的 `get_populated_fields`） | 待接线 |
