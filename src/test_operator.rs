@@ -36,6 +36,8 @@
 //!    故返回 `false`（实际取值路径不会碰到，`GenericCriteria::evaluate` 会先行分流）。
 //! 4. **大小写不敏感比较**：Java 用 `toUpperCase()`（Unicode），Rust 侧同样用
 //!    [`str::to_uppercase`]（Unicode），行为一致。
+//! 5. **二进制操作数**：Java `byte[]` 默认按对象地址字符串化，Rust 用 `Debug` 输出字节；
+//!    筛选表达式不使用 OLE 自定义属性里的二进制值。
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -157,7 +159,8 @@ fn render_field_value(value: &FieldValue) -> String {
         // Java 未覆写 `toString()` 的类型（`WorkContour` / 枚举）与集合 / 实体引用型取值：
         // 本仓约定改用 `Debug` 渲染（见各文件头「Java 未覆写 toString 的类改为 Debug」），
         // 它们不会出现在筛选表达式的操作数里。
-        FieldValue::WorkContour(_)
+        FieldValue::Bytes(_)
+        | FieldValue::WorkContour(_)
         | FieldValue::RateSource(_)
         | FieldValue::ResourceRequestType(_)
         | FieldValue::Steps(_)

@@ -6011,7 +6011,11 @@ impl Task {
             return Some(false);
         }
 
-        let mut total_slack = self.get_total_slack()?;
+        // Java 在总时差缺失时返回 Boolean.FALSE，而不是 null。
+        let mut total_slack = match self.get_total_slack() {
+            Some(value) => value,
+            None => return Some(false),
+        };
 
         let file = self.parent_file.upgrade()?;
         let file_ref = file.borrow();

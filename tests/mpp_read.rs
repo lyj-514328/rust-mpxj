@@ -13,7 +13,11 @@ use std::rc::Rc;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
 use mpxj::mpp::mpp_reader::MPPReader;
+use mpxj::field_key::FieldKey;
+use mpxj::field_value::FieldValue;
 use mpxj::reader::project_reader::ProjectReader;
+use mpxj::resource_field::ResourceField;
+use mpxj::task_field::TaskField;
 use mpxj::time_unit::TimeUnit;
 use mpxj::{CalendarType, ProjectFile};
 
@@ -154,6 +158,54 @@ fn mpp_task_durations_use_project_minutes_per_day() {
             "{relative}: 工期应为 {expected_days} 天，实际为 {}",
             duration.get_duration()
         );
+    }
+}
+
+/// 对应 Java: `ResourceAssignmentFactory.process` 在 HYPERLINK_DATA 缺失时不调用 reader。
+#[test]
+fn mpp_assignments_without_hyperlink_data_keep_null_fields() {
+    let file = read_sample("mpp14assignmentcustom.mpp");
+    let file_ref = file.borrow();
+    let assignment = file_ref.get_resource_assignments().iter()
+        .find(|item| item.borrow().get_unique_id() == Some(2))
+        .expect("测试资源分配");
+    let assignment = assignment.borrow();
+    assert_eq!(assignment.get_hyperlink(), None);
+    assert_eq!(assignment.get_hyperlink_address(), None);
+    assert_eq!(assignment.get_hyperlink_sub_address(), None);
+    assert_eq!(assignment.get_hyperlink_screen_tip(), None);
+}
+
+/// 对应 Java: `FieldMap.FieldItem.readVarData(BINARY)`；保留可观察的原始字段字节。
+#[test]
+fn mpp_binary_fields_keep_their_original_bytes() {
+    let file = read_sample("legacy/sample.mpp");
+    let file_ref = file.borrow();
+    let task = file_ref.get_task_by_unique_id(Some(6)).expect("重复任务");
+    let task = task.borrow();
+    let Some(FieldValue::Bytes(data)) = task.get(FieldKey::Task(TaskField::RecurringData)) else {
+        panic!("重复任务应保留 RECURRING_DATA");
+    };
+    assert_eq!(data.len(), 72);
+    assert_eq!(&data[..4], &[1, 0, 0, 0]);
+
+    let file = read_sample("mpp14availability.mpp");
+    let file_ref = file.borrow();
+    let resource = file_ref.get_resource_by_unique_id(Some(2)).expect("可用性资源");
+    let resource = resource.borrow();
+    let Some(FieldValue::Bytes(data)) = resource.get(FieldKey::Resource(ResourceField::AvailabilityData)) else {
+        panic!("资源应保留 AVAILABILITY_DATA");
+    };
+    assert_eq!(data.len(), 152);
+    assert_eq!(&data[..4], &[6, 0, 4, 0]);
+}
+
+/// 对应 Java: `SummaryInformation.getEditTime()` 返回 100 纳秒计数，而非秒。
+#[test]
+fn mpp_editing_time_keeps_filetime_units() {
+    for relative in ["mpp9calendar.mpp", "mpp12calendar.mpp", "mpp14calendar.mpp"] {
+        let file = read_sample(relative);
+        assert_eq!(file.borrow().get_project_properties().get_editing_time(), Some(600_000_000), "{relative}");
     }
 }
 
@@ -407,4 +459,37 @@ fn cost_rate_table_rates_are_converted_from_hours() {
     assert_eq!(entry.get_overtime_rate().get_amount(), 55.0);
     assert_eq!(entry.get_overtime_rate().get_units(), TimeUnit::Weeks);
     assert_eq!(entry.get_cost_per_use(), Some(60.0));
+}
+
+/// Java 的计算字段在总时差缺失时返回 false；Rust 不应把它省略为 null。
+#[test]
+fn null_task_critical_defaults_to_false() {
+    for relative in [
+        "mpp9nulltasks.mpp",
+        "mpp12nulltasks.mpp",
+        "mpp14nulltasks.mpp",
+    ] {
+        let file = read_sample(relative);
+        let file_ref = file.borrow();
+        for task in file_ref.get_tasks() {
+            if task.borrow().get_unique_id() == Some(2) {
+                assert_eq!(task.borrow().get_critical(), false, "{relative}");
+            }
+        }
+    }
+}
+
+/// MPP8 的纯文本备注不应带出底层记录的终止符。
+#[test]
+fn mpp8_notes_strip_record_terminator() {
+    let file = read_sample("legacy/sample98.mpp");
+    let file_ref = file.borrow();
+    let task = file_ref
+        .get_task_by_id(Some(1))
+        .expect("缺少带备注的任务");
+    assert_eq!(task.borrow().get_notes(), "Test Task Notes");
+    let resource = file_ref
+        .get_resource_by_id(Some(2))
+        .expect("缺少带备注的资源");
+    assert_eq!(resource.borrow().get_notes(), "Test Resource Notes");
 }

@@ -1,5 +1,7 @@
 ﻿param(
-    [string[]]$Samples
+    [string[]]$Samples,
+    [switch]$AllFields,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,12 +47,24 @@ foreach ($sample in $Samples) {
     $stem = $sample -replace '[\\/:]', '_'
     $javaJson = Join-Path $output "$stem.java.json"
     $rustJson = Join-Path $output "$stem.rust.json"
-    Write-Host "对拍: $sample"
-    & java -cp $classpath JsonSnapshot $path | Out-File -Encoding utf8 $javaJson
-    if ($LASTEXITCODE -ne 0) { throw "Java 读取失败: $sample" }
-    & $rustExe $path | Out-File -Encoding utf8 $rustJson
+    if (-not $Quiet) { Write-Host "对拍: $sample" }
+    $snapshotOptions = @(if ($AllFields) { '--all-fields' })
+    # PowerShell 的 ErrorActionPreference=Stop 会把 Java 的 Log4j stderr 误判为异常；
+    # 快照退出码仍单独检查，stderr 丢弃不影响 stdout JSON。
+    $snapshotErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & java -cp $classpath JsonSnapshot $path @snapshotOptions 2>$null | Out-File -Encoding utf8 $javaJson
+    $javaExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $snapshotErrorPreference
+    if ($javaExitCode -ne 0) { throw "Java 读取失败: $sample" }
+    & $rustExe $path @snapshotOptions 2>$null | Out-File -Encoding utf8 $rustJson
     if ($LASTEXITCODE -ne 0) { throw "Rust 读取失败: $sample" }
-    & python -X utf8 -B (Join-Path $PSScriptRoot "compare_json.py") $javaJson $rustJson
+    $compareOptions = @(if ($AllFields) { '--require-all-fields' })
+    if ($Quiet) {
+        & python -X utf8 -B (Join-Path $PSScriptRoot "compare_json.py") $javaJson $rustJson @compareOptions | Out-Null
+    } else {
+        & python -X utf8 -B (Join-Path $PSScriptRoot "compare_json.py") $javaJson $rustJson @compareOptions
+    }
     if ($LASTEXITCODE -eq 1) { $failed++ }
     elseif ($LASTEXITCODE -ne 0) { throw "JSON 对拍工具失败: $sample" }
 }

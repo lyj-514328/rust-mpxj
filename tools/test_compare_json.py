@@ -3,7 +3,7 @@
 import unittest
 from decimal import Decimal
 
-from compare_json import MISSING, compare_values
+from compare_json import MISSING, compare_values, validate_snapshot
 
 
 class CompareJsonTest(unittest.TestCase):
@@ -34,6 +34,43 @@ class CompareJsonTest(unittest.TestCase):
         differences = compare_values(left, right)
         self.assertEqual(len(differences), 1)
         self.assertEqual(differences[0][0], "$.calendars[name=Standard#1].unique_id")
+
+    def test_all_fields_requires_every_entity_value_list(self):
+        snapshot = self.full_snapshot()
+        del snapshot["tasks"][0]["field_values"]
+        with self.assertRaisesRegex(ValueError, "缺少字段值"):
+            validate_snapshot(snapshot, "Java", True)
+
+    def test_all_fields_requires_catalog_and_exclusions(self):
+        snapshot = self.full_snapshot()
+        del snapshot["field_catalog"]
+        with self.assertRaisesRegex(ValueError, "缺少全字段目录"):
+            validate_snapshot(snapshot, "Rust", True)
+
+    def test_all_fields_rejects_duplicate_or_unlisted_values(self):
+        snapshot = self.full_snapshot()
+        snapshot["tasks"][0]["field_values"].append({"name": "UNLISTED", "value": 1})
+        with self.assertRaisesRegex(ValueError, "不在目录"):
+            validate_snapshot(snapshot, "Rust", True)
+        snapshot["tasks"][0]["field_values"] = [{"name": "ID", "value": 1}] * 2
+        with self.assertRaisesRegex(ValueError, "重复"):
+            validate_snapshot(snapshot, "Rust", True)
+
+    def test_all_fields_rejects_excluded_field_value(self):
+        snapshot = self.full_snapshot()
+        snapshot["field_exclusions"]["tasks"] = ["ID"]
+        with self.assertRaisesRegex(ValueError, "被排除"):
+            validate_snapshot(snapshot, "Java", True)
+
+    @staticmethod
+    def full_snapshot():
+        groups = ("properties", "tasks", "resources", "assignments")
+        snapshot = {"properties": {"field_values": [{"name": "ID", "value": 1}]},
+                    "tasks": [{"field_values": [{"name": "ID", "value": 1}]}],
+                    "resources": [], "assignments": [], "relations": [], "calendars": []}
+        snapshot["field_catalog"] = {group: ["ID"] for group in groups}
+        snapshot["field_exclusions"] = {group: [] for group in groups}
+        return snapshot
 
 
 if __name__ == "__main__":

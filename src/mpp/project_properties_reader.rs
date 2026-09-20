@@ -26,9 +26,9 @@
 //! ```
 //!
 //! 已实现的属性类型：`VT_I2` / `VT_I4` / `VT_UI1` / `VT_UI2` / `VT_UI4` / `VT_BOOL` /
-//! `VT_R8` / `VT_LPSTR` / `VT_LPWSTR` / `VT_BSTR` / `VT_FILETIME` / `VT_EMPTY`。
+//! `VT_R8` / `VT_LPSTR` / `VT_LPWSTR` / `VT_BSTR` / `VT_FILETIME` / `VT_BLOB` / `VT_EMPTY`。
 //! **未实现**（一律返回 [`PropertyValue::Unsupported`]，不 panic）：
-//! `VT_NULL`、`VT_I8`、`VT_UI8`、`VT_DATE`、`VT_BLOB`、`VT_CF`、`VT_CLSID`、`VT_STREAM`、
+//! `VT_NULL`、`VT_I8`、`VT_UI8`、`VT_DATE`、`VT_CF`、`VT_CLSID`、`VT_STREAM`、
 //! `VT_STORAGE`、`VT_VECTOR` 系列（`0x1000` 标志）、`VT_ARRAY` 系列。
 //!
 //! 跳过的 Java / POI 行为及原因：
@@ -40,6 +40,7 @@
 //! | `SummaryInformation` 的 `getThumbnail` / `getPageCount` / `getWordCount` / `getCharCount` / `getSecurity` | 不暴露 | `ProjectPropertiesReader` 不使用这些属性（[`SummaryInformation`] 只提供 reader 用到的 getter） |
 //! | `DocumentSummaryInformation` 的 `getByteCount` / `getLineCount` / `getParCount` / `getSlideCount` / `getNoteCount` / `getHiddenCount` / `getMultimediaClipCount` / `getScale` / `getHeadingPairs` / `getDocumentParts` / `getLinksDirty` | 不暴露 | 同上（reader 不使用） |
 //! | `CustomProperty` | [`PropertyValue`] 的键值对 | Rust 侧用 `BTreeMap<String, PropertyValue>` 表达名称字典 + 取值（Java 的 `CustomProperties` 是有序的 `TreeMap`） |
+//! | `new String(bytes, codepage)` | [`decode_lpstr`] 支持 Windows-1250..1258、UTF-8 与 UTF-16LE | `encoding_rs` 替代 Java/POI 的代码页查找；未知代码页退回 Windows-1252 |
 //!
 //! # 与 Java 的差异（`ProjectPropertiesReader` 本身）
 //!
@@ -48,7 +49,7 @@
 //! | `final class ProjectPropertiesReader` | `pub struct ProjectPropertiesReader` + 关联函数 | Java 的方法不依赖实例状态 |
 //! | `process(ProjectFile file, Props props, DirectoryEntry rootDir) throws MPXJException` | [`ProjectPropertiesReader::process`] 返回 `MpxjResult<()>` | 统一用 [`MpxjError`] |
 //! | `getPopulatedValue(String, Supplier<String>)` | [`ProjectPropertiesReader::get_populated_value`] 接收 `impl FnOnce` | Rust 的闭包等价于 Java 的 `Supplier` |
-//! | `getLocalDateTime(Date)` | [`ProjectPropertiesReader::get_local_date_time`] | Java 需要把 `java.util.Date` 按默认时区转 `LocalDateTime`；Rust 侧的 FILETIME 已解析成 [`NaiveDateTime`]（无时区），故本方法只做 `None` 判断（保留该私有方法以对应 Java 的实现） |
+//! | `getLocalDateTime(Date)` | [`ProjectPropertiesReader::get_local_date_time`] | FILETIME 先解析为 UTC 的 [`NaiveDateTime`]，再用系统本地时区转换，与 Java 的 `LocalDateTime.ofInstant` 一致；无效时间返回 `None` |
 //! | `ph.setBaselineDate(1..10, …)` | `ph.set_baseline_date_for_index(1..10, …)` | Rust 无重载 |
 //! | `ph.setCustomProperties(Map<String, Object>)` | `set_custom_properties(HashMap<String, FieldValue>)` | `FieldValue` 能承载的值与 Java 的 `Object` 的子集对应（见 [`custom_property_field_value`]） |
 //! | `summaryInformation.getEditTime()`（`long`） | `get_edit_time()` 返回 `i64`，写入时窄化为 `i32` | 与 Java 的 `(int)` 强转一致 |
@@ -63,7 +64,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 
 use crate::common::day_of_week_helper::DayOfWeekHelper;
 use crate::common::number_helper::NumberHelper;
@@ -130,6 +131,8 @@ pub enum PropertyValue {
     Empty,
     /// `VT_LPSTR` / `VT_LPWSTR` / `VT_BSTR`。
     String(String),
+    /// 二进制 OLE 属性值。
+    Bytes(Vec<u8>),
     /// `VT_I2` / `VT_UI1` / `VT_UI2`。
     I2(i16),
     /// `VT_I4` / `VT_UI4`。
@@ -340,18 +343,18 @@ impl SummaryInformation {
         self.section.string(PIDSI_APPNAME)
     }
 
-    /// 取编辑总时长（秒）。
+    /// 取编辑总时长（FILETIME 的 100 纳秒计数）。
     ///
     /// 对应 Java: `public long getEditTime()`
     pub fn get_edit_time(&self) -> i64 {
         match self.section.file_time(PIDSI_EDITTIME) {
             None => 0,
             Some(value) => {
-                // FILETIME 的纪元是 1601-01-01，编辑时长以「1601-01-01 以来的秒数」表示。
+                // POI 的 SummaryInformation.getEditTime() 保留 FILETIME 的 100 纳秒计数。
                 let epoch = NaiveDate::from_ymd_opt(1601, 1, 1).and_then(|date| date.and_hms_opt(0, 0, 0));
                 match epoch {
                     None => 0,
-                    Some(epoch) => (value - epoch).num_seconds(),
+                    Some(epoch) => (value - epoch).num_nanoseconds().map(|ns| ns / 100).unwrap_or(0),
                 }
             }
         }
@@ -503,13 +506,10 @@ const PIDDSI_LANGUAGE: i32 = 28;
 /// 文档摘要信息：文档版本。
 const PIDDSI_DOCVERSION: i32 = 29;
 
-/// 自定义属性 section 中的「属性 ID 字典」。
+/// 自定义属性 section 中的名字典（不带 Variant 类型头）。
 ///
 /// 对应 Java: `PropertyIDMap.PID_DICTIONARY`
 const PID_DICTIONARY: i32 = 0;
-
-/// 自定义属性 section 中的「属性名字典」。
-const PID_NAMES: i32 = 1;
 
 // ---- 变体类型（对应 `org.apache.poi.hpsf.Variant`）----
 
@@ -539,6 +539,8 @@ const VT_LPSTR: u32 = 30;
 const VT_LPWSTR: u32 = 31;
 /// `VT_FILETIME`。
 const VT_FILETIME: u32 = 64;
+/// `VT_BLOB`。
+const VT_BLOB: u32 = 65;
 /// 向量标志（`VT_VECTOR`）。
 const VT_VECTOR_FLAG: u32 = 0x1000;
 /// 数组标志（`VT_ARRAY`）。
@@ -638,6 +640,13 @@ fn parse_section(data: &[u8], section_offset: usize) -> Option<Section> {
             .unwrap_or(section_end)
             .min(data.len());
 
+        // OLEPS 的属性 0 是不带 Variant 类型头的名字典，属性 1 才是代码页。
+        if id == PID_DICTIONARY {
+            if let Some(raw) = data.get(start..end) {
+                section.raw.insert(id, raw.to_vec());
+            }
+            continue;
+        }
         if let Some((value, raw)) = parse_value(data, start, end, codepage) {
             section.properties.insert(id, value);
             section.raw.insert(id, raw);
@@ -711,43 +720,39 @@ fn parse_value(
                 None => PropertyValue::Unsupported,
             }
         }
-        // VT_I8 / VT_UI8 / VT_DATE / VT_BLOB / VT_CF / VT_CLSID / VT_STREAM / VT_STORAGE 等未实现
+        VT_BLOB => {
+            // POI 的 byte[] 包含长度前缀，排除属性值末尾的 4 字节对齐填充。
+            let size = read_u32(data, raw_start)? as usize;
+            let value_end = raw_start.checked_add(4)?.checked_add(size)?;
+            PropertyValue::Bytes(data.get(raw_start..value_end.min(end))?.to_vec())
+        }
+        // VT_I8 / VT_UI8 / VT_DATE / VT_CF / VT_CLSID / VT_STREAM / VT_STORAGE 等未实现
         _ => PropertyValue::Unsupported,
     };
 
     Some((value, raw))
 }
 
-/// 解析自定义属性 section：按「属性 ID 字典」（ID 0）与「属性名字典」（ID 1）取出名称，
-/// 再把同 ID 的值属性配对。
+/// 解析自定义属性 section：按 ID 0 的名字典取出名称，再与同 ID 的值配对。
 ///
 /// 对应 Java: `DocumentSummaryInformation.getCustomProperties()`（POI 内部由
 /// `Section.getProperties(int)` 与 `Property.getDictionary()` 完成）
 ///
-/// 字典布局（与 POI 的 `Property.getDictionary()` 一致）：
+/// 字典布局（与 POI 的 `Property.getDictionary()` 一致；没有 Variant 类型头）：
 ///
 /// ```text
 /// DWORD 条目数
-/// 条目数 ×（DWORD 属性 ID、DWORD 名称字节数（含结尾 NUL）、名称字节、补齐到 4 字节）
+/// 条目数 ×（DWORD 属性 ID、DWORD 名称字节数（含结尾 NUL）、名称字节）；条目之间不补齐
 /// ```
 fn parse_custom_properties(section: &Section) -> BTreeMap<String, PropertyValue> {
     let mut result = BTreeMap::new();
 
-    // Java: if (getSectionCount() >= 2) { … s.getProperties(codepage) … }
-    let Some(dictionary) = section.raw.get(&PID_DICTIONARY) else {
-        return result;
-    };
-    // 字典的第一项是「属性 ID 字典」，第二项是「属性名字典」；这里只需要确认字典存在。
-    if read_i32(dictionary, 0).is_none() {
-        return result;
-    }
-
-    let Some(names) = section.raw.get(&PID_NAMES) else {
+    let Some(names) = section.raw.get(&PID_DICTIONARY) else {
         return result;
     };
 
     on_dictionary_entries(names, &mut |id, name| {
-        if id == PID_DICTIONARY || id == PID_NAMES {
+        if id == PID_DICTIONARY || id == PID_CODEPAGE {
             return;
         }
         if let Some(value) = section.properties.get(&id) {
@@ -789,9 +794,7 @@ fn on_dictionary_entries(data: &[u8], callback: &mut impl FnMut(i32, &str)) {
         let name = name.trim_end_matches('\0');
         callback(id, name);
 
-        // 对齐到 4 字节边界
-        let entry_size = 8 + length as usize;
-        position += entry_size.div_ceil(4) * 4;
+        position += 8 + length as usize;
         if position >= data.len() {
             return;
         }
@@ -825,7 +828,16 @@ fn decode_lpstr(bytes: &[u8], codepage: u16) -> String {
     let value = match codepage {
         CODEPAGE_UTF8 => String::from_utf8_lossy(bytes).into_owned(),
         CODEPAGE_UTF16LE => decode_utf16le(bytes),
-        // Java 的默认字符集 / Windows-1252
+        1250 => encoding_rs::WINDOWS_1250.decode(bytes).0.into_owned(),
+        1251 => encoding_rs::WINDOWS_1251.decode(bytes).0.into_owned(),
+        1252 => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
+        1253 => encoding_rs::WINDOWS_1253.decode(bytes).0.into_owned(),
+        1254 => encoding_rs::WINDOWS_1254.decode(bytes).0.into_owned(),
+        1255 => encoding_rs::WINDOWS_1255.decode(bytes).0.into_owned(),
+        1256 => encoding_rs::WINDOWS_1256.decode(bytes).0.into_owned(),
+        1257 => encoding_rs::WINDOWS_1257.decode(bytes).0.into_owned(),
+        1258 => encoding_rs::WINDOWS_1258.decode(bytes).0.into_owned(),
+        // Java 的平台默认字符集在无法识别代码页时按 Windows-1252 处理。
         _ => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
     };
 
@@ -894,12 +906,13 @@ fn custom_property_field_value(value: &PropertyValue) -> Option<FieldValue> {
     match value {
         PropertyValue::Empty | PropertyValue::Unsupported => None,
         PropertyValue::String(value) => Some(FieldValue::String(value.clone())),
+        PropertyValue::Bytes(value) => Some(FieldValue::Bytes(value.clone())),
         PropertyValue::I2(value) => Some(FieldValue::Integer(i32::from(*value))),
         PropertyValue::I4(value) => Some(FieldValue::Integer(*value)),
         PropertyValue::Bool(value) => Some(FieldValue::Boolean(*value)),
         PropertyValue::R8(value) => Some(FieldValue::Double(*value)),
-        // Java 把 Date 转成 LocalDateTime（Rust 的 FILETIME 已解析为 NaiveDateTime）
-        PropertyValue::FileTime(value) => Some(FieldValue::DateTime(*value)),
+        // Java 把 FILETIME 对应的瞬时值按系统默认时区转成 LocalDateTime。
+        PropertyValue::FileTime(value) => Some(FieldValue::DateTime(Local.from_utc_datetime(value).naive_local())),
     }
 }
 
@@ -1222,11 +1235,10 @@ impl ProjectPropertiesReader {
     ///
     /// 对应 Java: `private LocalDateTime getLocalDateTime(Date date)`
     ///
-    /// Java 需要 `LocalDateTime.ofInstant(date.toInstant(), TimeZone.getDefault().toZoneId())`；
-    /// Rust 侧的 FILETIME 已解析成无时区的 [`NaiveDateTime`]，故这里只做 `None` 判断。
+    /// Java: `LocalDateTime.ofInstant(date.toInstant(), TimeZone.getDefault().toZoneId())`。
+    /// Rust 侧的 FILETIME 暂以 UTC [`NaiveDateTime`] 存储，再按系统默认时区转换。
     fn get_local_date_time(date: Option<NaiveDateTime>) -> Option<NaiveDateTime> {
-        // Java: if (date == null) { return null; }
-        date
+        date.map(|value| Local.from_utc_datetime(&value).naive_local())
     }
 
     /// 优先取第一个值，为空时回退到 supplier 给出的值。
@@ -1400,6 +1412,21 @@ mod tests {
         assert_eq!(information.get_last_save_date_time(), None);
     }
 
+    /// 对应 Java: `getLocalDateTime(Date)`；FILETIME 表示 UTC 瞬时值，属性应按系统时区转换。
+    #[test]
+    fn filetime_project_properties_use_local_time_zone() {
+        let utc = NaiveDate::from_ymd_opt(2011, 6, 8)
+            .and_then(|day| day.and_hms_opt(16, 24, 0))
+            .expect("合法时间");
+        let expected = Local.from_utc_datetime(&utc).naive_local();
+        assert_eq!(ProjectPropertiesReader::get_local_date_time(Some(utc)), Some(expected));
+        assert_eq!(ProjectPropertiesReader::get_local_date_time(None), None);
+        assert_eq!(
+            custom_property_field_value(&PropertyValue::FileTime(utc)),
+            Some(FieldValue::DateTime(expected))
+        );
+    }
+
     /// 编码页 65001 的 `VT_LPSTR` 按 UTF-8 解码。
     #[test]
     fn summary_information_honours_the_codepage() {
@@ -1410,6 +1437,12 @@ mod tests {
 
         let information = SummaryInformation::new(&stream).expect("属性集可解析");
         assert_eq!(information.get_title().as_deref(), Some("中文标题"));
+    }
+
+    /// Windows-1251 的西里尔字节应与 Java 的代码页解码一致。
+    #[test]
+    fn lpstr_honours_windows_1251() {
+        assert_eq!(decode_lpstr(&[b'\x77', b'\xF0', 0], 1251), "wр");
     }
 
     /// 文档摘要信息：标准属性 + 自定义属性（字符串 / 整数 / 布尔）。
@@ -1451,18 +1484,54 @@ mod tests {
         assert_eq!(custom.get("Reviewed"), Some(&PropertyValue::Bool(true)));
     }
 
+    /// 真实 MPP 文档的自定义属性字典位于属性 ID 0，而不是代码页属性 ID 1。
+    #[test]
+    fn real_mpp_custom_properties_are_preserved() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("mpxj/junit/data/mpp14assignmentcustom.mpp");
+        let fs = PoifsFileSystem::new(std::fs::File::open(path).expect("打开样本"))
+            .expect("读取复合文档");
+        let data = fs.get_root().get_document(DOCUMENT_SUMMARY_INFORMATION_STREAM)
+            .expect("文档摘要属性集");
+        let info = DocumentSummaryInformation::new(&data.get_data()).expect("解析属性集");
+        assert_eq!(
+            info.get_custom_properties().get("% Complete"),
+            Some(&PropertyValue::String("0%".to_owned()))
+        );
+        assert_eq!(
+            info.get_custom_properties().get("Duration"),
+            Some(&PropertyValue::String("43 days".to_owned())),
+            "解析出的属性: {:?}", info.get_custom_properties()
+        );
+    }
+
+    /// Java 在 sf259 中把 `_PID_LINKBASE` 暴露为 byte[]，不能丢弃其原始字节。
+    #[test]
+    fn real_mpp_binary_custom_property_is_preserved() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("mpxj/junit/data/generated/task-baselines/sf259.mpp");
+        let fs = PoifsFileSystem::new(std::fs::File::open(path).expect("打开样本"))
+            .expect("读取复合文档");
+        let data = fs.get_root().get_document(DOCUMENT_SUMMARY_INFORMATION_STREAM)
+            .expect("文档摘要属性集");
+        let sections = parse_property_set(&data.get_data()).expect("解析属性集");
+        let section = sections.get(1).expect("自定义属性区");
+        let mut link_id = None;
+        on_dictionary_entries(section.raw.get(&PID_DICTIONARY).expect("名字典"), &mut |id, name| {
+            if name == "_PID_LINKBASE" { link_id = Some(id); }
+        });
+        let id = link_id.expect("_PID_LINKBASE");
+        assert_eq!(
+            section.properties.get(&id),
+            Some(&PropertyValue::Bytes(vec![2, 0, 0, 0, 0, 0]))
+        );
+    }
+
     /// 把「自定义属性」（名称 + 取值）拼成一个 section 的字节。
     ///
-    /// 属性 ID 从 2 开始依次分配；属性 0 是「属性 ID 字典」，属性 1 是「属性名字典」。
+    /// 属性 ID 从 2 开始依次分配；属性 0 是无类型头的名字典，属性 1 是代码页。
     fn raw_custom_properties_section(properties: &[(&str, TestProperty)]) -> Vec<u8> {
-        // 属性 ID 字典：条目数 + 各属性 ID
-        let mut id_dictionary = Vec::new();
-        id_dictionary.extend_from_slice(&(properties.len() as i32).to_le_bytes());
-        for index in 0..properties.len() {
-            id_dictionary.extend_from_slice(&((index + 2) as i32).to_le_bytes());
-        }
-
-        // 属性名字典：条目数 +（属性 ID、名称字节数、名称字节、补齐）
+        // 名字典：条目数 +（属性 ID、名称字节数、名称字节），条目间无填充。
         let mut name_dictionary = Vec::new();
         name_dictionary.extend_from_slice(&(properties.len() as i32).to_le_bytes());
         for (index, (name, _)) in properties.iter().enumerate() {
@@ -1471,26 +1540,21 @@ mod tests {
             name_dictionary.extend_from_slice(&((index + 2) as i32).to_le_bytes());
             name_dictionary.extend_from_slice(&(name_bytes.len() as i32).to_le_bytes());
             name_dictionary.extend_from_slice(&name_bytes);
-            while name_dictionary.len() % 4 != 0 {
-                name_dictionary.push(0);
-            }
         }
 
-        // 值区：属性 0 / 1 为字典（`VT_I4` + 字典字节），其余为自定义属性
+        // 值区：属性 0 无类型头；属性 1 为代码页；其余为自定义属性。
         let mut values = Vec::new();
         let mut offsets = Vec::new();
-
-        for payload in [&id_dictionary, &name_dictionary] {
-            offsets.push(values.len());
-            values.extend_from_slice(&VT_I4.to_le_bytes());
-            values.extend_from_slice(payload);
-        }
+        offsets.push(values.len());
+        values.extend_from_slice(&name_dictionary);
+        offsets.push(values.len());
+        write_property(&mut values, &TestProperty::U16(1252));
         for (_, property) in properties {
             offsets.push(values.len());
             write_property(&mut values, property);
         }
 
-        let mut ids = vec![PID_DICTIONARY, PID_NAMES];
+        let mut ids = vec![PID_DICTIONARY, PID_CODEPAGE];
         ids.extend((0..properties.len()).map(|index| (index + 2) as i32));
 
         let mut section = Vec::new();

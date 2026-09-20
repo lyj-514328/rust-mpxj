@@ -128,6 +128,19 @@ use crate::view::View;
 const TASK_WBS: i32 = 104;
 const TASK_CONTACT: i32 = 105;
 
+/// 清理 MPP8 记录尾部的 NUL 终止符。
+///
+/// 对应 Java: `new RtfNotes(notes)` 经 `StringTextConverter` 转换后的文本；
+/// `FixDeferFix` 的原始字节可能把换行和 NUL 一并带出，Java 转换器会忽略它们。
+fn normalize_mpp8_notes(notes: String) -> String {
+    let had_nul = notes.ends_with('\0');
+    let mut notes = notes.trim_end_matches('\0').to_owned();
+    if had_nul && notes.ends_with('\n') {
+        notes.pop();
+    }
+    notes
+}
+
 /// 对应 Java: `TASK_TEXT1` … `TASK_TEXT10`（106..115）与 `TASK_TEXT11` … `TASK_TEXT30`（184..203）
 const TASK_TEXT: [i32; 30] = [
     106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 184, 185, 186, 187, 188, 189, 190, 191, 192,
@@ -1238,6 +1251,7 @@ impl MPP8ReaderState {
 
         // Java: if (notes != null) { task.setNotesObject(new RtfNotes(notes)); }
         if let Some(notes) = notes {
+            let notes = normalize_mpp8_notes(notes);
             let rtf_notes = RtfNotes::new(Some(notes));
             task.set_notes_object(Some(&rtf_notes as &dyn Notes));
         }
@@ -1548,6 +1562,7 @@ impl MPP8ReaderState {
                 // Java: notes = rscExtData.getString(RESOURCE_NOTES);
                 //       if (notes != null) { resource.setNotesObject(new RtfNotes(notes)); }
                 if let Some(notes) = rsc_ext_data.get_string(RESOURCE_NOTES) {
+                    let notes = normalize_mpp8_notes(notes);
                     let rtf_notes = RtfNotes::new(Some(notes));
                     resource_ref.set_notes_object(Some(&rtf_notes as &dyn Notes));
                 }

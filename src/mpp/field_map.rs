@@ -38,7 +38,7 @@
 //! | 各种枚举（`TIME_UNITS` / `CONSTRAINT` / `PRIORITY` / `TASK_TYPE` / `ACCRUE` / `WORKGROUP` / `RATE_UNITS` / `EARNED_VALUE_METHOD` / `RESOURCE_REQUEST_TYPE` / `BOOKING_TYPE`） | `FieldValue::Integer`（枚举的 int 值；`TaskType` 没有 int 值，按 `TaskType::ALL` 的下标编码，与 `Task` 一致） |
 //! | `UUID`（`GUID`） | `FieldValue::String`（`UUID.toString()`；调用方可 `Uuid::parse_str` 还原） |
 //! | `RtfNotes`（`NOTES`） | `FieldValue::String`（去掉 RTF 标记后的纯文本，与 `Task::get_notes` 一致；RTF 原文丢失） |
-//! | `byte[]`（`BINARY`） | **`None`** —— `FieldValue` 无字节数组变体。调用方可直接用 `Var2Data::get_byte_array(id, key)` 取原始字节（例如 timephased 数据） |
+//! | `byte[]`（`BINARY`） | `FieldValue::Bytes`（变长数据） | 与 Java 一样保留变长字段的原始字节；定长数据仍按 Java 不读取 |
 //!
 //! ## 已知功能缺口
 //!
@@ -596,6 +596,14 @@ impl FieldItem {
                 // Rust 侧 FieldValue 无 RtfNotes 变体，按本 crate 约定存纯文本
                 // （`RtfNotes::to_string()` 即去掉 RTF 标记后的文本）。
                 var_data.get_string(id, key).map(|notes| {
+                    // FixDeferFix 的 Java 实现直接 new String(byte[])，但 RTF
+                    // 转换器会忽略末尾 NUL；样本中的非 RTF 备注还带有同一记录
+                    // 的换行，按 Java 输出一并去掉。
+                    let had_nul = notes.ends_with('\0');
+                    let mut notes = notes.trim_end_matches('\0').to_owned();
+                    if had_nul && notes.ends_with('\n') {
+                        notes.pop();
+                    }
                     FieldValue::String(RtfNotes::new(Some(notes)).to_string())
                 })
             }
@@ -679,9 +687,7 @@ impl FieldItem {
             }
 
             // Java: BINARY —— result = varData.getByteArray(id, m_varDataKey);
-            // FieldValue 无字节数组变体（见文件头差异表），故返回 None；
-            // 需要原始字节的调用方可直接使用 `Var2Data::get_byte_array(id, key)`。
-            DataType::Binary => None,
+            DataType::Binary => var_data.get_byte_array(id, key).map(FieldValue::Bytes),
 
             // Java: default —— 不支持的变长数据类型。
             _ => None,

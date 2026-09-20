@@ -12,6 +12,7 @@
 //! | 变体 | Java 侧类型 | 依据（字段 / 方法） |
 //! |---|---|---|
 //! | 标量变体 | `Integer` / `Short` / `Double` / `Boolean` / `String` / `LocalDate` / `LocalTime` / `LocalDateTime` | 各 `get`/`set` 的既有用法 |
+//! | [`FieldValue::Bytes`] | `byte[]` | OLE 文档的二进制自定义属性（如 `_PID_LINKBASE`） |
 //! | [`FieldValue::Duration`] / [`FieldValue::Rate`] | `org.mpxj.Duration` / `org.mpxj.Rate` | 同上 |
 //! | [`FieldValue::Uuid`] | `java.util.UUID` | `AssignmentField.GUID`、`TaskField.GUID` |
 //! | [`FieldValue::TimeUnit`] | `org.mpxj.TimeUnit` | `AssignmentField.VARIABLE_RATE_UNITS` |
@@ -35,6 +36,8 @@
 //!
 //! * 标量、`UUID`、`TimeUnit`、`RateSource`、`ResourceRequestType`：值比较
 //!   （Java 的枚举是单例，`equals` 等价于值比较）。
+//! * `Bytes`：按字节值比较。Java 的 `byte[]` 使用引用比较；Rust 按值比较会使
+//!   相同内容的重新赋值不触发字段事件，属于 Rust 特有的差异。
 //! * `TimephasedWork` / `TimephasedCost` / `LocalDateTimeRange`：值比较 ——
 //!   Java 的 `TimephasedItem` 覆写了 `equals`，`List.equals` 因此是逐元素值比较。
 //! * `Notes` / `Resource` / `Steps`：`Rc::ptr_eq`（Java 侧 `Notes` 未覆写 `equals`，
@@ -82,6 +85,8 @@ pub enum FieldValue {
     Boolean(bool),
     /// 对应 Java `String`
     String(String),
+    /// 对应 Java `byte[]`（OLE 自定义文档属性）。
+    Bytes(Vec<u8>),
     /// 对应 Java `java.time.LocalDate`
     Date(NaiveDate),
     /// 对应 Java `java.time.LocalTime`
@@ -129,6 +134,7 @@ impl Clone for FieldValue {
             FieldValue::Double(value) => FieldValue::Double(*value),
             FieldValue::Boolean(value) => FieldValue::Boolean(*value),
             FieldValue::String(value) => FieldValue::String(value.clone()),
+            FieldValue::Bytes(value) => FieldValue::Bytes(value.clone()),
             FieldValue::Date(value) => FieldValue::Date(*value),
             FieldValue::Time(value) => FieldValue::Time(*value),
             FieldValue::DateTime(value) => FieldValue::DateTime(*value),
@@ -159,6 +165,7 @@ impl PartialEq for FieldValue {
             (FieldValue::Double(a), FieldValue::Double(b)) => a == b,
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
             (FieldValue::String(a), FieldValue::String(b)) => a == b,
+            (FieldValue::Bytes(a), FieldValue::Bytes(b)) => a == b,
             (FieldValue::Date(a), FieldValue::Date(b)) => a == b,
             (FieldValue::Time(a), FieldValue::Time(b)) => a == b,
             (FieldValue::DateTime(a), FieldValue::DateTime(b)) => a == b,
@@ -195,6 +202,7 @@ impl Debug for FieldValue {
             FieldValue::Double(value) => f.debug_tuple("Double").field(value).finish(),
             FieldValue::Boolean(value) => f.debug_tuple("Boolean").field(value).finish(),
             FieldValue::String(value) => f.debug_tuple("String").field(value).finish(),
+            FieldValue::Bytes(value) => f.debug_tuple("Bytes").field(value).finish(),
             FieldValue::Date(value) => f.debug_tuple("Date").field(value).finish(),
             FieldValue::Time(value) => f.debug_tuple("Time").field(value).finish(),
             FieldValue::DateTime(value) => f.debug_tuple("DateTime").field(value).finish(),
@@ -420,6 +428,7 @@ impl FieldValue {
             FieldValue::Double(_) => "Double",
             FieldValue::Boolean(_) => "Boolean",
             FieldValue::String(_) => "String",
+            FieldValue::Bytes(_) => "byte[]",
             FieldValue::Date(_) => "LocalDate",
             FieldValue::Time(_) => "LocalTime",
             FieldValue::DateTime(_) => "LocalDateTime",

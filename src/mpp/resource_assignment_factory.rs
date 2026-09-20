@@ -19,6 +19,7 @@
 //! | `ByteArrayHelper.getShort/getInt` 越界 | 先判长度 | Java 抛 `ArrayIndexOutOfBoundsException` |
 //! | `MicrosoftProjectConstants.ASSIGNMENT_NULL_RESOURCE_ID` | 本文件常量 [`ASSIGNMENT_NULL_RESOURCE_ID`] | 该常量类未移植 |
 //! | `assignment.getRemainingWork().getDuration()` 等可能为 `null` | 用 `Option` 处理 | Java 会抛 `NullPointerException` |
+//! | `HyperlinkReader.read(assignment, byte[] data)` 的 `data == null` | `var_data_bytes` 返回 `None` 时不调用 reader | 保留 Java 的「缺失数据不写入超链接字段」语义，不能用空字节串替代 `null` |
 //!
 //! 跳过的 Java 成员：
 //!
@@ -329,11 +330,13 @@ impl ResourceAssignmentFactory {
                 field_map,
                 AssignmentField::HyperlinkData,
             );
-            hyperlink_reader.read(
-                FieldTypeClass::Assignment,
-                &mut *assignment.borrow_mut(),
-                hyperlink_data.as_deref().unwrap_or(&[]),
-            );
+            if let Some(hyperlink_data) = hyperlink_data.as_deref() {
+                hyperlink_reader.read(
+                    FieldTypeClass::Assignment,
+                    &mut *assignment.borrow_mut(),
+                    hyperlink_data,
+                );
+            }
 
             //
             // 后处理
