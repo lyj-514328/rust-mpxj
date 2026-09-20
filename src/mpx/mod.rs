@@ -14,6 +14,7 @@ pub mod locale_data_ru;
 pub mod locale_data_sv;
 pub mod locale_data_zh;
 pub mod locale_utility;
+pub mod localized_names;
 pub mod model_utility;
 pub mod mpx_constants;
 pub mod mpx_reader;

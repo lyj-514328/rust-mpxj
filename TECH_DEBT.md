@@ -32,7 +32,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | | `src/mpp/` + `src/common/` | 模型层 + `src/mpx/` | 合计 |
 |---|---|---|---|
 | B 类：没还的债 | 13 | 32 | **45** |
-| A 类：真硬限制 | 18 | 12 | **30** |
+| A 类：真硬限制 | 18 | 11 | **29**（A19 已还，见「修复进度」） |
 
 ---
 
@@ -76,6 +76,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | `6a6ed58` · 三 | `format_optional_display` 族收敛：`font_style` / `grid_lines` / `table_font_style` / `timescale_tier` 的 4 份拷贝，以及 `gantt_bar_common_style` 的 `format_option` / `format_field`、`table_font_style` 的 `format_field_type`，全部改为 [`mpp_utility::format_optional_display`]；`format_color` 转调它 |
 | `b66f7cd` · 四 | 四-节所列 14 个文件的过期措辞订正完毕（`mpp8/9/12/14_reader`、`mpp_variant_reader`、`shift_container`、`shift_period_container`、`unit_of_measure_container`、`shift_period`、`work_contour`、`work_contour_container`、`notes_topic`、`slack_calculator`、`mpx/task_model`、`mpx/resource_model`）。**同时发现**：`UserDefinedFieldMap` 其实**已落地**（`src/mpp/user_defined_field_map.rs`），原判「未移植」有误；`WorkContour` 的 `impl ProjectEntityWithUniqueID` 写在容器文件里（原注释称「为避免并行冲突」） |
 | `dedfa4d` · 四 | 再订正约 25 处残留「并行 / 本批」措辞（`resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs`、`mpp/custom_field_value_reader14.rs` 等 30 个文件），纯注释、`git diff -U0` 自检确认未动代码行 |
+| 新 · 四/A19 | **月份 / 星期名本地化已补齐**（原 A19 真硬限制 → 已还）：新建 `src/mpx/localized_names.rs`，自建 9 个受支持语种的 `MMM`/`MMMM`/`EEE`/`EEEE` 表（数据逐条取自 JDK 25 在对应 `Locale` 下的输出），`mpxj_formats.rs` 的 `names_for_locale` 按 `MpxLocale` 分派。此前所有语种都回落英文。补「能区分具体取值」的回归测试（含德语默认格式 `EEE_DD_MM_YY` 与俄语非 ASCII 月份名解析） |
 
 ### 本轮待办核对
 
@@ -108,7 +109,7 @@ P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，�
 | 六 | `ProjectProperties::get_resource_pool_object` | Java 需 `m_parentFile.readExternalProject(...)`（Rust 侧为 `&mut self`），而属性只能经 `ProjectFile` 的 `RefCell` 借用取得 ⇒ 能调用时父文件必然已被借用，`try_borrow_mut` 必然失败；且仍受缺 `UniversalProjectReader` 阻塞 |
 | 六 | `ExternalProjectContainer` / `ProjectFile` 的外部子项目读取回调 | 缺 `UniversalProjectReader`（A3，Java 靠反射分发） |
 | 六 | `ProjectCalendar` 的 `TemporaryCalendar` / `ProjectCalendarHelper` 单独成模块 | 有意保留就地复刻（Java 侧 `TemporaryCalendar` 只是构造差异、`mergeExceptions` 只有两个重载），已在文件头说明 |
-| 三 | `mpxj_formats.rs` 的月份 / 星期名本地化 | A19：数据源是 JDK `java.time` 的本地化文本，`org.mpxj.mpx.LocaleData` 里没有 |
+| 三 | ~~`mpxj_formats.rs` 的月份 / 星期名本地化~~ | ✅ 已还：新建 `src/mpx/localized_names.rs` 自建 9 语种表（数据取自 JDK 25），`names_for_locale` 按 `MpxLocale` 分派。原判「A19 真硬限制」不再成立 —— 数据源确实在 JDK，但按 JDK 输出固化成静态表即可还原 |
 
 ### ⚠️ 对本文档正文的更正
 
@@ -118,7 +119,7 @@ P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，�
 ### 验证基线（每批都应维持）
 
 - `cargo build --all-targets` 无错误、**无警告**
-- `cargo test`：lib 单元测试全绿 + 集成测试 16 项全绿（本批为 **1763 + 16**，另有 4 项 doctest ignored）
+- `cargo test`：lib 单元测试全绿 + 集成测试 16 项全绿（本地化名表落地后为 **1769 + 16**，另有 4 项 doctest ignored）
 - `cargo run --release --example sample_survey`：**MPP 606/609**（另 3 个是密码保护，属预期）、**MPX 19/19**
 
 ---
@@ -181,13 +182,13 @@ P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，�
 - `project_context.rs:55-60` —— 说 `structured_notes` 接口分歧待对齐，**已对齐**
 - `availability_table.rs:15`、`cost_rate_table_entry.rs:31`、`cpm/microsoft_slack_calculator.rs:35`、`external_project_container.rs:31`、`shift.rs:9`、`unit_of_measure.rs:8`、`field_container.rs:15`、`custom_field.rs:34`、`default_baseline_strategy.rs:9`、`resource.rs:58`、`task.rs:213`、`relation.rs:31`、`task_container.rs:33` —— 共性均为「因为 X 尚未移植 / 不在本次范围 / 在别人手里」，而 **X 现已全部落地**
 
-### ⚠️ 一处必须纠正的**错误指引**
+### ⚠️ 一处曾必须纠正的**错误指引**（已修复）
 
-`mpx/mpxj_formats.rs:41-44,724-730` 文件头写「待 `crate::mpx::locale_data` 落地后改为按
+`mpx/mpxj_formats.rs` 文件头原先写「待 `crate::mpx::locale_data` 落地后改为按
 `MpxLocale` 取值」—— **方向是错的**。`locale_data` 已落地，但它**不含月份/星期名**
 （Java 的 `LocaleData.java:141-175` 里也没有）。那些名字来自 **JDK `java.time` 的本地化文本**。
-所以 `names_for_locale` 对所有 locale 恒返回英文名属于 **A 类硬限制**，要修得自建 9 个语种的
-月份/星期表，或启用 chrono 的 `unstable-locales`。这条注释不改会让人白跑一趟。
+现已按 JDK 25 的输出固化成 `src/mpx/localized_names.rs` 的 9 语种表，`names_for_locale`
+按 `MpxLocale` 分派，注释也已订正 —— 无需启用 chrono 的 `unstable-locales`。
 
 ---
 
@@ -259,7 +260,7 @@ P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，�
 | A16 | `common/html_helper.rs:3-21` | jsoup → 轻量流式解析器（实体表不全、畸形 HTML 树修复无法复现） | jsoup 不可用 + 不引入新依赖 |
 | A17 | `common/rtf_helper.rs:3-19` | rtfparserkit → 轻量 RTF 文本抽取器 | 同上 |
 | A18 | `common/field_type_helper.rs:13-20`；`field_map.rs:48` 等 8 处 | `FieldTypeHelper.getPlaceholder` 的匿名占位 `FieldType` 无法表达 → 「无法识别字段号」统一返回 `None`，调用方**无法区分「未知类型」与「无字段」** | `MppFieldType` 只有 `Builtin`/`Custom` 两变体且访问器恒有值；`FieldKey` 是 `Copy+Eq+Hash` 的等价键、无 `UNKNOWN` 变体 |
-| A19 | `mpx/mpxj_formats.rs:41-44,724-730` | `names_for_locale` 对所有 locale 恒返回英文月份/星期名 | 数据源是 **JDK `java.time` 的本地化文本**，`org.mpxj.mpx.LocaleData` 里也没有这些名字 |
+| ~~A19~~ | ~~`mpx/mpxj_formats.rs` 的 `names_for_locale` 对所有 locale 恒返回英文月份/星期名~~ | ✅ **已还（不再是 A）**：新建 `src/mpx/localized_names.rs` 按 JDK 25 输出固化 9 语种表，`names_for_locale` 按 `MpxLocale` 分派。原判 A 不成立 —— 数据源虽在 JDK，但可固化为静态表还原 |
 | A20 | `project_context.rs:6-21`；`project_file.rs:76` 等 | `LocationContainer`/`ExpenseCategory`/`CostAccount`/`ActivityCode`/`ProjectCode`/`ResourceCode`/`RoleCode`/`Currency`/`ExpenseItem` 未移植 | P6/Primavera 专用数据，MPP/MPX reader 不会产生 |
 | A21 | `cpm/` 整包 | `org.mpxj.cpm` 13 个类只移植了 `MicrosoftSlackCalculator` | CPM 排程不在 reader 目标内 |
 | A22 | `resource_assignment.rs:14` | 无 `TimePeriodEntity` 对应 trait | 纯标记接口 |

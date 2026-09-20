@@ -33,20 +33,21 @@
 //! - 12 / 24 小时制：`hh` 为 1-12 的时钟小时（解析时配合 AM / PM 文本还原 24 小时值，
 //!   无 AM / PM 时按上午处理，与 Java 对 `CLOCK_HOUR_OF_AMPM` 的默认处理一致）。
 //!
+//! ## 本地化月份 / 星期名
+//!
+//! Java 通过 `DateTimeFormatter.withLocale(m_locale)` 从 JDK `java.time` 取本地化的月份 /
+//! 星期名。Rust 侧以 [`localized_names`] 自建 9 个受支持语种的表（数据取自 JDK 25 在对应
+//! `Locale` 下 `MMM` / `MMMM` / `EEE` / `EEEE` 的输出），由 [`names_for_locale`] 按
+//! [`MpxLocale`] 分派，结果与 Java 一致。注意 `crate::mpx::locale_data` 并不含这些名字
+//! （Java 的 `org.mpxj.mpx.LocaleData` 里也没有），因此数据只能自建。
+//! 上午 / 下午文本与 Java 一样取自项目属性的 `getAmText` / `getPmText`（Java 侧编入
+//! `appendText` 的映射表），英文 `am` / `pm` 仅作兜底。
+//!
 //! ## 降级与未实现（MPX 用不到）
 //!
 //! - Java LENIENT 模式下的字段溢出归一化（如 `31/02` 被归一化）不实现：非法日期
 //!   直接返回 `None`。
 //! - `F` / `w` 只参与解析 / 打印，不参与日期还原（仅凭这两个字段 Java 也无法还原日期）。
-//! - 月份名 / 星期名（**真硬限制**）：Java 通过 `withLocale(m_locale)` 取 **JDK `java.time`**
-//!   的本地化文本，Rust 侧一律落到英文常量（[`english_names`]），因此所有区域设置的
-//!   月份 / 星期名都是英文。注意：`crate::mpx::locale_data` **已落地**，但它不含月份 /
-//!   星期名（Java 的 `org.mpxj.mpx.LocaleData` 里也没有），所以**不能**靠它还原 ——
-//!   数据源在 JDK 的本地化数据里。真实可行的修复路径只有两条：
-//!   （a）自建 9 个受支持语种的月份 / 星期表；（b）启用 chrono 的 `unstable-locales`
-//!   特性（需新增依赖，与本工程「不新增依赖」的约定冲突）。
-//!   上午 / 下午文本不受此限制：与 Java 一样取自项目属性的 `getAmText` / `getPmText`
-//!   （Java 侧编入 `appendText` 的映射表）。
 //!
 //! ## 其他结构性取舍
 //!
@@ -73,6 +74,7 @@ use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use crate::common::local_date_helper::LocalDateHelper;
 use crate::date_order::DateOrder;
 use crate::mpx::locale_utility::MpxLocale;
+use crate::mpx::localized_names::{AM, PM, TextTable};
 use crate::mpx::mpxj_number_format::MPXJNumberFormat;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_file::ProjectFile;
@@ -493,8 +495,8 @@ fn parse_am_pm(
     for (text, value) in [
         (context.pm, 1),
         (context.am, 0),
-        (english_names::PM, 1),
-        (english_names::AM, 0),
+        (PM, 1),
+        (AM, 0),
     ] {
         if text.is_empty() {
             continue;
@@ -667,72 +669,12 @@ fn weekday_name(tables: &TextTable, weekday: chrono::Weekday) -> &'static str {
         .unwrap_or("")
 }
 
-/// 一组本地化文本常量。
-///
-/// 取舍：Java 通过 `DateTimeFormatter.withLocale(m_locale)` 取 JDK `java.time` 的本地化文本；
-/// Rust 侧没有该数据源，目前只有 [`english_names::ENGLISH`] 一组（所有区域设置共用）。
-/// 若将来自建多语种表，按 [`MpxLocale`] 增加对应表并在 [`names_for_locale`] 中分派即可，
-/// 无需改动其他代码。
-#[derive(Debug)]
-struct TextTable {
-    /// 月份缩写（对应 JDK 的 `MMM`）
-    months_abbreviated: [&'static str; 12],
-    /// 月份全称（对应 JDK 的 `MMMM`）
-    months_full: [&'static str; 12],
-    /// 星期缩写（下标与 `Weekday::num_days_from_monday` 一致）
-    weekdays_abbreviated: [&'static str; 7],
-    /// 星期全称（对应 JDK 的 `EEEE`）
-    weekdays_full: [&'static str; 7],
-}
-
-/// 英文文本常量。
-mod english_names {
-    use super::TextTable;
-
-    /// 英文月份名 / 星期名（对应 JDK 英文区域）
-    pub(super) static ENGLISH: TextTable = TextTable {
-        months_abbreviated: [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ],
-        months_full: [
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-        ],
-        weekdays_abbreviated: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        weekdays_full: [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ],
-    };
-
-    /// 英文上午文本（作为项目属性 AM 文本之外的兜底）
-    pub(super) const AM: &str = "am";
-    /// 英文下午文本（作为项目属性 PM 文本之外的兜底）
-    pub(super) const PM: &str = "pm";
-}
-
 /// 取区域设置对应的文本常量表。
 ///
-/// 取舍：Java 用 `withLocale(m_locale)` 取 JDK `java.time` 的本地化月份名 / 星期名；
-/// 这些文本既不在已落地的 `crate::mpx::locale_data` 里，也无法由该项目数据还原，
-/// 故所有区域设置统一回落到英文常量（**真硬限制**，修复路径见文件头「降级与未实现」）。
-fn names_for_locale(_locale: MpxLocale) -> &'static TextTable {
-    &english_names::ENGLISH
+/// 对应 Java: `DateTimeFormatter.withLocale(m_locale)`（月份 / 星期名文本）。
+/// 数据由 [`crate::mpx::localized_names`] 按语种提供。
+fn names_for_locale(locale: MpxLocale) -> &'static TextTable {
+    crate::mpx::localized_names::names_for_locale(locale)
 }
 
 /// 文本字段（上午 / 下午）的查找表。
@@ -2019,6 +1961,94 @@ mod tests {
         // 解析时会先丢弃开头的星期名
         assert_eq!(
             formats.parse_date_time("Tue 25 Aug '98"),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd_opt(1998, 8, 25).unwrap(),
+                NaiveTime::MIN
+            ))
+        );
+    }
+
+    /// 构造指定区域设置的格式对象。
+    fn formats_for_locale(
+        locale: MpxLocale,
+        config: impl FnOnce(&mut ProjectProperties),
+    ) -> (Rc<RefCell<ProjectFile>>, MPXJFormats) {
+        let file = ProjectFile::new();
+        {
+            let mut borrowed = file.borrow_mut();
+            config(borrowed.get_project_properties_mut());
+        }
+
+        let formats = MPXJFormats::new(locale, "NA", Rc::downgrade(&file));
+        (file, formats)
+    }
+
+    /// 打印使用各语种自己的月份 / 星期名（回归 A19：此前所有语种都回落英文）。
+    ///
+    /// 期望值与 JDK 在对应 `Locale` 下的输出一致（见 `localized_names`）。
+    #[test]
+    fn date_time_printing_uses_locale_specific_names() {
+        // 1998-08-25 是星期二
+        let cases = [
+            (MpxLocale::En, "Tue 25 Aug '98"),
+            (MpxLocale::De, "Di. 25 Aug. '98"),
+            (MpxLocale::Fr, "mar. 25 août '98"),
+            (MpxLocale::It, "mar 25 ago '98"),
+            (MpxLocale::Es, "mar 25 ago '98"),
+            (MpxLocale::Pt, "ter. 25 ago. '98"),
+            (MpxLocale::Sv, "tis 25 aug. '98"),
+            (MpxLocale::Ru, "вт 25 авг. '98"),
+            (MpxLocale::Zh, "周二 25 8月 '98"),
+        ];
+
+        for (locale, expected) in cases {
+            let (_file, formats) = formats_for_locale(locale, |properties| {
+                properties.set_date_order(Some(DateOrder::Dmy));
+                properties.set_date_format(Some(ProjectDateFormat::EeeDdMmmYy));
+            });
+
+            assert_eq!(
+                formats.print_date_time(Some(&sample())),
+                Some(expected.to_owned()),
+                "{locale} 的打印结果不符"
+            );
+        }
+    }
+
+    /// 德语默认日期格式 `EEE_DD_MM_YY` 打印本地化星期名（对齐 `sample.de.mpx`）。
+    #[test]
+    fn german_default_date_format_prints_localised_weekday() {
+        let (_file, formats) = formats_for_locale(MpxLocale::De, |properties| {
+            properties.set_date_order(Some(DateOrder::Dmy));
+            properties.set_date_separator('.');
+            properties.set_date_format(Some(ProjectDateFormat::EeeDdMmYy));
+        });
+
+        assert_eq!(
+            formats.print_date_time(Some(&sample())),
+            Some("Di. 25.08.98".to_owned())
+        );
+        // 解析会先丢弃开头的星期名，故带本地化星期名的文本同样可解析
+        assert_eq!(
+            formats.parse_date_time("Di. 25.08.98"),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd_opt(1998, 8, 25).unwrap(),
+                NaiveTime::MIN
+            ))
+        );
+    }
+
+    /// 俄语月份名解析（非 ASCII 文本，验证本地化名表在解析路径上可用）。
+    #[test]
+    fn localized_month_names_are_parsed() {
+        let (_file, formats) = formats_for_locale(MpxLocale::Ru, |properties| {
+            properties.set_date_order(Some(DateOrder::Dmy));
+            properties.set_date_format(Some(ProjectDateFormat::EeeDdMmmYy));
+        });
+
+        // 「25 авг. '98」：星期名先被丢弃，月份名「авг.」需能识别
+        assert_eq!(
+            formats.parse_date_time("вт 25 авг. '98"),
             Some(NaiveDateTime::new(
                 NaiveDate::from_ymd_opt(1998, 8, 25).unwrap(),
                 NaiveTime::MIN

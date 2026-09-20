@@ -112,7 +112,7 @@ cargo run --release --example sample_survey
 当前基线：
 
 - `cargo build --all-targets`：无错误、**无警告**
-- `cargo test`：lib 单元测试 **1763** 项 + 集成测试 **10 + 6** 项，另有 4 项 doctest ignored
+- `cargo test`：lib 单元测试 **1769** 项 + 集成测试 **10 + 6** 项，另有 4 项 doctest ignored
 - `sample_survey`：**MPP 606/609**（另 3 个是密码保护文件，属预期）、**MPX 19/19**
 
 > ⚠️ **基线只证明「解析不崩、能出数据」，证明不了逐字段正确。**
