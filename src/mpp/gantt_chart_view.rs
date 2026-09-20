@@ -1,0 +1,2532 @@
+//! 对应 Java: `org/mpxj/mpp/GanttChartView.java`
+//!
+//! 本类描述 MS Project 甘特图视图的外观属性（网格线、字体、条形样式、时间刻度、
+//! 进度线、自动筛选等），是 `GanttChartView9` / `GanttChartView12` /
+//! `GanttChartView14` 三个版本差异子类的共同基类。
+//!
+//! # Java 形态与 Rust 还原
+//!
+//! ```java
+//! public abstract class GanttChartView extends GenericView
+//! ```
+//!
+//! # 继承的还原（组合 + 转发）
+//!
+//! | Java | Rust |
+//! |---|---|
+//! | `GanttChartView extends GenericView` | [`GanttChartView`] **持有** [`GenericView`]（字段 `view`） |
+//! | 继承来的 `getID` / `getName` / `getType` / `getTableName` / `getTable` | `impl View`，逐个转发给 `view`（见 [`View`] 实现） |
+//! | 继承来的 `getPropertiesID` / `getFile` / `set*` / `asAbstractMppView` | [`GanttChartView::get_properties_id`] / [`GanttChartView::get_file`] / `set_*` / `as_generic_view[_mut]` 逐方法转发 |
+//! | 继承来的 `toString()` | `impl Display`：先输出 `[GanttChartView`，再输出基类内容（Java 的 `super.toString()`） |
+//! | `protected abstract void processXxx(...)`（6 个）+ `GenericView.getPropertiesID()` | [`GanttChartViewProcessor`] trait；Java 在**构造方法**里回调这些抽象方法，Rust 无虚方法分派，改由子类在调用 [`GanttChartView::new`] 时传入实现（与 `GenericView::new` 多一个 `properties_id` 参数的取舍一致） |
+//!
+//! ## 抽象方法的对照表
+//!
+//! | Java 方法 | trait 方法 |
+//! |---|---|
+//! | `GenericView.getPropertiesID()` | [`GanttChartViewProcessor::get_properties_id`] |
+//! | `processDefaultBarStyles(Props)` | [`GanttChartViewProcessor::process_default_bar_styles`] |
+//! | `processExceptionBarStyles(Props)` | [`GanttChartViewProcessor::process_exception_bar_styles`] |
+//! | `processAutoFilters(byte[])` | [`GanttChartViewProcessor::process_auto_filters`] |
+//! | `processViewProperties(Map, Props)` | [`GanttChartViewProcessor::process_view_properties`] |
+//! | `processTableFontStyles(Map, byte[])` | [`GanttChartViewProcessor::process_table_font_styles`] |
+//! | `processProgressLines(Map, byte[])` | [`GanttChartViewProcessor::process_progress_lines`] |
+//! | `GanttChartView14.getColumnFontStyle(...)`（重写） | [`GanttChartViewProcessor::get_column_font_style`] |
+//!
+//! trait 方法的首参是 `&mut GanttChartView`（只读时用 `&GanttChartView`），对应 Java 中
+//! 这些实例方法直接读写本对象的 `protected` 字段；字段本身取 `pub(crate)`（等价于 Java
+//! 的「包内 + 子类可见」）。
+//!
+//! # 与 Java 的差异
+//!
+//! 1. **`Props` / `Props9`**：Java 用 `Props9 extends Props`，构造方法里把同一个 `Props9`
+//!    实例（静态类型 `Props`）传给各工厂方法。Rust 的 `Props9` 用组合实现「继承」，与
+//!    [`Props`] 无子类型关系，而本批已落地的 `GanttBarStyleFactory` / `GanttBarStyleFactory14`
+//!    接收 `&Props`。因此 [`GanttChartView::new`] 用 `Props9::new` 解析（与 Java 相同的
+//!    流式解析），再按解析结果重建一个内容等价的 [`Props`]（见 [`props9_to_props`]）传给
+//!    钩子；语义等价，代价是多一次映射拷贝。
+//! 2. **`null` → `Option`**：可空字段（网格线、字体样式、时间刻度层、颜色、筛选名、
+//!    进度线起始日期等）一律改为 `Option<T>`；兼容「Java 中可能返回数组 `null`」的
+//!    getter（`getBarStyles` / `getTableFontStyles` / `getProgressLinesDisplaySelectedDates`）
+//!    返回 `Option<&[T]>`。
+//! 3. **`Color` / `LineStyle` / `TimescaleFormat` / `ProgressLineDay`**：本 crate 中
+//!    `MPPUtility::get_color`、`LineStyle::get_instance`、`TimescaleFormat::get_instance`、
+//!    `ProgressLineDay::get_instance` 都可能取不到值，故相关字段是 `Option<...>`。
+//! 4. **`m_barStylesMap`**：Java 的 `HashMap` 允许 `null` 键（条形样式 ID 未设置时），
+//!    Rust 侧键为 `Option<i32>`。
+//! 5. **`m_autoFiltersByType`**：Java 键是 `FieldType`，Rust 侧用 [`FieldKey`]（本 crate 对
+//!    字段类型的可哈希载体，见 `crate::common::mpp_field_type`）。
+//! 6. **条形样式数组**：Java 的 `GanttBarStyle[]` / `GanttBarStyleException[]` 建立
+//!    「ID → 样式引用」映射，Rust 侧用 `Rc<RefCell<_>>` 保持同一份实例（与本 crate 对
+//!    `Filter` 等实体的处理一致）。
+//! 7. **越界**：Java 靠数组越界抛 `ArrayIndexOutOfBoundsException`；Rust 侧统一经
+//!    `get_short_safe` / `get_int_safe` / `MPPUtility` 的安全读取函数取默认值（0 / `None`），
+//!    绝不 panic。
+//! 8. **构造方法**：Java 抛 `IOException`；Rust 侧返回 `Err(MpxjError)`（[`MpxjResult`]）。
+//! 9. **`getDefaultFilter()`**：Java 缓存父文件的 `FilterContainer`；Rust 侧不缓存，按需
+//!    经 [`GenericView::get_file`] 借用（父文件已释放 / 正被可变借用时返回 `None`）。
+//! 10. **`getProgressLinesBeginAtDate` / `getProgressLinesDisplaySelectedDates`**：Java 标记
+//!     `@Deprecated`，Rust 无对应属性，仅在文档中注明。
+//!
+//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//!
+//! 未移植的 Java 成员：无。
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::{self, Display, Formatter};
+use std::rc::Rc;
+
+use chrono::{NaiveDate, NaiveDateTime};
+
+use crate::common::field_type_helper::FieldTypeHelper;
+use crate::common::local_date_helper::LocalDateHelper;
+use crate::common::mpp_field_type::MppFieldType;
+use crate::field_key::FieldKey;
+use crate::filter::Filter;
+use crate::mpxj_exception::MpxjResult;
+use crate::project_file::ProjectFile;
+use crate::table::Table;
+use crate::view::View;
+use crate::view_type::ViewType;
+
+use crate::mpp::abstract_calendar_factory::{get_int_safe, get_short_safe};
+use crate::mpp::background_pattern::BackgroundPattern;
+use crate::mpp::chart_pattern::ChartPattern;
+use crate::mpp::color_type::ColorType;
+use crate::mpp::font_base::FontBase;
+use crate::mpp::font_style::FontStyle;
+use crate::mpp::gantt_bar_date_format::GanttBarDateFormat;
+use crate::mpp::gantt_bar_style::GanttBarStyle;
+use crate::mpp::gantt_bar_style_exception::GanttBarStyleException;
+use crate::mpp::generic_view::GenericView;
+use crate::mpp::grid_lines::GridLines;
+use crate::mpp::interval::Interval;
+use crate::mpp::line_style::LineStyle;
+use crate::mpp::link_style::LinkStyle;
+use crate::mpp::mpp_utility::{Color, MPPUtility};
+use crate::mpp::non_working_time_style::NonWorkingTimeStyle;
+use crate::mpp::progress_line_day::ProgressLineDay;
+use crate::mpp::props::Props;
+use crate::mpp::props_key::PropsKey;
+use crate::mpp::props9::Props9;
+use crate::mpp::table_font_style::TableFontStyle;
+use crate::mpp::timescale_tier::TimescaleTier;
+use crate::mpp::var2_data::Var2Data;
+
+/// 字体基表：Java `Map<Integer, FontBase>`。
+///
+/// 与 [`crate::mpp::view_factory::ViewFactory::create_view`] 的 `font_bases` 参数同类型。
+pub type FontBaseMap = HashMap<i32, FontBase>;
+
+/// 甘特图条形样式数组：Java `GanttBarStyle[]`。
+pub type GanttBarStyleList = Vec<Rc<RefCell<GanttBarStyle>>>;
+
+/// 甘特图条形样式例外数组：Java `GanttBarStyleException[]`。
+pub type GanttBarStyleExceptionList = Vec<Rc<RefCell<GanttBarStyleException>>>;
+
+/// `GanttChartView` 的版本差异钩子。
+///
+/// 对应 Java: `GanttChartView` 的抽象方法与被子类重写的方法（见文件头对照表）。
+///
+/// 这些方法在 Java 中于**构造方法内部**被回调，因此 Rust 侧由 [`GanttChartView::new`]
+/// 接收一个 `&dyn GanttChartViewProcessor` 并在解析过程中调用。
+pub trait GanttChartViewProcessor {
+    /// 取属性数据块 ID。
+    ///
+    /// 对应 Java: `GenericView.getPropertiesID()`（`GanttChartView9` 返回 1，
+    /// `GanttChartView12` / `GanttChartView14` 返回 6）。
+    fn get_properties_id(&self) -> i32;
+
+    /// 解析默认甘特图条形样式。
+    ///
+    /// 对应 Java: `protected abstract void processDefaultBarStyles(Props props)`
+    fn process_default_bar_styles(&self, view: &mut GanttChartView, props: &Props);
+
+    /// 解析甘特图条形样式例外。
+    ///
+    /// 对应 Java: `protected abstract void processExceptionBarStyles(Props props)`
+    fn process_exception_bar_styles(&self, view: &mut GanttChartView, props: &Props);
+
+    /// 解析自动筛选定义。
+    ///
+    /// 对应 Java: `protected abstract void processAutoFilters(byte[] data)`
+    fn process_auto_filters(&self, view: &mut GanttChartView, data: &[u8]);
+
+    /// 解析视图属性（字体样式、网格线、时间刻度等）。
+    ///
+    /// 对应 Java: `protected abstract void processViewProperties(Map<Integer, FontBase> fontBases, Props props)`
+    fn process_view_properties(
+        &self,
+        view: &mut GanttChartView,
+        font_bases: &FontBaseMap,
+        props: &Props,
+    );
+
+    /// 解析表格字体样式。
+    ///
+    /// 对应 Java: `protected abstract void processTableFontStyles(Map<Integer, FontBase> fontBases, byte[] data)`
+    fn process_table_font_styles(
+        &self,
+        view: &mut GanttChartView,
+        font_bases: &FontBaseMap,
+        data: &[u8],
+    );
+
+    /// 解析进度线属性。
+    ///
+    /// 对应 Java: `protected abstract void processProgressLines(Map<Integer, FontBase> fontBases, byte[] data)`
+    fn process_progress_lines(
+        &self,
+        view: &mut GanttChartView,
+        font_bases: &FontBaseMap,
+        data: &[u8],
+    );
+
+    /// 取列字体样式。
+    ///
+    /// 对应 Java: 基类的 `protected TableFontStyle getColumnFontStyle(ProjectFile file, byte[] data, int offset, Map<Integer, FontBase> fontBases)`；
+    /// `GanttChartView14` 重写了该方法，`GanttChartView9` / `GanttChartView12` 转发回基类实现
+    /// （[`GanttChartView::get_column_font_style`]）。
+    fn get_column_font_style(
+        &self,
+        view: &GanttChartView,
+        data: &[u8],
+        offset: usize,
+        font_bases: &FontBaseMap,
+    ) -> TableFontStyle;
+}
+
+/// MS Project 甘特图视图。
+///
+/// 对应 Java: `public abstract class GanttChartView extends GenericView`
+pub struct GanttChartView {
+    /// 对应 Java: `extends GenericView`（Rust 用组合代替继承）
+    view: GenericView,
+
+    // ---------------------------------------------------------------
+    // 私有字段（Java 同为 private）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `private int m_tableWidth`
+    table_width: i32,
+    /// 对应 Java: `private String m_defaultFilterName`
+    default_filter_name: Option<String>,
+    /// 对应 Java: `private String m_groupName`
+    group_name: Option<String>,
+    /// 对应 Java: `private boolean m_highlightFilter`
+    highlight_filter: bool,
+    /// 对应 Java: `private final boolean m_showInMenu`
+    show_in_menu: bool,
+
+    // ---------------------------------------------------------------
+    // 网格线（Java 为 protected）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `protected GridLines m_sheetRowsGridLines`
+    pub(crate) sheet_rows_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_sheetColumnsGridLines`
+    pub(crate) sheet_columns_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_titleVerticalGridLines`
+    pub(crate) title_vertical_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_titleHorizontalGridLines`
+    pub(crate) title_horizontal_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_middleTierColumnGridLines`
+    pub(crate) middle_tier_column_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_bottomTierColumnGridLines`
+    pub(crate) bottom_tier_column_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_ganttRowsGridLines`
+    pub(crate) gantt_rows_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_barRowsGridLines`
+    pub(crate) bar_rows_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_currentDateGridLines`
+    pub(crate) current_date_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_pageBreakGridLines`
+    pub(crate) page_break_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_projectStartGridLines`
+    pub(crate) project_start_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_projectFinishGridLines`
+    pub(crate) project_finish_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_statusDateGridLines`
+    pub(crate) status_date_grid_lines: Option<GridLines>,
+    /// 对应 Java: `protected GridLines m_topTierColumnGridLines`
+    pub(crate) top_tier_column_grid_lines: Option<GridLines>,
+
+    /// 对应 Java: `protected int m_ganttBarHeight`
+    pub(crate) gantt_bar_height: i32,
+
+    // ---------------------------------------------------------------
+    // 时间刻度（Java 为 protected）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `protected TimescaleTier m_timescaleTopTier`
+    pub(crate) timescale_top_tier: Option<TimescaleTier>,
+    /// 对应 Java: `protected TimescaleTier m_timescaleMiddleTier`
+    pub(crate) timescale_middle_tier: Option<TimescaleTier>,
+    /// 对应 Java: `protected TimescaleTier m_timescaleBottomTier`
+    pub(crate) timescale_bottom_tier: Option<TimescaleTier>,
+    /// 对应 Java: `protected boolean m_timescaleScaleSeparator`
+    pub(crate) timescale_scale_separator: bool,
+    /// 对应 Java: `protected int m_timescaleSize`
+    pub(crate) timescale_size: i32,
+    /// 对应 Java: `protected int m_timescaleShowTiers`
+    pub(crate) timescale_show_tiers: i32,
+
+    /// 对应 Java: `protected String m_nonWorkingDaysCalendarName`
+    pub(crate) non_working_days_calendar_name: Option<String>,
+    /// 对应 Java: `protected Color m_nonWorkingColor`
+    pub(crate) non_working_color: Option<Color>,
+    /// 对应 Java: `protected ChartPattern m_nonWorkingPattern`
+    pub(crate) non_working_pattern: Option<ChartPattern>,
+    /// 对应 Java: `protected NonWorkingTimeStyle m_nonWorkingStyle`
+    pub(crate) non_working_style: Option<NonWorkingTimeStyle>,
+
+    // ---------------------------------------------------------------
+    // 甘特图外观（Java 为 protected）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `protected boolean m_showDrawings`
+    pub(crate) show_drawings: bool,
+    /// 对应 Java: `protected boolean m_roundBarsToWholeDays`
+    pub(crate) round_bars_to_whole_days: bool,
+    /// 对应 Java: `protected boolean m_showBarSplits`
+    pub(crate) show_bar_splits: bool,
+    /// 对应 Java: `protected boolean m_alwaysRollupGanttBars`
+    pub(crate) always_rollup_gantt_bars: bool,
+    /// 对应 Java: `protected boolean m_hideRollupBarsWhenSummaryExpanded`
+    pub(crate) hide_rollup_bars_when_summary_expanded: bool,
+    /// 对应 Java: `protected GanttBarDateFormat m_barDateFormat`
+    pub(crate) bar_date_format: Option<GanttBarDateFormat>,
+    /// 对应 Java: `protected LinkStyle m_linkStyle`
+    pub(crate) link_style: Option<LinkStyle>,
+
+    /// 对应 Java: `protected GanttBarStyle[] m_barStyles`
+    bar_styles: Option<GanttBarStyleList>,
+    /// 对应 Java: `protected Map<Integer, List<GanttBarStyle>> m_barStylesMap`
+    ///
+    /// 键为 `Option<i32>`：Java 的 `HashMap` 允许 `null` 键（条形样式 ID 未设置时会出现）。
+    bar_styles_map: HashMap<Option<i32>, GanttBarStyleList>,
+    /// 对应 Java: `protected GanttBarStyleException[] m_barStyleExceptions`
+    pub(crate) bar_style_exceptions: GanttBarStyleExceptionList,
+
+    // ---------------------------------------------------------------
+    // 字体样式（Java 为 protected）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `protected FontStyle m_highlightedTasksFontStyle`
+    pub(crate) highlighted_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_rowAndColumnFontStyle`
+    pub(crate) row_and_column_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_nonCriticalTasksFontStyle`
+    pub(crate) non_critical_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_criticalTasksFontStyle`
+    pub(crate) critical_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_summaryTasksFontStyle`
+    pub(crate) summary_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_milestoneTasksFontStyle`
+    pub(crate) milestone_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_topTimescaleFontStyle`
+    pub(crate) top_timescale_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_middleTimescaleFontStyle`
+    pub(crate) middle_timescale_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_bottomTimescaleFontStyle`
+    pub(crate) bottom_timescale_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_barTextLeftFontStyle`
+    pub(crate) bar_text_left_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_barTextRightFontStyle`
+    pub(crate) bar_text_right_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_barTextTopFontStyle`
+    pub(crate) bar_text_top_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_barTextBottomFontStyle`
+    pub(crate) bar_text_bottom_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_barTextInsideFontStyle`
+    pub(crate) bar_text_inside_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_markedTasksFontStyle`
+    pub(crate) marked_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_projectSummaryTasksFontStyle`
+    pub(crate) project_summary_tasks_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected FontStyle m_externalTasksFontStyle`
+    pub(crate) external_tasks_font_style: Option<FontStyle>,
+
+    /// 对应 Java: `protected TableFontStyle[] m_tableFontStyles`
+    pub(crate) table_font_styles: Option<Vec<TableFontStyle>>,
+
+    // ---------------------------------------------------------------
+    // 进度线（Java 为 protected）
+    // ---------------------------------------------------------------
+    /// 对应 Java: `protected boolean m_progressLinesEnabled`
+    pub(crate) progress_lines_enabled: bool,
+    /// 对应 Java: `protected boolean m_progressLinesAtCurrentDate`
+    pub(crate) progress_lines_at_current_date: bool,
+    /// 对应 Java: `protected boolean m_progressLinesAtRecurringIntervals`
+    pub(crate) progress_lines_at_recurring_intervals: bool,
+    /// 对应 Java: `protected Interval m_progressLinesInterval`
+    pub(crate) progress_lines_interval: Option<Interval>,
+    /// 对应 Java: `protected int m_progressLinesIntervalDailyDayNumber`
+    pub(crate) progress_lines_interval_daily_day_number: i32,
+    /// 对应 Java: `protected boolean m_progressLinesIntervalDailyWorkday`
+    pub(crate) progress_lines_interval_daily_workday: bool,
+    /// 对应 Java: `protected final boolean[] m_progressLinesIntervalWeeklyDay = new boolean[8]`
+    ///
+    /// 下标与 Java 的 `Day` 常量一致（周日 = 1 … 周六 = 7，下标 0 不使用）。
+    pub(crate) progress_lines_interval_weekly_day: [bool; 8],
+    /// 对应 Java: `protected int m_progressLinesIntervalWeekleyWeekNumber`（Java 侧拼写为 Weekley）
+    pub(crate) progress_lines_interval_weekley_week_number: i32,
+    /// 对应 Java: `protected boolean m_progressLinesIntervalMonthlyDay`
+    pub(crate) progress_lines_interval_monthly_day: bool,
+    /// 对应 Java: `protected int m_progressLinesIntervalMonthlyDayDayNumber`
+    pub(crate) progress_lines_interval_monthly_day_day_number: i32,
+    /// 对应 Java: `protected int m_progressLinesIntervalMonthlyDayMonthNumber`
+    pub(crate) progress_lines_interval_monthly_day_month_number: i32,
+    /// 对应 Java: `protected ProgressLineDay m_progressLinesIntervalMonthlyFirstLastDay`
+    pub(crate) progress_lines_interval_monthly_first_last_day: Option<ProgressLineDay>,
+    /// 对应 Java: `protected boolean m_progressLinesIntervalMonthlyFirstLast`
+    pub(crate) progress_lines_interval_monthly_first_last: bool,
+    /// 对应 Java: `protected int m_progressLinesIntervalMonthlyFirstLastMonthNumber`
+    pub(crate) progress_lines_interval_monthly_first_last_month_number: i32,
+    /// 对应 Java: `protected boolean m_progressLinesBeginAtProjectStart`
+    pub(crate) progress_lines_begin_at_project_start: bool,
+    /// 对应 Java: `protected LocalDate m_progressLinesBeginAtDate`
+    pub(crate) progress_lines_begin_at_date: Option<NaiveDate>,
+    /// 对应 Java: `protected boolean m_progressLinesDisplaySelected`
+    pub(crate) progress_lines_display_selected: bool,
+    /// 对应 Java: `protected LocalDate[] m_progressLinesDisplaySelectedDates`
+    pub(crate) progress_lines_display_selected_dates: Option<Vec<NaiveDate>>,
+    /// 对应 Java: `protected boolean m_progressLinesActualPlan`
+    pub(crate) progress_lines_actual_plan: bool,
+    /// 对应 Java: `protected int m_progressLinesDisplayType`
+    pub(crate) progress_lines_display_type: i32,
+    /// 对应 Java: `protected boolean m_progressLinesShowDate`
+    pub(crate) progress_lines_show_date: bool,
+    /// 对应 Java: `protected int m_progressLinesDateFormat`
+    pub(crate) progress_lines_date_format: i32,
+    /// 对应 Java: `protected FontStyle m_progressLinesFontStyle`
+    pub(crate) progress_lines_font_style: Option<FontStyle>,
+    /// 对应 Java: `protected Color m_progressLinesCurrentLineColor`
+    pub(crate) progress_lines_current_line_color: Option<Color>,
+    /// 对应 Java: `protected LineStyle m_progressLinesCurrentLineStyle`
+    pub(crate) progress_lines_current_line_style: Option<LineStyle>,
+    /// 对应 Java: `protected Color m_progressLinesCurrentProgressPointColor`
+    pub(crate) progress_lines_current_progress_point_color: Option<Color>,
+    /// 对应 Java: `protected int m_progressLinesCurrentProgressPointShape`
+    pub(crate) progress_lines_current_progress_point_shape: i32,
+    /// 对应 Java: `protected Color m_progressLinesOtherLineColor`
+    pub(crate) progress_lines_other_line_color: Option<Color>,
+    /// 对应 Java: `protected LineStyle m_progressLinesOtherLineStyle`
+    pub(crate) progress_lines_other_line_style: Option<LineStyle>,
+    /// 对应 Java: `protected Color m_progressLinesOtherProgressPointColor`
+    pub(crate) progress_lines_other_progress_point_color: Option<Color>,
+    /// 对应 Java: `protected int m_progressLinesOtherProgressPointShape`
+    pub(crate) progress_lines_other_progress_point_shape: i32,
+
+    /// 对应 Java: `protected final List<Filter> m_autoFilters = new ArrayList<>()`
+    pub(crate) auto_filters: Vec<Rc<RefCell<Filter>>>,
+    /// 对应 Java: `protected final Map<FieldType, Filter> m_autoFiltersByType = new HashMap<>()`
+    ///
+    /// 键为 [`FieldKey`]（本 crate 对 `FieldType` 的可哈希载体，见
+    /// [`crate::common::mpp_field_type`]）。
+    pub(crate) auto_filters_by_type: HashMap<FieldKey, Rc<RefCell<Filter>>>,
+}
+
+impl GanttChartView {
+    /// 由视图的 fixed / var 数据块创建甘特图视图。
+    ///
+    /// 对应 Java: `GanttChartView(ProjectFile parent, byte[] fixedMeta, byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases)`
+    ///
+    /// Java 的构造方法先调用基类 `GenericView(ProjectFile parent, byte[] data, Var2Data varData)`
+    /// （读取 `id` / `name` / `type` / `tableName`），Rust 侧由 [`GenericView::new`] 完成同一工作
+    /// （多一个来自 [`GanttChartViewProcessor::get_properties_id`] 的 `properties_id` 参数）。
+    ///
+    /// # 与 Java 的差异
+    ///
+    /// - Java 的 `fixedMeta[8]` 越界会抛异常；Rust 侧按下标不存在处理（`m_showInMenu` 保持 `false`）。
+    /// - Java 在基类与本类各解析一次 `Props9`（同一份数据解析两次，且两次得到同一个
+    ///   `Props9` 实例），Rust 侧只解析一次，语义等价。
+    pub fn new(
+        processor: &dyn GanttChartViewProcessor,
+        parent: &Rc<RefCell<ProjectFile>>,
+        fixed_meta: &[u8],
+        fixed_data: &[u8],
+        var_data: &Var2Data,
+        font_bases: &FontBaseMap,
+    ) -> MpxjResult<Self> {
+        // Java: super(parent, fixedData, varData);
+        let view = GenericView::new(parent, fixed_data, var_data, processor.get_properties_id())?;
+
+        // Java: m_showInMenu = (fixedMeta[8] & 0x08) != 0;
+        let show_in_menu = fixed_meta.get(8).is_some_and(|value| (value & 0x08) != 0);
+
+        let mut view = Self {
+            view,
+            table_width: 0,
+            default_filter_name: None,
+            group_name: None,
+            highlight_filter: false,
+            show_in_menu,
+            sheet_rows_grid_lines: None,
+            sheet_columns_grid_lines: None,
+            title_vertical_grid_lines: None,
+            title_horizontal_grid_lines: None,
+            middle_tier_column_grid_lines: None,
+            bottom_tier_column_grid_lines: None,
+            gantt_rows_grid_lines: None,
+            bar_rows_grid_lines: None,
+            current_date_grid_lines: None,
+            page_break_grid_lines: None,
+            project_start_grid_lines: None,
+            project_finish_grid_lines: None,
+            status_date_grid_lines: None,
+            top_tier_column_grid_lines: None,
+            gantt_bar_height: 0,
+            timescale_top_tier: None,
+            timescale_middle_tier: None,
+            timescale_bottom_tier: None,
+            timescale_scale_separator: false,
+            timescale_size: 0,
+            timescale_show_tiers: 0,
+            non_working_days_calendar_name: None,
+            non_working_color: None,
+            non_working_pattern: None,
+            non_working_style: None,
+            show_drawings: false,
+            round_bars_to_whole_days: false,
+            show_bar_splits: false,
+            always_rollup_gantt_bars: false,
+            hide_rollup_bars_when_summary_expanded: false,
+            bar_date_format: None,
+            link_style: None,
+            bar_styles: None,
+            bar_styles_map: HashMap::new(),
+            bar_style_exceptions: Vec::new(),
+            highlighted_tasks_font_style: None,
+            row_and_column_font_style: None,
+            non_critical_tasks_font_style: None,
+            critical_tasks_font_style: None,
+            summary_tasks_font_style: None,
+            milestone_tasks_font_style: None,
+            top_timescale_font_style: None,
+            middle_timescale_font_style: None,
+            bottom_timescale_font_style: None,
+            bar_text_left_font_style: None,
+            bar_text_right_font_style: None,
+            bar_text_top_font_style: None,
+            bar_text_bottom_font_style: None,
+            bar_text_inside_font_style: None,
+            marked_tasks_font_style: None,
+            project_summary_tasks_font_style: None,
+            external_tasks_font_style: None,
+            table_font_styles: None,
+            progress_lines_enabled: false,
+            progress_lines_at_current_date: false,
+            progress_lines_at_recurring_intervals: false,
+            progress_lines_interval: None,
+            progress_lines_interval_daily_day_number: 0,
+            progress_lines_interval_daily_workday: false,
+            progress_lines_interval_weekly_day: [false; 8],
+            progress_lines_interval_weekley_week_number: 0,
+            progress_lines_interval_monthly_day: false,
+            progress_lines_interval_monthly_day_day_number: 0,
+            progress_lines_interval_monthly_day_month_number: 0,
+            progress_lines_interval_monthly_first_last_day: None,
+            progress_lines_interval_monthly_first_last: false,
+            progress_lines_interval_monthly_first_last_month_number: 0,
+            progress_lines_begin_at_project_start: false,
+            progress_lines_begin_at_date: None,
+            progress_lines_display_selected: false,
+            progress_lines_display_selected_dates: None,
+            progress_lines_actual_plan: false,
+            progress_lines_display_type: 0,
+            progress_lines_show_date: false,
+            progress_lines_date_format: 0,
+            progress_lines_font_style: None,
+            progress_lines_current_line_color: None,
+            progress_lines_current_line_style: None,
+            progress_lines_current_progress_point_color: None,
+            progress_lines_current_progress_point_shape: 0,
+            progress_lines_other_line_color: None,
+            progress_lines_other_line_style: None,
+            progress_lines_other_progress_point_color: None,
+            progress_lines_other_progress_point_shape: 0,
+            auto_filters: Vec::new(),
+            auto_filters_by_type: HashMap::new(),
+        };
+
+        // Java: byte[] propsData = varData.getByteArray(m_id, getPropertiesID());
+        let props_data =
+            var_data.get_byte_array(view.get_id(), Some(processor.get_properties_id()));
+
+        // Java: if (propsData != null) { ... }
+        if let Some(props_data) = props_data.as_deref() {
+            // Java: Props9 props = new Props9(new ByteArrayInputStream(propsData));
+            let props9 = Props9::new(props_data)?;
+            // 见文件头差异 1：工厂方法接收 &Props，故按解析结果重建一个等价的 Props
+            let props = props9_to_props(&props9);
+
+            // Java: byte[] tableData = props.getByteArray(PropsKey.TABLE_PROPERTIES);
+            if let Some(table_data) = props.get_byte_array(PropsKey::TableProperties) {
+                // Java: m_tableWidth = ByteArrayHelper.getShort(tableData, 35);
+                view.table_width = get_short_safe(table_data, 35);
+                // Java: m_highlightFilter = (tableData[7] != 0);
+                view.highlight_filter = table_data.get(7).is_some_and(|value| *value != 0);
+            }
+
+            // Java: byte[] filterName = props.getByteArray(PropsKey.FILTER_NAME);
+            if let Some(filter_name) = props.get_byte_array(PropsKey::FilterName) {
+                view.default_filter_name = Some(MPPUtility::get_unicode_string(filter_name, 0));
+            }
+
+            // Java: byte[] groupName = props.getByteArray(PropsKey.GROUP_NAME);
+            if let Some(group_name) = props.get_byte_array(PropsKey::GroupName) {
+                view.group_name = Some(MPPUtility::get_unicode_string(group_name, 0));
+            }
+
+            processor.process_view_properties(&mut view, font_bases, &props);
+
+            processor.process_default_bar_styles(&mut view, &props);
+
+            processor.process_exception_bar_styles(&mut view, &props);
+
+            // Java: byte[] columnData = props.getByteArray(PropsKey.COLUMN_PROPERTIES);
+            if let Some(column_data) = props.get_byte_array(PropsKey::ColumnProperties) {
+                processor.process_table_font_styles(&mut view, font_bases, column_data);
+            }
+
+            // Java: byte[] progressLineData = props.getByteArray(PropsKey.PROGRESS_LINE_PROPERTIES);
+            if let Some(progress_line_data) = props.get_byte_array(PropsKey::ProgressLineProperties)
+            {
+                processor.process_progress_lines(&mut view, font_bases, progress_line_data);
+            }
+
+            // Java: byte[] autoFilterData = props.getByteArray(PropsKey.AUTO_FILTER_PROPERTIES);
+            if let Some(auto_filter_data) = props.get_byte_array(PropsKey::AutoFilterProperties) {
+                processor.process_auto_filters(&mut view, auto_filter_data);
+            }
+        }
+
+        Ok(view)
+    }
+
+    /// 取内部组合的 [`GenericView`]。
+    ///
+    /// Rust 特有：Java 的继承在 Rust 侧由组合表达（同 `GenericView::as_abstract_mpp_view`）。
+    pub fn as_generic_view(&self) -> &GenericView {
+        &self.view
+    }
+
+    /// 取内部组合的 [`GenericView`]（可变）。
+    ///
+    /// Rust 特有：见 [`GanttChartView::as_generic_view`]。
+    pub fn as_generic_view_mut(&mut self) -> &mut GenericView {
+        &mut self.view
+    }
+
+    /// 取属性块的数据类型 ID。
+    ///
+    /// 对应 Java: `GenericView.getPropertiesID()`
+    pub fn get_properties_id(&self) -> i32 {
+        self.view.get_properties_id()
+    }
+
+    /// 取父项目文件。
+    ///
+    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+    pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
+        self.view.get_file()
+    }
+
+    /// 设置视图 ID。
+    ///
+    /// 对应 Java: `AbstractView.m_id`（protected 字段赋值）
+    pub fn set_id(&mut self, id: Option<i32>) {
+        self.view.set_id(id);
+    }
+
+    /// 设置视图名称。
+    ///
+    /// 对应 Java: `AbstractView.m_name`（protected 字段赋值）
+    pub fn set_name(&mut self, name: Option<String>) {
+        self.view.set_name(name);
+    }
+
+    /// 设置视图类型。
+    ///
+    /// 对应 Java: `AbstractView.m_type`（protected 字段赋值）
+    pub fn set_type(&mut self, type_: Option<ViewType>) {
+        self.view.set_type(type_);
+    }
+
+    /// 设置视图中表格部分的名称。
+    ///
+    /// 对应 Java: `AbstractView.m_tableName`（protected 字段赋值）
+    pub fn set_table_name(&mut self, table_name: Option<String>) {
+        self.view.set_table_name(table_name);
+    }
+
+    // -----------------------------------------------------------------
+    // 网格线
+    // -----------------------------------------------------------------
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getSheetColumnsGridLines()`
+    pub fn get_sheet_columns_grid_lines(&self) -> Option<&GridLines> {
+        self.sheet_columns_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getSheetRowsGridLines()`
+    pub fn get_sheet_rows_grid_lines(&self) -> Option<&GridLines> {
+        self.sheet_rows_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getStatusDateGridLines()`
+    pub fn get_status_date_grid_lines(&self) -> Option<&GridLines> {
+        self.status_date_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getTitleHorizontalGridLines()`
+    pub fn get_title_horizontal_grid_lines(&self) -> Option<&GridLines> {
+        self.title_horizontal_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getTitleVerticalGridLines()`
+    pub fn get_title_vertical_grid_lines(&self) -> Option<&GridLines> {
+        self.title_vertical_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getBarRowsGridLines()`
+    pub fn get_bar_rows_grid_lines(&self) -> Option<&GridLines> {
+        self.bar_rows_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getCurrentDateGridLines()`
+    pub fn get_current_date_grid_lines(&self) -> Option<&GridLines> {
+        self.current_date_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getGanttRowsGridLines()`
+    pub fn get_gantt_rows_grid_lines(&self) -> Option<&GridLines> {
+        self.gantt_rows_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getTopTierColumnGridLines()`
+    pub fn get_top_tier_column_grid_lines(&self) -> Option<&GridLines> {
+        self.top_tier_column_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getMiddleTierColumnGridLines()`
+    pub fn get_middle_tier_column_grid_lines(&self) -> Option<&GridLines> {
+        self.middle_tier_column_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getBottomTierColumnGridLines()`
+    pub fn get_bottom_tier_column_grid_lines(&self) -> Option<&GridLines> {
+        self.bottom_tier_column_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getPageBreakGridLines()`
+    pub fn get_page_break_grid_lines(&self) -> Option<&GridLines> {
+        self.page_break_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getProjectFinishGridLines()`
+    pub fn get_project_finish_grid_lines(&self) -> Option<&GridLines> {
+        self.project_finish_grid_lines.as_ref()
+    }
+
+    /// 取网格线定义。
+    ///
+    /// 对应 Java: `public GridLines getProjectStartGridLines()`
+    pub fn get_project_start_grid_lines(&self) -> Option<&GridLines> {
+        self.project_start_grid_lines.as_ref()
+    }
+
+    // -----------------------------------------------------------------
+    // 基本属性
+    // -----------------------------------------------------------------
+
+    /// 取本视图用于定义非工作日的日历名称。
+    ///
+    /// 对应 Java: `public String getNonWorkingDaysCalendarName()`
+    pub fn get_non_working_days_calendar_name(&self) -> Option<&str> {
+        self.non_working_days_calendar_name.as_deref()
+    }
+
+    /// 取甘特图条形高度（像素）。
+    ///
+    /// 对应 Java: `public int getGanttBarHeight()`
+    pub fn get_gantt_bar_height(&self) -> i32 {
+        self.gantt_bar_height
+    }
+
+    /// 取主/次刻度之间是否显示分隔线的标志。
+    ///
+    /// 对应 Java: `public boolean getTimescaleScaleSeparator()`
+    pub fn get_timescale_scale_separator(&self) -> bool {
+        self.timescale_scale_separator
+    }
+
+    /// 取顶部时间刻度层。
+    ///
+    /// 对应 Java: `public TimescaleTier getTimescaleTopTier()`
+    pub fn get_timescale_top_tier(&self) -> Option<&TimescaleTier> {
+        self.timescale_top_tier.as_ref()
+    }
+
+    /// 取中部时间刻度层。
+    ///
+    /// 对应 Java: `public TimescaleTier getTimescaleMiddleTier()`
+    pub fn get_timescale_middle_tier(&self) -> Option<&TimescaleTier> {
+        self.timescale_middle_tier.as_ref()
+    }
+
+    /// 取底部时间刻度层。
+    ///
+    /// 对应 Java: `public TimescaleTier getTimescaleBottomTier()`
+    pub fn get_timescale_bottom_tier(&self) -> Option<&TimescaleTier> {
+        self.timescale_bottom_tier.as_ref()
+    }
+
+    /// 取时间刻度缩放比例（百分比）。
+    ///
+    /// 对应 Java: `public int getTimescaleSize()`
+    pub fn get_timescale_size(&self) -> i32 {
+        self.timescale_size
+    }
+
+    /// 取要显示的时间刻度层数量。
+    ///
+    /// 对应 Java: `public int getTimescaleShowTiers()`
+    pub fn get_timescale_show_tiers(&self) -> i32 {
+        self.timescale_show_tiers
+    }
+
+    /// 取非工作时间颜色。
+    ///
+    /// 对应 Java: `public Color getNonWorkingColor()`
+    pub fn get_non_working_color(&self) -> Option<Color> {
+        self.non_working_color
+    }
+
+    /// 取非工作时间图案（MS Project 固定支持的 0..10 号图案）。
+    ///
+    /// 对应 Java: `public ChartPattern getNonWorkingPattern()`
+    pub fn get_non_working_pattern(&self) -> Option<ChartPattern> {
+        self.non_working_pattern
+    }
+
+    /// 取非工作时间绘制样式。
+    ///
+    /// 对应 Java: `public NonWorkingTimeStyle getNonWorkingStyle()`
+    pub fn get_non_working_style(&self) -> Option<NonWorkingTimeStyle> {
+        self.non_working_style
+    }
+
+    /// 取「始终汇总甘特图条形」标志。
+    ///
+    /// 对应 Java: `public boolean getAlwaysRollupGanttBars()`
+    pub fn get_always_rollup_gantt_bars(&self) -> bool {
+        self.always_rollup_gantt_bars
+    }
+
+    /// 取条形日期格式。
+    ///
+    /// 对应 Java: `public GanttBarDateFormat getBarDateFormat()`
+    pub fn get_bar_date_format(&self) -> Option<GanttBarDateFormat> {
+        self.bar_date_format
+    }
+
+    /// 取「摘要展开时隐藏汇总条形」标志。
+    ///
+    /// 对应 Java: `public boolean getHideRollupBarsWhenSummaryExpanded()`
+    pub fn get_hide_rollup_bars_when_summary_expanded(&self) -> bool {
+        self.hide_rollup_bars_when_summary_expanded
+    }
+
+    /// 取条形链接样式。
+    ///
+    /// 对应 Java: `public LinkStyle getLinkStyle()`
+    pub fn get_link_style(&self) -> Option<LinkStyle> {
+        self.link_style
+    }
+
+    /// 取「条形取整到整天」标志。
+    ///
+    /// 对应 Java: `public boolean getRoundBarsToWholeDays()`
+    pub fn get_round_bars_to_whole_days(&self) -> bool {
+        self.round_bars_to_whole_days
+    }
+
+    /// 取「显示拆分条形」标志。
+    ///
+    /// 对应 Java: `public boolean getShowBarSplits()`
+    pub fn get_show_bar_splits(&self) -> bool {
+        self.show_bar_splits
+    }
+
+    /// 取「显示绘图」标志。
+    ///
+    /// 对应 Java: `public boolean getShowDrawings()`
+    pub fn get_show_drawings(&self) -> bool {
+        self.show_drawings
+    }
+
+    /// 取针对特定任务定义的条形样式例外数组。
+    ///
+    /// 对应 Java: `public GanttBarStyleException[] getBarStyleExceptions()`
+    pub fn get_bar_style_exceptions(&self) -> &[Rc<RefCell<GanttBarStyleException>>] {
+        &self.bar_style_exceptions
+    }
+
+    /// 按 ID 取本视图的甘特图条形样式列表。
+    ///
+    /// 对应 Java: `public List<GanttBarStyle> getGanttBarStyleByID(Integer id)`
+    pub fn get_gantt_bar_style_by_id(
+        &self,
+        id: Option<i32>,
+    ) -> Option<&[Rc<RefCell<GanttBarStyle>>]> {
+        self.bar_styles_map.get(&id).map(Vec::as_slice)
+    }
+
+    /// 取应用于所有甘特图条形的样式数组（除非定义了例外）。
+    ///
+    /// 对应 Java: `public GanttBarStyle[] getBarStyles()`
+    pub fn get_bar_styles(&self) -> Option<&[Rc<RefCell<GanttBarStyle>>]> {
+        self.bar_styles.as_deref()
+    }
+
+    /// 取视图表格部分的宽度。
+    ///
+    /// 对应 Java: `public int getTableWidth()`
+    pub fn get_table_width(&self) -> i32 {
+        self.table_width
+    }
+
+    /// 取应用于本视图的筛选名称。
+    ///
+    /// 对应 Java: `public String getDefaultFilterName()`
+    pub fn get_default_filter_name(&self) -> Option<&str> {
+        self.default_filter_name.as_deref()
+    }
+
+    /// 取本视图关联的默认筛选实例。
+    ///
+    /// 对应 Java: `public Filter getDefaultFilter()`
+    ///
+    /// Rust 侧不再缓存 `FilterContainer`，改为经父文件借用（见文件头差异 9）；
+    /// 父文件已释放或正被可变借用时返回 `None`。
+    pub fn get_default_filter(&self) -> Option<Rc<RefCell<Filter>>> {
+        let name = self.default_filter_name.clone();
+        let file = self.get_file()?;
+        let file_ref = file.try_borrow().ok()?;
+        file_ref.get_filters().get_filter_by_name(name.as_deref())
+    }
+
+    /// 取应用于本视图的分组名称。
+    ///
+    /// 对应 Java: `public String getGroupName()`
+    pub fn get_group_name(&self) -> Option<&str> {
+        self.group_name.as_deref()
+    }
+
+    /// 取「高亮筛选」标志。
+    ///
+    /// 对应 Java: `public boolean getHighlightFilter()`
+    pub fn get_highlight_filter(&self) -> bool {
+        self.highlight_filter
+    }
+
+    /// 取「在菜单中显示」标志。
+    ///
+    /// 对应 Java: `public boolean getShowInMenu()`
+    pub fn get_show_in_menu(&self) -> bool {
+        self.show_in_menu
+    }
+
+    // -----------------------------------------------------------------
+    // 字体样式
+    // -----------------------------------------------------------------
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBarTextBottomFontStyle()`
+    pub fn get_bar_text_bottom_font_style(&self) -> Option<&FontStyle> {
+        self.bar_text_bottom_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBarTextInsideFontStyle()`
+    pub fn get_bar_text_inside_font_style(&self) -> Option<&FontStyle> {
+        self.bar_text_inside_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBarTextLeftFontStyle()`
+    pub fn get_bar_text_left_font_style(&self) -> Option<&FontStyle> {
+        self.bar_text_left_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBarTextRightFontStyle()`
+    pub fn get_bar_text_right_font_style(&self) -> Option<&FontStyle> {
+        self.bar_text_right_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBarTextTopFontStyle()`
+    pub fn get_bar_text_top_font_style(&self) -> Option<&FontStyle> {
+        self.bar_text_top_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getCriticalTasksFontStyle()`
+    pub fn get_critical_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.critical_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getExternalTasksFontStyle()`
+    pub fn get_external_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.external_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getHighlightedTasksFontStyle()`
+    pub fn get_highlighted_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.highlighted_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getTopTimescaleFontStyle()`
+    pub fn get_top_timescale_font_style(&self) -> Option<&FontStyle> {
+        self.top_timescale_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getMiddleTimescaleFontStyle()`
+    pub fn get_middle_timescale_font_style(&self) -> Option<&FontStyle> {
+        self.middle_timescale_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getMarkedTasksFontStyle()`
+    pub fn get_marked_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.marked_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getMilestoneTasksFontStyle()`
+    pub fn get_milestone_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.milestone_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getBottomTimescaleFontStyle()`
+    pub fn get_bottom_timescale_font_style(&self) -> Option<&FontStyle> {
+        self.bottom_timescale_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getNonCriticalTasksFontStyle()`
+    pub fn get_non_critical_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.non_critical_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getProjectSummaryTasksFontStyle()`
+    pub fn get_project_summary_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.project_summary_tasks_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getRowAndColumnFontStyle()`
+    pub fn get_row_and_column_font_style(&self) -> Option<&FontStyle> {
+        self.row_and_column_font_style.as_ref()
+    }
+
+    /// 取字体样式实例。
+    ///
+    /// 对应 Java: `public FontStyle getSummaryTasksFontStyle()`
+    pub fn get_summary_tasks_font_style(&self) -> Option<&FontStyle> {
+        self.summary_tasks_font_style.as_ref()
+    }
+
+    /// 取用户定义的列字体样式。
+    ///
+    /// 对应 Java: `public TableFontStyle[] getTableFontStyles()`
+    pub fn get_table_font_styles(&self) -> Option<&[TableFontStyle]> {
+        self.table_font_styles.as_deref()
+    }
+
+    // -----------------------------------------------------------------
+    // 进度线
+    // -----------------------------------------------------------------
+
+    /// 取进度线「实际计划」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesActualPlan()`
+    pub fn get_progress_lines_actual_plan(&self) -> bool {
+        self.progress_lines_actual_plan
+    }
+
+    /// 取进度线「在当前日期」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesAtCurrentDate()`
+    pub fn get_progress_lines_at_current_date(&self) -> bool {
+        self.progress_lines_at_current_date
+    }
+
+    /// 取进度线「按重复间隔」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesAtRecurringIntervals()`
+    pub fn get_progress_lines_at_recurring_intervals(&self) -> bool {
+        self.progress_lines_at_recurring_intervals
+    }
+
+    /// 取进度线起始日期（`LocalDateTime` 形式，已废弃）。
+    ///
+    /// 对应 Java: `@Deprecated public LocalDateTime getProgressLinesBeginAtDate()`
+    pub fn get_progress_lines_begin_at_date(&self) -> Option<NaiveDateTime> {
+        LocalDateHelper::get_local_date_time(self.progress_lines_begin_at_date)
+    }
+
+    /// 取进度线起始日期。
+    ///
+    /// 对应 Java: `public LocalDate getProgressLinesBeginAt()`
+    pub fn get_progress_lines_begin_at(&self) -> Option<NaiveDate> {
+        self.progress_lines_begin_at_date
+    }
+
+    /// 取进度线「从项目开始」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesBeginAtProjectStart()`
+    pub fn get_progress_lines_begin_at_project_start(&self) -> bool {
+        self.progress_lines_begin_at_project_start
+    }
+
+    /// 取进度线当前线条颜色。
+    ///
+    /// 对应 Java: `public Color getProgressLinesCurrentLineColor()`
+    pub fn get_progress_lines_current_line_color(&self) -> Option<Color> {
+        self.progress_lines_current_line_color
+    }
+
+    /// 取进度线当前线条样式。
+    ///
+    /// 对应 Java: `public LineStyle getProgressLinesCurrentLineStyle()`
+    pub fn get_progress_lines_current_line_style(&self) -> Option<LineStyle> {
+        self.progress_lines_current_line_style
+    }
+
+    /// 取进度线当前进度点颜色。
+    ///
+    /// 对应 Java: `public Color getProgressLinesCurrentProgressPointColor()`
+    pub fn get_progress_lines_current_progress_point_color(&self) -> Option<Color> {
+        self.progress_lines_current_progress_point_color
+    }
+
+    /// 取进度线当前进度点形状。
+    ///
+    /// 对应 Java: `public int getProgressLinesCurrentProgressPointShape()`
+    pub fn get_progress_lines_current_progress_point_shape(&self) -> i32 {
+        self.progress_lines_current_progress_point_shape
+    }
+
+    /// 取进度线日间隔的天数。
+    ///
+    /// 对应 Java: `public int getProgressLinesIntervalDailyDayNumber()`
+    pub fn get_progress_lines_interval_daily_day_number(&self) -> i32 {
+        self.progress_lines_interval_daily_day_number
+    }
+
+    /// 取进度线日间隔的「工作日」标志。
+    ///
+    /// 对应 Java: `public boolean isProgressLinesIntervalDailyWorkday()`
+    pub fn is_progress_lines_interval_daily_workday(&self) -> bool {
+        self.progress_lines_interval_daily_workday
+    }
+
+    /// 取进度线日期格式。
+    ///
+    /// 对应 Java: `public int getProgressLinesDateFormat()`
+    pub fn get_progress_lines_date_format(&self) -> i32 {
+        self.progress_lines_date_format
+    }
+
+    /// 取「已提供选定日期」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesDisplaySelected()`
+    pub fn get_progress_lines_display_selected(&self) -> bool {
+        self.progress_lines_display_selected
+    }
+
+    /// 取进度线显示用的选定日期数组（`LocalDateTime` 形式，已废弃）。
+    ///
+    /// 对应 Java: `@Deprecated public LocalDateTime[] getProgressLinesDisplaySelectedDates()`
+    ///
+    /// Java 在字段为 `null` 时会抛 `NullPointerException`；Rust 侧返回 `None`。
+    pub fn get_progress_lines_display_selected_dates(&self) -> Option<Vec<NaiveDateTime>> {
+        self.progress_lines_display_selected_dates
+            .as_ref()
+            .map(|dates| {
+                dates
+                    .iter()
+                    .map(|date| {
+                        LocalDateHelper::get_local_date_time(Some(*date)).unwrap_or_default()
+                    })
+                    .collect()
+            })
+    }
+
+    /// 取进度线显示用的选定日期数组。
+    ///
+    /// 对应 Java: `public LocalDate[] getProgressLineDates()`
+    pub fn get_progress_line_dates(&self) -> Option<&[NaiveDate]> {
+        self.progress_lines_display_selected_dates.as_deref()
+    }
+
+    /// 取进度线显示类型。
+    ///
+    /// 对应 Java: `public int getProgressLinesDisplayType()`
+    pub fn get_progress_lines_display_type(&self) -> i32 {
+        self.progress_lines_display_type
+    }
+
+    /// 取「启用进度线」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesEnabled()`
+    pub fn get_progress_lines_enabled(&self) -> bool {
+        self.progress_lines_enabled
+    }
+
+    /// 取进度线字体样式。
+    ///
+    /// 对应 Java: `public FontStyle getProgressLinesFontStyle()`
+    pub fn get_progress_lines_font_style(&self) -> Option<&FontStyle> {
+        self.progress_lines_font_style.as_ref()
+    }
+
+    /// 取进度线间隔类型。
+    ///
+    /// 对应 Java: `public Interval getProgressLinesInterval()`
+    pub fn get_progress_lines_interval(&self) -> Option<Interval> {
+        self.progress_lines_interval
+    }
+
+    /// 取进度线月度「首个/最后一个」日。
+    ///
+    /// 对应 Java: `public ProgressLineDay getProgressLinesIntervalMonthlyFirstLastDay()`
+    pub fn get_progress_lines_interval_monthly_first_last_day(&self) -> Option<ProgressLineDay> {
+        self.progress_lines_interval_monthly_first_last_day
+    }
+
+    /// 取进度线月度「首个/最后一个」类型的月份编号。
+    ///
+    /// 对应 Java: `public int getProgressLinesIntervalMonthlyFirstLastMonthNumber()`
+    pub fn get_progress_lines_interval_monthly_first_last_month_number(&self) -> i32 {
+        self.progress_lines_interval_monthly_first_last_month_number
+    }
+
+    /// 取进度线「月度按日」类型的天数。
+    ///
+    /// 对应 Java: `public int getProgressLinesIntervalMonthlyDayDayNumber()`
+    pub fn get_progress_lines_interval_monthly_day_day_number(&self) -> i32 {
+        self.progress_lines_interval_monthly_day_day_number
+    }
+
+    /// 取进度线「月度按日」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesIntervalMonthlyDay()`
+    pub fn get_progress_lines_interval_monthly_day(&self) -> bool {
+        self.progress_lines_interval_monthly_day
+    }
+
+    /// 取进度线「月度按日」类型的月份编号。
+    ///
+    /// 对应 Java: `public int getProgressLinesIntervalMonthlyDayMonthNumber()`
+    pub fn get_progress_lines_interval_monthly_day_month_number(&self) -> i32 {
+        self.progress_lines_interval_monthly_day_month_number
+    }
+
+    /// 取进度线月度「首个」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesIntervalMonthlyFirstLast()`
+    pub fn get_progress_lines_interval_monthly_first_last(&self) -> bool {
+        self.progress_lines_interval_monthly_first_last
+    }
+
+    /// 取进度线其他线条颜色。
+    ///
+    /// 对应 Java: `public Color getProgressLinesOtherLineColor()`
+    pub fn get_progress_lines_other_line_color(&self) -> Option<Color> {
+        self.progress_lines_other_line_color
+    }
+
+    /// 取进度线其他线条样式。
+    ///
+    /// 对应 Java: `public LineStyle getProgressLinesOtherLineStyle()`
+    pub fn get_progress_lines_other_line_style(&self) -> Option<LineStyle> {
+        self.progress_lines_other_line_style
+    }
+
+    /// 取进度线其他进度点颜色。
+    ///
+    /// 对应 Java: `public Color getProgressLinesOtherProgressPointColor()`
+    pub fn get_progress_lines_other_progress_point_color(&self) -> Option<Color> {
+        self.progress_lines_other_progress_point_color
+    }
+
+    /// 取进度线其他进度点形状。
+    ///
+    /// 对应 Java: `public int getProgressLinesOtherProgressPointShape()`
+    pub fn get_progress_lines_other_progress_point_shape(&self) -> i32 {
+        self.progress_lines_other_progress_point_shape
+    }
+
+    /// 取进度线「显示日期」标志。
+    ///
+    /// 对应 Java: `public boolean getProgressLinesShowDate()`
+    pub fn get_progress_lines_show_date(&self) -> bool {
+        self.progress_lines_show_date
+    }
+
+    /// 取进度线周间隔的周数。
+    ///
+    /// 对应 Java: `public int getProgressLinesIntervalWeekleyWeekNumber()`
+    pub fn get_progress_lines_interval_weekley_week_number(&self) -> i32 {
+        self.progress_lines_interval_weekley_week_number
+    }
+
+    /// 取进度线周间隔的各日标志。
+    ///
+    /// 对应 Java: `public boolean[] getProgressLinesIntervalWeeklyDay()`
+    ///
+    /// 下标与 `Day` 常量一致（周日 = 1 … 周六 = 7）。
+    pub fn get_progress_lines_interval_weekly_day(&self) -> &[bool; 8] {
+        &self.progress_lines_interval_weekly_day
+    }
+
+    /// 取本视图的全部自动筛选。
+    ///
+    /// 对应 Java: `public List<Filter> getAutoFilters()`
+    pub fn get_auto_filters(&self) -> &[Rc<RefCell<Filter>>] {
+        &self.auto_filters
+    }
+
+    /// 取某一列对应的自动筛选定义；该列没有筛选时返回 `None`。
+    ///
+    /// 对应 Java: `public Filter getAutoFilterByType(FieldType type)`
+    pub fn get_auto_filter_by_type(&self, type_: &MppFieldType) -> Option<Rc<RefCell<Filter>>> {
+        self.auto_filters_by_type
+            .get(&type_.to_field_key())
+            .map(Rc::clone)
+    }
+
+    // -----------------------------------------------------------------
+    // 受保护的工具方法（Java 同为 protected）
+    // -----------------------------------------------------------------
+
+    /// 把甘特图条形的编码高度映射为像素高度。
+    ///
+    /// 对应 Java: `protected int mapGanttBarHeight(int height)`
+    pub fn map_gantt_bar_height(&self, height: i32) -> i32 {
+        match height {
+            0 => 6,
+            1 => 8,
+            2 => 10,
+            3 => 12,
+            4 => 14,
+            5 => 18,
+            6 => 24,
+            // Java 的 switch 无 default，未命中时原样返回
+            _ => height,
+        }
+    }
+
+    /// 从属性数据块中读取字体样式。
+    ///
+    /// 对应 Java: `protected FontStyle getFontStyle(byte[] data, int offset, Map<Integer, FontBase> fontBases)`
+    ///
+    /// 字体基表缺失该下标时 Java 得到 `null`，Rust 侧为 `None`。
+    pub fn get_font_style(
+        &self,
+        data: &[u8],
+        offset: usize,
+        font_bases: &FontBaseMap,
+    ) -> FontStyle {
+        // Java: Integer index = Integer.valueOf(MPPUtility.getByte(data, offset));
+        let index = MPPUtility::get_byte(data, offset);
+        // Java: FontBase fontBase = fontBases.get(index);
+        let font_base = font_bases.get(&index).cloned();
+        // Java: int style = MPPUtility.getByte(data, offset + 1);
+        let style = MPPUtility::get_byte(data, offset + 1);
+        // Java: ColorType color = ColorType.getInstance(MPPUtility.getByte(data, offset + 2));
+        let color = ColorType::get_instance(MPPUtility::get_byte(data, offset + 2));
+
+        let bold = (style & 0x01) != 0;
+        let italic = (style & 0x02) != 0;
+        let underline = (style & 0x04) != 0;
+
+        FontStyle::new(
+            font_base,
+            italic,
+            bold,
+            underline,
+            false,
+            color.get_color(),
+            None,
+            BackgroundPattern::Solid,
+        )
+    }
+
+    /// 从属性数据块中读取列字体样式。
+    ///
+    /// 对应 Java: `protected TableFontStyle getColumnFontStyle(ProjectFile file, byte[] data, int offset, Map<Integer, FontBase> fontBases)`
+    ///
+    /// Java 的 `file` 参数即本对象的 `m_file`，Rust 侧改用 [`GanttChartView::get_file`]；
+    /// 父文件已释放时字段类型取 `None`（Java 不会出现该情形）。
+    /// 越界读取经 `get_int_safe` / `MPPUtility::get_byte` 降级为 0，不 panic。
+    pub fn get_column_font_style(
+        &self,
+        data: &[u8],
+        offset: usize,
+        font_bases: &FontBaseMap,
+    ) -> TableFontStyle {
+        // Java: int uniqueID = ByteArrayHelper.getInt(data, offset);
+        let unique_id = get_int_safe(data, offset);
+        // Java: FieldType fieldType = FieldTypeHelper.getInstance(file, ByteArrayHelper.getInt(data, offset + 4));
+        let field_type = self
+            .get_file()
+            .and_then(|file| FieldTypeHelper::get_instance(&file, get_int_safe(data, offset + 4)));
+        // Java: Integer index = Integer.valueOf(MPPUtility.getByte(data, offset + 8));
+        let index = MPPUtility::get_byte(data, offset + 8);
+        // Java: int style = MPPUtility.getByte(data, offset + 9);
+        let style = MPPUtility::get_byte(data, offset + 9);
+        // Java: ColorType color = ColorType.getInstance(MPPUtility.getByte(data, offset + 10));
+        let color = ColorType::get_instance(MPPUtility::get_byte(data, offset + 10));
+        // Java: int change = MPPUtility.getByte(data, offset + 12);
+        let change = MPPUtility::get_byte(data, offset + 12);
+
+        let font_base = font_bases.get(&index).cloned();
+
+        let bold = (style & 0x01) != 0;
+        let italic = (style & 0x02) != 0;
+        let underline = (style & 0x04) != 0;
+
+        let bold_changed = (change & 0x01) != 0;
+        let underline_changed = (change & 0x02) != 0;
+        let italic_changed = (change & 0x04) != 0;
+        let color_changed = (change & 0x08) != 0;
+        let font_changed = (change & 0x10) != 0;
+        let background_color_changed = unique_id == -1;
+        let background_pattern_changed = unique_id == -1;
+
+        TableFontStyle::new(
+            unique_id,
+            field_type,
+            font_base,
+            italic,
+            bold,
+            underline,
+            false,
+            color.get_color(),
+            Some(Color::new(0, 0, 0)),
+            BackgroundPattern::Transparent,
+            italic_changed,
+            bold_changed,
+            underline_changed,
+            false,
+            color_changed,
+            font_changed,
+            background_color_changed,
+            background_pattern_changed,
+        )
+    }
+
+    /// 设置甘特图条形样式数组，并填充按 ID 索引的映射。
+    ///
+    /// 对应 Java: `protected void populateBarStyles(GanttBarStyle[] barStyles)`
+    ///
+    /// Java 的 `computeIfAbsent(style.getID(), ...)` 允许 `null` 键，Rust 侧用
+    /// `Option<i32>` 作为键保持一致。
+    pub fn populate_bar_styles(&mut self, bar_styles: GanttBarStyleList) {
+        self.bar_styles_map.clear();
+        for style in &bar_styles {
+            let id = style.try_borrow().ok().and_then(|style| style.get_id());
+            self.bar_styles_map
+                .entry(id)
+                .or_default()
+                .push(Rc::clone(style));
+        }
+        self.bar_styles = Some(bar_styles);
+    }
+}
+
+impl View for GanttChartView {
+    /// 对应 Java: `AbstractView.getID()`（继承）
+    fn get_id(&self) -> Option<i32> {
+        self.view.get_id()
+    }
+
+    /// 对应 Java: `AbstractView.getName()`（继承）
+    fn get_name(&self) -> Option<&str> {
+        self.view.get_name()
+    }
+
+    /// 对应 Java: `AbstractView.getType()`（继承）
+    fn get_type(&self) -> Option<ViewType> {
+        self.view.get_type()
+    }
+
+    /// 对应 Java: `AbstractView.getTableName()`（继承）
+    fn get_table_name(&self) -> Option<&str> {
+        self.view.get_table_name()
+    }
+
+    /// 对应 Java: `AbstractView.getTable()`（继承）
+    fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
+        self.view.get_table()
+    }
+}
+
+/// 把 `Props9` 的内容复制成 [`Props`]。
+///
+/// Rust 特有：Java 的 `Props9 extends Props`，各 `GanttBarStyleFactory` 的形参静态类型为
+/// `Props`、实参却是 `Props9`；本 crate 的 `Props9` 用组合实现「继承」（见
+/// `crate::mpp::props9` 的文件头），与 `Props` 之间没有子类型关系，故在此按解析结果
+/// 重建一个内容等价的 [`Props`]。
+///
+/// 键值有重复时（例如 `TABLE_NAME` 与 `UPPER_VIEW_NAME` 同为 574619658）以原始键值写入，
+/// 与 `Props9` 的查找结果一致。
+fn props9_to_props(props: &Props9) -> Props {
+    let mut result = Props::new();
+
+    for key in props.key_set() {
+        let Some(props_key) = PropsKey::get_instance(key) else {
+            continue;
+        };
+        let Some(value) = props.get_byte_array(props_key) else {
+            continue;
+        };
+        result.put(key, value.to_vec());
+    }
+
+    result
+}
+
+/// 把 `Option<impl Display>` 渲染成 Java 风格（`null` 或值本身）。
+fn fmt_option<T: Display>(value: Option<&T>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "null".to_owned(),
+    }
+}
+
+/// 把 `Option<Color>` 渲染成 Java `java.awt.Color` 的风格。
+fn fmt_color(value: Option<Color>) -> String {
+    match value {
+        Some(color) => format!(
+            "java.awt.Color[r={},g={},b={}]",
+            color.get_red(),
+            color.get_green(),
+            color.get_blue()
+        ),
+        None => "null".to_owned(),
+    }
+}
+
+/// 把日期列表渲染成 Java `Arrays.toString` 的风格。
+fn fmt_dates(values: Option<&[NaiveDate]>) -> String {
+    match values {
+        Some(values) => values
+            .iter()
+            .map(NaiveDate::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        None => String::new(),
+    }
+}
+
+/// 把布尔数组渲染成 Java 循环打印的风格（逗号分隔）。
+fn fmt_bools(values: &[bool]) -> String {
+    values
+        .iter()
+        .map(bool::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+impl Display for GanttChartView {
+    /// 对应 Java: `@Override public String toString()`
+    ///
+    /// Java 把内容写进 `ByteArrayOutputStream` 再取 `toString()`，Rust 侧直接写入格式化器。
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f, "[GanttChartView")?;
+
+        // Java: pw.println("   " + super.toString());
+        writeln!(f, "   {}", self.view)?;
+
+        writeln!(
+            f,
+            "   highlightedTasksFontStyle={}",
+            fmt_option(self.highlighted_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   rowAndColumnFontStyle={}",
+            fmt_option(self.row_and_column_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   nonCriticalTasksFontStyle={}",
+            fmt_option(self.non_critical_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   criticalTasksFontStyle={}",
+            fmt_option(self.critical_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   summaryTasksFontStyle={}",
+            fmt_option(self.summary_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   milestoneTasksFontStyle={}",
+            fmt_option(self.milestone_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   topTimescaleFontStyle={}",
+            fmt_option(self.top_timescale_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   middleTimescaleFontStyle={}",
+            fmt_option(self.middle_timescale_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   bottomTimescaleFontStyle={}",
+            fmt_option(self.bottom_timescale_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   barTextLeftFontStyle={}",
+            fmt_option(self.bar_text_left_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   barTextRightFontStyle={}",
+            fmt_option(self.bar_text_right_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   barTextTopFontStyle={}",
+            fmt_option(self.bar_text_top_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   barTextBottomFontStyle={}",
+            fmt_option(self.bar_text_bottom_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   barTextInsideFontStyle={}",
+            fmt_option(self.bar_text_inside_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   markedTasksFontStyle={}",
+            fmt_option(self.marked_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   projectSummaryTasksFontStyle={}",
+            fmt_option(self.project_summary_tasks_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   externalTasksFontStyle={}",
+            fmt_option(self.external_tasks_font_style.as_ref())
+        )?;
+
+        writeln!(
+            f,
+            "   SheetRowsGridLines={}",
+            fmt_option(self.sheet_rows_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   SheetColumnsGridLines={}",
+            fmt_option(self.sheet_columns_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TitleVerticalGridLines={}",
+            fmt_option(self.title_vertical_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TitleHorizontalGridLines={}",
+            fmt_option(self.title_horizontal_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TopTierColumnGridLines={}",
+            fmt_option(self.top_tier_column_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   MiddleTierColumnGridLines={}",
+            fmt_option(self.middle_tier_column_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   BottomTierColumnGridLines={}",
+            fmt_option(self.bottom_tier_column_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   GanttRowsGridLines={}",
+            fmt_option(self.gantt_rows_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   BarRowsGridLines={}",
+            fmt_option(self.bar_rows_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   CurrentDateGridLines={}",
+            fmt_option(self.current_date_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   PageBreakGridLines={}",
+            fmt_option(self.page_break_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProjectStartGridLines={}",
+            fmt_option(self.project_start_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProjectFinishGridLines={}",
+            fmt_option(self.project_finish_grid_lines.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   StatusDateGridLines={}",
+            fmt_option(self.status_date_grid_lines.as_ref())
+        )?;
+        writeln!(f, "   GanttBarHeight={}", self.gantt_bar_height)?;
+        writeln!(
+            f,
+            "   TimescaleTopTier={}",
+            fmt_option(self.timescale_top_tier.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TimescaleMiddleTier={}",
+            fmt_option(self.timescale_middle_tier.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TimescaleBottomTier={}",
+            fmt_option(self.timescale_bottom_tier.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   TimescaleSeparator={}",
+            self.timescale_scale_separator
+        )?;
+        writeln!(f, "   TimescaleSize={}%", self.timescale_size)?;
+        writeln!(
+            f,
+            "   NonWorkingDaysCalendarName={}",
+            self.non_working_days_calendar_name
+                .as_deref()
+                .unwrap_or("null")
+        )?;
+        writeln!(
+            f,
+            "   NonWorkingColor={}",
+            fmt_color(self.non_working_color)
+        )?;
+        writeln!(
+            f,
+            "   NonWorkingPattern={}",
+            fmt_option(self.non_working_pattern.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   NonWorkingStyle={}",
+            fmt_option(self.non_working_style.as_ref())
+        )?;
+        writeln!(f, "   ShowDrawings={}", self.show_drawings)?;
+        writeln!(
+            f,
+            "   RoundBarsToWholeDays={}",
+            self.round_bars_to_whole_days
+        )?;
+        writeln!(f, "   ShowBarSplits={}", self.show_bar_splits)?;
+        writeln!(
+            f,
+            "   AlwaysRollupGanttBars={}",
+            self.always_rollup_gantt_bars
+        )?;
+        writeln!(
+            f,
+            "   HideRollupBarsWhenSummaryExpanded={}",
+            self.hide_rollup_bars_when_summary_expanded
+        )?;
+        writeln!(
+            f,
+            "   BarDateFormat={}",
+            fmt_option(self.bar_date_format.as_ref())
+        )?;
+        writeln!(f, "   LinkStyle={}", fmt_option(self.link_style.as_ref()))?;
+
+        writeln!(f, "   ProgressLinesEnabled={}", self.progress_lines_enabled)?;
+        writeln!(
+            f,
+            "   ProgressLinesAtCurrentDate={}",
+            self.progress_lines_at_current_date
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesAtRecurringIntervals={}",
+            self.progress_lines_at_recurring_intervals
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesInterval={}",
+            fmt_option(self.progress_lines_interval.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesDailyDayNumber={}",
+            self.progress_lines_interval_daily_day_number
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesDailyWorkday={}",
+            self.progress_lines_interval_daily_workday
+        )?;
+
+        writeln!(
+            f,
+            "   ProgressLinesWeeklyDay=[{}]",
+            fmt_bools(&self.progress_lines_interval_weekly_day)
+        )?;
+
+        writeln!(
+            f,
+            "   ProgressLinesWeeklyWeekNumber={}",
+            self.progress_lines_interval_weekley_week_number
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesMonthlyDayOfMonth={}",
+            self.progress_lines_interval_monthly_day
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesMonthDayNumber={}",
+            self.progress_lines_interval_monthly_day_day_number
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesMonthlyDay={}",
+            fmt_option(self.progress_lines_interval_monthly_first_last_day.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesMonthlyFirst={}",
+            self.progress_lines_interval_monthly_first_last
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesBeginAtProjectStart={}",
+            self.progress_lines_begin_at_project_start
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesBeginAtDate={}",
+            self.progress_lines_begin_at_date
+                .map(|date| date.to_string())
+                .unwrap_or_else(|| "null".to_owned())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesDisplaySelected={}",
+            self.progress_lines_display_selected
+        )?;
+
+        writeln!(
+            f,
+            "   ProgressLinesDisplaySelectedDates=[{}]",
+            fmt_dates(self.progress_lines_display_selected_dates.as_deref())
+        )?;
+
+        writeln!(
+            f,
+            "   ProgressLinesActualPlan={}",
+            self.progress_lines_actual_plan
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesDisplayType={}",
+            self.progress_lines_display_type
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesShowDate={}",
+            self.progress_lines_show_date
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesDateFormat={}",
+            self.progress_lines_date_format
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesFontStyle={}",
+            fmt_option(self.progress_lines_font_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesCurrentLineColor={}",
+            fmt_color(self.progress_lines_current_line_color)
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesCurrentLineStyle={}",
+            fmt_option(self.progress_lines_current_line_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesCurrentProgressPointColor={}",
+            fmt_color(self.progress_lines_current_progress_point_color)
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesCurrentProgressPointShape={}",
+            self.progress_lines_current_progress_point_shape
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesOtherLineColor={}",
+            fmt_color(self.progress_lines_other_line_color)
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesOtherLineStyle={}",
+            fmt_option(self.progress_lines_other_line_style.as_ref())
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesOtherProgressPointColor={}",
+            fmt_color(self.progress_lines_other_progress_point_color)
+        )?;
+        writeln!(
+            f,
+            "   ProgressLinesOtherProgressPointShape={}",
+            self.progress_lines_other_progress_point_shape
+        )?;
+
+        writeln!(f, "   TableWidth={}", self.table_width)?;
+        writeln!(
+            f,
+            "   DefaultFilterName={}",
+            self.default_filter_name.as_deref().unwrap_or("null")
+        )?;
+        writeln!(
+            f,
+            "   GroupName={}",
+            self.group_name.as_deref().unwrap_or("null")
+        )?;
+        writeln!(f, "   HighlightFilter={}", self.highlight_filter)?;
+        writeln!(f, "   ShowInMenu={}", self.show_in_menu)?;
+
+        // Java: if (m_tableFontStyles != null) { for (...) pw.println("   ColumnFontStyle=" + ...); }
+        if let Some(table_font_styles) = &self.table_font_styles {
+            for table_font_style in table_font_styles {
+                writeln!(f, "   ColumnFontStyle={table_font_style}")?;
+            }
+        }
+
+        if let Some(bar_styles) = &self.bar_styles {
+            for bar_style in bar_styles {
+                let text = bar_style
+                    .try_borrow()
+                    .map(|style| style.to_string())
+                    .unwrap_or_default();
+                writeln!(f, "   BarStyle={text}")?;
+            }
+        }
+
+        for bar_style_exception in &self.bar_style_exceptions {
+            let text = bar_style_exception
+                .try_borrow()
+                .map(|style| style.to_string())
+                .unwrap_or_default();
+            writeln!(f, "   BarStyleException={text}")?;
+        }
+
+        if !self.auto_filters.is_empty() {
+            for filter in &self.auto_filters {
+                let text = filter
+                    .try_borrow()
+                    .map(|filter| filter.to_string())
+                    .unwrap_or_default();
+                writeln!(f, "   AutoFilter={text}")?;
+            }
+        }
+
+        writeln!(f, "]")
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use crate::mpp::var_meta::VarMeta;
+    use crate::mpp::var_meta9::VarMeta9;
+
+    /// 构造 UTF-16LE + NUL 结尾的字符串字节。
+    pub(crate) fn utf16le(value: &str) -> Vec<u8> {
+        let mut data = Vec::new();
+        for unit in value.encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+        data.extend_from_slice(&[0, 0]);
+        data
+    }
+
+    /// 构造 `Props` 数据块：16 字节块头（偏移 12 为条目数）+ 若干条目。
+    pub(crate) fn props_bytes(entries: &[(PropsKey, Vec<u8>)]) -> Vec<u8> {
+        let mut data = vec![0u8; 16];
+        data[12..14].copy_from_slice(&(entries.len() as i16).to_le_bytes());
+
+        for (key, value) in entries {
+            data.extend_from_slice(&(value.len() as i32).to_le_bytes());
+            data.extend_from_slice(&key.get_value().to_le_bytes());
+            data.extend_from_slice(&0i32.to_le_bytes());
+            data.extend_from_slice(value);
+            // Java: 对齐到两字节边界
+            if value.len() % 2 != 0 {
+                data.push(0);
+            }
+        }
+
+        data
+    }
+
+    /// 构造一个空的 `Var2Data`。
+    pub(crate) fn empty_var_data(file: &Rc<RefCell<ProjectFile>>) -> Var2Data {
+        let mut meta = Vec::new();
+        meta.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+
+        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta).expect("元数据合法"));
+        Var2Data::new(file, meta, &[])
+    }
+
+    /// 构造 `(id, type) → 数据项` 的 `Var2Data`。
+    pub(crate) fn var_data(
+        file: &Rc<RefCell<ProjectFile>>,
+        items: &[(i32, i32, Vec<u8>)],
+    ) -> Var2Data {
+        use crate::mpp::var_meta::VarMeta;
+
+        let mut data = Vec::new();
+        let mut offsets = Vec::new();
+
+        for (_, _, item) in items {
+            offsets.push(data.len() as i32);
+            data.extend_from_slice(&(item.len() as i32).to_le_bytes());
+            data.extend_from_slice(item);
+        }
+
+        let mut meta = Vec::new();
+        meta.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&(items.len() as i32).to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&0i32.to_le_bytes());
+        meta.extend_from_slice(&(data.len() as i32).to_le_bytes());
+
+        for (index, (unique_id, type_, _)) in items.iter().enumerate() {
+            meta.extend_from_slice(&unique_id.to_le_bytes()[..3]);
+            meta.push(*type_ as u8);
+            meta.extend_from_slice(&offsets[index].to_le_bytes());
+        }
+
+        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta).expect("元数据合法"));
+        Var2Data::new(file, meta, &data)
+    }
+
+    /// 构造固定数据块：偏移 0 为 ID、偏移 4 为 UTF-16LE 名称、偏移 112 为视图类型。
+    pub(crate) fn fixed_data(id: i32, name: &str, view_type: i32) -> Vec<u8> {
+        let mut data = vec![0u8; 116];
+        data[0..4].copy_from_slice(&id.to_le_bytes());
+        let name = utf16le(name);
+        data[4..4 + name.len()].copy_from_slice(&name);
+        data[112..114].copy_from_slice(&(view_type as i16).to_le_bytes());
+        data
+    }
+
+    /// 构造一个不解析任何数据的视图（各字段取默认值）。
+    ///
+    /// 供本模块与 `GanttChartView9/12/14` 的单元测试验证各版本差异解析函数使用，
+    /// 从而不依赖 `GanttBarStyleFactory*`。
+    pub(crate) fn new_view(file: &Rc<RefCell<ProjectFile>>) -> GanttChartView {
+        let var_data = empty_var_data(file);
+        GanttChartView::new(
+            &NoopProcessor,
+            file,
+            &[],
+            &fixed_data(1, "", 1),
+            &var_data,
+            &FontBaseMap::new(),
+        )
+        .expect("构造成功")
+    }
+
+    /// 什么都不做的钩子（测试用）。
+    struct NoopProcessor;
+
+    impl GanttChartViewProcessor for NoopProcessor {
+        fn get_properties_id(&self) -> i32 {
+            6
+        }
+
+        fn process_default_bar_styles(&self, _view: &mut GanttChartView, _props: &Props) {}
+
+        fn process_exception_bar_styles(&self, _view: &mut GanttChartView, _props: &Props) {}
+
+        fn process_auto_filters(&self, _view: &mut GanttChartView, _data: &[u8]) {}
+
+        fn process_view_properties(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _props: &Props,
+        ) {
+        }
+
+        fn process_table_font_styles(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _data: &[u8],
+        ) {
+        }
+
+        fn process_progress_lines(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _data: &[u8],
+        ) {
+        }
+
+        fn get_column_font_style(
+            &self,
+            view: &GanttChartView,
+            data: &[u8],
+            offset: usize,
+            font_bases: &FontBaseMap,
+        ) -> TableFontStyle {
+            view.get_column_font_style(data, offset, font_bases)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::*;
+    use super::*;
+
+    /// 记录调用顺序的测试钩子。
+    #[derive(Default)]
+    struct RecordingProcessor {
+        calls: RefCell<Vec<&'static str>>,
+    }
+
+    impl GanttChartViewProcessor for RecordingProcessor {
+        fn get_properties_id(&self) -> i32 {
+            6
+        }
+
+        fn process_default_bar_styles(&self, _view: &mut GanttChartView, _props: &Props) {
+            self.calls.borrow_mut().push("default");
+        }
+
+        fn process_exception_bar_styles(&self, _view: &mut GanttChartView, _props: &Props) {
+            self.calls.borrow_mut().push("exception");
+        }
+
+        fn process_auto_filters(&self, _view: &mut GanttChartView, _data: &[u8]) {
+            self.calls.borrow_mut().push("autoFilters");
+        }
+
+        fn process_view_properties(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _props: &Props,
+        ) {
+            self.calls.borrow_mut().push("viewProperties");
+        }
+
+        fn process_table_font_styles(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _data: &[u8],
+        ) {
+            self.calls.borrow_mut().push("tableFontStyles");
+        }
+
+        fn process_progress_lines(
+            &self,
+            _view: &mut GanttChartView,
+            _font_bases: &FontBaseMap,
+            _data: &[u8],
+        ) {
+            self.calls.borrow_mut().push("progressLines");
+        }
+
+        fn get_column_font_style(
+            &self,
+            view: &GanttChartView,
+            data: &[u8],
+            offset: usize,
+            font_bases: &FontBaseMap,
+        ) -> TableFontStyle {
+            view.get_column_font_style(data, offset, font_bases)
+        }
+    }
+
+    /// 构造方法读取基类状态与属性块，并按顺序回调钩子。
+    #[test]
+    fn constructor_reads_generic_view_state_and_props() {
+        let file = ProjectFile::new();
+        let view_var_data = var_data(
+            &file,
+            &[(
+                7,
+                6,
+                props_bytes(&[
+                    (PropsKey::TableName, utf16le("Entry")),
+                    (PropsKey::FilterName, utf16le("My Filter")),
+                    (PropsKey::GroupName, utf16le("My Group")),
+                ]),
+            )],
+        );
+
+        let mut fixed_meta = vec![0u8; 16];
+        fixed_meta[8] = 0x08;
+
+        let processor = RecordingProcessor::default();
+        let view = GanttChartView::new(
+            &processor,
+            &file,
+            &fixed_meta,
+            &fixed_data(7, "Gantt Cha&rt", 1),
+            &view_var_data,
+            &FontBaseMap::new(),
+        )
+        .expect("构造成功");
+
+        assert_eq!(view.get_id(), Some(7));
+        assert_eq!(view.get_name(), Some("Gantt Chart"));
+        assert_eq!(view.get_type(), Some(ViewType::GanttChart));
+        assert_eq!(view.get_table_name(), Some("Entry"));
+        assert_eq!(view.get_properties_id(), 6);
+        assert_eq!(view.get_default_filter_name(), Some("My Filter"));
+        assert_eq!(view.get_group_name(), Some("My Group"));
+        assert!(view.get_show_in_menu());
+        assert!(view.get_bar_styles().is_none());
+        assert!(view.get_file().is_some());
+
+        assert_eq!(
+            *processor.calls.borrow(),
+            vec!["viewProperties", "default", "exception"]
+        );
+    }
+
+    /// 缺少属性块时不 panic，且不回调任何钩子。
+    #[test]
+    fn constructor_handles_missing_data_without_panic() {
+        let file = ProjectFile::new();
+        let view_var_data = var_data(&file, &[]);
+
+        let processor = RecordingProcessor::default();
+        let view = GanttChartView::new(
+            &processor,
+            &file,
+            &[],
+            &[],
+            &view_var_data,
+            &FontBaseMap::new(),
+        )
+        .expect("构造成功");
+
+        assert_eq!(view.get_id(), Some(0));
+        assert_eq!(view.get_name(), Some(""));
+        assert_eq!(view.get_type(), Some(ViewType::Unknown));
+        assert_eq!(view.get_table_name(), None);
+        assert!(!view.get_show_in_menu());
+        assert_eq!(view.get_table_width(), 0);
+        assert!(processor.calls.borrow().is_empty());
+    }
+
+    /// 表格属性按 Java 的偏移解析；数据过短时降级为 0 / false。
+    #[test]
+    fn table_properties_are_read_with_bounds_checks() {
+        let file = ProjectFile::new();
+
+        let mut table_properties = vec![0u8; 40];
+        table_properties[7] = 1;
+        table_properties[35..37].copy_from_slice(&1234i16.to_le_bytes());
+
+        let view_var_data = var_data(
+            &file,
+            &[(
+                1,
+                6,
+                props_bytes(&[(PropsKey::TableProperties, table_properties)]),
+            )],
+        );
+        let view = GanttChartView::new(
+            &RecordingProcessor::default(),
+            &file,
+            &[],
+            &fixed_data(1, "", 1),
+            &view_var_data,
+            &FontBaseMap::new(),
+        )
+        .expect("构造成功");
+
+        assert_eq!(view.get_table_width(), 1234);
+        assert!(view.get_highlight_filter());
+
+        let view_var_data = var_data(
+            &file,
+            &[(
+                1,
+                6,
+                props_bytes(&[(PropsKey::TableProperties, vec![1, 2, 3])]),
+            )],
+        );
+        let view = GanttChartView::new(
+            &RecordingProcessor::default(),
+            &file,
+            &[],
+            &fixed_data(1, "", 1),
+            &view_var_data,
+            &FontBaseMap::new(),
+        )
+        .expect("构造成功");
+        assert_eq!(view.get_table_width(), 0);
+        assert!(!view.get_highlight_filter());
+    }
+
+    /// `mapGanttBarHeight` 与原 Java `switch` 一致。
+    #[test]
+    fn map_gantt_bar_height_matches_java_switch() {
+        let file = ProjectFile::new();
+        let view = new_view(&file);
+        assert_eq!(view.map_gantt_bar_height(0), 6);
+        assert_eq!(view.map_gantt_bar_height(1), 8);
+        assert_eq!(view.map_gantt_bar_height(2), 10);
+        assert_eq!(view.map_gantt_bar_height(3), 12);
+        assert_eq!(view.map_gantt_bar_height(4), 14);
+        assert_eq!(view.map_gantt_bar_height(5), 18);
+        assert_eq!(view.map_gantt_bar_height(6), 24);
+        // Java 的 switch 没有 default，其余取值原样返回
+        assert_eq!(view.map_gantt_bar_height(7), 7);
+        assert_eq!(view.map_gantt_bar_height(-1), -1);
+    }
+
+    /// 条形样式数组按 ID 建立映射（含 ID 未设置时的 `None` 键）。
+    #[test]
+    fn populate_bar_styles_builds_id_map() {
+        let file = ProjectFile::new();
+        let mut view = new_view(&file);
+
+        let mut first = GanttBarStyle::new();
+        first.set_id(Some(3));
+        let first = Rc::new(RefCell::new(first));
+
+        let mut second = GanttBarStyle::new();
+        second.set_id(Some(3));
+        let second = Rc::new(RefCell::new(second));
+
+        let third = Rc::new(RefCell::new(GanttBarStyle::new()));
+
+        view.populate_bar_styles(vec![
+            Rc::clone(&first),
+            Rc::clone(&second),
+            Rc::clone(&third),
+        ]);
+
+        assert_eq!(view.get_bar_styles().map(<[_]>::len), Some(3));
+        assert_eq!(
+            view.get_gantt_bar_style_by_id(Some(3)).map(<[_]>::len),
+            Some(2)
+        );
+        assert_eq!(
+            view.get_gantt_bar_style_by_id(None).map(<[_]>::len),
+            Some(1)
+        );
+        assert!(view.get_gantt_bar_style_by_id(Some(99)).is_none());
+
+        // 映射与数组共享同一份实例
+        let found = view.get_gantt_bar_style_by_id(Some(3)).expect("存在");
+        assert!(Rc::ptr_eq(&found[0], &first));
+    }
+
+    /// 列字体样式按 Java 的偏移与标志位解析。
+    #[test]
+    fn get_column_font_style_reads_flags() {
+        let file = ProjectFile::new();
+        let view = new_view(&file);
+
+        // uniqueID = -1（0xFFFFFFFF）→ 背景色 / 背景图案标记为「已变更」
+        let mut data = vec![0u8; 13];
+        data[0..4].copy_from_slice(&(-1i32).to_le_bytes());
+        data[9] = 0x03; // bold + italic
+        data[10] = 7; // ColorType.WHITE
+        data[12] = 0x1F;
+
+        let style = view.get_column_font_style(&data, 0, &FontBaseMap::new());
+        assert_eq!(style.get_row_unique_id(), -1);
+
+        // 数据不足时全部降级，不 panic
+        let style = view.get_column_font_style(&[], 0, &FontBaseMap::new());
+        assert_eq!(style.get_row_unique_id(), 0);
+    }
+
+    /// 字体样式按 Java 的偏移解析。
+    #[test]
+    fn get_font_style_reads_offsets() {
+        let file = ProjectFile::new();
+        let view = new_view(&file);
+
+        let mut font_bases = FontBaseMap::new();
+        font_bases.insert(2, FontBase::new(Some(2), "Arial".to_owned(), 10));
+
+        let data = [2u8, 0x03, 7, 0];
+        let style = view.get_font_style(&data, 0, &font_bases);
+        assert_eq!(style.get_font_base().map(FontBase::get_name), Some("Arial"));
+        assert!(style.get_bold());
+        assert!(style.get_italic());
+        assert!(!style.get_underline());
+        assert_eq!(style.get_color(), Some(Color::new(255, 255, 255)));
+
+        // 字体表中没有该序号 / 数据为空 → 不 panic
+        let style = view.get_font_style(&[], 0, &FontBaseMap::new());
+        assert_eq!(style.get_font_base(), None);
+        assert!(!style.get_bold());
+    }
+
+    /// `toString()` 输出 Java 的固定格式。
+    #[test]
+    fn display_contains_key_fields() {
+        let file = ProjectFile::new();
+        let mut view = new_view(&file);
+        view.table_width = 42;
+        view.group_name = Some("Group".to_owned());
+
+        let text = view.to_string();
+        assert!(text.starts_with("[GanttChartView\n   [View id=1"));
+        assert!(text.contains("TableWidth=42"));
+        assert!(text.contains("GroupName=Group"));
+        assert!(
+            text.contains(
+                "ProgressLinesWeeklyDay=[false,false,false,false,false,false,false,false]"
+            )
+        );
+        assert!(text.ends_with("]\n"));
+    }
+
+    /// `getDefaultFilter()` 经父文件查找同名筛选。
+    #[test]
+    fn default_filter_lookup_uses_parent_file() {
+        let file = ProjectFile::new();
+        let mut view = new_view(&file);
+        view.default_filter_name = Some("F".to_owned());
+
+        // 未注册同名筛选 → None
+        assert!(view.get_default_filter().is_none());
+
+        let mut filter = Filter::new();
+        filter.set_name(Some("F".to_owned()));
+        file.borrow_mut()
+            .get_filters_mut()
+            .add_filter(Rc::new(RefCell::new(filter)));
+
+        assert!(view.get_default_filter().is_some());
+    }
+
+    /// `Props9` → `Props` 的桥接保留全部键值。
+    #[test]
+    fn props9_to_props_keeps_entries() {
+        let data = props_bytes(&[(PropsKey::GroupName, utf16le("G"))]);
+        let props9 = Props9::new(&data).expect("Props9 合法");
+        let props = props9_to_props(&props9);
+
+        assert_eq!(
+            props.get_byte_array(PropsKey::GroupName),
+            Some(&utf16le("G")[..])
+        );
+
+        // 空数据块 → 空 Props
+        let props9 = Props9::new(&props_bytes(&[])).expect("Props9 合法");
+        assert!(props9_to_props(&props9).key_set().is_empty());
+    }
+}

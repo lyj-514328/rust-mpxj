@@ -91,6 +91,79 @@ pub mod work_contour_helper;
 // pub mod mpp14_reader;
 // pub mod mpp_reader;
 
+// ---- 展示层：视图 ----
+
+pub mod abstract_mpp_view;
+pub mod abstract_view;
+pub mod gantt_chart_view;
+pub mod gantt_chart_view9;
+pub mod gantt_chart_view12;
+pub mod gantt_chart_view14;
+pub mod generic_view;
+pub mod generic_view9;
+pub mod generic_view12;
+pub mod generic_view14;
+pub mod split_view9;
+pub mod view8;
+pub mod view_factory;
+pub mod view_factory9;
+pub mod view_factory12;
+pub mod view_factory14;
+pub mod view_state_reader;
+pub mod view_state_reader9;
+pub mod view_state_reader12;
+
+// ---- 展示层：甘特图条形样式 ----
+
+pub mod gantt_bar_common_style;
+pub mod gantt_bar_date_format;
+pub mod gantt_bar_middle_shape;
+pub mod gantt_bar_show_for_tasks;
+pub mod gantt_bar_start_end_shape;
+pub mod gantt_bar_start_end_type;
+pub mod gantt_bar_style;
+pub mod gantt_bar_style_exception;
+pub mod gantt_bar_style_factory;
+pub mod gantt_bar_style_factory_common;
+pub mod gantt_bar_style_factory14;
+
+// ---- 展示层：表 / 筛选 / 分组 / 图形化指标 ----
+
+pub mod criteria_reader;
+pub mod filter_criteria_reader9;
+pub mod filter_criteria_reader12;
+pub mod filter_criteria_reader14;
+pub mod filter_reader;
+pub mod filter_reader9;
+pub mod filter_reader12;
+pub mod filter_reader14;
+pub mod graphical_indicator_reader;
+pub mod group_reader;
+pub mod group_reader9;
+pub mod group_reader12;
+pub mod group_reader14;
+pub mod table_factory;
+pub mod table_factory14;
+pub mod table_font_style;
+
+// ---- 展示层：样式与辅助枚举 ----
+
+pub mod background_pattern;
+pub mod chart_pattern;
+pub mod color_type;
+pub mod font_base;
+pub mod font_style;
+pub mod grid_lines;
+pub mod interval;
+pub mod line_style;
+pub mod link_style;
+pub mod non_working_time_style;
+pub mod progress_line_day;
+pub mod timescale_alignment;
+pub mod timescale_format;
+pub mod timescale_tier;
+pub mod timescale_units_helper;
+
 // ---- Rust 特有 ----
 
 pub mod ole;
