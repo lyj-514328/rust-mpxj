@@ -38,7 +38,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 
 ## 修复进度
 
-### ✅ 已完成（commit `ca16922`、`f00eeab`）
+### ✅ 已完成（`ca16922` … `84df880`）
 
 | 章节 | 条目 |
 |---|---|
@@ -59,28 +59,70 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | 八 | `locale_utility.rs` 改为逐键走 `LocaleData`（覆盖 + 回落语义），删掉硬编码英文表 |
 | 八 | `duration_utility.rs` 补回 `NumberFormat` 参数，用 `MPXJNumberFormat::parse` 取代 `f64::from_str`。此前德语等小数逗号区域的小数工期（如 `1,5t`）会解析失败 |
 | 三 | 新增 `src/resource_assignment_workgroup_fields.rs`（对应 Java 同名类），记录 76 解析逻辑就位 |
+| `2dd8716` · 二 | **MPX 记录 76 的调用点已解开** —— 记录 76 分支调用 `add_workgroup_assignment()` + `populate_resource_assignment_workgroup_fields`；顺带补上 MPX 资源分配路径的 `disable_events()` / `enable_events()` |
+| `2dd8716` · 三 | `format_color` 最后 3 份收敛 → 统一用 [`mpp_utility::format_color`]（**另发现** `format_optional_display` 族仍有 4 份，见「仍欠」） |
+| `2dd8716` · 三 | **`RecurringTask` 的两份实现合并**：删掉 `mpp/recurring_task_reader.rs` 内的同名类型，改用模型层 `crate::recurring_task::RecurringTask`；mpp8/9/12/14 四处「逐字段搬运」随之删除 |
+| `2dd8716` · 八 | `mpx/model_utility.rs` 的 `DataType::RelationList` 判定改为 `!relations.is_empty()` |
+| `52ec5f9` · 三 | 移植 `RateHelper::convert_to_hours`，删掉 `ResourceAssignment::rate_to_hours` 的就地实现 |
+| `84df880` · 一 | **修正上一批 23:58 修复引入的回归**：Java `availableTo` 内**两个常量混用** —— `rangeEnd` 的空值回落取 `LocalDateTimeHelper.END_DATE_NA`(23:59)，方法末尾的 `isAfter` 取本类常量(23:58)。现已逐处对齐，并补 3 个「能区分两个常量」的回归测试 |
+| `84df880` · 三 | `cost_rate_table_entry` / `project_calendar` / `cpm::microsoft_slack_calculator` 的内联 helper 复刻改为调用 `LocalDateTimeHelper` |
+| `84df880` · 六 | `custom_field::get_unique_id` 的惰性回落（含 `FieldKey::Custom` 走 `UserDefinedField.getValue()` 分支与缓存回填），`compareTo` 排序键改走回落值 |
+| `84df880` · 六 | `column` / `field_type` / `user_defined_field` 的 `getName(Locale)` 重载 |
+| `84df880` · 六 | `relation` / `relation_container` 的自动 unique ID（经 `ProjectContext` 序号生成器） |
+| `84df880` · 六 | `task_container::removed(Task)` 同时删除该任务的资源分配 |
+| `84df880` · 六 | `project_calendar`：`set_parent` 的 `calendar != this` 守卫（按地址同一性还原）、`ProjectCalendar(ProjectFile)`、`get_tasks` / `get_resources` / `get_resource_count` / `get_derived_calendars_for_project`，并实现 `ProjectEntityWithUniqueID` / `ProjectEntityWithMutableUniqueID` |
+| `84df880` · 六 | `project_calendar_container`：`get_by_name` 改用 `equals_ignore_case`；`removed()` 的派生日历清理改为**扫描容器元素**（原先经上下文查询必然失败 ⇒ 实为死代码，现已真正生效，并有回归测试） |
+| `84df880` · 四 | `project_calendar` / `project_calendar_container` / `external_project_container` / `project_properties` / `project_file` 等处过期措辞订正 |
 
 ### ⬜ 仍欠
 
-| 章节 | 条目 |
-|---|---|
-| 二 | **MPX 记录 76 的调用点尚未解开** —— 接口与解析逻辑都已就位，`mpx_reader.rs` 里那处仍是注释 + 待办 |
-| 三 | `mpp/recurring_task_reader.rs` 自带的 `pub struct RecurringTask` 与 `crate::recurring_task::RecurringTask` 是**同一 Java 类的两份实现**，需连同 `mpx_reader.rs` 一起合并 |
-| 三 | `format_color` 剩 3 份（见上） |
-| 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败。已把误导性注释改为真实结构说明 |
-| 四 | 白名单外仍有过期措辞的文件（`mpp14_reader.rs`、`mpp9_reader.rs`、`mpp8_reader.rs`、`mpp12_reader.rs`、`project_calendar.rs`、`project_calendar_container.rs`、`shift_period.rs`、`shift_period_container.rs`、`shift_container.rs`、`unit_of_measure_container.rs`、`work_contour.rs`、`notes_topic.rs`、`slack_calculator.rs`、`project_file.rs`、`mpx/task_model.rs`、`mpx/resource_model.rs`、`mpp/mpp_variant_reader.rs`） |
-| 六 | 约 20 条「零件已落地、按需接线」：`PopulatedFields`、`ProjectCalendar` 的 contextual 方法、容器基类复用、`shift`/`unit_of_measure` 的 Builder 序列提供者、`relation` 自动 ID、`task_container::removed`、`external_project_container`、`event_manager` 按身份移除、`custom_field::get_unique_id` 回落、`microsoft_slack_calculator` 的 `get_variance`、`availability_table`/`cost_rate_table_entry` 的 helper 接线、`column` 的 `getName(Locale)` 等 |
-| 八 | `mpx/model_utility.rs:65` 的 `DataType::RelationList` 判定应为 `!list.is_empty()`（Java `ModelUtility.java:89`）。只影响未移植的 MPX **writer** 路径 |
+| 章节 | 条目 | 状态 |
+|---|---|---|
+| 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败 | 已核实，非债 |
+| 三 | `format_optional_display` 族仍有 **4 份**拷贝（`mpp/font_style.rs`、`mpp/grid_lines.rs`、`mpp/table_font_style.rs`、`mpp/timescale_tier.rs`；签名分 `Option<T>` 与 `Option<&T>` 两种），`mpp/gantt_bar_common_style.rs` 的 `format_option` / `format_field` 与 `mpp/table_font_style.rs` 的 `format_field_type` 亦属同族 | 待收敛 |
+| 四 | 白名单外仍有过期措辞的文件：`mpp14_reader.rs`、`mpp9_reader.rs`、`mpp8_reader.rs`、`mpp12_reader.rs`、`shift_period.rs`、`shift_period_container.rs`、`shift_container.rs`、`unit_of_measure_container.rs`、`work_contour.rs`、`notes_topic.rs`、`slack_calculator.rs`、`mpx/task_model.rs`、`mpx/resource_model.rs`、`mpp/mpp_variant_reader.rs` | 待订正 |
+| 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 仍未移植（需新增该类型 + 容器的 `get_populated_fields`） | 待接线 |
+| 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类：`ProjectCalendar` 现已实现所需 trait，但基类 `new` 要求**构造时**就有序号提供者，而容器在上下文成型前构造 —— 需先重构 `ProjectContext::shared` 的接线顺序 | 待定调 |
+| 六 | `shift` / `shift_period` / `unit_of_measure` / `notes_topic` 的 Builder 序列提供者；`shift_container` / `shift_period_container` / `unit_of_measure_container` 复用容器基类；`work_contour` / `unit_of_measure` 内 `impl ProjectEntityWithUniqueID` 的归位 | 待接线 |
+| 六 | `ResourceAssignment::get_effective_calendar` 缺 `ManuallyScheduledTaskCalendar` 包装（该类在 `org.mpxj` 根包，需新建） | 待接线 |
+| 六 | `TaskContainer::project_context` 在真实文件上从未接线（`ProjectFile::new_with_context` 的接线阶段文件正被可变借用）⇒ 任务不自动分配 unique ID。启用会消费任务序号、可能改变 MPX reader 现有 unique ID 结果 | 待定调 |
+
+### 经核实「无法还原」（已在对应文件头登记为限制，不再是待办）
+
+| 章节 | 条目 | 原因 |
+|---|---|---|
+| 六 | `ProjectCalendarContainer::removed` 中「清空引用该日历的资源 / 任务的 calendar」 | 容器只能由 `ProjectContext::get_calendars_mut()` 取得，`removed` 执行时上下文必然处于可变借用中，资源 / 任务查询的 `try_borrow` 必然失败（Java 的 `m_context` 是强引用）。**派生日历清理**已改为扫描容器元素，可正常执行 |
+| 六 | `EventManager` / `FieldContainer` 的按身份移除监听器 | 注册接口按值移交 `Box<..>` 所有权，调用方拿不到任何句柄；接口形状由本批之外的 `ProjectReader` 调用点固定 |
+| 六 | `ProjectProperties::get_resource_pool_object` | Java 需 `m_parentFile.readExternalProject(...)`（Rust 侧为 `&mut self`），而属性只能经 `ProjectFile` 的 `RefCell` 借用取得 ⇒ 能调用时父文件必然已被借用，`try_borrow_mut` 必然失败；且仍受缺 `UniversalProjectReader` 阻塞 |
+| 六 | `ExternalProjectContainer` / `ProjectFile` 的外部子项目读取回调 | 缺 `UniversalProjectReader`（A3，Java 靠反射分发） |
+| 六 | `ProjectCalendar` 的 `TemporaryCalendar` / `ProjectCalendarHelper` 单独成模块 | 有意保留就地复刻（Java 侧 `TemporaryCalendar` 只是构造差异、`mergeExceptions` 只有两个重载），已在文件头说明 |
+| 三 | `mpxj_formats.rs` 的月份 / 星期名本地化 | A19：数据源是 JDK `java.time` 的本地化文本，`org.mpxj.mpx.LocaleData` 里没有 |
+
+### ⚠️ 对本文档正文的更正
+
+- **「一、给错答案」原判的 5 处 `END_DATE_NA` 全部改 `Self::end_date_na()` 是错的**：Java `AvailabilityTable` 里两个常量**混用**。正确对应关系见 `src/availability_table.rs` 文件头的对照表：`hasDefaultDateRange` / `availableFrom` 的 `isAfter` / `availableTo` 末尾的 `isAfter` 用本类常量(23:58)；`availableFrom` 的 `rangeStart` 与 `availableTo` 的 `rangeEnd` 空值回落用 `LocalDateTimeHelper`(23:59)。
+- **「六」原判 `getName(Locale)` 的数据源是 `mpx/locale_data.rs` 的 `TASK_NAMES_DATA` / `RESOURCE_NAMES_DATA` 是错的**：那是 `org.mpxj.mpx.LocaleData.TASK_NAMES`（按 MPX 字段号索引），而 `getName(Locale)` 需要的是 `org.mpxj.LocaleData.TASK_COLUMNS`（按 `TaskField.value()` 索引）——既不同表也不同下标。另经核实 Java 的 `org.mpxj.LocaleData` 只有英文资源（`LocaleData_en` 内容为空、无 `LocaleData_<lang>`），`ResourceBundle` 对任何语言都回落到基类，故该重载对任何 locale 都返回英文列名。
 
 ### 验证基线（每批都应维持）
 
 - `cargo build --all-targets` 无错误、**无警告**
-- `cargo test`：**1745 项单元测试 + 16 项集成测试**全绿
+- `cargo test`：lib 单元测试全绿 + 集成测试 16 项全绿（本批为 **1763 + 16**，另有 4 项 doctest ignored）
 - `cargo run --release --example sample_survey`：**MPP 606/609**（另 3 个是密码保护，属预期）、**MPX 19/19**
 
 ---
 
+> 📌 **阅读顺序**：以下一～十节是**审计当时的原始记录**。哪些条目已修、哪些经核实后
+> 「无法还原」、哪些原判本身有误，一律以开头的「修复进度」为准（正文保留原样以记录来龙去脉）。
+
+---
+
 ## 一、🔴 给错答案（最高优先）
+
+> ⚠️ 下表给出的**修法是错的**（正文按原样保留以记录来龙去脉）：Java `AvailabilityTable`
+> 里两个 `END_DATE_NA` 混用，不能一律换成 `Self::end_date_na()`。正确对应关系见
+> 「修复进度 → 对本文档正文的更正」与 `src/availability_table.rs` 的文件头对照表。
+>
+> 该问题已由 `ca16922` 修复、并由 `84df880` 修正了修复中引入的回归；下表**不再是待办**。
 
 | 位置 | 问题 | 修法 |
 |---|---|---|
