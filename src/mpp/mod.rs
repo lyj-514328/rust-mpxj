@@ -18,10 +18,9 @@ pub mod fixed_data;
 pub mod fixed_meta;
 pub mod fixed_meta_item_size_provider;
 pub mod field_map;
-// 下列模块依赖尚未落地的 `common::mpp_*_field` 映射表，待其完成后启用：
-// pub mod field_map9;
-// pub mod field_map12;
-// pub mod field_map14;
+pub mod field_map9;
+pub mod field_map12;
+pub mod field_map14;
 pub mod mpp_bit_flag;
 pub mod mpp_component;
 pub mod mpp_utility;
@@ -40,6 +39,45 @@ pub mod var_data_field_reader;
 pub mod var_meta;
 pub mod var_meta9;
 pub mod var_meta12;
+
+// ---- 字段映射辅助 ----
+
+pub mod enterprise_custom_field_data_type;
+pub mod user_defined_field_map;
+
+// ---- 日历 / 费率 / 可用性 Factory ----
+
+pub mod abstract_calendar_and_exception_factory;
+pub mod abstract_calendar_factory;
+pub mod availability_factory;
+pub mod calendar_factory;
+pub mod cost_rate_table_factory;
+pub mod mpp9_calendar_factory;
+pub mod mpp12_calendar_factory;
+pub mod mpp14_calendar_factory;
+
+// ---- 自定义字段 Reader ----
+
+pub mod custom_field_reader12;
+pub mod custom_field_reader14;
+pub mod custom_field_value_item;
+pub mod custom_field_value_reader;
+pub mod custom_field_value_reader9;
+pub mod custom_field_value_reader12;
+pub mod custom_field_value_reader14;
+
+// ---- 其它数据 Reader / Factory ----
+
+pub mod application_version;
+pub mod constraint_factory;
+pub mod data_link_factory;
+pub mod hyperlink_reader;
+pub mod project_properties_reader;
+pub mod recurring_task_reader;
+pub mod resource_assignment_factory;
+pub mod task_type_helper;
+pub mod timephased_data_factory;
+pub mod work_contour_helper;
 
 // ---- Rust 特有 ----
 
