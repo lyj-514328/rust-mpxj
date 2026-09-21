@@ -157,6 +157,42 @@ def compare_values(java, rust, path="$", differences=None, limit=100):
     return differences
 
 
+def diff(java, rust, limit=40, require_all_fields=False):
+    """校验两侧快照并返回差异列表；校验失败抛 ValueError。"""
+    for side, value in (("Java", java), ("Rust", rust)):
+        validate_snapshot(value, side, require_all_fields)
+    return compare_values(java, rust, limit=limit + 1)
+
+
+def format_differences(differences, limit):
+    """把差异渲染成可读文本，供 CLI 与 runner 复用。"""
+    if not differences:
+        return "一致：当前快照范围内的 JSON 语义相同"
+    lines = [f"不一致：以下列出前 {min(limit, len(differences))} 处字段差异" +
+             ("（尚有更多）" if len(differences) > limit else "")]
+    format_value = lambda v: "<缺失>" if v is MISSING else repr(v)
+    for path, left, right in differences[:limit]:
+        lines.append(f"  {path}\n    Java: {format_value(left)}\n    Rust: {format_value(right)}")
+    return "\n".join(lines)
+
+
+def load_snapshot(path):
+    """按 UTF-8 读取快照，浮点保留十进制精度。"""
+    with path.open(encoding="utf-8-sig") as source:
+        return json.load(source, parse_float=Decimal)
+
+
+def unwrap_snapshot(entry):
+    """server 输出包裹为 {"path", "result"}；单文件模式是裸快照，两者都接受。"""
+    if not isinstance(entry, dict):
+        return entry
+    if "error" in entry:
+        raise ValueError(str(entry["error"]))
+    if "result" in entry:
+        return entry["result"]
+    return entry
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("java", type=Path)
@@ -165,25 +201,14 @@ def main():
     parser.add_argument("--require-all-fields", action="store_true")
     args = parser.parse_args()
     try:
-        with args.java.open(encoding="utf-8-sig") as source:
-            java = json.load(source, parse_float=Decimal)
-        with args.rust.open(encoding="utf-8-sig") as source:
-            rust = json.load(source, parse_float=Decimal)
-        for side, value in (("Java", java), ("Rust", rust)):
-            validate_snapshot(value, side, args.require_all_fields)
+        java = unwrap_snapshot(load_snapshot(args.java))
+        rust = unwrap_snapshot(load_snapshot(args.rust))
+        differences = diff(java, rust, args.limit, args.require_all_fields)
     except (OSError, ValueError) as error:
         print(f"快照读取失败: {error}", file=sys.stderr)
         return 2
-    differences = compare_values(java, rust, limit=args.limit + 1)
-    if not differences:
-        print("一致：当前快照范围内的 JSON 语义相同")
-        return 0
-    print(f"不一致：以下列出前 {min(args.limit, len(differences))} 处字段差异" +
-          ("（尚有更多）" if len(differences) > args.limit else ""))
-    for path, left, right in differences[:args.limit]:
-        format_value = lambda v: "<缺失>" if v is MISSING else repr(v)
-        print(f"  {path}\n    Java: {format_value(left)}\n    Rust: {format_value(right)}")
-    return 1
+    print(format_differences(differences, args.limit))
+    return 0 if not differences else 1
 
 
 if __name__ == "__main__":

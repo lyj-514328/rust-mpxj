@@ -1,6 +1,8 @@
 # ProjectFile JSON 对拍
 
-并发编排由 `tools/run_json_compare.py` 负责，使用 Python 线程池启动独立的 Java、Rust 和比较器进程；JSON 以 UTF-8 字节流保存，避免 Windows 控制台代码页改写非 ASCII 字符。
+并发编排由 `tools/run_json_compare.py` 负责：Java 与 Rust 各启动**一个常驻 server 进程**，样本路径经 stdin 批量送入，快照按样本落盘，随后比较器在 Python 进程内并行比对。JSON 以 UTF-8 字节流保存，避免 Windows 控制台代码页改写非 ASCII 字符。
+
+常驻 server 省掉了逐样本启动 JVM 的固定开销（本机小样本约 1.8 s/次，其中大部分是类加载）。server 模式：`--server <输出目录>`，stdin 每行 `<stem>\t<样本路径>`，结果写入 `<输出目录>/<stem>.json`，内容为 `{"path": <样本路径>, "result": <ProjectFile 快照>}`；读取失败时改为 `{"path": ..., "error": ...}`。`--threads N` 控制 server 内部线程池（默认 CPU 核数）。server 全程把 `System.out` 重定向到 stderr，避免上游诊断污染协议通道。`--parallelism` 现在表示 server 内部线程数，而不是并发进程数。
 
 ```powershell
 python -X utf8 -B tools/run_json_compare.py --all-fields --parallelism 8
@@ -45,7 +47,7 @@ if ($samples.Count -ne 625) { throw "样本总数不符: $($samples.Count)" }
 
 不传 `-Samples` 时使用 `tools/json_compare_samples.txt` 中的固定清单：全部 19 份 MPX 样本，加 13 份覆盖 MPP8/9/12/14 日历、关系、分配及可用性路径的 MPP 样本。`-Samples` 可只对拍指定文件；显式传入空列表会报错，不会产生虚假的通过结果。更新清单时应先核对 Java/Rust 快照的具体差异，再纳入默认集。
 
-依赖 Java/Javac、Python 3、Cargo 和 Maven（PATH 中的 `mvn.cmd`，或 Scoop 的 `~/scoop/apps/maven/current/bin/mvn.cmd`）。脚本每次先用 Maven 对 `mpxj/` 执行 `package`（跳过测试与 Javadoc），再使用本次构建的 `mpxj/target/mpxj-16.7.0.jar` 与 `mpxj/lib/*.jar`。Maven 只生成子模块已忽略的构建产物；**对拍工具的源码没有写入子模块**。Java 快照工具留在仓库根目录的 `tools/JsonSnapshot.java`，其编译产物与两侧 JSON 均写入根目录下忽略版本控制的 `_tmp_json_compare/`。Rust 入口是 `examples/json_snapshot.rs`。也可以单独运行 `python -X utf8 -B tools/compare_json.py <java.json> <rust.json>`。对拍一致返回码为 0，字段差异为 1，工具或快照错误为 2。
+依赖 Java/Javac、Python 3、Cargo 和 Maven（PATH 中的 `mvn.cmd`，或 Scoop 的 `~/scoop/apps/maven/current/bin/mvn.cmd`）。脚本每次先用 Maven 对 `mpxj/` 执行 `package`（跳过测试与 Javadoc），再使用本次构建的 `mpxj/target/mpxj-16.7.0.jar` 与 `mpxj/lib/*.jar`。Maven 只生成子模块已忽略的构建产物；**对拍工具的源码没有写入子模块**。Java 快照工具留在仓库根目录的 `tools/JsonSnapshot.java`，其编译产物与两侧 JSON 均写入根目录下忽略版本控制的 `_tmp_json_compare/`（Java 与 Rust 快照分别落在 `_tmp_json_compare/java/`、`_tmp_json_compare/rust/`）。Rust 入口是 `examples/json_snapshot.rs`，两侧都支持单文件模式（stdout 输出 JSON）与 `--server` 常驻模式。也可以单独运行 `python -X utf8 -B tools/compare_json.py <java.json> <rust.json>`（单文件模式的两份快照仍可直接比较）。对拍一致返回码为 0，字段差异为 1，工具或快照错误为 2。
 
 Java 参考实现取自本仓库固定的子模块提交 `c5e1320` 的**本地构建 jar**，而不是 Maven 仓库下载的同版本 jar。源码变动后，下一次对拍会自动重新构建，确保 jar 与源码版本一致。
 

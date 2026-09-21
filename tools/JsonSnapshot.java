@@ -1,6 +1,11 @@
 // 对拍专用：与 examples/json_snapshot.rs 读取同一批 ProjectFile 字段。
 // 不修改 Java 上游源码；运行时使用子模块编译出的类与其 Maven 依赖。
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
@@ -14,6 +19,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -637,11 +645,119 @@ public final class JsonSnapshot
       return result;
    }
 
+   // 常驻模式：stdin 每行 "<stem>\t<sample-path>"，结果写入 <output-dir>/<stem>.json。
+   // 每个文件形如 {"path": "...", "result": {...}}，读失败时 result 换成 error。
+   // 全进程把 System.out 重定向到 stderr，避免上游诊断污染协议输出。
+   private static void runServer(String[] args) throws Exception
+   {
+      Path outputDir = null;
+      boolean allFields = false;
+      int threads = Runtime.getRuntime().availableProcessors();
+      for (int index = 0; index < args.length; index++)
+      {
+         switch (args[index])
+         {
+            case "--all-fields":
+               allFields = true;
+               break;
+            case "--threads":
+               if (++index >= args.length) { throw new IllegalArgumentException("--threads 缺少参数"); }
+               threads = Integer.parseInt(args[index]);
+               break;
+            default:
+               if (outputDir != null) { throw new IllegalArgumentException("多余的参数: " + args[index]); }
+               outputDir = Path.of(args[index]);
+         }
+      }
+      if (outputDir == null) { throw new IllegalArgumentException("--server 需要输出目录"); }
+      if (threads < 1) { throw new IllegalArgumentException("--threads 必须为正整数"); }
+      Files.createDirectories(outputDir);
+
+      PrintStream console = System.out;
+      // 在使用 GBK 等系统编码时转义非 ASCII 字符，避免项目名称被替换成 '?'。
+      final ObjectMapper mapper = new ObjectMapper();
+      mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
+      final Path targetDir = outputDir;
+      System.setOut(System.err);
+
+      ExecutorService pool = Executors.newFixedThreadPool(threads);
+      int submitted = 0;
+      try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)))
+      {
+         String line;
+         while ((line = reader.readLine()) != null)
+         {
+            String entry = line.strip();
+            if (entry.isEmpty() || entry.startsWith("#")) { continue; }
+            int tab = entry.indexOf('\t');
+            if (tab < 0)
+            {
+               console.println("跳过缺少制表符的输入行: " + entry);
+               continue;
+            }
+            final String stem = entry.substring(0, tab).strip();
+            final String sample = entry.substring(tab + 1).strip();
+            if (!stem.matches("[A-Za-z0-9._-]+"))
+            {
+               console.println("跳过非法输出名: " + stem);
+               continue;
+            }
+            final boolean fields = allFields;
+            pool.submit(() -> writeSnapshot(targetDir, stem, sample, fields, mapper));
+            submitted++;
+         }
+      }
+      finally
+      {
+         pool.shutdown();
+         pool.awaitTermination(1, TimeUnit.DAYS);
+      }
+      console.println("server 完成: " + submitted + " 个样本，线程数 " + threads);
+   }
+
+   // 单个样本：读取并序列化后一次性写入，避免半个 JSON 被读取。
+   private static void writeSnapshot(Path outputDir, String stem, String sample, boolean allFields, ObjectMapper mapper)
+   {
+      Map<String, Object> wrapper = new LinkedHashMap<>();
+      wrapper.put("path", sample);
+      try
+      {
+         wrapper.put("result", snapshot(read(Path.of(sample)), allFields));
+      }
+      catch (Exception ex)
+      {
+         wrapper.put("error", ex.getClass().getSimpleName() + ": " + String.valueOf(ex.getMessage()));
+      }
+      Path target = outputDir.resolve(stem + ".json");
+      try
+      {
+         Files.writeString(target, mapper.writeValueAsString(wrapper), StandardCharsets.UTF_8);
+      }
+      catch (Exception ex)
+      {
+         System.err.println("写入快照失败 " + target + ": " + ex);
+      }
+   }
+
    public static void main(String[] args) throws Exception
    {
+      if (args.length > 0 && "--server".equals(args[0]))
+      {
+         try
+         {
+            runServer(Arrays.copyOfRange(args, 1, args.length));
+         }
+         catch (Exception ex)
+         {
+            System.err.println("server 启动失败: " + ex.getMessage());
+            System.exit(2);
+         }
+         return;
+      }
       if (args.length < 1 || args.length > 2 || (args.length == 2 && !"--all-fields".equals(args[1])))
       {
          System.err.println("用法: JsonSnapshot <file.mpx|file.mpp> [--all-fields]");
+         System.err.println("      JsonSnapshot --server <output-dir> [--all-fields] [--threads N]");
          System.exit(2);
       }
       // 上游及其依赖可能向 stdout 打印诊断，快照通道只能包含一份 JSON。

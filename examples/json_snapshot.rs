@@ -10,8 +10,11 @@
 
 use std::cell::RefCell;
 use std::env;
+use std::io::BufRead;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use mpxj::ProjectFile;
@@ -788,21 +791,155 @@ fn snapshot(file: &Rc<RefCell<ProjectFile>>) -> Json {
     ])
 }
 
-/// 命令行入口：仅向 stdout 输出 JSON，错误写到 stderr。
+/// 为单个样本生成快照，成功与失败都包进 `{"path": ..., "result"|"error": ...}`。
+fn snapshot_entry(path: &Path, all_fields: bool) -> Json {
+    match read(path) {
+        Ok(file) => {
+            let mut value = snapshot(&file);
+            if all_fields {
+                if let Err(error) = append_all_fields(&file, &mut value) {
+                    return Json::Object(vec![
+                        ("path", Json::Text(path.display().to_string())),
+                        ("error", Json::Text(format!("字段快照失败: {error}"))),
+                    ]);
+                }
+            }
+            Json::Object(vec![
+                ("path", Json::Text(path.display().to_string())),
+                ("result", value),
+            ])
+        }
+        Err(error) => Json::Object(vec![
+            ("path", Json::Text(path.display().to_string())),
+            ("error", Json::Text(format!("读取失败: {error}"))),
+        ]),
+    }
+}
+
+/// 常驻模式：stdin 每行 `<stem>\t<sample-path>`，结果写入 `<output-dir>/<stem>.json`。
+fn run_server(args: &[std::ffi::OsString]) -> Result<(), String> {
+    let mut output_dir: Option<PathBuf> = None;
+    let mut all_fields = false;
+    let mut threads = std::thread::available_parallelism().map(|value| value.get()).unwrap_or(1);
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].to_string_lossy().into_owned();
+        match value.as_str() {
+            "--all-fields" => all_fields = true,
+            "--threads" => {
+                index += 1;
+                let raw = args.get(index).ok_or("--threads 缺少参数")?;
+                threads = raw
+                    .to_string_lossy()
+                    .parse::<usize>()
+                    .map_err(|_| "--threads 必须是整数".to_owned())?;
+            }
+            other if other.starts_with("--") => return Err(format!("未知参数: {other}")),
+            other => {
+                if output_dir.is_some() {
+                    return Err(format!("多余的参数: {other}"));
+                }
+                output_dir = Some(PathBuf::from(other));
+            }
+        }
+        index += 1;
+    }
+    let output_dir = output_dir.ok_or("--server 需要输出目录")?;
+    if threads < 1 {
+        return Err("--threads 必须为正整数".to_owned());
+    }
+    std::fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
+
+    let entries: Vec<(String, PathBuf)> = std::io::stdin()
+        .lock()
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| {
+            let entry = line.trim().to_owned();
+            if entry.is_empty() || entry.starts_with('#') {
+                return None;
+            }
+            match entry.split_once('\t') {
+                Some((stem, sample)) => {
+                    let stem = stem.trim().to_owned();
+                    if !stem.is_empty()
+                        && stem
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+                    {
+                        Some(Some((stem, PathBuf::from(sample.trim()))))
+                    } else {
+                        eprintln!("跳过非法输出名: {stem}");
+                        None
+                    }
+                }
+                None => {
+                    eprintln!("跳过缺少制表符的输入行: {entry}");
+                    None
+                }
+            }
+        })
+        .flatten()
+        .collect();
+
+    let submitted = entries.len();
+    let cursor = AtomicUsize::new(0);
+    let failures = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let entries = &entries;
+        let output_dir = &output_dir;
+        let cursor = &cursor;
+        let failures = &failures;
+        for _ in 0..threads.min(entries.len().max(1)) {
+            scope.spawn(move || loop {
+                let position = cursor.fetch_add(1, Ordering::Relaxed);
+                let Some((stem, sample)) = entries.get(position) else { break; };
+                let mut encoded = String::new();
+                snapshot_entry(sample, all_fields).write(&mut encoded);
+                let target = output_dir.join(format!("{stem}.json"));
+                if let Err(error) = std::fs::write(&target, encoded) {
+                    failures.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("写入快照失败 {}: {error}", target.display());
+                }
+            });
+        }
+    });
+    eprintln!(
+        "server 完成: {submitted} 个样本，线程数 {}，写入失败 {}",
+        threads,
+        failures.load(Ordering::Relaxed)
+    );
+    Ok(())
+}
+
+/// 命令行入口：单文件模式仅向 stdout 输出 JSON，错误写到 stderr；`--server` 走常驻模式。
 fn main() {
-    let Some(path) = env::args_os().nth(1) else {
-        eprintln!("用法: cargo run --example json_snapshot -- <file.mpx|file.mpp>");
+    let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
+    if args.first().map(|value| value == "--server").unwrap_or(false) {
+        if let Err(error) = run_server(&args[1..]) {
+            eprintln!("server 启动失败: {error}");
+            std::process::exit(2);
+        }
+        return;
+    }
+    let Some(path) = args.first() else {
+        eprintln!("用法: json_snapshot <file.mpx|file.mpp> [--all-fields]");
+        eprintln!("      json_snapshot --server <output-dir> [--all-fields] [--threads N]");
         std::process::exit(2);
     };
-    let all_fields = match env::args_os().nth(2).as_deref() {
+    let all_fields = match args.get(1).map(|value| value.to_str()) {
+        Some(None) => {
+            eprintln!("参数不是有效的 UTF-8");
+            std::process::exit(2);
+        }
         None => false,
-        Some(value) if value == "--all-fields" => true,
-        Some(_) => {
+        Some(Some("--all-fields")) => true,
+        Some(Some(_)) => {
             eprintln!("用法: json_snapshot <file.mpx|file.mpp> [--all-fields]");
             std::process::exit(2);
         }
     };
-    match read(Path::new(&path)) {
+    match read(Path::new(path)) {
         Ok(file) => {
             let mut output = String::new();
             let mut value = snapshot(&file);
