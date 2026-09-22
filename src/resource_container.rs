@@ -1,63 +1,63 @@
-//! 对应 Java: `org/mpxj/ResourceContainer.java`
+//! Corresponds to Java: `org/mpxj/ResourceContainer.java`
 //!
-//! # 继承体系如何复用（组合 + 转发）
+//! # How the inheritance hierarchy is reused (composition + forwarding)
 //!
-//! Java 的 `ResourceContainer extends ProjectEntityWithIDContainer<Resource> implements ChildResourceContainer`。
-//! Rust 没有继承，本类按约定**组合**一个
-//! [`ProjectEntityWithIDContainer<Resource>`]，并把基类的公开行为逐个转发（见各方法说明），
-//! 只有本类新增的行为（资源创建、子资源列表、层级重建、移除清理、自定义字段查询）单独实现。
-//! 这与 [`crate::project_calendar_container`]「未组合基类、按 unique ID 线性查找」的做法不同：
-//! 该文件因 `ProjectCalendar` 未实现 `ProjectEntityWithUniqueID` 而无法组合，而
-//! [`crate::resource::Resource`] 已实现 `ProjectEntityWithID` 与 `Ord`，可以完整复用基类，
-//! 故这里以「组合 + 转发」为准。
+//! Java's `ResourceContainer extends ProjectEntityWithIDContainer<Resource> implements ChildResourceContainer`.
+//! Rust has no inheritance; by convention this class **composes** a
+//! [`ProjectEntityWithIDContainer<Resource>`] and forwards the base class's public behavior one method at a time (see the notes on each method),
+//! Only behavior new to this class (resource creation, child resource list, hierarchy rebuild, removal cleanup, custom field lookup) is implemented separately.
+//! This differs from [`crate::project_calendar_container`], which "does not compose the base class and looks up linearly by unique ID":
+//! That file cannot compose because `ProjectCalendar` does not implement `ProjectEntityWithUniqueID`, whereas
+//! [`crate::resource::Resource`] already implements `ProjectEntityWithID` and `Ord`, so the base class can be reused in full,
+//! so "composition + forwarding" is used here.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **构造方法**：Java 为 `ResourceContainer(ProjectContext context)`。Rust 侧
-//!   [`ResourceContainer::new`] 无参数（[`crate::project_context::ProjectContext::new`] 调用它时
-//!   上下文尚未构建），再由 [`ResourceContainer::set_context`] 接线；
-//!   [`crate::project_context::ProjectContext::shared`] 会完成该接线
-//!   （与日历容器、序号提供者适配器一同）。
-//! - **序号生成器提供者**：Java 把 `ProjectContext` 自身（实现了
-//!   `UniqueIdObjectSequenceProvider`）交给基类。Rust 侧若强引用上下文会形成 `Rc` 循环，
-//!   故本文件内定义只持弱引用的 `ResourceSequenceProvider`（与 `project_context.rs` 内
-//!   的 `ContextSequenceProvider` 同构）：上下文可借用时转发给它，否则退化为自带序号，
-//!   保证不 panic。
-//! - **上下文反向引用**：`private final ProjectContext m_context` → `Weak<RefCell<ProjectContext>>`。
-//! - **元素形态**：`Resource` 为 `Rc<RefCell<Resource>>`（共享实体约定）。
-//! - **重载（Rust 无重载）**：
+//! - **Constructor**: Java's is `ResourceContainer(ProjectContext context)`. On the Rust side
+//! [`ResourceContainer::new`] takes no arguments (when [`crate::project_context::ProjectContext::new`] calls it
+//! the context has not been built yet), and is then wired up by [`ResourceContainer::set_context`];
+//! [`crate::project_context::ProjectContext::shared`] performs that wiring
+//! (along with the calendar container and the sequence provider adapter).
+//! - **Sequence generator provider**: Java passes `ProjectContext` itself (which implements
+//! `UniqueIdObjectSequenceProvider`) to the base class. On the Rust side a strong reference to the context would form an `Rc` cycle,
+//! so this file defines `ResourceSequenceProvider`, which holds only a weak reference (isomorphic to
+//! `ContextSequenceProvider` in `project_context.rs`): when the context can be borrowed it forwards to it, otherwise it degrades gracefully to its own sequence,
+//! ensuring no panic.
+//! - **Context back-reference**: `private final ProjectContext m_context` → `Weak<RefCell<ProjectContext>>`.
+//! - **Element shape**: `Resource` is `Rc<RefCell<Resource>>` (shared entity convention).
+//! - **Overloads (Rust has no overloading)**:
 //!
 //!   | Java | Rust |
 //!   |---|---|
 //!   | `public Resource add()` | [`ResourceContainer::add`] |
 //!   | `@Override public Resource addResource()` | [`ResourceContainer::add_resource`] |
-//!   | `ListWithCallbacks.add(T element)`（继承） | [`ResourceContainer::add_resource_entry`]（加后缀区分同名的无参 `add()`） |
-//!   | `ListWithCallbacks.remove(Object)` + `removed(T)` | [`ResourceContainer::remove_resource`]（接收元素句柄） |
+//! | `ListWithCallbacks.add(T element)` (inherited) | [`ResourceContainer::add_resource_entry`] (suffixed to distinguish it from the argument-less `add()` of the same name) |
+//! | `ListWithCallbacks.remove(Object)` + `removed(T)` | [`ResourceContainer::remove_resource`] (accepts an element handle) |
 //!   | `ListWithCallbacks.remove(int index)` | [`ResourceContainer::remove`] |
-//! - **`add` 中的自动编号**：Java 的 `new Resource(m_context)` 在构造方法内分配 unique ID / ID；
-//!   Rust 侧因 `&mut self` 无法取得自身 `Rc`（Java 用 `mapID(id, this)`），改由
-//!   [`ResourceContainer::add`] 在包装 `Rc` 并接线自身弱引用后分配（见
-//!   [`crate::resource`] 文件头说明）。自动编号开关取自 `ProjectConfig`；上下文不可用时
-//!   按 Java 默认值（均为 `true`）处理。
-//! - **`removeAssignments`**：Java 用 `Iterator.remove()` 逐个删除匹配的资源分配。
-//!   Rust 侧调用 `ResourceAssignmentContainer` 的按资源 unique ID 删除方法
-//!   （见下「接口假设」）。
+//! - **Automatic numbering in `add`**: Java's `new Resource(m_context)` assigns the unique ID / ID inside the constructor;
+//! on the Rust side `&mut self` cannot obtain its own `Rc` (Java uses `mapID(id, this)`), so instead
+//! [`ResourceContainer::add`] assigns it after wrapping the `Rc` and wiring up its own weak reference (see
+//! the file header of [`crate::resource`]). The automatic numbering switches come from `ProjectConfig`; when the context is unavailable
+//! the Java defaults are used (both `true`).
+//! - **`removeAssignments`**: Java deletes matching resource assignments one by one with `Iterator.remove()`.
+//! The Rust side calls `ResourceAssignmentContainer`'s remove-by-resource-unique-ID method
+//! (see "Interface assumptions" below).
 //!
-//! # 跳过的 Java 方法
+//! # Skipped Java Methods
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 无 | `getPopulatedFields` 已移植；父上下文传入自定义字段以避免重入借用 |
+//! | None | `getPopulatedFields` has been ported; the parent context passes in custom fields to avoid re-entrant borrowing |
 //!
-//! 被跳过的 Java 机制：`Serializable`（本类未使用）。
+//! Skipped Java mechanisms: `Serializable` (unused by this class).
 //!
-//! # 对相关模块的接口假设
+//! # Interface assumptions about related modules
 //!
-//! - `crate::project_file::ProjectFile`：`get_resource_assignments()` →
-//!   `&ResourceAssignmentContainer`，`get_resource_assignments_mut()` →
-//!   `&mut ResourceAssignmentContainer`。
-//! - `crate::resource_assignment_container::ResourceAssignmentContainer`：
-//!   `remove_by_resource_unique_id(Option<i32>)`（对应 Java `removeAssignments` 中的遍历删除）。
+//! - `crate::project_file::ProjectFile`:`get_resource_assignments()` →
+//!   `&ResourceAssignmentContainer`,`get_resource_assignments_mut()` →
+//!   `&mut ResourceAssignmentContainer`.
+//! - `crate::resource_assignment_container::ResourceAssignmentContainer`:
+//! `remove_by_resource_unique_id(Option<i32>)` (corresponds to the iterative deletion in Java's `removeAssignments`).
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -78,32 +78,32 @@ use crate::project_file::ProjectFile;
 use crate::resource::Resource;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 管理项目中的资源集合。
+/// Manages the collection of resources in a project.
 ///
-/// 对应 Java: `public class ResourceContainer extends ProjectEntityWithIDContainer<Resource> implements ChildResourceContainer`
+/// Corresponds to Java: `public class ResourceContainer extends ProjectEntityWithIDContainer<Resource> implements ChildResourceContainer`
 pub struct ResourceContainer {
-    /// 基类容器（Java 的 `extends ProjectEntityWithIDContainer<Resource>`）。
+/// Base class container (Java's `extends ProjectEntityWithIDContainer<Resource>`).
     container: ProjectEntityWithIDContainer<Resource>,
 
-    /// 父上下文（弱引用，避免 `Rc` 循环）。
+/// Parent context (weak reference to avoid an `Rc` cycle).
     ///
-    /// 对应 Java: `private final ProjectContext m_context;`
+    /// Corresponds to Java: `private final ProjectContext m_context;`
     context: Weak<RefCell<ProjectContext>>,
 
-    /// 交给基类的序号生成器提供者（见文件头说明，Java 直接传 `this`）。
+/// Sequence generator provider handed to the base class (see the file header; Java passes `this` directly).
     sequence_provider: Rc<RefCell<ResourceSequenceProvider>>,
 
-    /// 顶层子资源列表。
+/// Top-level child resource list.
     ///
-    /// 对应 Java: `private final List<Resource> m_childResources = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<Resource> m_childResources = new ArrayList<>();`
     child_resources: Vec<Rc<RefCell<Resource>>>,
 }
 
 impl ResourceContainer {
-    /// 返回资源中至少有一个非默认缓存值的字段。
+/// Returns the fields for which at least one resource has a non-default cached value.
     ///
-    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；自定义字段由上下文
-    /// 调用者传入，资源与 Java 一样不使用项目属性作为默认值。
+/// Corresponds to Java: `public Set<FieldType> getPopulatedFields()`; custom fields are
+/// passed in by the context caller; as in Java, resources do not use project properties as defaults.
     pub fn get_populated_fields(
         &self,
         custom: impl IntoIterator<Item = FieldKey>,
@@ -117,11 +117,11 @@ impl ResourceContainer {
         )
     }
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ResourceContainer(ProjectContext context)`
+    /// Corresponds to Java: `public ResourceContainer(ProjectContext context)`
     ///
-    /// Rust 侧无参数构造，由 [`ResourceContainer::set_context`] 接线上下文。
+/// Argument-less constructor on the Rust side; [`ResourceContainer::set_context`] wires up the context.
     pub fn new() -> Self {
         let sequence_provider = Rc::new(RefCell::new(ResourceSequenceProvider::new()));
         let base_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
@@ -135,37 +135,37 @@ impl ResourceContainer {
         }
     }
 
-    /// 接线父上下文（Rust 特有：Java 在构造方法中直接接收 `this`）。
+/// Wires up the parent context (Rust-specific: Java receives `this` directly in the constructor).
     ///
-    /// 对应 Java: 构造方法中的 `m_context = context;`，以及基类构造方法的
-    /// `super(context)`（序号生成器提供者）。
+/// Corresponds to Java: `m_context = context;` in the constructor, and the base class constructor's
+/// `super(context)` (sequence generator provider).
     pub(crate) fn set_context(&mut self, context: &Rc<RefCell<ProjectContext>>) {
         self.context = Rc::downgrade(context);
         self.sequence_provider.borrow_mut().set_context(context);
     }
 
-    /// 取父上下文（Rust 特有：Java 没有该 getter）。
+/// Returns the parent context (Rust-specific: Java has no such getter).
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
     }
 
-    /// 取顶层子资源列表（Java 返回实时列表，Rust 返回快照）。
+/// Returns the top-level child resource list (Java returns a live list, Rust returns a snapshot).
     ///
-    /// 对应 Java: `@Override public List<Resource> getChildResources()`
+    /// Corresponds to Java: `@Override public List<Resource> getChildResources()`
     pub fn get_child_resources(&self) -> Vec<Rc<RefCell<Resource>>> {
         self.child_resources.clone()
     }
 
-    /// 新建一个资源并加入容器。
+/// Creates a new resource and adds it to the container.
     ///
-    /// 对应 Java: `@Override public Resource addResource()`
+    /// Corresponds to Java: `@Override public Resource addResource()`
     pub fn add_resource(&mut self) -> Rc<RefCell<Resource>> {
         self.add()
     }
 
-    /// 新建一个资源并加入容器。
+/// Creates a new resource and adds it to the container.
     ///
-    /// 对应 Java: `public Resource add()`
+    /// Corresponds to Java: `public Resource add()`
     pub fn add(&mut self) -> Rc<RefCell<Resource>> {
         let resource = Rc::new(RefCell::new(Resource::new(self.context.clone())));
         resource.borrow_mut().set_self_reference(&resource);
@@ -193,18 +193,18 @@ impl ResourceContainer {
         resource
     }
 
-    /// 把已有资源加入基类容器（Java 继承自 `ListWithCallbacks` 的 `add(T element)`）。
+/// Adds an existing resource to the base class container (Java inherits `add(T element)` from `ListWithCallbacks`).
     ///
-    /// Rust 侧无重载，故与同名的无参 [`ResourceContainer::add`] 以 `_entry` 后缀区分。
+/// Rust has no overloading, so it is distinguished from the argument-less [`ResourceContainer::add`] of the same name by the `_entry` suffix.
     pub fn add_resource_entry(&mut self, resource: Rc<RefCell<Resource>>) {
         self.container.add(resource);
     }
 
-    /// 从容器移除一个资源，并执行移除后的清理。
+/// Removes a resource from the container and performs post-removal cleanup.
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(Object)`（内部调用 `@Override protected void removed(Resource)`）
+/// Corresponds to Java: `ListWithCallbacks.remove(Object)` (internally calls `@Override protected void removed(Resource)`)
     ///
-    /// Java 用引用相等定位元素；Rust 侧用 `Rc::ptr_eq` 做指针同一性比较。
+/// Java locates the element by reference equality; the Rust side uses `Rc::ptr_eq` for pointer identity comparison.
     pub fn remove_resource(&mut self, resource: &Rc<RefCell<Resource>>) -> bool {
         let index = self
             .container
@@ -215,15 +215,15 @@ impl ResourceContainer {
             return false;
         };
 
-        // Java: super.removed(resource) —— 基类的 removed 回调在 remove(index) 中触发。
+// Java: super.removed(resource) -- the base class's removed callback fires in remove(index).
         self.container.remove(index);
         self.removed(resource);
         true
     }
 
-    /// 资源被移除后的清理。
+/// Cleanup after a resource is removed.
     ///
-    /// 对应 Java: `@Override protected void removed(Resource resource)`
+    /// Corresponds to Java: `@Override protected void removed(Resource resource)`
     fn removed(&mut self, resource: &Rc<RefCell<Resource>>) {
         // Java: m_idMap.remove(resource.getID());
         self.unmap_id(resource.borrow().get_id());
@@ -233,9 +233,9 @@ impl ResourceContainer {
         // if (parentResource != null) { parentResource.removeChildResource(resource); }
         // else { m_childResources.remove(resource); }
         //
-        // Java 的 getParentResource() 走上下文的资源容器；Rust 侧改为走本容器自身的
-        // unique ID 索引：容器在多数调用场景下正处于被可变借用状态（调用方持有上下文的
-        // `borrow_mut`），此时再借上下文会失败（见文件头说明）。
+// Java's getParentResource() goes through the context's resource container; the Rust side goes through this container's own
+// unique ID index: in most call scenarios the container is currently mutably borrowed (the caller holds the context's
+// `borrow_mut`), and borrowing the context again at that point would fail (see the file header).
         let parent_unique_id = resource.borrow().get_parent_resource_unique_id();
         let parent = self.get_by_unique_id(parent_unique_id);
         match parent {
@@ -270,9 +270,9 @@ impl ResourceContainer {
         }
     }
 
-    /// 删除某个项目下属于指定资源的全部资源分配。
+/// Deletes all resource assignments belonging to the given resource in a project.
     ///
-    /// 对应 Java: `private void removeAssignments(ProjectFile project, Resource resource)`
+    /// Corresponds to Java: `private void removeAssignments(ProjectFile project, Resource resource)`
     fn remove_assignments(
         &mut self,
         project: &Rc<RefCell<ProjectFile>>,
@@ -286,9 +286,9 @@ impl ResourceContainer {
         }
     }
 
-    /// 依据父资源 ID 重建资源层级结构。
+/// Rebuilds the resource hierarchy based on the parent resource ID.
     ///
-    /// 对应 Java: `void updateStructure()`
+    /// Corresponds to Java: `void updateStructure()`
     pub fn update_structure(&mut self) {
         if self.len() <= 1 {
             return;
@@ -304,8 +304,8 @@ impl ResourceContainer {
 
         // Java: this.forEach(r -> { ... });
         for resource in &resources {
-            // Java 用 r.getParentResource()（走上下文的资源容器）；Rust 侧走本容器自身的
-            // unique ID 索引，理由同 `removed`（避免在上下文被可变借用时再借上下文）。
+// Java uses r.getParentResource() (goes through the context's resource container); the Rust side goes through this container's own
+// unique ID index, for the same reason as `removed` (avoid borrowing the context again while it is mutably borrowed).
             let parent_unique_id = resource.borrow().get_parent_resource_unique_id();
             let parent = self.get_by_unique_id(parent_unique_id);
             match parent {
@@ -319,11 +319,11 @@ impl ResourceContainer {
         }
     }
 
-    /// 取某一实体类型下的全部自定义字段配置。
+/// Returns all custom field configurations for a given entity type.
     ///
-    /// 对应 Java: `public List<CustomField> getCustomFields()`
+    /// Corresponds to Java: `public List<CustomField> getCustomFields()`
     ///
-    /// 上下文不可用时返回空列表（Java 不会出现该分支）。
+/// Returns an empty list when the context is unavailable (this branch cannot occur in Java).
     pub fn get_custom_fields(&self) -> Vec<Rc<RefCell<CustomField>>> {
         match self.context.upgrade() {
             Some(context) => match context.try_borrow() {
@@ -337,9 +337,9 @@ impl ResourceContainer {
         }
     }
 
-    /// 按别名取字段类型。
+/// Returns the field type by alias.
     ///
-    /// 对应 Java: `public FieldType getFieldTypeByAlias(String alias)`
+    /// Corresponds to Java: `public FieldType getFieldTypeByAlias(String alias)`
     pub fn get_field_type_by_alias(&self, alias: &str) -> Option<FieldKey> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -349,9 +349,9 @@ impl ResourceContainer {
             .get_field_type_by_alias(FieldTypeClass::Resource, alias)
     }
 
-    /// 读取自动编号开关（`ProjectConfig.getAutoResourceUniqueID` / `getAutoResourceID`）。
+/// Reads the automatic numbering switches (`ProjectConfig.getAutoResourceUniqueID` / `getAutoResourceID`).
     ///
-    /// 上下文不可用时按 Java 的默认值（均为 `true`）处理。
+/// When the context is unavailable the Java defaults are used (both `true`).
     fn auto_id_flags(&self) -> (bool, bool) {
         match self.context.upgrade() {
             Some(context) => match context.try_borrow() {
@@ -368,128 +368,128 @@ impl ResourceContainer {
         }
     }
 
-    /// 取序号生成器提供者。
+/// Returns the sequence generator provider.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getSequenceProvider()`
+    /// Corresponds to Java: `ProjectEntityContainer.getSequenceProvider()`
     pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
         self.container.get_sequence_provider()
     }
 
-    /// 重排 unique ID 时使用的第一个值。
+/// The first value used when renumbering unique IDs.
     ///
-    /// 对应 Java: `ProjectEntityContainer.firstUniqueID()`
+    /// Corresponds to Java: `ProjectEntityContainer.firstUniqueID()`
     pub fn first_unique_id(&self) -> i32 {
         self.container.first_unique_id()
     }
 
-    /// 按 unique ID 查找资源，找不到时返回 `None`。
+/// Looks up a resource by unique ID, returning `None` if not found.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Resource>>> {
         self.container.get_by_unique_id(id)
     }
 
-    /// 按 ID 查找资源，找不到时返回 `None`。
+/// Looks up a resource by ID, returning `None` if not found.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.getByID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.getByID(Integer id)`
     pub fn get_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Resource>>> {
         self.container.get_by_id(id)
     }
 
-    /// 删除一条 ID 映射。
+/// Removes an ID mapping.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.unmapID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.unmapID(Integer id)`
     pub fn unmap_id(&mut self, id: Option<i32>) {
         self.container.unmap_id(id);
     }
 
-    /// 添加一条 ID 映射。
+/// Adds an ID mapping.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.mapID(Integer id, T entity)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.mapID(Integer id, T entity)`
     pub fn map_id(&mut self, id: i32, resource: Rc<RefCell<Resource>>) {
         self.container.map_id(id, resource);
     }
 
-    /// 取下一个可用 ID。
+/// Returns the next available ID.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.getNextID()`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.getNextID()`
     pub fn get_next_id(&self) -> i32 {
         self.container.get_next_id()
     }
 
-    /// 在指定下标插入资源（越界返回 `false`）。
+/// Inserts a resource at the given index (returns `false` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     pub fn add_at(&mut self, index: usize, resource: Rc<RefCell<Resource>>) -> bool {
         self.container.add_at(index, resource)
     }
 
-    /// 替换指定下标的资源（越界返回 `None`）。
+/// Replaces the resource at the given index (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(&mut self, index: usize, resource: Rc<RefCell<Resource>>) -> Option<Rc<RefCell<Resource>>> {
         self.container.set(index, resource)
     }
 
-    /// 移除指定下标的资源（越界返回 `None`）。
+/// Removes the resource at the given index (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<Resource>>> {
         self.container.remove(index)
     }
 
-    /// 清空资源列表（不触发 `removed` 回调，与 Java 一致）。
+/// Clears the resource list (does not fire the `removed` callback, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.container.clear();
     }
 
-    /// 按下标取资源。
+/// Returns the resource at the given index.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<Resource>>> {
         self.container.get(index)
     }
 
-    /// 资源个数。
+/// Number of resources.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.container.len()
     }
 
-    /// 资源列表是否为空。
+/// Whether the resource list is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.container.is_empty()
     }
 
-    /// 迭代资源列表。
+/// Iterates over the resource list.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<Resource>>> {
         self.container.iter()
     }
 
-    /// 以切片形式访问资源列表。
+/// Accesses the resource list as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the list view of `ListWithCallbacks`.
     pub fn as_slice(&self) -> &[Rc<RefCell<Resource>>] {
         self.container.as_slice()
     }
 
-    /// 按资源自身的顺序（`compareTo`，即 ID）排序。
+/// Sorts by the resources' own order (`compareTo`, i.e. ID).
     ///
-    /// 对应 Java: `Collections.sort(this)`
+    /// Corresponds to Java: `Collections.sort(this)`
     pub fn sort(&mut self) {
         self.container.sort();
     }
 
-    /// 更新 unique ID 索引。
+/// Updates the unique ID index.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     pub fn update_unique_id(
         &mut self,
         resource: &Rc<RefCell<Resource>>,
@@ -500,39 +500,39 @@ impl ResourceContainer {
             .update_unique_id(resource, old_unique_id, new_unique_id);
     }
 
-    /// 为所有 unique ID 冲突的资源重新分配 unique ID。
+/// Reassigns unique IDs for all resources with unique ID clashes.
     ///
-    /// 对应 Java: `ProjectEntityContainer.fixUniqueIdClashes()`
+    /// Corresponds to Java: `ProjectEntityContainer.fixUniqueIdClashes()`
     pub fn fix_unique_id_clashes(&mut self) {
         self.container.fix_unique_id_clashes();
     }
 
-    /// 让所有资源的 ID 连续排列。
+/// Makes all resource IDs contiguous.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.renumberIDs()`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.renumberIDs()`
     pub fn renumber_ids(&mut self) {
         self.container.renumber_ids();
     }
 
-    /// 访问内部的基类容器。
+/// Accesses the internal base class container.
     ///
-    /// 对应 Java 的 `extends ProjectEntityWithIDContainer<Resource>` 关系；Rust 侧用组合表达，
-    /// 因此需要显式暴露基类实例。
+/// Corresponds to Java's `extends ProjectEntityWithIDContainer<Resource>` relationship; the Rust side expresses it via composition,
+/// so the base class instance must be exposed explicitly.
     pub fn container(&self) -> &ProjectEntityWithIDContainer<Resource> {
         &self.container
     }
 }
 
 impl Default for ResourceContainer {
-    /// 对应 Java: 显式声明的 `ResourceContainer(ProjectContext)`，
-    /// Rust 侧等价于 [`ResourceContainer::new`]。
+/// Corresponds to Java: the explicitly declared `ResourceContainer(ProjectContext)`,
+/// which on the Rust side is equivalent to [`ResourceContainer::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for ResourceContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出容器规模、子资源数与上下文接线情况。
+/// Java does not override `toString()`; the Rust side outputs the container size, child resource count and context wiring state.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResourceContainer")
             .field("container", &self.container)
@@ -542,14 +542,14 @@ impl Debug for ResourceContainer {
     }
 }
 
-/// 供 [`ResourceContainer`] 使用的序号生成器提供者（Rust 特有，见文件头说明）。
+/// Sequence generator provider used by [`ResourceContainer`] (Rust-specific, see the file header).
 ///
-/// 与 [`crate::project_context`] 内部的 `ContextSequenceProvider` 同构：优先转发给上下文，
-/// 上下文不可用（未接线或已被借用）时退化为自带序号，保证不 panic。
+/// Isomorphic to `ContextSequenceProvider` inside [`crate::project_context`]: it forwards to the context first,
+/// and degrades gracefully to its own sequence when the context is unavailable (not wired up or already borrowed), ensuring no panic.
 struct ResourceSequenceProvider {
-    /// 目标上下文（弱引用，避免 `Rc` 循环）。
+/// Target context (weak reference to avoid an `Rc` cycle).
     context: Weak<RefCell<ProjectContext>>,
-    /// 上下文不可用时的退化序号生成器。
+/// Fallback sequence generator used when the context is unavailable.
     fallback: HashMap<TypeId, Rc<ObjectSequence>>,
 }
 
@@ -561,7 +561,7 @@ impl ResourceSequenceProvider {
         }
     }
 
-    /// 接线目标上下文（只写入弱引用）。
+/// Wires up the target context (writes only the weak reference).
     fn set_context(&mut self, context: &Rc<RefCell<ProjectContext>>) {
         self.context = Rc::downgrade(context);
     }
@@ -587,7 +587,7 @@ impl UniqueIdObjectSequenceProvider for ResourceSequenceProvider {
 mod tests {
     use super::*;
 
-    /// 构造一个已接线上下文的容器。
+/// Constructs a container with the context already wired up.
     fn container() -> (Rc<RefCell<ProjectContext>>, ResourceContainer) {
         let context = ProjectContext::shared();
         let mut container = ResourceContainer::new();
@@ -625,23 +625,23 @@ mod tests {
         assert_eq!(container.len(), 1);
         assert_eq!(container.get_child_resources().len(), 1);
 
-        // unique ID / ID 索引都可查找
+// Both the unique ID and ID indexes can be looked up
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(unique_id).expect("unique ID 已索引"),
+            &container.get_by_unique_id(unique_id).expect("unique ID indexed"),
             &resource
         ));
         assert!(Rc::ptr_eq(
-            &container.get_by_id(id).expect("ID 已映射"),
+            &container.get_by_id(id).expect("ID mapped"),
             &resource
         ));
 
-        // addResource() 与 add() 等价
+// addResource() is equivalent to add()
         let second = container.add_resource();
         assert_eq!(container.len(), 2);
         assert_ne!(
             second.borrow().get_unique_id(),
             unique_id,
-            "自动编号不应重复"
+            "auto numbering should not repeat"
         );
     }
 
@@ -656,7 +656,7 @@ mod tests {
 
         assert_eq!(container.len(), 1);
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(9)).expect("已索引"),
+            &container.get_by_unique_id(Some(9)).expect("indexed"),
             &resource
         ));
         assert!(container.get_child_resources().is_empty());
@@ -673,7 +673,7 @@ mod tests {
         assert!(container.get_by_id(id).is_none());
         assert!(container.get_child_resources().is_empty());
 
-        // 再次移除返回 false
+// Removing again returns false
         assert!(!container.remove_resource(&resource));
     }
 
@@ -683,7 +683,7 @@ mod tests {
         container.add();
         container.add();
 
-        let removed = container.remove(0).expect("下标 0 存在");
+        let removed = container.remove(0).expect("index 0 exists");
         assert!(removed.borrow().get_id().is_some());
         assert_eq!(container.len(), 1);
         assert!(container.remove(5).is_none());
@@ -710,7 +710,7 @@ mod tests {
 
         container.update_structure();
 
-        // 顶层：parent 与 orphan（child 挂在 parent 下）
+// Top level: parent and orphan (child is attached under parent)
         let top_level = container.get_child_resources();
         assert_eq!(top_level.len(), 2);
         assert_eq!(parent.borrow().get_child_resources().len(), 1);
@@ -734,20 +734,20 @@ mod tests {
         container.add_resource_entry(Rc::clone(&first));
         container.add_resource_entry(Rc::clone(&second));
 
-        // 制造冲突：second 改用与 first 相同的 unique ID（同时把序号推进到 2）
+// Create a clash: second switches to the same unique ID as first (advancing the sequence to 2 at the same time)
         container.update_unique_id(&second, Some(2), Some(1));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已索引"),
+            &container.get_by_unique_id(Some(1)).expect("indexed"),
             &second
         ));
 
         container.fix_unique_id_clashes();
 
-        // 冲突者被重新编号
+// The clashing resource is renumbered
         assert_eq!(second.borrow().get_unique_id(), Some(2));
         assert_eq!(first.borrow().get_unique_id(), Some(1));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(2)).expect("已索引"),
+            &container.get_by_unique_id(Some(2)).expect("indexed"),
             &second
         ));
     }
@@ -759,7 +759,7 @@ mod tests {
 
         container.map_id(7, Rc::clone(&resource));
         assert!(Rc::ptr_eq(
-            &container.get_by_id(Some(7)).expect("已映射"),
+            &container.get_by_id(Some(7)).expect("mapped"),
             &resource
         ));
 
@@ -795,7 +795,7 @@ mod tests {
         assert!(container.get_custom_fields().is_empty());
         assert!(container.get_field_type_by_alias("alias").is_none());
 
-        // 未接线上下文时仍可创建资源（使用退化序号生成器与 Java 默认自动编号）
+// Resources can still be created when the context is not wired up (using the fallback sequence generator and Java default automatic numbering)
         let resource = container.add();
         assert!(resource.borrow().get_unique_id().is_some());
         assert!(resource.borrow().get_id().is_some());
@@ -806,7 +806,7 @@ mod tests {
         let (_context, container) = container();
 
         assert!(container.get_context().is_some());
-        // 空的自定义字段容器
+// Empty custom field container
         assert!(container.get_custom_fields().is_empty());
         assert!(container.get_field_type_by_alias("missing").is_none());
     }

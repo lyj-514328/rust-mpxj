@@ -1,73 +1,73 @@
-//! 对应 Java: `org/mpxj/ViewType.java`
+//! Corresponds to Java: `org/mpxj/ViewType.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped / unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `TYPE_VALUES = EnumHelper.createTypeArray(ViewType.class, 1)` | [`ViewType::ALL`] + [`ViewType::get_instance`]（无反射） |
+//! | `TYPE_VALUES = EnumHelper.createTypeArray(ViewType.class, 1)` | [`ViewType::ALL`] + [`ViewType::get_instance`] (no reflection) |
 //! | `public static ViewType getInstance(int type)` | [`ViewType::get_instance`] |
-//! | `public static ViewType getInstance(Number type)` | [`ViewType::get_instance_optional`]（`null` → `-1` → 回落到 `UNKNOWN`） |
+//! | `public static ViewType getInstance(Number type)` | [`ViewType::get_instance_optional`] (`null` → `-1` → falls back to `UNKNOWN`) |
 //! | `@Override public int getValue()` | [`MpxjEnum::value`] |
 //! | `public String getName()` | [`ViewType::get_name`] |
 //! | `@Override public String toString()` | [`Display`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类仅用到反射建表
-//! （已改为 `match`，见上）。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class only uses reflection to build the table
+//! (now changed to `match`, see above).
 //!
-//! # 与 Java 的差异：反射建表的等价表达
+//! # Differences from Java: equivalent expression of the reflection-built table
 //!
-//! Java 侧 `TYPE_VALUES` 的长度为 `常量个数(15) + 1 = 16`，按下标 `getValue()` 填充。
-//! 由于不存在 `getValue() == 9` 的常量，`TYPE_VALUES[9]` 为 `null`，Java 会回落到
-//! `UNKNOWN`；下标越界（负数或 ≥ 16）同样先回落到 `UNKNOWN.getValue()`（即 0）。
-//! Rust 侧用 `match` 精确复刻这两条回落路径。
+//! In Java the length of `TYPE_VALUES` is `number of constants(15) + 1 = 16`, filled by the index `getValue()`.
+//! Since no constant has `getValue() == 9`, `TYPE_VALUES[9]` is `null`, and Java falls back to
+//! `UNKNOWN`; an out-of-range index (negative or ≥ 16) likewise first falls back to `UNKNOWN.getValue()` (i.e. 0).
+//! The Rust side uses `match` to replicate these two fallback paths exactly.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 视图类型。
+/// View type.
 ///
-/// 对应 Java: `public enum ViewType implements MpxjEnum`
+/// Corresponds to Java: `public enum ViewType implements MpxjEnum`
 ///
-/// 常量声明顺序与 `getValue()` 取值与 Java 完全一致。
+/// The constant declaration order and `getValue()` values are fully consistent with Java.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ViewType {
-    /// 对应 Java: `UNKNOWN(0, "UNKNOWN")`
+    /// Corresponds to Java: `UNKNOWN(0, "UNKNOWN")`
     Unknown = 0,
-    /// 对应 Java: `GANTT_CHART(1, "GANTT_CHART")`
+    /// Corresponds to Java: `GANTT_CHART(1, "GANTT_CHART")`
     GanttChart = 1,
-    /// 对应 Java: `NETWORK_DIAGRAM(2, "NETWORK_DIAGRAM")`
+    /// Corresponds to Java: `NETWORK_DIAGRAM(2, "NETWORK_DIAGRAM")`
     NetworkDiagram = 2,
-    /// 对应 Java: `RELATIONSHIP_DIAGRAM(3, "RELATIONSHIP_DIAGRAM")`
+    /// Corresponds to Java: `RELATIONSHIP_DIAGRAM(3, "RELATIONSHIP_DIAGRAM")`
     RelationshipDiagram = 3,
-    /// 对应 Java: `TASK_FORM(4, "TASK_FORM")`
+    /// Corresponds to Java: `TASK_FORM(4, "TASK_FORM")`
     TaskForm = 4,
-    /// 对应 Java: `TASK_SHEET(5, "TASK_SHEET")`
+    /// Corresponds to Java: `TASK_SHEET(5, "TASK_SHEET")`
     TaskSheet = 5,
-    /// 对应 Java: `RESOURCE_FORM(6, "RESOURCE_FORM")`
+    /// Corresponds to Java: `RESOURCE_FORM(6, "RESOURCE_FORM")`
     ResourceForm = 6,
-    /// 对应 Java: `RESOURCE_SHEET(7, "RESOURCE_SHEET")`
+    /// Corresponds to Java: `RESOURCE_SHEET(7, "RESOURCE_SHEET")`
     ResourceSheet = 7,
-    /// 对应 Java: `RESOURCE_GRAPH(8, "RESOURCE_GRAPH")`
+    /// Corresponds to Java: `RESOURCE_GRAPH(8, "RESOURCE_GRAPH")`
     ResourceGraph = 8,
-    /// 对应 Java: `TASK_DETAILS_FORM(10, "TASK_DETAILS_FORM")`
+    /// Corresponds to Java: `TASK_DETAILS_FORM(10, "TASK_DETAILS_FORM")`
     TaskDetailsForm = 10,
-    /// 对应 Java: `TASK_NAME_FORM(11, "TASK_NAME_FORM")`
+    /// Corresponds to Java: `TASK_NAME_FORM(11, "TASK_NAME_FORM")`
     TaskNameForm = 11,
-    /// 对应 Java: `RESOURCE_NAME_FORM(12, "RESOURCE_NAME_FORM")`
+    /// Corresponds to Java: `RESOURCE_NAME_FORM(12, "RESOURCE_NAME_FORM")`
     ResourceNameForm = 12,
-    /// 对应 Java: `CALENDAR(13, "CALENDAR")`
+    /// Corresponds to Java: `CALENDAR(13, "CALENDAR")`
     Calendar = 13,
-    /// 对应 Java: `TASK_USAGE(14, "TASK_USAGE")`
+    /// Corresponds to Java: `TASK_USAGE(14, "TASK_USAGE")`
     TaskUsage = 14,
-    /// 对应 Java: `RESOURCE_USAGE(15, "RESOURCE_USAGE")`
+    /// Corresponds to Java: `RESOURCE_USAGE(15, "RESOURCE_USAGE")`
     ResourceUsage = 15,
 }
 
 impl ViewType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declarations.
     ///
-    /// 对应 Java: `values()`
+    /// Corresponds to Java: `values()`
     pub const ALL: [ViewType; 15] = [
         ViewType::Unknown,
         ViewType::GanttChart,
@@ -86,13 +86,13 @@ impl ViewType {
         ViewType::ResourceUsage,
     ];
 
-    /// Java 侧 `TYPE_VALUES` 数组长度：`EnumHelper.createTypeArray(ViewType.class, 1)`
-    /// 生成 `常量个数(15) + 1 = 16` 个槽位。
+/// The length of the `TYPE_VALUES` array in Java: `EnumHelper.createTypeArray(ViewType.class, 1)`
+/// generates `number of constants(15) + 1 = 16` slots.
     const TYPE_VALUES_LEN: i32 = 16;
 
-    /// 根据 int 值取枚举实例，越界或该下标没有常量时回落到 `UNKNOWN`。
+/// Get an enum instance from an int value, falling back to `UNKNOWN` when out of range or when there is no constant at that index.
     ///
-    /// 对应 Java: `public static ViewType getInstance(int type)`
+    /// Corresponds to Java: `public static ViewType getInstance(int type)`
     pub fn get_instance(value: i32) -> ViewType {
         if !(0..Self::TYPE_VALUES_LEN).contains(&value) {
             return ViewType::Unknown;
@@ -108,7 +108,7 @@ impl ViewType {
             6 => ViewType::ResourceForm,
             7 => ViewType::ResourceSheet,
             8 => ViewType::ResourceGraph,
-            // 对应 Java 中 TYPE_VALUES[9] == null
+// Corresponds to TYPE_VALUES[9] == null in Java
             10 => ViewType::TaskDetailsForm,
             11 => ViewType::TaskNameForm,
             12 => ViewType::ResourceNameForm,
@@ -119,16 +119,16 @@ impl ViewType {
         }
     }
 
-    /// 根据可空的 int 值取枚举实例（`null` 等价于 `-1`，回落到 `UNKNOWN`）。
+/// Get an enum instance from a nullable int value (`null` is equivalent to `-1`, falling back to `UNKNOWN`).
     ///
-    /// 对应 Java: `public static ViewType getInstance(Number type)`
+    /// Corresponds to Java: `public static ViewType getInstance(Number type)`
     pub fn get_instance_optional(value: Option<i32>) -> ViewType {
         ViewType::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取该枚举的名称。
+/// Get the name of this enum.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             ViewType::Unknown => "UNKNOWN",
@@ -151,18 +151,18 @@ impl ViewType {
 }
 
 impl MpxjEnum for ViewType {
-    /// 返回该视图类型的 int 表示。
+/// Return the int representation of this view type.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for ViewType {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `m_name`（与常量名相同）。
+/// Java returns `m_name` (the same as the constant name).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn missing_table_entry_falls_back_to_unknown() {
-        // Java 侧 TYPE_VALUES[9] == null
+// TYPE_VALUES[9] == null in Java
         assert_eq!(ViewType::get_instance(9), ViewType::Unknown);
     }
 

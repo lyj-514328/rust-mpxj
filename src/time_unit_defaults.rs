@@ -1,59 +1,59 @@
-//! 对应 Java: `org/mpxj/TimeUnitDefaults.java`
+//! Corresponds to Java: `org/mpxj/TimeUnitDefaults.java`
 
 use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
 
-/// 每天分钟数默认值。
+/// Default minutes per day.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_MINUTES_PER_DAY = Integer.valueOf(480);`
+/// Corresponds to Java: `private static final Integer DEFAULT_MINUTES_PER_DAY = Integer.valueOf(480);`
 const DEFAULT_MINUTES_PER_DAY: i32 = 480;
 
-/// 每周天数默认值。
+/// Default days per week.
 ///
-/// 对应 Java: `private static final int DEFAULT_DAYS_PER_WEEK = 5;`
+/// Corresponds to Java: `private static final int DEFAULT_DAYS_PER_WEEK = 5;`
 const DEFAULT_DAYS_PER_WEEK: i32 = 5;
 
-/// 每月天数默认值。
+/// Default days per month.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_DAYS_PER_MONTH = Integer.valueOf(20);`
+/// Corresponds to Java: `private static final Integer DEFAULT_DAYS_PER_MONTH = Integer.valueOf(20);`
 const DEFAULT_DAYS_PER_MONTH: i32 = 20;
 
-/// 项目上下文中时长单位相关的默认值。
+/// Duration-unit related defaults in the project context.
 ///
-/// 对应 Java: `public class TimeUnitDefaults implements TimeUnitDefaultsContainer`
+/// Corresponds to Java: `public class TimeUnitDefaults implements TimeUnitDefaultsContainer`
 ///
-/// 移植说明：Java 侧在 getter 中把推导结果缓存回字段（`m_minutesPerDay` 等）；
-/// [`TimeUnitDefaultsContainer`] 的 Rust 方法接收 `&self`，因此 Rust 侧改为每次按字段
-/// 推导（`None` 时回落到默认值），不写回字段，返回值与 Java 完全一致。
+/// Porting note: Java caches the derived result back into the field in the getter (`m_minutesPerDay` etc.);
+/// the Rust methods of [`TimeUnitDefaultsContainer`] take `&self`, so the Rust side instead derives from the fields each time
+/// (falling back to the default value when `None`) without writing back to the fields; the return values are fully consistent with Java.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 #[derive(Debug, Clone)]
 pub struct TimeUnitDefaults {
-    /// 每天分钟数。
+/// Minutes per day.
     ///
-    /// 对应 Java: `private Integer m_minutesPerDay;`
+    /// Corresponds to Java: `private Integer m_minutesPerDay;`
     m_minutes_per_day: Option<i32>,
-    /// 每周分钟数。
+/// Minutes per week.
     ///
-    /// 对应 Java: `private Integer m_minutesPerWeek;`
+    /// Corresponds to Java: `private Integer m_minutesPerWeek;`
     m_minutes_per_week: Option<i32>,
-    /// 每月分钟数。
+/// Minutes per month.
     ///
-    /// 对应 Java: `private Integer m_minutesPerMonth;`
+    /// Corresponds to Java: `private Integer m_minutesPerMonth;`
     m_minutes_per_month: Option<i32>,
-    /// 每年分钟数。
+/// Minutes per year.
     ///
-    /// 对应 Java: `private Integer m_minutesPerYear;`
+    /// Corresponds to Java: `private Integer m_minutesPerYear;`
     m_minutes_per_year: Option<i32>,
-    /// 每月天数。
+/// Days per month.
     ///
-    /// 对应 Java: `private Integer m_daysPerMonth = DEFAULT_DAYS_PER_MONTH;`
+    /// Corresponds to Java: `private Integer m_daysPerMonth = DEFAULT_DAYS_PER_MONTH;`
     m_days_per_month: Option<i32>,
 }
 
 impl TimeUnitDefaults {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 默认构造方法（`m_daysPerMonth` 初始化为 `DEFAULT_DAYS_PER_MONTH`）。
+/// Corresponds to Java: default constructor (`m_daysPerMonth` initialized to `DEFAULT_DAYS_PER_MONTH`).
     pub fn new() -> Self {
         Self {
             m_minutes_per_day: None,
@@ -64,37 +64,37 @@ impl TimeUnitDefaults {
         }
     }
 
-    /// 设置每天分钟数。
+/// Set the minutes per day.
     ///
-    /// 对应 Java: `public void setMinutesPerDay(Integer minutesPerDay)`
+    /// Corresponds to Java: `public void setMinutesPerDay(Integer minutesPerDay)`
     pub fn set_minutes_per_day(&mut self, minutes_per_day: Option<i32>) {
         self.m_minutes_per_day = minutes_per_day;
     }
 
-    /// 设置每周分钟数。
+/// Set the minutes per week.
     ///
-    /// 对应 Java: `public void setMinutesPerWeek(Integer minutesPerWeek)`
+    /// Corresponds to Java: `public void setMinutesPerWeek(Integer minutesPerWeek)`
     pub fn set_minutes_per_week(&mut self, minutes_per_week: Option<i32>) {
         self.m_minutes_per_week = minutes_per_week;
     }
 
-    /// 设置每月分钟数。
+/// Set the minutes per month.
     ///
-    /// 对应 Java: `public void setMinutesPerMonth(Integer minutesPerMonth)`
+    /// Corresponds to Java: `public void setMinutesPerMonth(Integer minutesPerMonth)`
     pub fn set_minutes_per_month(&mut self, minutes_per_month: Option<i32>) {
         self.m_minutes_per_month = minutes_per_month;
     }
 
-    /// 设置每年分钟数。
+/// Set the minutes per year.
     ///
-    /// 对应 Java: `public void setMinutesPerYear(Integer minutesPerYear)`
+    /// Corresponds to Java: `public void setMinutesPerYear(Integer minutesPerYear)`
     pub fn set_minutes_per_year(&mut self, minutes_per_year: Option<i32>) {
         self.m_minutes_per_year = minutes_per_year;
     }
 
-    /// 设置每月天数。
+/// Set the days per month.
     ///
-    /// 对应 Java: `public void setDaysPerMonth(Integer daysPerMonth)`
+    /// Corresponds to Java: `public void setDaysPerMonth(Integer daysPerMonth)`
     pub fn set_days_per_month(&mut self, days_per_month: Option<i32>) {
         self.m_days_per_month = days_per_month;
     }
@@ -107,33 +107,33 @@ impl Default for TimeUnitDefaults {
 }
 
 impl TimeUnitDefaultsContainer for TimeUnitDefaults {
-    /// 取每天分钟数，未设置时返回默认值 480。
+/// Get the minutes per day, returning the default value 480 when unset.
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerDay()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerDay()`
     fn get_minutes_per_day(&self) -> Option<i32> {
         Some(self.m_minutes_per_day.unwrap_or(DEFAULT_MINUTES_PER_DAY))
     }
 
-    /// 取每周分钟数，未设置时按「每周 5 天 × 每天分钟数」推导。
+/// Get the minutes per week, deriving it as "5 days per week × minutes per day" when unset.
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerWeek()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerWeek()`
     fn get_minutes_per_week(&self) -> Option<i32> {
         self.m_minutes_per_week
             .or_else(|| Some(DEFAULT_DAYS_PER_WEEK * self.get_minutes_per_day().unwrap_or(0)))
     }
 
-    /// 取每月分钟数，未设置时按「每天分钟数 × 每月天数」推导。
+/// Get the minutes per month, deriving it as "minutes per day × days per month" when unset.
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerMonth()`
     fn get_minutes_per_month(&self) -> Option<i32> {
         self.m_minutes_per_month.or_else(|| {
             Some(self.get_minutes_per_day().unwrap_or(0) * self.get_days_per_month().unwrap_or(0))
         })
     }
 
-    /// 取每年分钟数，未设置时按「每天分钟数 × 每月天数 × 12」推导。
+/// Get the minutes per year, deriving it as "minutes per day × days per month × 12" when unset.
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerYear()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerYear()`
     fn get_minutes_per_year(&self) -> Option<i32> {
         self.m_minutes_per_year.or_else(|| {
             Some(
@@ -142,9 +142,9 @@ impl TimeUnitDefaultsContainer for TimeUnitDefaults {
         })
     }
 
-    /// 取每月天数，未设置时返回 `None`（Java 侧 `null`）。
+/// Get the days per month, returning `None` when unset (Java returns `null`).
     ///
-    /// 对应 Java: `@Override public Integer getDaysPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getDaysPerMonth()`
     fn get_days_per_month(&self) -> Option<i32> {
         self.m_days_per_month
     }
@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(defaults.get_minutes_per_month(), Some(12_000));
         assert_eq!(defaults.get_minutes_per_year(), Some(144_000));
 
-        // Java: setDaysPerMonth(null) 时 getMinutesPerMonth 用 0 参与运算
+// Java: when setDaysPerMonth(null), getMinutesPerMonth uses 0 in the calculation
         let mut defaults = TimeUnitDefaults::new();
         defaults.set_days_per_month(None);
         assert_eq!(defaults.get_days_per_month(), None);
@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(defaults.get_days_per_month(), Some(20));
     }
 
-    /// 以 trait 对象使用，验证 `TimeUnitDefaultsContainer` 实现可用。
+/// Use it as a trait object to verify that the `TimeUnitDefaultsContainer` implementation is usable.
     #[test]
     fn usable_as_trait_object() {
         let defaults = TimeUnitDefaults::new();

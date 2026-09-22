@@ -1,107 +1,107 @@
-//! 对应 Java: `org/mpxj/ProjectDateFormat.java`
+//! Corresponds to Java: `org/mpxj/ProjectDateFormat.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 项目日期格式的枚举。
+/// Project date format enum.
 ///
-/// 对应 Java: `public enum ProjectDateFormat implements MpxjEnum`
+/// Corresponds to Java: `public enum ProjectDateFormat implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`ProjectDateFormat::ALL`] 加
-/// [`ProjectDateFormat::get_instance`] 的 `match`。
+/// The Java side uses `EnumHelper.createTypeArray` reflection to generate the int → enum array;
+/// Rust does not use reflection; instead it uses [`ProjectDateFormat::ALL`] plus
+/// the `match` in [`ProjectDateFormat::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ProjectDateFormat {
-    /// 形如 25/12/98 12:56。
+/// e.g. 25/12/98 12:56.
     ///
-    /// 对应 Java: `DD_MM_YY_HH_MM(0)`
+    /// Corresponds to Java: `DD_MM_YY_HH_MM(0)`
     DdMmYyHhMm = 0,
-    /// 形如 25/05/98。
+/// e.g. 25/05/98.
     ///
-    /// 对应 Java: `DD_MM_YY(1)`
+    /// Corresponds to Java: `DD_MM_YY(1)`
     DdMmYy = 1,
-    /// 形如 13 December 2002 12:56。
+/// e.g. 13 December 2002 12:56.
     ///
-    /// 对应 Java: `DD_MMMMM_YYYY_HH_MM(2)`
+    /// Corresponds to Java: `DD_MMMMM_YYYY_HH_MM(2)`
     DdMmmmmYyyyHhMm = 2,
-    /// 形如 13 December 2002。
+/// e.g. 13 December 2002.
     ///
-    /// 对应 Java: `DD_MMMMM_YYYY(3)`
+    /// Corresponds to Java: `DD_MMMMM_YYYY(3)`
     DdMmmmmYyyy = 3,
-    /// 形如 24 Nov 12:56。
+/// e.g. 24 Nov 12:56.
     ///
-    /// 对应 Java: `DD_MMM_HH_MM(4)`
+    /// Corresponds to Java: `DD_MMM_HH_MM(4)`
     DdMmmHhMm = 4,
-    /// 形如 25 Aug '98。
+/// e.g. 25 Aug '98.
     ///
-    /// 对应 Java: `DD_MMM_YY(5)`
+    /// Corresponds to Java: `DD_MMM_YY(5)`
     DdMmmYy = 5,
-    /// 形如 25 September。
+/// e.g. 25 September.
     ///
-    /// 对应 Java: `DD_MMMMM(6)`
+    /// Corresponds to Java: `DD_MMMMM(6)`
     DdMmmmm = 6,
-    /// 形如 25 Aug。
+/// e.g. 25 Aug.
     ///
-    /// 对应 Java: `DD_MMM(7)`
+    /// Corresponds to Java: `DD_MMM(7)`
     DdMmm = 7,
-    /// 形如 Thu 25/05/98 12:56。
+/// e.g. Thu 25/05/98 12:56.
     ///
-    /// 对应 Java: `EEE_DD_MM_YY_HH_MM(8)`
+    /// Corresponds to Java: `EEE_DD_MM_YY_HH_MM(8)`
     EeeDdMmYyHhMm = 8,
-    /// 形如 Wed 25/05/98。
+/// e.g. Wed 25/05/98.
     ///
-    /// 对应 Java: `EEE_DD_MM_YY(9)`
+    /// Corresponds to Java: `EEE_DD_MM_YY(9)`
     EeeDdMmYy = 9,
-    /// 形如 Wed 25 Mar '98。
+/// e.g. Wed 25 Mar '98.
     ///
-    /// 对应 Java: `EEE_DD_MMM_YY(10)`
+    /// Corresponds to Java: `EEE_DD_MMM_YY(10)`
     EeeDdMmmYy = 10,
-    /// 形如 Wed 12:56。
+/// e.g. Wed 12:56.
     ///
-    /// 对应 Java: `EEE_HH_MM(11)`
+    /// Corresponds to Java: `EEE_HH_MM(11)`
     EeeHhMm = 11,
-    /// 形如 25/5。
+/// e.g. 25/5.
     ///
-    /// 对应 Java: `DD_MM(12)`
+    /// Corresponds to Java: `DD_MM(12)`
     DdMm = 12,
-    /// 形如 23。
+/// e.g. 23.
     ///
-    /// 对应 Java: `DD(13)`
+    /// Corresponds to Java: `DD(13)`
     Dd = 13,
-    /// 形如 12:56。
+/// e.g. 12:56.
     ///
-    /// 对应 Java: `HH_MM(14)`
+    /// Corresponds to Java: `HH_MM(14)`
     HhMm = 14,
-    /// 形如 Wed 23 Mar。
+/// e.g. Wed 23 Mar.
     ///
-    /// 对应 Java: `EEE_DD_MMM(15)`
+    /// Corresponds to Java: `EEE_DD_MMM(15)`
     EeeDdMmm = 15,
-    /// 形如 Wed 25/5。
+/// e.g. Wed 25/5.
     ///
-    /// 对应 Java: `EEE_DD_MM(16)`
+    /// Corresponds to Java: `EEE_DD_MM(16)`
     EeeDdMm = 16,
-    /// 形如 Wed 05。
+/// e.g. Wed 05.
     ///
-    /// 对应 Java: `EEE_DD(17)`
+    /// Corresponds to Java: `EEE_DD(17)`
     EeeDd = 17,
-    /// 形如 5/W25。
+/// e.g. 5/W25.
     ///
-    /// 对应 Java: `DD_WWW(18)`
+    /// Corresponds to Java: `DD_WWW(18)`
     DdWww = 18,
-    /// 形如 5/W25/98 12:56。
+/// e.g. 5/W25/98 12:56.
     ///
-    /// 对应 Java: `DD_WWW_YY_HH_MM(19)`
+    /// Corresponds to Java: `DD_WWW_YY_HH_MM(19)`
     DdWwwYyHhMm = 19,
-    /// 形如 25/05/1998。
+/// e.g. 25/05/1998.
     ///
-    /// 对应 Java: `DD_MM_YYYY(20)`
+    /// Corresponds to Java: `DD_MM_YYYY(20)`
     DdMmYyyy = 20,
 }
 
 impl ProjectDateFormat {
-    /// 全部取值，按 int 值升序排列。
+/// All values, sorted ascending by int value.
     ///
-    /// 对应 Java: `private static final ProjectDateFormat[] TYPE_VALUES`（不含反射部分）。
+/// Corresponds to Java: `private static final ProjectDateFormat[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [ProjectDateFormat; 21] = [
         ProjectDateFormat::DdMmYyHhMm,
         ProjectDateFormat::DdMmYy,
@@ -126,9 +126,9 @@ impl ProjectDateFormat {
         ProjectDateFormat::DdMmYyyy,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `DD_MM_YYYY`。
+/// Gets the enum instance by int value; falls back to `DD_MM_YYYY` when out of bounds.
     ///
-    /// 对应 Java: `public static ProjectDateFormat getInstance(int type)`
+    /// Corresponds to Java: `public static ProjectDateFormat getInstance(int type)`
     pub fn get_instance(value: i32) -> ProjectDateFormat {
         match value {
             0 => ProjectDateFormat::DdMmYyHhMm,
@@ -157,27 +157,27 @@ impl ProjectDateFormat {
         }
     }
 
-    /// 对应 Java: `public static ProjectDateFormat getInstance(Number type)`
+    /// Corresponds to Java: `public static ProjectDateFormat getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `DD_MM_YYYY`。
+/// On the Java side `null` goes through `getInstance(-1)` and finally falls back to `DD_MM_YYYY`.
     pub fn get_instance_optional(value: Option<i32>) -> ProjectDateFormat {
         ProjectDateFormat::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for ProjectDateFormat {
-    /// 返回该枚举关联的 int 值。
+/// Returns the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for ProjectDateFormat {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `Integer.toString(m_value)`，即 int 值的十进制字符串。
+/// Java returns `Integer.toString(m_value)`, i.e. the decimal string of the int value.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", *self as i32)
     }

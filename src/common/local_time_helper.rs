@@ -1,37 +1,37 @@
-//! 对应 Java: `org/mpxj/common/LocalTimeHelper.java`
+//! Corresponds to Java: `org/mpxj/common/LocalTimeHelper.java`
 
 use std::cmp::Ordering;
 
 use chrono::{NaiveDateTime, NaiveTime, TimeDelta, Timelike};
 
-/// 一天的毫秒数。
+/// Number of milliseconds in a day.
 ///
-/// 对应 Java: `private static final long MS_PER_DAY`
+/// Corresponds to Java: `private static final long MS_PER_DAY`
 const MS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
-/// 处理 `LocalTime`（Rust 侧为 [`NaiveTime`]）的工具方法。
+/// Utility methods for handling `LocalTime` (represented by [`NaiveTime`] on the Rust side).
 ///
-/// 对应 Java: `public final class LocalTimeHelper`
+/// Corresponds to Java: `public final class LocalTimeHelper`
 ///
-/// 移植说明：
-/// - Java 在 `date` 为 null 而 `time` 非 null 时会抛 `NullPointerException`（见 `setTime` /
-///   `setEndTime`），Rust 侧统一返回 `None`。
-/// - `Date.plusDays(1)` 在 Rust 侧用 `checked_add_signed`，不会 panic。
+/// Porting notes:
+/// - Java throws `NullPointerException` when `date` is null and `time` is non-null (see
+///   `setTime` / `setEndTime`); the Rust side uniformly returns `None`.
+/// - `Date.plusDays(1)` uses `checked_add_signed` on the Rust side and never panics.
 ///
-/// 未移植的方法：无。
+/// Skipped Java methods: none.
 pub struct LocalTimeHelper;
 
 impl LocalTimeHelper {
-    /// 对应 Java: `public static LocalTime getLocalTime(LocalDateTime date)`
+    /// Corresponds to Java: `public static LocalTime getLocalTime(LocalDateTime date)`
     ///
-    /// 对应 `date.toLocalTime()`，null 返回 `None`。
+    /// Corresponds to `date.toLocalTime()`; null returns `None`.
     pub fn get_local_time(date: Option<NaiveDateTime>) -> Option<NaiveTime> {
         date.map(|date| date.time())
     }
 
-    /// 对应 Java: `public static int compare(LocalTime d1, LocalTime d2)`
+    /// Corresponds to Java: `public static int compare(LocalTime d1, LocalTime d2)`
     ///
-    /// 处理 null：两边都为 null 返回 0，仅左边为 null 返回 1，仅右边为 null 返回 -1。
+    /// Handles null: both null returns 0, only the left null returns 1, only the right null returns -1.
     pub fn compare(d1: Option<NaiveTime>, d2: Option<NaiveTime>) -> i32 {
         match (d1, d2) {
             (None, None) => 0,
@@ -45,9 +45,9 @@ impl LocalTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime setTime(LocalDateTime date, LocalTime time)`
+    /// Corresponds to Java: `public static LocalDateTime setTime(LocalDateTime date, LocalTime time)`
     ///
-    /// 用 `time` 替换 `date` 的时间部分；`time` 为 null 时原样返回 `date`。
+    /// Replaces the time part of `date` with `time`; when `time` is null, returns `date` unchanged.
     pub fn set_time(date: Option<NaiveDateTime>, time: Option<NaiveTime>) -> Option<NaiveDateTime> {
         match time {
             None => date,
@@ -55,9 +55,9 @@ impl LocalTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime setEndTime(LocalDateTime date, LocalTime time)`
+    /// Corresponds to Java: `public static LocalDateTime setEndTime(LocalDateTime date, LocalTime time)`
     ///
-    /// 同 [`LocalTimeHelper::set_time`]，但把午夜视为当天结束（即次日 00:00）。
+    /// Same as [`LocalTimeHelper::set_time`], but treats midnight as the end of the day (that is, 00:00 of the next day).
     pub fn set_end_time(
         date: Option<NaiveDateTime>,
         time: Option<NaiveTime>,
@@ -80,9 +80,9 @@ impl LocalTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static long getMillisecondsInRange(LocalTime rangeStart, LocalTime rangeEnd)`
+    /// Corresponds to Java: `public static long getMillisecondsInRange(LocalTime rangeStart, LocalTime rangeEnd)`
     ///
-    /// 计算两个时间点之间的毫秒数，处理 null（返回 0）；`rangeEnd` 为午夜时按跨天处理。
+    /// Computes the number of milliseconds between two time points, handling null (returns 0); when `rangeEnd` is midnight it is treated as crossing into the next day.
     pub fn get_milliseconds_in_range(
         range_start: Option<NaiveTime>,
         range_end: Option<NaiveTime>,

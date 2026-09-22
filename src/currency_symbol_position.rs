@@ -1,30 +1,30 @@
-//! 对应 Java: `org/mpxj/CurrencySymbolPosition.java`
+//! Corresponds to Java: `org/mpxj/CurrencySymbolPosition.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 货币符号相对于金额的位置。
+/// Position of the currency symbol relative to the amount.
 ///
-/// 对应 Java: `public enum CurrencySymbolPosition implements MpxjEnum`
+/// Corresponds to Java: `public enum CurrencySymbolPosition implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(CurrencySymbolPosition.class)` 生成查找表：
-/// 数组长度为 4，取值 0..3 恰好填满，因此 `getInstance` 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(CurrencySymbolPosition.class)` builds the lookup table:
+/// the array length is 4, and the values 0..3 fill it exactly, so `getInstance` never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CurrencySymbolPosition {
-    /// 对应 Java: `AFTER(0)`
+    /// Corresponds to Java: `AFTER(0)`
     After = 0,
-    /// 对应 Java: `BEFORE(1)`
+    /// Corresponds to Java: `BEFORE(1)`
     Before = 1,
-    /// 对应 Java: `AFTER_WITH_SPACE(2)`
+    /// Corresponds to Java: `AFTER_WITH_SPACE(2)`
     AfterWithSpace = 2,
-    /// 对应 Java: `BEFORE_WITH_SPACE(3)`
+    /// Corresponds to Java: `BEFORE_WITH_SPACE(3)`
     BeforeWithSpace = 3,
 }
 
 impl CurrencySymbolPosition {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final CurrencySymbolPosition[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final CurrencySymbolPosition[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [CurrencySymbolPosition; 4] = [
         CurrencySymbolPosition::After,
         CurrencySymbolPosition::Before,
@@ -32,11 +32,11 @@ impl CurrencySymbolPosition {
         CurrencySymbolPosition::BeforeWithSpace,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `BEFORE`。
+    /// Returns the enum instance for the given int value, falling back to `BEFORE` when out of bounds.
     ///
-    /// 对应 Java: `public static CurrencySymbolPosition getInstance(int value)`
+    /// Corresponds to Java: `public static CurrencySymbolPosition getInstance(int value)`
     ///
-    /// Java 侧没有 `getInstance(Number)` 重载，故不提供 `get_instance_optional`。
+    /// Java has no `getInstance(Number)` overload, so `get_instance_optional` is not provided.
     pub fn get_instance(value: i32) -> CurrencySymbolPosition {
         match value {
             0 => CurrencySymbolPosition::After,
@@ -50,14 +50,14 @@ impl CurrencySymbolPosition {
 }
 
 impl MpxjEnum for CurrencySymbolPosition {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for CurrencySymbolPosition {
-    /// 对应 Java: `@Override public String toString()`，即 `Integer.toString(m_value)`。
+    /// Corresponds to Java: `@Override public String toString()`, i.e. `Integer.toString(m_value)`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.value())
     }

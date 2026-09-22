@@ -1,22 +1,26 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_zh.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_zh.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_zh` 是中文资源包，只覆盖部分键；未覆盖的键由 `ResourceBundle`
-//! 从基类回落取值。Rust 侧把该语言实际覆盖的键写成模块级 `pub const`
-//! （标量常量按 Java `RESOURCE_DATA` 的键名命名，数组常量沿用 Java 的字段名），
-//! 并用 [`OVERRIDES`]（对应 `getContents()` 的返回值）汇总；未覆盖的键为 `None`，
-//! 由 `locale_data` 模块回落到英文默认资源。取值逻辑见 `locale_data` 模块头部说明；
-//! `ListResourceBundle` 的协议方法由常量表替代，不移植。
+//! Java's `LocaleData_zh` is a Chinese resource bundle covering only some keys; keys it
+//! does not cover fall back to the base class in `ResourceBundle`. On the Rust side the
+//! keys this locale actually covers are written as module-level `pub const` values (scalar
+//! constants are named after the Java `RESOURCE_DATA` keys, array constants keep the Java
+//! field names) and aggregated by [`OVERRIDES`] (corresponding to the return value of
+//! `getContents()`); uncovered keys are `None` and fall back to the English default
+//! resources in the `locale_data` module. See the header of the `locale_data` module for
+//! the lookup logic; the `ListResourceBundle` protocol methods are replaced by constant
+//! tables and are not ported.
 //!
-//! 本语言未覆盖的键：`DEFAULT_START_TIME`。
+//! Keys not covered by this locale: `DEFAULT_START_TIME`.
 //!
-//! 需注意的上游数据（均按 Java 源码原样照抄）：
-//! - `PRIORITY_TYPES_DATA` 在 Java 中仍是英文原名；
-//! - `TASK_NAMES_DATA` 下标 66 是 `"开时间差异"`（源码漏字）、下标 95 是 `"优先级'"`；
-//! - `RESOURCE_NAMES_DATA` 下标 24 与 26 的值同为 `"工时完成百分比"`。
+//! Upstream data to note (all copied verbatim from the Java source):
+//! - `PRIORITY_TYPES_DATA` still uses the English original names in Java;
+//! - `TASK_NAMES_DATA` index 66 is `"开时间差异"` (a typo in the source) and index 95 is
+//!   `"优先级'"`;
+//! - `RESOURCE_NAMES_DATA` indices 24 and 26 hold the same value `"工时完成百分比"`.
 //!
-//! 未移植的成员：无。
+//! Skipped Java members: none.
 
 use crate::code_page::CodePage;
 use crate::currency_symbol_position::CurrencySymbolPosition;
@@ -25,19 +29,19 @@ use crate::mpx::locale_data::LocaleOverrides;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 中文时间单位别名表。
+/// Chinese time unit alias table.
 ///
-/// 对应 Java: `LocaleData_zh.TIME_UNITS_ARRAY_DATA`（Java 字面量顺序：分钟、小时、天、
-/// 周、月、年、百分比、随后是各「已用」单位；下标 5 是年、下标 6 是百分比，
-/// 与 `TimeUnit` 的取值顺序不同，此处照抄 Java）。
+/// Corresponds to Java: `LocaleData_zh.TIME_UNITS_ARRAY_DATA` (Java literal order: minutes,
+/// hours, days, weeks, months, years, percent, followed by the elapsed units; index 5 is
+/// years and index 6 is percent, differing from the `TimeUnit` value order, copied from Java).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["m"],      // 0 TimeUnit.MINUTES
     &["h"],      // 1 TimeUnit.HOURS
     &["d"],      // 2 TimeUnit.DAYS
     &["w"],      // 3 TimeUnit.WEEKS
     &["mon"],    // 4 TimeUnit.MONTHS
-    &["y"],      // 5 TimeUnit.PERCENT（Java 字面量位置）
-    &["%"],      // 6 TimeUnit.YEARS（Java 字面量位置）
+    &["y"],      // 5 TimeUnit.PERCENT (Java literal position)
+    &["%"],      // 6 TimeUnit.YEARS (Java literal position)
     &["em"],     // 7 TimeUnit.ELAPSED_MINUTES
     &["eh"],     // 8 TimeUnit.ELAPSED_HOURS
     &["ed"],     // 9 TimeUnit.ELAPSED_DAYS
@@ -47,21 +51,21 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["e%"],     // 13 TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 中文资源键 `ACCRUE_TYPES` 的名表。
+/// Chinese resource key `ACCRUE_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_zh.ACCRUE_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_zh.ACCRUE_TYPES_DATA`.
 pub const ACCRUE_TYPES_DATA: [Option<&'static str>; 3] =
     [Some("开始"), Some("结束"), Some("按比例")];
 
-/// 中文资源键 `RELATION_TYPES` 的名表。
+/// Chinese resource key `RELATION_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_zh.RELATION_TYPES_DATA`（与英文默认值相同，但 Java 变体中显式覆盖）。
+/// Corresponds to Java: `LocaleData_zh.RELATION_TYPES_DATA` (same as the English default, but explicitly overridden in the Java variant).
 pub const RELATION_TYPES_DATA: [Option<&'static str>; 4] =
     [Some("FF"), Some("FS"), Some("SF"), Some("SS")];
 
-/// 中文资源键 `PRIORITY_TYPES` 的名表。
+/// Chinese resource key `PRIORITY_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_zh.PRIORITY_TYPES_DATA`（Java 源码中为英文原名）。
+/// Corresponds to Java: `LocaleData_zh.PRIORITY_TYPES_DATA` (English original names in the Java source).
 pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Lowest"),
     Some("Very Low"),
@@ -75,9 +79,9 @@ pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Do Not Level"),
 ];
 
-/// 中文资源键 `CONSTRAINT_TYPES` 的名表。
+/// Chinese resource key `CONSTRAINT_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_zh.CONSTRAINT_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_zh.CONSTRAINT_TYPES_DATA`.
 pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("越早越好"),
     Some("越晚越好"),
@@ -89,9 +93,9 @@ pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("不得晚于...完成"),
 ];
 
-/// 中文资源键 `TASK_NAMES` 的名表（下标与 MPX 任务字段号对应；行末注释为英文默认名）。
+/// Chinese resource key `TASK_NAMES` name table (indices correspond to MPX task field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_zh.TASK_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_zh.TASK_NAMES_DATA`.
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                              // -
     Some("名称"),                      // Name
@@ -159,7 +163,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("完成时间2"),                 // Finish2
     Some("开始时间3"),                 // Start3
     Some("完成时间3"),                 // Finish3
-    Some("开时间差异"),                // Start Variance（Java 源码漏字）
+    Some("开时间差异"),                // Start Variance (typo in the Java source)
     Some("完成时间差异"),              // Finish Variance
     Some("限制日期"),                  // Constraint Date
     None,                              // -
@@ -188,7 +192,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("延迟"),                      // Delay
     Some("可用时差"),                  // Free Slack
     Some("总时差"),                    // Total Slack
-    Some("优先级'"),                   // Priority（Java 源码含单引号）
+    Some("优先级'"),                   // Priority (the Java source contains a single quote)
     Some("子项目文件"),                // Subproject File
     Some("项目"),                      // Project
     Some("唯一标识号"),                // Unique ID
@@ -248,9 +252,9 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("重新开始"),                  // Resume
 ];
 
-/// 中文资源键 `RESOURCE_NAMES` 的名表（下标与 MPX 资源字段号对应；行末注释为英文默认名）。
+/// Chinese resource key `RESOURCE_NAMES` name table (indices correspond to MPX resource field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_zh.RESOURCE_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_zh.RESOURCE_NAMES_DATA`.
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                          // -
     Some("名称"),                  // Name
@@ -274,11 +278,11 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                          // -
     Some("工时"),                  // Work
     Some("比较基准工时"),          // Baseline Work
-    Some("剩余工时"),              // Remaining Work（Java 源码位置 22）
-    Some("加班工时"),              // Overtime Work（Java 源码位置 23）
-    Some("工时完成百分比"),        // % Work Complete（Java 源码位置 24）
-    Some("工时差异"),              // Work Variance（Java 源码位置 25）
-    Some("工时完成百分比"),        // % Work Complete（Java 源码位置 26，与下标 24 重复）
+    Some("剩余工时"),              // Remaining Work (Java source position 22)
+    Some("加班工时"),              // Overtime Work (Java source position 23)
+    Some("工时完成百分比"),        // % Work Complete (Java source position 24)
+    Some("工时差异"),              // Work Variance (Java source position 25)
+    Some("工时完成百分比"),        // % Work Complete (Java source position 26, duplicates index 24)
     None,                          // -
     None,                          // -
     None,                          // -
@@ -306,49 +310,49 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("链接域"),                // Linked Fields
 ];
 
-/// 对应资源键 `FILE_DELIMITER`
+/// Corresponds to resource key `FILE_DELIMITER`
 pub const FILE_DELIMITER: char = ';';
-/// 对应资源键 `PROGRAM_NAME`
+/// Corresponds to resource key `PROGRAM_NAME`
 pub const PROGRAM_NAME: &'static str = "Microsoft Project for Windows";
-/// 对应资源键 `FILE_VERSION`
+/// Corresponds to resource key `FILE_VERSION`
 pub const FILE_VERSION: &'static str = "4.0";
-/// 对应资源键 `CODE_PAGE`
+/// Corresponds to resource key `CODE_PAGE`
 pub const CODE_PAGE: CodePage = CodePage::Zh;
-/// 对应资源键 `CURRENCY_SYMBOL`（Java 源码为空字符串）
+/// Corresponds to resource key `CURRENCY_SYMBOL` (the Java source uses an empty string)
 pub const CURRENCY_SYMBOL: &'static str = "";
-/// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+/// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
 pub const CURRENCY_SYMBOL_POSITION: CurrencySymbolPosition = CurrencySymbolPosition::Before;
-/// 对应资源键 `CURRENCY_DIGITS`
+/// Corresponds to resource key `CURRENCY_DIGITS`
 pub const CURRENCY_DIGITS: i32 = 2;
-/// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR`
 pub const CURRENCY_THOUSANDS_SEPARATOR: char = '.';
-/// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
 pub const CURRENCY_DECIMAL_SEPARATOR: char = ',';
-/// 对应资源键 `DATE_ORDER`
+/// Corresponds to resource key `DATE_ORDER`
 pub const DATE_ORDER: DateOrder = DateOrder::Dmy;
-/// 对应资源键 `TIME_FORMAT`
+/// Corresponds to resource key `TIME_FORMAT`
 pub const TIME_FORMAT: ProjectTimeFormat = ProjectTimeFormat::TwentyFourHour;
-/// 对应资源键 `DATE_SEPARATOR`
+/// Corresponds to resource key `DATE_SEPARATOR`
 pub const DATE_SEPARATOR: char = '/';
-/// 对应资源键 `TIME_SEPARATOR`
+/// Corresponds to resource key `TIME_SEPARATOR`
 pub const TIME_SEPARATOR: char = ':';
-/// 对应资源键 `AM_TEXT`
+/// Corresponds to resource key `AM_TEXT`
 pub const AM_TEXT: &'static str = "";
-/// 对应资源键 `PM_TEXT`
+/// Corresponds to resource key `PM_TEXT`
 pub const PM_TEXT: &'static str = "";
-/// 对应资源键 `DATE_FORMAT`
+/// Corresponds to resource key `DATE_FORMAT`
 pub const DATE_FORMAT: ProjectDateFormat = ProjectDateFormat::DdMmYyyy;
-/// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+/// Corresponds to resource key `BAR_TEXT_DATE_FORMAT`
 pub const BAR_TEXT_DATE_FORMAT: i32 = 0;
-/// 对应资源键 `NA`
+/// Corresponds to resource key `NA`
 pub const NA: &'static str = "NA";
-/// 对应资源键 `YES`
+/// Corresponds to resource key `YES`
 pub const YES: &'static str = "是";
-/// 对应资源键 `NO`
+/// Corresponds to resource key `NO`
 pub const NO: &'static str = "否";
 
-/// 中文资源包的内容，对应 Java `LocaleData_zh.RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// Contents of the Chinese resource bundle, corresponding to Java `LocaleData_zh.RESOURCE_DATA`
+/// (i.e. the return value of `getContents()`).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides {
     file_delimiter: Some(FILE_DELIMITER),
     program_name: Some(PROGRAM_NAME),
@@ -408,7 +412,7 @@ mod tests {
 
         assert_eq!(RESOURCE_NAMES_DATA[11], Some("电子邮件地址"));
         assert_eq!(RESOURCE_NAMES_DATA[23], Some("加班工时"));
-        // Java: 下标 24 与 26 的值相同
+        // Java: indices 24 and 26 hold the same value
         assert_eq!(RESOURCE_NAMES_DATA[24], Some("工时完成百分比"));
         assert_eq!(RESOURCE_NAMES_DATA[26], Some("工时完成百分比"));
         assert_eq!(RESOURCE_NAMES_DATA[51], Some("链接域"));
@@ -430,7 +434,7 @@ mod tests {
         assert_eq!(LocaleData::get_string(MpxLocale::Zh, LocaleData::YES), Some("是"));
         assert_eq!(LocaleData::get_string(MpxLocale::Zh, LocaleData::NO), Some("否"));
         assert_eq!(LocaleData::get_string(MpxLocale::Zh, LocaleData::NA), Some("NA"));
-        // 未覆盖的键回落英文
+        // Uncovered keys fall back to English
         assert_eq!(
             LocaleData::get_integer(MpxLocale::Zh, LocaleData::DEFAULT_START_TIME),
             Some(480)

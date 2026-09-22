@@ -1,13 +1,13 @@
-//! 对应 Java: `org/mpxj/ProjectField.java`
+//! Corresponds to Java: `org/mpxj/ProjectField.java`
 
 use crate::data_type::DataType;
 use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 use crate::mpxj_enum::MpxjEnum;
 
-/// 表示项目属性（Project）的字段类型。
+/// A field on the project properties (Project).
 ///
-/// 对应 Java: `public enum ProjectField implements FieldType`
+/// Corresponds to Java: `public enum ProjectField implements FieldType`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProjectField {
     StartDate,
@@ -194,10 +194,10 @@ pub enum ProjectField {
     UpdateUnitsWhenCostsChangeOnResourceAssignments,
 }
 
-/// 该枚举的英文列名表，下标与 Java 的 `getValue()`（即变体声明顺序）一致。
+/// The English column name table for this enum; the index matches Java's `getValue()` (i.e. the variant declaration order).
 ///
-/// 数据来源：`LocaleData.java` 静态初始化块中的 `PROJECT_COLUMNS_ARRAY`；
-/// Java 中没有赋值的下标为 `null`，这里统一用空字符串表示。
+/// Source: `PROJECT_COLUMNS_ARRAY` in the static initializer block of `LocaleData.java`;
+/// indices not assigned in Java are `null`, and here they are uniformly represented by an empty string.
 const PROJECT_COLUMN_NAMES: [&str; ProjectField::MAX_VALUE] = [
     "Start Date",
     "Currency Symbol",
@@ -384,12 +384,12 @@ const PROJECT_COLUMN_NAMES: [&str; ProjectField::MAX_VALUE] = [
 ];
 
 impl ProjectField {
-    /// 变体数量。
+    /// Number of variants.
     ///
-    /// 对应 Java: `public static final int MAX_VALUE`
+    /// Corresponds to Java: `public static final int MAX_VALUE`
     pub const MAX_VALUE: usize = 182;
 
-    /// 全部变体，按 Java 声明顺序（即 `getValue()` 升序）排列。
+    /// All variants, in Java declaration order (i.e. ascending `getValue()`).
     pub const ALL: [ProjectField; ProjectField::MAX_VALUE] = [
         ProjectField::StartDate,
         ProjectField::CurrencySymbol,
@@ -575,9 +575,9 @@ impl ProjectField {
         ProjectField::UpdateUnitsWhenCostsChangeOnResourceAssignments,
     ];
 
-    /// 按 int 值取枚举实例，越界返回 `None`。
+    /// Returns the enum instance for the given int value, returning `None` when out of bounds.
     ///
-    /// 对应 Java: `public static ProjectField getInstance(int type)`
+    /// Corresponds to Java: `public static ProjectField getInstance(int type)`
     pub fn get_instance(value: i32) -> Option<ProjectField> {
         if value >= 0 && value < Self::MAX_VALUE as i32 {
             Some(Self::ALL[value as usize])
@@ -588,12 +588,12 @@ impl ProjectField {
 }
 
 impl FieldType for ProjectField {
-    /// 对应 Java: `FieldTypeClass getFieldTypeClass()`
+    /// Corresponds to Java: `FieldTypeClass getFieldTypeClass()`
     fn get_field_type_class(&self) -> FieldTypeClass {
         FieldTypeClass::Project
     }
 
-    /// 对应 Java 枚举自带的 `name()`
+    /// Corresponds to the `name()` provided by the Java enum
     fn name(&self) -> &'static str {
         match self {
             ProjectField::StartDate => "START_DATE",
@@ -781,12 +781,12 @@ impl FieldType for ProjectField {
         }
     }
 
-    /// 对应 Java: `String getName()`
+    /// Corresponds to Java: `String getName()`
     fn get_name(&self) -> &'static str {
         PROJECT_COLUMN_NAMES[*self as usize]
     }
 
-    /// 对应 Java: `DataType getDataType()`
+    /// Corresponds to Java: `DataType getDataType()`
     fn get_data_type(&self) -> DataType {
         match self {
             ProjectField::StartDate => DataType::Date,
@@ -974,21 +974,21 @@ impl FieldType for ProjectField {
         }
     }
 
-    /// 对应 Java: `FieldType getUnitsType()`
+    /// Corresponds to Java: `FieldType getUnitsType()`
     fn get_units_type(&self) -> Option<Self> {
         None
     }
 }
 
 impl MpxjEnum for ProjectField {
-    /// 对应 Java: `int getValue()`
+    /// Corresponds to Java: `int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl std::fmt::Display for ProjectField {
-    /// 对应 Java: `String toString()`
+    /// Corresponds to Java: `String toString()`
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.get_name())
     }

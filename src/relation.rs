@@ -1,14 +1,14 @@
-//! 对应 Java: `org/mpxj/Relation.java`
+//! Corresponds to Java: `org/mpxj/Relation.java`
 //!
-//! 两个任务之间的关系（前驱 → 后继）。
+//! A relationship between two tasks (predecessor → successor).
 //!
-//! # Java → Rust 方法对照
+//! # Java → Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
 //! | `private Relation(Builder builder)` | [`Builder::build`] |
 //! | `public RelationType getType()` | [`Relation::get_type`] |
-//! | `public Duration getLag()` | [`Relation::get_lag`]（返回 `Option`，见下） |
+//! | `public Duration getLag()` | [`Relation::get_lag`] (returns `Option`, see below) |
 //! | `public Task getPredecessorTask()` | [`Relation::get_predecessor_task`] |
 //! | `public Task getSuccessorTask()` | [`Relation::get_successor_task`] |
 //! | `@Override public Integer getUniqueID()` | [`Relation::get_unique_id`] |
@@ -16,46 +16,46 @@
 //! | `public String getNotes()` | [`Relation::get_notes`] |
 //! | `public boolean getDriving()` | [`Relation::get_driving`] |
 //! | `public void setDriving(boolean)` | [`Relation::set_driving`] |
-//! | `@Override public String toString()` | `Display`（另提供 `Debug`） |
-//! | `implements ProjectEntityWithMutableUniqueID` | 实现 [`ProjectEntityWithUniqueID`] + [`ProjectEntityWithMutableUniqueID`] |
-//! | `Builder.from(Relation)` | [`Builder::from`]（Rust 侧为关联函数） |
-//! | `Builder.uniqueID / predecessorTask / successorTask / type / lag / notes / driving / build` | 同名 snake_case（`type` → `r#type`，与 crate 内既有 `r#type` 写法一致） |
+//! | `@Override public String toString()` | `Display` (a `Debug` is also provided) |
+//! | `implements ProjectEntityWithMutableUniqueID` | implements [`ProjectEntityWithUniqueID`] + [`ProjectEntityWithMutableUniqueID`] |
+//! | `Builder.from(Relation)` | [`Builder::from`] (an associated function on the Rust side) |
+//! | `Builder.uniqueID / predecessorTask / successorTask / type / lag / notes / driving / build` | same names in snake_case (`type` → `r#type`, consistent with the existing `r#type` usage in this crate) |
 //!
-//! 说明：Java 的 `Relation.Builder` 是静态内部类，Rust 无法在类型内部声明类型，故与
-//! [`crate::shift::Builder`] 的做法一致，落为模块级类型 [`Builder`]（`crate::relation::Builder`）。
+//! Note: Java's `Relation.Builder` is a static nested class; Rust cannot declare a type inside a type, so, as with
+//! [`crate::shift::Builder`], it becomes a module-level type [`Builder`] (`crate::relation::Builder`).
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 构造方法中 `uniqueID == null` 时经 `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` 的自动 unique ID 分配 | **已接线**，但落点是 [`crate::relation_container::RelationContainer::add_predecessor`]（Java 在 `builder.build()` 里做）：Rust 的 [`Builder::build`] 返回裸值、且拿不到容器，无法在构造点完成「分配 + 向容器登记」；容器侧按 Java 的三步逐条实现，见该方法的注释。 |
-//! | `setUniqueID` 中的 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` | 未接线：`Relation` 没有自身的 `Rc` 弱引用（无 `self_ref`，[`crate::relation::Relation::set_unique_id`] 只有 `&mut self`），无法提供 `updateUniqueID` 的 `element` 参数。Rust 侧容器按 unique ID 线性查找，索引无需回调维护；序号生成器同步由容器自己的 `update_unique_id`（`add_predecessor` / `fix_unique_id_clashes` 会调用）完成。 |
-//! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
+//! | Automatic unique ID assignment in the constructor when `uniqueID == null`, via `m_successorTask.getParentFile()` → `ProjectConfig.getAutoRelationUniqueID()` / `getUniqueIdObjectSequence(Relation.class)` | **Wired up**, but the landing point is [`crate::relation_container::RelationContainer::add_predecessor`] (Java does it in `builder.build()`): Rust's [`Builder::build`] returns a bare value and cannot access the container, so it cannot perform "assign + register with the container" at the construction point; the container side implements Java's three steps one by one, see that method's comments. |
+//! | `m_successorTask.getParentFile().getRelations().updateUniqueID(this, m_uniqueID, uniqueID)` in `setUniqueID` | Not wired up: `Relation` has no weak reference to its own `Rc` (no `self_ref`; [`crate::relation::Relation::set_unique_id`] only has `&mut self`), so the `element` argument of `updateUniqueID` cannot be provided. The Rust container looks up linearly by unique ID, so the index needs no callback maintenance; synchronising the sequence generator is done by the container's own `update_unique_id` (called by `add_predecessor` / `fix_unique_id_clashes`). |
+//! | Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | This class does not use these mechanisms |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **源 / 目标任务引用用 `Weak`**：Java 的 `m_predecessorTask` / `m_successorTask` 是强引用；
-//!   Rust 侧 `Task` 与持有 `Rc<RefCell<Relation>>` 的 `RelationContainer` 之间若用强引用，
-//!   会形成「任务 → 关系 → 任务」的 `Rc` 循环导致内存泄漏，因此改用
-//!   `Weak<RefCell<Task>>`，由 [`Relation::get_predecessor_task`] /
-//!   [`Relation::get_successor_task`] 在使用时升级，任务已释放时返回 `None`（Java 无此情形）。
-//!   构造入口相应改为 [`Builder`]：任务以 `&Rc<RefCell<Task>>` 传入后降级为
-//!   `Weak`，与 [`crate::shift::Shift`] / [`crate::shift_period::ShiftPeriod`] 的既有做法一致。
-//!   `build()` 返回 `Relation` 值类型（`Relation` 自身不需要反向弱引用），由
-//!   `RelationContainer` 负责包一层 `Rc<RefCell<..>>`。
-//! - **`getLag()` 返回 `Option<Duration>`**：Java 的 `m_lag` 非空（构造方法把 `null` 替换为
-//!   0 天）。Rust 侧用 `None` 表示「未显式设置」，在 lag 判定上与 Java 的 0 天等价；
-//!   crate 内既有调用方 [`crate::cpm::microsoft_slack_calculator`] 也按 `Option<Duration>` 使用。
-//! - **值相等语义**：Java 未覆写 `equals` / `hashCode`（即引用相等），容器依赖该语义，
-//!   故 Rust 侧**不**派生 `PartialEq` / `Eq` / `Hash`。
-//! - **`toString()` 中的任务**：Java 拼接 `Task.toString()`（输出任务字段内容）；Rust 侧改为
-//!   输出任务的 unique ID（不依赖 `Task` 的 `Display` 实现）。
-//! - **`Builder.from`**：Java 是实例方法（`new Builder().from(relation)`），Rust 侧为关联函数；
-//!   Java 的 `from` 不复制 `m_driving`，Rust 侧保持一致。
-//! - **`Builder.type(null)`**：Java 的 `type(RelationType)` 允许传 `null`（构造时会回落到
-//!   `FINISH_START`，参与比较时不等）；Rust 的参数类型 `RelationType` 不可空，故没有对应写法。
-//! - **`Builder.lag(null)`**：Java 的 `lag(Duration)` 允许传 `null`（构造时替换为 0 天，
-//!   直接参与比较时会抛 `NullPointerException`）；Rust 侧 `lag(None)` 即「未设置」，等价于 0 天。
+//! - **Source / target task references use `Weak`**: Java's `m_predecessorTask` / `m_successorTask` are strong references;
+//! on the Rust side, if a strong reference were used between `Task` and the `RelationContainer` that holds the `Rc<RefCell<Relation>>`,
+//! it would form a "task → relation → task" `Rc` cycle causing a memory leak, so instead
+//! `Weak<RefCell<Task>>` is used, upgraded on use by [`Relation::get_predecessor_task`] /
+//! [`Relation::get_successor_task`], returning `None` when the task has been dropped (no such case in Java).
+//! The construction entry point is changed to [`Builder`] accordingly: the task is passed as `&Rc<RefCell<Task>>` and then downgraded to
+//! `Weak`, consistent with the existing approach in [`crate::shift::Shift`] / [`crate::shift_period::ShiftPeriod`].
+//! `build()` returns a `Relation` value type (`Relation` itself does not need a back-reference), and
+//! `RelationContainer` is responsible for wrapping it in `Rc<RefCell<..>>`.
+//! - **`getLag()` returns `Option<Duration>`**: Java's `m_lag` is non-null (the constructor replaces `null` with
+//! 0 days). The Rust side uses `None` to mean "not explicitly set", equivalent to Java's 0 days in lag comparisons;
+//! the existing caller in this crate, [`crate::cpm::microsoft_slack_calculator`], also uses it as `Option<Duration>`.
+//! - **Value equality semantics**: Java does not override `equals` / `hashCode` (i.e. reference equality), and the container relies on that semantics,
+//! so the Rust side does **not** derive `PartialEq` / `Eq` / `Hash`.
+//! - **Tasks in `toString()`**: Java concatenates `Task.toString()` (outputting the task's field contents); the Rust side instead
+//! outputs the task's unique ID (without relying on `Task`'s `Display` implementation).
+//! - **`Builder.from`**: Java uses an instance method (`new Builder().from(relation)`); the Rust side uses an associated function;
+//! Java's `from` does not copy `m_driving`; the Rust side stays consistent.
+//! - **`Builder.type(null)`**: Java's `type(RelationType)` allows passing `null` (during construction it falls back to
+//! `FINISH_START`, and is unequal when compared); Rust's parameter type `RelationType` is non-nullable, so there is no corresponding form.
+//! - **`Builder.lag(null)`**: Java's `lag(Duration)` allows passing `null` (replaced with 0 days during construction;
+//! comparing it directly throws `NullPointerException`); the Rust side's `lag(None)` means "not set", equivalent to 0 days.
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -69,118 +69,118 @@ use crate::relation_type::RelationType;
 use crate::task::Task;
 use crate::time_unit::TimeUnit;
 
-/// 两个任务之间的关系。
+/// A relationship between two tasks.
 ///
-/// 对应 Java: `public final class Relation implements ProjectEntityWithMutableUniqueID`
+/// Corresponds to Java: `public final class Relation implements ProjectEntityWithMutableUniqueID`
 pub struct Relation {
-    /// 对应 Java 字段 `private Integer m_uniqueID;`
+    /// Corresponds to Java field `private Integer m_uniqueID;`
     unique_id: Option<i32>,
-    /// 对应 Java 字段 `private boolean m_driving;`
+    /// Corresponds to Java field `private boolean m_driving;`
     driving: bool,
-    /// 对应 Java 字段 `private final Task m_predecessorTask;`（Rust 侧为弱引用，见文件头）
+/// Corresponds to Java field `private final Task m_predecessorTask;` (a weak reference on the Rust side, see the file header)
     predecessor_task: Weak<RefCell<Task>>,
-    /// 对应 Java 字段 `private final Task m_successorTask;`（Rust 侧为弱引用，见文件头）
+/// Corresponds to Java field `private final Task m_successorTask;` (a weak reference on the Rust side, see the file header)
     successor_task: Weak<RefCell<Task>>,
-    /// 对应 Java 字段 `private final RelationType m_type;`
+    /// Corresponds to Java field `private final RelationType m_type;`
     relation_type: RelationType,
-    /// 对应 Java 字段 `private final Duration m_lag;`（Rust 侧 `None` 等价于 Java 的 0 天）
+/// Corresponds to Java field `private final Duration m_lag;` (on the Rust side `None` is equivalent to Java's 0 days)
     lag: Option<Duration>,
-    /// 对应 Java 字段 `private final String m_notes;`
+    /// Corresponds to Java field `private final String m_notes;`
     notes: Option<String>,
 }
 
 impl Relation {
-    /// 取关系类型。
+/// Get the relation type.
     ///
-    /// 对应 Java: `public RelationType getType()`
+    /// Corresponds to Java: `public RelationType getType()`
     pub fn get_type(&self) -> RelationType {
         self.relation_type
     }
 
-    /// 取关系的滞后（lag）时长；`None` 表示未设置，等价于 Java 的 0 天。
+/// Get the relation's lag duration; `None` means not set, equivalent to Java's 0 days.
     ///
-    /// 对应 Java: `public Duration getLag()`
+    /// Corresponds to Java: `public Duration getLag()`
     ///
-    /// 返回 `Option` 的原因见文件头（Java 侧为「非空，未设置时替换为 0 天」）。
+/// See the file header for why `Option` is returned (on the Java side it is "non-null, replaced with 0 days when unset").
     pub fn get_lag(&self) -> Option<Duration> {
         self.lag
     }
 
-    /// 取关系的前驱任务；前驱任务已释放时返回 `None`。
+/// Get the relation's predecessor task; returns `None` when the predecessor task has been dropped.
     ///
-    /// 对应 Java: `public Task getPredecessorTask()`
+    /// Corresponds to Java: `public Task getPredecessorTask()`
     pub fn get_predecessor_task(&self) -> Option<Rc<RefCell<Task>>> {
         self.predecessor_task.upgrade()
     }
 
-    /// 取关系的后继任务；后继任务已释放时返回 `None`。
+/// Get the relation's successor task; returns `None` when the successor task has been dropped.
     ///
-    /// 对应 Java: `public Task getSuccessorTask()`
+    /// Corresponds to Java: `public Task getSuccessorTask()`
     pub fn get_successor_task(&self) -> Option<Rc<RefCell<Task>>> {
         self.successor_task.upgrade()
     }
 
-    /// 取关系的 unique ID。
+/// Get the relation's unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.unique_id
     }
 
-    /// 设置关系的 unique ID。
+/// Set the relation's unique ID.
     ///
-    /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer uniqueID)`
     ///
-    /// Java 还会调用 `m_successorTask.getParentFile().getRelations().updateUniqueID(this, ...)`
-    /// 同步容器的序号生成器；该回调在 Rust 侧**无法接线** —— `&mut self` 下拿不到自身的
-    /// `Rc` 句柄（`Relation` 无 `self_ref`），构造不出 `updateUniqueID` 的 `element` 参数。
-    /// 序号同步改由容器自己的
+/// Java also calls `m_successorTask.getParentFile().getRelations().updateUniqueID(this, ...)`
+/// to synchronise the container's sequence generator; this callback **cannot be wired up** on the Rust side — under `&mut self` one cannot obtain one's own
+/// `Rc` handle (`Relation` has no `self_ref`), so the `element` argument of `updateUniqueID` cannot be constructed.
+/// Sequence synchronisation is instead handled by the container's own
     /// [`RelationContainer::update_unique_id`](crate::relation_container::RelationContainer::update_unique_id)
-    /// 完成（`add_predecessor` 与 `fix_unique_id_clashes` 会调用它）。
+/// (`add_predecessor` and `fix_unique_id_clashes` call it).
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.unique_id = unique_id;
     }
 
-    /// 取关系上的备注。
+/// Get the notes on the relation.
     ///
-    /// 对应 Java: `public String getNotes()`
+    /// Corresponds to Java: `public String getNotes()`
     pub fn get_notes(&self) -> Option<&str> {
         self.notes.as_deref()
     }
 
-    /// 是否为驱动关系（仅在使用 `PrimaveraScheduler` 排程时由 MPXJ 内部填充）。
+/// Whether this is a driving relation (populated internally by MPXJ only when scheduling with `PrimaveraScheduler`).
     ///
-    /// 对应 Java: `public boolean getDriving()`
+    /// Corresponds to Java: `public boolean getDriving()`
     pub fn get_driving(&self) -> bool {
         self.driving
     }
 
-    /// 设置是否为驱动关系（MPXJ 内部使用）。
+/// Set whether this is a driving relation (used internally by MPXJ).
     ///
-    /// 对应 Java: `public void setDriving(boolean driving)`
+    /// Corresponds to Java: `public void setDriving(boolean driving)`
     pub fn set_driving(&mut self, driving: bool) {
         self.driving = driving;
     }
 }
 
 impl ProjectEntityWithUniqueID for Relation {
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32> {
         Relation::get_unique_id(self)
     }
 }
 
 impl ProjectEntityWithMutableUniqueID for Relation {
-    /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer uniqueID)`
     fn set_unique_id(&mut self, id: Option<i32>) {
         Relation::set_unique_id(self, id);
     }
 }
 
 impl Display for Relation {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 直接拼接两个 `Task` 的 `toString()`；Rust 侧以任务的 unique ID 代替（见文件头）。
+/// Java concatenates the two `Task`s' `toString()` directly; the Rust side substitutes the tasks' unique IDs (see the file header).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -194,8 +194,8 @@ impl Display for Relation {
 }
 
 impl Debug for Relation {
-    /// Java 侧只用 `toString()`；Rust 侧另提供结构化 `Debug`，任务引用输出其 unique ID
-    /// （避免依赖 `Task` 的 `Debug` 实现）。
+/// The Java side uses only `toString()`; the Rust side also provides a structured `Debug`, where task references output their unique ID
+/// (avoiding reliance on `Task`'s `Debug` implementation).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Relation")
             .field("unique_id", &self.unique_id)
@@ -209,42 +209,42 @@ impl Debug for Relation {
     }
 }
 
-/// 关系构造器。
+/// Relation builder.
 ///
-/// 对应 Java: `public static class Relation.Builder`
+/// Corresponds to Java: `public static class Relation.Builder`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 的 `Builder` 字段是**包级可见**，由 `RelationContainer` 直接读取（`builder.m_successorTask`
-///   等）；Rust 没有包级可见性，这里用 `pub(crate)` 字段等价表达，读取方式与 Java 完全一致。
-/// - Java 的方法原地修改并返回 `this`；Rust 侧沿用 [`crate::shift::Builder`] 的做法：
-///   消耗自身并返回 `Self`。
-/// - Java 允许 `type(null)` / `lag(null)`；Rust 侧 `type` 参数不可空，`lag(None)` 表示 0 天
-///   （见文件头）。
+/// - Java's `Builder` fields are **package-visible** and read directly by `RelationContainer` (`builder.m_successorTask`
+/// etc.); Rust has no package visibility, so here `pub(crate)` fields express the equivalent, and the reading approach is exactly the same as Java's.
+/// - Java's methods modify in place and return `this`; the Rust side follows the approach of [`crate::shift::Builder`]:
+/// consuming itself and returning `Self`.
+/// - Java allows `type(null)` / `lag(null)`; on the Rust side the `type` parameter is non-nullable, and `lag(None)` means 0 days
+/// (see the file header).
 #[derive(Debug)]
 pub struct Builder {
-    /// 对应 Java 字段 `Integer m_uniqueID;`
+    /// Corresponds to Java field `Integer m_uniqueID;`
     pub(crate) unique_id: Option<i32>,
-    /// 对应 Java 字段 `Task m_predecessorTask;`
+    /// Corresponds to Java field `Task m_predecessorTask;`
     pub(crate) predecessor_task: Weak<RefCell<Task>>,
-    /// 对应 Java 字段 `Task m_successorTask;`
+    /// Corresponds to Java field `Task m_successorTask;`
     pub(crate) successor_task: Weak<RefCell<Task>>,
-    /// 对应 Java 字段 `RelationType m_type = RelationType.FINISH_START;`
+    /// Corresponds to Java field `RelationType m_type = RelationType.FINISH_START;`
     pub(crate) relation_type: RelationType,
-    /// 对应 Java 字段 `Duration m_lag = Duration.getInstance(0, TimeUnit.DAYS);`
+    /// Corresponds to Java field `Duration m_lag = Duration.getInstance(0, TimeUnit.DAYS);`
     ///
-    /// Rust 侧用 `None` 表达同一个默认值（0 天）。
+/// The Rust side uses `None` to express the same default value (0 days).
     pub(crate) lag: Option<Duration>,
-    /// 对应 Java 字段 `String m_notes;`
+    /// Corresponds to Java field `String m_notes;`
     pub(crate) notes: Option<String>,
-    /// 对应 Java 字段 `boolean m_driving;`
+    /// Corresponds to Java field `boolean m_driving;`
     pub(crate) driving: bool,
 }
 
 impl Builder {
-    /// 构造方法（各字段使用与 Java 相同的默认值）。
+/// Constructor (each field uses the same default value as Java).
     ///
-    /// 对应 Java: `Relation.Builder` 的隐式默认构造方法。
+/// Corresponds to Java: `Relation.Builder`'s implicit default constructor.
     pub fn new() -> Self {
         Self {
             unique_id: None,
@@ -257,9 +257,9 @@ impl Builder {
         }
     }
 
-    /// 以已有关系的字段初始化构造器（不复制 `driving`，与 Java 一致）。
+/// Initialise the builder from an existing relation's fields (does not copy `driving`, consistent with Java).
     ///
-    /// 对应 Java: `public Builder from(Relation value)`
+    /// Corresponds to Java: `public Builder from(Relation value)`
     pub fn from(value: &Relation) -> Self {
         Self {
             unique_id: value.unique_id,
@@ -272,74 +272,74 @@ impl Builder {
         }
     }
 
-    /// 设置 unique ID。
+/// Set the unique ID.
     ///
-    /// 对应 Java: `public Builder uniqueID(Integer value)`
+    /// Corresponds to Java: `public Builder uniqueID(Integer value)`
     pub fn unique_id(mut self, value: Option<i32>) -> Self {
         self.unique_id = value;
         self
     }
 
-    /// 设置前驱任务（Rust 侧接收 `Rc`，内部降级为 `Weak`）。
+/// Set the predecessor task (the Rust side accepts an `Rc` and downgrades it to `Weak` internally).
     ///
-    /// 对应 Java: `public Builder predecessorTask(Task value)`
+    /// Corresponds to Java: `public Builder predecessorTask(Task value)`
     pub fn predecessor_task(mut self, value: &Rc<RefCell<Task>>) -> Self {
         self.predecessor_task = Rc::downgrade(value);
         self
     }
 
-    /// 设置后继任务（Rust 侧接收 `Rc`，内部降级为 `Weak`）。
+/// Set the successor task (the Rust side accepts an `Rc` and downgrades it to `Weak` internally).
     ///
-    /// 对应 Java: `public Builder successorTask(Task value)`
+    /// Corresponds to Java: `public Builder successorTask(Task value)`
     pub fn successor_task(mut self, value: &Rc<RefCell<Task>>) -> Self {
         self.successor_task = Rc::downgrade(value);
         self
     }
 
-    /// 设置关系类型。
+/// Set the relation type.
     ///
-    /// 对应 Java: `public Builder type(RelationType value)`
+    /// Corresponds to Java: `public Builder type(RelationType value)`
     ///
-    /// Java 方法名为 `type`，Rust 中 `type` 是关键字，故按本 crate 既有写法
-    /// （见 `crate::project_calendar` 的 `r#type`）写作 `r#type`。
+/// The Java method is named `type`, but `type` is a keyword in Rust, so, following the existing convention in this crate
+/// (see `r#type` in `crate::project_calendar`), it is written as `r#type`.
     pub fn r#type(mut self, value: RelationType) -> Self {
         self.relation_type = value;
         self
     }
 
-    /// 设置滞后时长；`None` 表示 0 天（Java 的默认值）。
+/// Set the lag duration; `None` means 0 days (Java's default value).
     ///
-    /// 对应 Java: `public Builder lag(Duration value)`
+    /// Corresponds to Java: `public Builder lag(Duration value)`
     pub fn lag(mut self, value: Option<Duration>) -> Self {
         self.lag = value;
         self
     }
 
-    /// 设置备注。
+/// Set the notes.
     ///
-    /// 对应 Java: `public Builder notes(String value)`
+    /// Corresponds to Java: `public Builder notes(String value)`
     pub fn notes(mut self, value: Option<String>) -> Self {
         self.notes = value;
         self
     }
 
-    /// 设置驱动关系标志。
+/// Set the driving relation flag.
     ///
-    /// 对应 Java: `public Builder driving(boolean value)`
+    /// Corresponds to Java: `public Builder driving(boolean value)`
     pub fn driving(mut self, value: bool) -> Self {
         self.driving = value;
         self
     }
 
-    /// 构造 [`Relation`] 实例。
+/// Construct a [`Relation`] instance.
     ///
-    /// 对应 Java: `public Relation build()`
+    /// Corresponds to Java: `public Relation build()`
     ///
-    /// Java 的构造方法还会做 unique ID 的自动分配并向容器登记（见文件头「跳过的 Java 代码」
-    /// 第一行）：Rust 侧 [`Builder::build`] 返回裸值、拿不到容器，这几步由
+/// Java's constructor also performs automatic unique ID assignment and registers with the container (see "Skipped Java code" in the file header,
+/// first line): Rust's [`Builder::build`] returns a bare value and cannot access the container, so these steps are
     /// [`RelationContainer::add_predecessor`](crate::relation_container::RelationContainer::add_predecessor)
-    /// 在创建实例后立即执行（语义与顺序一致）。因此**直接**调用 `build()` 得到的实例
-    /// 其 unique ID 仍是 builder 提供的值（未提供时为 `None`）。
+/// executed immediately after creating the instance (same semantics and order). Therefore an instance obtained by calling `build()` **directly**
+/// still has the unique ID provided by the builder (or `None` if not provided).
     pub fn build(self) -> Relation {
         Relation {
             unique_id: self.unique_id,
@@ -354,24 +354,24 @@ impl Builder {
 }
 
 impl Default for Builder {
-    /// 对应 Java: `Relation.Builder` 的隐式默认构造方法。
+/// Corresponds to Java: `Relation.Builder`'s implicit default constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 0 天（Java 中 `Duration.getInstance(0, TimeUnit.DAYS)` 对应的默认 lag）。
+/// 0 days (the default lag corresponding to `Duration.getInstance(0, TimeUnit.DAYS)` in Java).
 fn zero_days() -> Duration {
     Duration::get_instance_int(0, TimeUnit::Days)
 }
 
-/// 读取弱引用任务的 unique ID（任务已释放或正被可变借用时返回 `None`）。
+/// Read the unique ID of a weakly referenced task (returns `None` when the task has been dropped or is currently mutably borrowed).
 fn task_unique_id(task: &Weak<RefCell<Task>>) -> Option<i32> {
     task.upgrade()
         .and_then(|task| task.try_borrow().ok().and_then(|task| task.get_unique_id()))
 }
 
-/// 生成 Java `Relation.toString()` 中任务引用的文字形式（Java 用 `Task.toString()`）。
+/// Produce the textual form of a task reference as in Java's `Relation.toString()` (Java uses `Task.toString()`).
 fn describe_task(task: &Weak<RefCell<Task>>) -> String {
     match task_unique_id(task) {
         Some(unique_id) => format!("Task {unique_id}"),
@@ -379,8 +379,8 @@ fn describe_task(task: &Weak<RefCell<Task>>) -> String {
     }
 }
 
-/// 比较两个 lag：与 Java 的 `Duration.compareTo(...) == 0` 等价
-/// （单位不同时先换算，见 [`Duration`] 的 `Ord`）。
+/// Compare two lags: equivalent to Java's `Duration.compareTo(...) == 0`
+/// (units are converted first when different, see `Ord` for [`Duration`]).
 pub(crate) fn lag_matches(lhs: Option<Duration>, rhs: Option<Duration>) -> bool {
     lhs.unwrap_or_else(zero_days).cmp(&rhs.unwrap_or_else(zero_days)) == Ordering::Equal
 }
@@ -389,7 +389,7 @@ pub(crate) fn lag_matches(lhs: Option<Duration>, rhs: Option<Duration>) -> bool 
 mod tests {
     use super::*;
 
-    /// 构造一个独立的任务实例（不绑定父项目文件）。
+/// Construct a standalone task instance (not bound to a parent project file).
     fn task() -> Rc<RefCell<Task>> {
         Rc::new(RefCell::new(Task::new()))
     }
@@ -399,7 +399,7 @@ mod tests {
         let relation = Builder::new().build();
 
         assert_eq!(relation.get_type(), RelationType::FinishStart);
-        // Java: Builder 的 lag 默认为 0 天；Rust 侧等价表达为 None
+// Java: the Builder's lag defaults to 0 days; the Rust side expresses the equivalent as None
         assert_eq!(relation.get_lag(), None);
         assert_eq!(relation.get_notes(), None);
         assert!(!relation.get_driving());
@@ -420,25 +420,25 @@ mod tests {
             .successor_task(&successor)
             .r#type(RelationType::StartStart)
             .lag(Some(lag))
-            .notes(Some("备注".to_owned()))
+            .notes(Some("Notes".to_owned()))
             .driving(true)
             .build();
 
         assert_eq!(relation.get_unique_id(), Some(7));
         assert_eq!(relation.get_type(), RelationType::StartStart);
         assert_eq!(relation.get_lag(), Some(lag));
-        assert_eq!(relation.get_notes(), Some("备注"));
+        assert_eq!(relation.get_notes(), Some("Notes"));
         assert!(relation.get_driving());
         assert!(Rc::ptr_eq(
-            &relation.get_predecessor_task().expect("前驱任务仍在"),
+            &relation.get_predecessor_task().expect("predecessor task still exists"),
             &predecessor
         ));
         assert!(Rc::ptr_eq(
-            &relation.get_successor_task().expect("后继任务仍在"),
+            &relation.get_successor_task().expect("successor task still exists"),
             &successor
         ));
 
-        // setDriving / setUniqueID 可写
+// setDriving / setUniqueID are writable
         relation.set_driving(false);
         relation.set_unique_id(Some(9));
         assert!(!relation.get_driving());
@@ -465,7 +465,7 @@ mod tests {
         assert_eq!(copy.get_type(), RelationType::FinishFinish);
         assert_eq!(copy.get_lag(), Some(Duration::get_instance(1.0, TimeUnit::Hours)));
         assert_eq!(copy.get_notes(), Some("notes"));
-        // Java 的 from 不复制 m_driving
+// Java's from does not copy m_driving
         assert!(!copy.get_driving());
         assert!(copy.get_predecessor_task().is_some());
         assert!(copy.get_successor_task().is_some());
@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn lag_matches_follows_java_compare_to() {
-        // Java: Duration.compareTo == 0，单位不同会先换算
+// Java: Duration.compareTo == 0; different units are converted first
         assert!(lag_matches(None, None));
         assert!(lag_matches(
             Some(Duration::get_instance_int(0, TimeUnit::Days)),

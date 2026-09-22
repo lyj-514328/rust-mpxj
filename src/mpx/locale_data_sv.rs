@@ -1,21 +1,25 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_sv.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_sv.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_sv` 是瑞典语资源包，只覆盖部分键；未覆盖的键由 `ResourceBundle`
-//! 从基类回落取值。Rust 侧把该语言实际覆盖的键写成模块级 `pub const`
-//! （标量常量按 Java `RESOURCE_DATA` 的键名命名，数组常量沿用 Java 的字段名），
-//! 并用 [`OVERRIDES`]（对应 `getContents()` 的返回值）汇总；未覆盖的键为 `None`，
-//! 由 `locale_data` 模块回落到英文默认资源。取值逻辑见 `locale_data` 模块头部说明；
-//! `ListResourceBundle` 的协议方法由常量表替代，不移植。
+//! Java's `LocaleData_sv` is a Swedish resource bundle covering only some keys; keys it
+//! does not cover fall back to the base class in `ResourceBundle`. On the Rust side the
+//! keys this locale actually covers are written as module-level `pub const` values (scalar
+//! constants are named after the Java `RESOURCE_DATA` keys, array constants keep the Java
+//! field names) and aggregated by [`OVERRIDES`] (corresponding to the return value of
+//! `getContents()`); uncovered keys are `None` and fall back to the English default
+//! resources in the `locale_data` module. See the header of the `locale_data` module for
+//! the lookup logic; the `ListResourceBundle` protocol methods are replaced by constant
+//! tables and are not ported.
 //!
-//! 本语言未覆盖的键：`PROGRAM_NAME`、`CODE_PAGE`、`CURRENCY_DIGITS`、`DEFAULT_START_TIME`、
-//! `BAR_TEXT_DATE_FORMAT`、`NA`、`ACCRUE_TYPES`、`RELATION_TYPES`、`PRIORITY_TYPES`、
-//! `CONSTRAINT_TYPES`。
+//! Keys not covered by this locale: `PROGRAM_NAME`, `CODE_PAGE`, `CURRENCY_DIGITS`,
+//! `DEFAULT_START_TIME`, `BAR_TEXT_DATE_FORMAT`, `NA`, `ACCRUE_TYPES`, `RELATION_TYPES`,
+//! `PRIORITY_TYPES`, `CONSTRAINT_TYPES`.
 //!
-//! Java 源文件中部分条目仍写着英文原名（标注 `// Translate`），此处按源码字面量照抄。
+//! Some entries in the Java source still use their English original names (marked
+//! `// Translate`); they are copied here verbatim from the source literals.
 //!
-//! 未移植的成员：无。
+//! Skipped Java members: none.
 
 use crate::currency_symbol_position::CurrencySymbolPosition;
 use crate::date_order::DateOrder;
@@ -23,19 +27,19 @@ use crate::mpx::locale_data::LocaleOverrides;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 瑞典语时间单位别名表。
+/// Swedish time unit alias table.
 ///
-/// 对应 Java: `LocaleData_sv.TIME_UNITS_ARRAY_DATA`（Java 字面量顺序：分钟、小时、天、
-/// 周、月、年、百分比、随后是各「已用」单位；下标 5 是年、下标 6 是百分比，
-/// 与 `TimeUnit` 的取值顺序不同，此处照抄 Java）。
+/// Corresponds to Java: `LocaleData_sv.TIME_UNITS_ARRAY_DATA` (Java literal order: minutes,
+/// hours, days, weeks, months, years, percent, followed by the elapsed units; index 5 is
+/// years and index 6 is percent, differing from the `TimeUnit` value order, copied from Java).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["m"],      // 0 TimeUnit.MINUTES
     &["t"],      // 1 TimeUnit.HOURS
     &["d"],      // 2 TimeUnit.DAYS
     &["w"],      // 3 TimeUnit.WEEKS
     &["mon"],    // 4 TimeUnit.MONTHS
-    &["y"],      // 5 TimeUnit.PERCENT（Java 字面量位置）
-    &["%"],      // 6 TimeUnit.YEARS（Java 字面量位置）
+    &["y"],      // 5 TimeUnit.PERCENT (Java literal position)
+    &["%"],      // 6 TimeUnit.YEARS (Java literal position)
     &["em"],     // 7 TimeUnit.ELAPSED_MINUTES
     &["eh"],     // 8 TimeUnit.ELAPSED_HOURS
     &["ed"],     // 9 TimeUnit.ELAPSED_DAYS
@@ -45,9 +49,9 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["e%"],     // 13 TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 瑞典语资源键 `TASK_NAMES` 的名表（下标与 MPX 任务字段号对应；行末注释为英文默认名）。
+/// Name table for the Swedish resource key `TASK_NAMES` (indices correspond to MPX task field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_sv.TASK_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_sv.TASK_NAMES_DATA`.
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                            // -
     Some("Namn"),                    // Name
@@ -63,18 +67,18 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Text8"),                   // Text8
     Some("Text9"),                   // Text9
     Some("Text10"),                  // Text10
-    Some("Notes"),                   // Notes（Java 源码未翻译）
-    Some("Contact"),                 // Contact（Java 源码未翻译）
-    Some("Resource"),                // Resource Group（Java 源码未翻译）
+    Some("Notes"),                   // Notes (not translated in Java source)
+    Some("Contact"),                 // Contact (not translated in Java source)
+    Some("Resource"),                // Resource Group (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
     Some("Arbete"),                  // Work
     Some("Originalarbete"),          // Baseline Work
     Some("Verkligt arbete"),         // Actual Work
-    Some("Remaining Work"),          // Remaining Work（Java 源码未翻译）
-    Some("Work Variance"),           // Work Variance（Java 源码未翻译）
-    Some("% Work Complete"),         // % Work Complete（Java 源码未翻译）
+    Some("Remaining Work"),          // Remaining Work (not translated in Java source)
+    Some("Work Variance"),           // Work Variance (not translated in Java source)
+    Some("% Work Complete"),         // % Work Complete (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
@@ -83,7 +87,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Originalkostnad"),         // Baseline Cost
     Some("Verklig kostnad"),         // Actual Cost
     Some("Återstående kostnad"),     // Remaining Cost
-    Some("Cost Variance"),           // Cost Variance（Java 源码未翻译）
+    Some("Cost Variance"),           // Cost Variance (not translated in Java source)
     Some("Fast kostnad"),            // Fixed Cost
     Some("Kostnad1"),                // Cost1
     Some("Kostnad2"),                // Cost2
@@ -91,10 +95,10 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                            // -
     Some("Varaktighet"),             // Duration
     Some("Originalvaraktighet"),     // Baseline Duration
-    Some("Actual Duration"),         // Actual Duration（Java 源码未翻译）
-    Some("Remaining Duration"),      // Remaining Duration（Java 源码未翻译）
+    Some("Actual Duration"),         // Actual Duration (not translated in Java source)
+    Some("Remaining Duration"),      // Remaining Duration (not translated in Java source)
     Some("% färdigt"),               // % Complete
-    Some("Duration Variance"),       // Duration Variance（Java 源码未翻译）
+    Some("Duration Variance"),       // Duration Variance (not translated in Java source)
     Some("Varaktighet1"),            // Duration1
     Some("Varaktighet2"),            // Duration2
     Some("Varaktighet3"),            // Duration3
@@ -109,35 +113,35 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Originalslut"),            // Baseline Finish
     Some("Verklig start"),           // Actual Start
     Some("Verkligt slut"),           // Actual Finish
-    Some("Start1"),                  // Start1（Java 源码未翻译）
-    Some("Finish1"),                 // Finish1（Java 源码未翻译）
-    Some("Start2"),                  // Start2（Java 源码未翻译）
-    Some("Finish2"),                 // Finish2（Java 源码未翻译）
-    Some("Start3"),                  // Start3（Java 源码未翻译）
-    Some("Finish3"),                 // Finish3（Java 源码未翻译）
-    Some("Start Variance"),          // Start Variance（Java 源码未翻译）
-    Some("Finish Variance"),         // Finish Variance（Java 源码未翻译）
+    Some("Start1"),                  // Start1 (not translated in Java source)
+    Some("Finish1"),                 // Finish1 (not translated in Java source)
+    Some("Start2"),                  // Start2 (not translated in Java source)
+    Some("Finish2"),                 // Finish2 (not translated in Java source)
+    Some("Start3"),                  // Start3 (not translated in Java source)
+    Some("Finish3"),                 // Finish3 (not translated in Java source)
+    Some("Start Variance"),          // Start Variance (not translated in Java source)
+    Some("Finish Variance"),         // Finish Variance (not translated in Java source)
     Some("Villkorsdatum"),           // Constraint Date
     None,                            // -
     Some("Föregående aktiviteter"),  // Predecessors
-    Some("Successors"),              // Successors（Java 源码未翻译）
-    Some("Resource Names"),          // Resource Names（Java 源码未翻译）
-    Some("Resource Initials"),       // Resource Initials（Java 源码未翻译）
-    Some("Unique ID Predecessors"),  // Unique ID Predecessors（Java 源码未翻译）
-    Some("Unique ID Successors"),    // Unique ID Successors（Java 源码未翻译）
+    Some("Successors"),              // Successors (not translated in Java source)
+    Some("Resource Names"),          // Resource Names (not translated in Java source)
+    Some("Resource Initials"),       // Resource Initials (not translated in Java source)
+    Some("Unique ID Predecessors"),  // Unique ID Predecessors (not translated in Java source)
+    Some("Unique ID Successors"),    // Unique ID Successors (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
     None,                            // -
     Some("Fast"),                    // Fixed
     Some("Milstolpe"),               // Milestone
-    Some("Critical"),                // Critical（Java 源码未翻译）
+    Some("Critical"),                // Critical (not translated in Java source)
     Some("Märkt"),                   // Marked
     Some("Upplyft"),                 // Rollup
-    Some("BCWS"),                    // BCWS（Java 源码未翻译）
-    Some("BCWP"),                    // BCWP（Java 源码未翻译）
-    Some("SV"),                      // SV（Java 源码未翻译）
-    Some("CV"),                      // CV（Java 源码未翻译）
+    Some("BCWS"),                    // BCWS (not translated in Java source)
+    Some("BCWP"),                    // BCWP (not translated in Java source)
+    Some("SV"),                      // SV (not translated in Java source)
+    Some("CV"),                      // CV (not translated in Java source)
     None,                            // -
     Some("ID"),                      // ID
     Some("Villkorstyp"),             // Constraint Type
@@ -146,9 +150,9 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Totalt slack"),            // Total Slack
     Some("Prioritet"),               // Priority
     Some("Underprojektsfil"),        // Subproject File
-    Some("Project"),                 // Project（Java 源码未翻译）
+    Some("Project"),                 // Project (not translated in Java source)
     Some("Eget ID"),                 // Unique ID
-    Some("Outline Number"),          // Outline Number（Java 源码未翻译）
+    Some("Outline Number"),          // Outline Number (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
@@ -170,22 +174,22 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Flagga9"),                 // Flag9
     Some("Flagga10"),                // Flag10
     Some("Sammanfattning"),          // Summary
-    Some("Objects"),                 // Objects（Java 源码未翻译）
-    Some("Linked Fields"),           // Linked Fields（Java 源码未翻译）
-    Some("Hide Bar"),                // Hide Bar（Java 源码未翻译）
+    Some("Objects"),                 // Objects (not translated in Java source)
+    Some("Linked Fields"),           // Linked Fields (not translated in Java source)
+    Some("Hide Bar"),                // Hide Bar (not translated in Java source)
     None,                            // -
     Some("Skapad"),                  // Created
-    Some("Start4"),                  // Start4（Java 源码未翻译）
-    Some("Finish4"),                 // Finish4（Java 源码未翻译）
-    Some("Start5"),                  // Start5（Java 源码未翻译）
-    Some("Finish5"),                 // Finish5（Java 源码未翻译）
+    Some("Start4"),                  // Start4 (not translated in Java source)
+    Some("Finish4"),                 // Finish4 (not translated in Java source)
+    Some("Start5"),                  // Start5 (not translated in Java source)
+    Some("Finish5"),                 // Finish5 (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
     None,                            // -
     None,                            // -
-    Some("Confirmed"),               // Confirmed（Java 源码未翻译）
-    Some("Update Needed"),           // Update Needed（Java 源码未翻译）
+    Some("Confirmed"),               // Confirmed (not translated in Java source)
+    Some("Update Needed"),           // Update Needed (not translated in Java source)
     None,                            // -
     None,                            // -
     None,                            // -
@@ -201,12 +205,12 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                            // -
     Some("Stopp"),                   // Stop
     Some("Fortsätt tidigast"),       // Resume No Earlier Than
-    Some("Resume"),                  // Resume（Java 源码未翻译）
+    Some("Resume"),                  // Resume (not translated in Java source)
 ];
 
-/// 瑞典语资源键 `RESOURCE_NAMES` 的名表（下标与 MPX 资源字段号对应；行末注释为英文默认名）。
+/// Name table for the Swedish resource key `RESOURCE_NAMES` (indices correspond to MPX resource field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_sv.RESOURCE_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_sv.RESOURCE_NAMES_DATA`.
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                       // -
     Some("Namn"),               // Name
@@ -218,7 +222,7 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Text3"),              // Text3
     Some("Text4"),              // Text4
     Some("Text5"),              // Text5
-    Some("Notes"),              // Notes（Java 源码未翻译）
+    Some("Notes"),              // Notes (not translated in Java source)
     Some("e-post"),             // Email Address
     None,                       // -
     None,                       // -
@@ -231,18 +235,18 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Arbete"),             // Work
     Some("Originalarbete"),     // Baseline Work
     Some("Verkligt arbete"),    // Actual Work
-    Some("Remaining Work"),     // Remaining Work（Java 源码未翻译）
+    Some("Remaining Work"),     // Remaining Work (not translated in Java source)
     Some("Övertidsarbete"),     // Overtime Work
-    Some("Work Variance"),      // Work Variance（Java 源码未翻译）
-    Some("% Work Complete"),    // % Work Complete（Java 源码未翻译）
+    Some("Work Variance"),      // Work Variance (not translated in Java source)
+    Some("% Work Complete"),    // % Work Complete (not translated in Java source)
     None,                       // -
     None,                       // -
     None,                       // -
     Some("Kostnad"),            // Cost
     Some("Originalkostnad"),    // Baseline Cost
     Some("Verklig kostnad"),    // Actual Cost
-    Some("Remaining Cost"),     // Remaining Cost（Java 源码未翻译）
-    Some("Cost Variance"),      // Cost Variance（Java 源码未翻译）
+    Some("Remaining Cost"),     // Remaining Cost (not translated in Java source)
+    Some("Cost Variance"),      // Cost Variance (not translated in Java source)
     None,                       // -
     None,                       // -
     None,                       // -
@@ -254,47 +258,47 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Övertidskostnad"),    // Overtime Rate
     Some("Kostnad per tillfälle"), // Cost Per Use
     Some("Påförs"),             // Accrue At
-    Some("Overallocated"),      // Overallocated（Java 源码未翻译）
-    Some("Peak"),               // Peak（Java 源码未翻译）
-    Some("Base Calendar"),      // Base Calendar（Java 源码未翻译）
+    Some("Overallocated"),      // Overallocated (not translated in Java source)
+    Some("Peak"),               // Peak (not translated in Java source)
+    Some("Base Calendar"),      // Base Calendar (not translated in Java source)
     Some("Eget ID"),            // Unique ID
-    Some("Objects"),            // Objects（Java 源码未翻译）
-    Some("Linked Fields"),      // Linked Fields（Java 源码未翻译）
+    Some("Objects"),            // Objects (not translated in Java source)
+    Some("Linked Fields"),      // Linked Fields (not translated in Java source)
 ];
 
-/// 对应资源键 `FILE_DELIMITER`
+/// Corresponds to resource key `FILE_DELIMITER`
 pub const FILE_DELIMITER: char = ';';
-/// 对应资源键 `FILE_VERSION`
+/// Corresponds to resource key `FILE_VERSION`
 pub const FILE_VERSION: &'static str = "4,0";
-/// 对应资源键 `YES`
+/// Corresponds to resource key `YES`
 pub const YES: &'static str = "Ja";
-/// 对应资源键 `NO`
+/// Corresponds to resource key `NO`
 pub const NO: &'static str = "Nej";
-/// 对应资源键 `CURRENCY_SYMBOL`
+/// Corresponds to resource key `CURRENCY_SYMBOL`
 pub const CURRENCY_SYMBOL: &'static str = "kr";
-/// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+/// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
 pub const CURRENCY_SYMBOL_POSITION: CurrencySymbolPosition = CurrencySymbolPosition::AfterWithSpace;
-/// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`（Java 侧为单个空格）
+/// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR` (a single space on the Java side)
 pub const CURRENCY_THOUSANDS_SEPARATOR: char = ' ';
-/// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
 pub const CURRENCY_DECIMAL_SEPARATOR: char = ',';
-/// 对应资源键 `DATE_ORDER`
+/// Corresponds to resource key `DATE_ORDER`
 pub const DATE_ORDER: DateOrder = DateOrder::Ymd;
-/// 对应资源键 `TIME_FORMAT`
+/// Corresponds to resource key `TIME_FORMAT`
 pub const TIME_FORMAT: ProjectTimeFormat = ProjectTimeFormat::TwentyFourHour;
-/// 对应资源键 `DATE_SEPARATOR`
+/// Corresponds to resource key `DATE_SEPARATOR`
 pub const DATE_SEPARATOR: char = '-';
-/// 对应资源键 `TIME_SEPARATOR`
+/// Corresponds to resource key `TIME_SEPARATOR`
 pub const TIME_SEPARATOR: char = ':';
-/// 对应资源键 `AM_TEXT`
+/// Corresponds to resource key `AM_TEXT`
 pub const AM_TEXT: &'static str = "";
-/// 对应资源键 `PM_TEXT`
+/// Corresponds to resource key `PM_TEXT`
 pub const PM_TEXT: &'static str = "";
-/// 对应资源键 `DATE_FORMAT`
+/// Corresponds to resource key `DATE_FORMAT`
 pub const DATE_FORMAT: ProjectDateFormat = ProjectDateFormat::EeeDdMmYy;
 
-/// 瑞典语资源包的内容，对应 Java `LocaleData_sv.RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// Contents of the Swedish resource bundle, corresponding to Java `LocaleData_sv.RESOURCE_DATA`
+/// (i.e. the return value of `getContents()`).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides {
     file_delimiter: Some(FILE_DELIMITER),
     program_name: None,
@@ -371,7 +375,7 @@ mod tests {
             LocaleData::get_char(MpxLocale::Sv, LocaleData::CURRENCY_THOUSANDS_SEPARATOR),
             Some(' ')
         );
-        // 未覆盖的键回落英文
+        // Uncovered keys fall back to English
         assert_eq!(
             LocaleData::get_string_array(MpxLocale::Sv, LocaleData::ACCRUE_TYPES),
             LocaleData::get_string_array(MpxLocale::En, LocaleData::ACCRUE_TYPES)

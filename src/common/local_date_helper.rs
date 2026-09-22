@@ -1,40 +1,41 @@
-//! 对应 Java: `org/mpxj/common/LocalDateHelper.java`
+//! Corresponds to Java: `org/mpxj/common/LocalDateHelper.java`
 
 use std::cmp::Ordering;
 
 use chrono::{Local, Months, NaiveDate, NaiveDateTime, NaiveTime};
 
-/// 处理 `LocalDate`（Rust 侧为 [`NaiveDate`]）的工具方法。
+/// Utility methods for handling `LocalDate` (represented by [`NaiveDate`] on the Rust side).
 ///
-/// 对应 Java: `public final class LocalDateHelper`
+/// Corresponds to Java: `public final class LocalDateHelper`
 ///
-/// 移植说明：
-/// - `TWO_DIGIT_YEAR_BASE_DATE` 在 Java 中是 `static final` 常量（`LocalDate.now().minusYears(80)`），
-///   chrono 的日期构造不是 `const fn`，因此 Rust 侧改为函数
-///   [`LocalDateHelper::two_digit_year_base_date`]，取值仍按调用时的当前日期计算。
-/// - Java 的 `compareTo` 只保证正负号，Rust 侧的统一返回 -1 / 0 / 1。
+/// Porting notes:
+/// - In Java `TWO_DIGIT_YEAR_BASE_DATE` is a `static final` constant
+///   (`LocalDate.now().minusYears(80)`); chrono's date construction is not a `const fn`, so the
+///   Rust side uses the function [`LocalDateHelper::two_digit_year_base_date`] instead, still
+///   computed from the current date at call time.
+/// - Java's `compareTo` only guarantees the sign, while the Rust side uniformly returns -1 / 0 / 1.
 ///
-/// 未移植的方法：无。
+/// Skipped Java methods: none.
 pub struct LocalDateHelper;
 
 impl LocalDateHelper {
-    /// 对应 Java: `public static LocalDateTime getLocalDateTime(LocalDate date)`
+    /// Corresponds to Java: `public static LocalDateTime getLocalDateTime(LocalDate date)`
     ///
-    /// 对应 `date.atStartOfDay()`，null 返回 `None`。
+    /// Corresponds to `date.atStartOfDay()`; null returns `None`.
     pub fn get_local_date_time(date: Option<NaiveDate>) -> Option<NaiveDateTime> {
         date.map(|date| NaiveDateTime::new(date, NaiveTime::MIN))
     }
 
-    /// 对应 Java: `public static LocalDate getLocalDate(LocalDateTime date)`
+    /// Corresponds to Java: `public static LocalDate getLocalDate(LocalDateTime date)`
     ///
-    /// 对应 `date.toLocalDate()`，null 返回 `None`。
+    /// Corresponds to `date.toLocalDate()`; null returns `None`.
     pub fn get_local_date(date: Option<NaiveDateTime>) -> Option<NaiveDate> {
         date.map(|date| date.date())
     }
 
-    /// 对应 Java: `public static int compare(LocalDate d1, LocalDate d2)`
+    /// Corresponds to Java: `public static int compare(LocalDate d1, LocalDate d2)`
     ///
-    /// 处理 null：两边都为 null 返回 0，仅左边为 null 返回 1，仅右边为 null 返回 -1。
+    /// Handles null: both null returns 0, only the left null returns 1, only the right null returns -1.
     pub fn compare(d1: Option<NaiveDate>, d2: Option<NaiveDate>) -> i32 {
         match (d1, d2) {
             (None, None) => 0,
@@ -48,9 +49,9 @@ impl LocalDateHelper {
         }
     }
 
-    /// 对应 Java: `public static int compare(LocalDate startDate, LocalDate endDate, LocalDate targetDate)`
+    /// Corresponds to Java: `public static int compare(LocalDate startDate, LocalDate endDate, LocalDate targetDate)`
     ///
-    /// 判断目标日期是否落在给定区间内：早于区间返回 -1，晚于区间返回 1，区间内返回 0。
+    /// Determines whether the target date falls within the given range: before the range returns -1, after the range returns 1, within the range returns 0.
     pub fn compare_with_range(
         start_date: NaiveDate,
         end_date: NaiveDate,
@@ -65,17 +66,17 @@ impl LocalDateHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime getDayEndDate(LocalDate date)`
+    /// Corresponds to Java: `public static LocalDateTime getDayEndDate(LocalDate date)`
     ///
-    /// Java 的注释写的是 23:59:59.999，实际实现用的是 `LocalTime.of(23, 59, 59)`，此处按实现翻译。
+    /// The Java comment says 23:59:59.999, but the actual implementation uses `LocalTime.of(23, 59, 59)`; translated here according to the implementation.
     pub fn get_day_end_date(date: Option<NaiveDate>) -> Option<NaiveDateTime> {
         let date = date?;
         NaiveTime::from_hms_opt(23, 59, 59).map(|time| NaiveDateTime::new(date, time))
     }
 
-    /// 对应 Java: `public static final LocalDate TWO_DIGIT_YEAR_BASE_DATE`
+    /// Corresponds to Java: `public static final LocalDate TWO_DIGIT_YEAR_BASE_DATE`
     ///
-    /// 等价于 `LocalDate.now().minusYears(80)`（Java 使用系统默认时区，Rust 侧用 [`Local`]）。
+    /// Equivalent to `LocalDate.now().minusYears(80)` (Java uses the system default time zone; the Rust side uses [`Local`]).
     pub fn two_digit_year_base_date() -> NaiveDate {
         match Local::now()
             .date_naive()

@@ -1,20 +1,20 @@
-//! 对应 Java: `org/mpxj/mpp/WorkContourHelper.java`
+//! Corresponds to Java: `org/mpxj/mpp/WorkContourHelper.java`
 //!
-//! 在「Microsoft Project 文件里的工时分布 ID」与 `org.mpxj.WorkContour` 之间互相转换，
-//! 并在取到分布时把它登记到项目的工时分布容器中。
+//! Converts between the "work contour ID in a Microsoft Project file" and `org.mpxj.WorkContour`,
+//! and registers the contour in the project's work contour container when one is obtained.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public class WorkContourHelper` | 无字段结构体 [`WorkContourHelper`] + 关联函数 | 该类在 Java 中只有静态方法 |
-//! | `private static final WorkContour[] TYPE_VALUES` | [`type_values`] 返回同序数组 | Java 是常量实例（`WorkContour.FLAT` 等）；Rust 的 [`WorkContour`] 是值类型，没有全局单例，故按需构造同值的实例（`WorkContour::flat()` 等） |
-//! | `private static final Map<WorkContour, Integer> WORK_CONTOUR_MAP` | [`WorkContourHelper::get_id`] 中按 [`WorkContour::get_unique_id`] 线性查找 | Java 的 `HashMap` 使用 `WorkContour` 的**对象同一性**（该类未覆写 `equals`/`hashCode`），因此只有那 9 个静态实例能查到 ID；Rust 侧改为按 unique ID 匹配（内容相同的实例也能查到），见下 |
-//! | `file.getWorkContours().getByUniqueID(result.getUniqueID()) == null` → `contours.add(result)` | 经 `ProjectFile::get_project_context()` 取容器后 `get_by_unique_id` / `add` | `ProjectFile` 只提供不可变的 `get_work_contours()`（返回 `Ref`），无法 `add`；上下文（`ProjectContext`）提供了 `get_work_contours_mut()`，语义与 Java 完全一致 |
+//! | `public class WorkContourHelper` | Fieldless struct [`WorkContourHelper`] + associated functions | This class has only static methods in Java |
+//! | `private static final WorkContour[] TYPE_VALUES` | [`type_values`] returns an array in the same order | Java uses constant instances (`WorkContour.FLAT` etc.); Rust's [`WorkContour`] is a value type with no global singleton, so instances with the same values are constructed on demand (`WorkContour::flat()` etc.) |
+//! | `private static final Map<WorkContour, Integer> WORK_CONTOUR_MAP` | Linear lookup by [`WorkContour::get_unique_id`] in [`WorkContourHelper::get_id`] | Java's `HashMap` uses the **object identity** of `WorkContour` (the class does not override `equals`/`hashCode`), so only those 9 static instances can look up an ID; the Rust side matches by unique ID instead (instances with the same content can also be found), see below |
+//! | `file.getWorkContours().getByUniqueID(result.getUniqueID()) == null` → `contours.add(result)` | Obtain the container via `ProjectFile::get_project_context()`, then `get_by_unique_id` / `add` | `ProjectFile` only provides the immutable `get_work_contours()` (returns `Ref`) and cannot `add`; the context (`ProjectContext`) provides `get_work_contours_mut()`, with semantics fully consistent with Java |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -22,17 +22,17 @@ use std::rc::Rc;
 use crate::project_file::ProjectFile;
 use crate::work_contour::WorkContour;
 
-/// 工时分布与 Microsoft Project 表示之间的转换。
+/// Conversion between work contours and their Microsoft Project representation.
 ///
-/// 对应 Java: `public class WorkContourHelper`
+/// Corresponds to Java: `public class WorkContourHelper`
 pub struct WorkContourHelper;
 
-/// Java 中「整数 → 工时分布」的查找表（顺序即 ID）。
+/// The "integer → work contour" lookup table in Java (the order is the ID).
 ///
-/// 对应 Java: `private static final WorkContour[] TYPE_VALUES`
+/// Corresponds to Java: `private static final WorkContour[] TYPE_VALUES`
 ///
-/// 注意：数组下标就是 Microsoft Project 的 ID（0 = FLAT … 8 = CONTOURED），
-/// 与各实例自身的 unique ID（1..9）相差 1。
+/// Note: the array index is the Microsoft Project ID (0 = FLAT … 8 = CONTOURED),
+/// which differs from each instance's own unique ID (1..9) by 1.
 fn type_values() -> [WorkContour; 9] {
     [
         WorkContour::flat(),
@@ -48,11 +48,11 @@ fn type_values() -> [WorkContour; 9] {
 }
 
 impl WorkContourHelper {
-    /// 按 Microsoft Project 的工时分布 ID 取分布实例，必要时把它登记进项目容器。
+/// Get a work contour instance by its Microsoft Project work contour ID, registering it in the project container when necessary.
     ///
-    /// 对应 Java: `public static WorkContour getInstance(ProjectFile file, int type)`
+    /// Corresponds to Java: `public static WorkContour getInstance(ProjectFile file, int type)`
     ///
-    /// 越界（含负数）时回落到 `FLAT`（与 Java 一致）。
+/// Fall back to `FLAT` on out of bounds (including negative values), consistent with Java.
     pub fn get_instance(file: &Rc<RefCell<ProjectFile>>, r#type: i32) -> WorkContour {
         // Java: if (type < 0 || type >= TYPE_VALUES.length) { result = WorkContour.FLAT; }
         //       else { result = TYPE_VALUES[type]; }
@@ -82,13 +82,13 @@ impl WorkContourHelper {
         result
     }
 
-    /// 取工时分布对应的 Microsoft Project ID；不在查找表中时返回 `None`。
+/// Get the Microsoft Project ID corresponding to a work contour; return `None` when it is not in the lookup table.
     ///
-    /// 对应 Java: `public static Integer getID(WorkContour contour)`
+    /// Corresponds to Java: `public static Integer getID(WorkContour contour)`
     ///
-    /// Java 用 `HashMap` 的**对象同一性**查找，因此只有 `WorkContour` 的 9 个静态实例
-    /// 能返回 ID，其它实例（即使内容相同）返回 `null`。Rust 侧按
-    /// [`WorkContour::get_unique_id`] 匹配（见文件头差异表），因此内容相同的实例也能命中。
+/// Java looks up by the **object identity** of the `HashMap`, so only the 9 static instances of `WorkContour`
+/// can return an ID, and other instances (even with the same content) return `null`. The Rust side matches by
+/// [`WorkContour::get_unique_id`] (see the file header differences table), so instances with the same content also match.
     pub fn get_id(contour: &WorkContour) -> Option<i32> {
         let unique_id = contour.get_unique_id();
         type_values()
@@ -102,7 +102,7 @@ impl WorkContourHelper {
 mod tests {
     use super::*;
 
-    /// ID → 分布的映射覆盖全部 9 个取值，越界回落到 FLAT。
+/// The ID → contour mapping covers all 9 values, falling back to FLAT on out of bounds.
     #[test]
     fn get_instance_maps_all_ids_and_falls_back_to_flat() {
         let file = ProjectFile::new();
@@ -122,7 +122,7 @@ mod tests {
             assert_eq!(contour.get_name(), Some(expected_name));
         }
 
-        // 越界与负数都回落到 FLAT
+// Both out of bounds and negative values fall back to FLAT
         assert_eq!(
             WorkContourHelper::get_instance(&file, 9).get_name(),
             Some("FLAT")
@@ -133,7 +133,7 @@ mod tests {
         );
     }
 
-    /// 取到的分布会被登记进项目容器，且同 unique ID 只登记一次。
+/// The obtained contour is registered in the project container, and the same unique ID is registered only once.
     #[test]
     fn get_instance_registers_the_contour_once() {
         let file = ProjectFile::new();
@@ -159,7 +159,7 @@ mod tests {
         );
     }
 
-    /// `get_id` 返回 Microsoft Project 的 ID（下标），未知分布返回 `None`。
+/// `get_id` returns the Microsoft Project ID (the index), and returns `None` for an unknown contour.
     #[test]
     fn get_id_returns_the_microsoft_project_id() {
         assert_eq!(WorkContourHelper::get_id(&WorkContour::flat()), Some(0));
@@ -168,7 +168,7 @@ mod tests {
             WorkContourHelper::get_id(&WorkContour::contoured()),
             Some(8)
         );
-        // 不在查找表中的自定义分布
+// A custom contour that is not in the lookup table
         assert_eq!(
             WorkContourHelper::get_id(&WorkContour::new(
                 Some(42),

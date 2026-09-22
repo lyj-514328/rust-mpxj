@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/Availability.java`
+//! Corresponds to Java: `org/mpxj/Availability.java`
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -8,27 +8,27 @@ use chrono::NaiveDateTime;
 
 use crate::local_date_time_range::LocalDateTimeRange;
 
-/// 资源可用性表（availability table）中的一行。
+/// A row in a resource availability table.
 ///
-/// 对应 Java: `public final class Availability implements Comparable<Availability>`
+/// Corresponds to Java: `public final class Availability implements Comparable<Availability>`
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 #[derive(Debug, Clone, Copy)]
 pub struct Availability {
-    /// 可用性区间。
+/// The availability range.
     ///
-    /// 对应 Java: `private final LocalDateTimeRange m_range;`
+    /// Corresponds to Java: `private final LocalDateTimeRange m_range;`
     m_range: LocalDateTimeRange,
-    /// 该区间的可用单位数（Java 侧为 `Number`，允许为 `null`）。
+/// The number of available units for this range (Java uses `Number` and allows `null`).
     ///
-    /// 对应 Java: `private final Number m_units;`
+    /// Corresponds to Java: `private final Number m_units;`
     m_units: Option<f64>,
 }
 
 impl Availability {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public Availability(LocalDateTime startDate, LocalDateTime endDate, Number units)`
+    /// Corresponds to Java: `public Availability(LocalDateTime startDate, LocalDateTime endDate, Number units)`
     pub fn new(
         start_date: Option<NaiveDateTime>,
         end_date: Option<NaiveDateTime>,
@@ -40,25 +40,25 @@ impl Availability {
         }
     }
 
-    /// 取可用性区间的日期范围。
+/// Get the date range of the availability range.
     ///
-    /// 对应 Java: `public LocalDateTimeRange getRange()`
+    /// Corresponds to Java: `public LocalDateTimeRange getRange()`
     pub fn get_range(&self) -> LocalDateTimeRange {
         self.m_range
     }
 
-    /// 取该区间的可用单位数。
+/// Get the number of available units for this range.
     ///
-    /// 对应 Java: `public Number getUnits()`
+    /// Corresponds to Java: `public Number getUnits()`
     pub fn get_units(&self) -> Option<f64> {
         self.m_units
     }
 }
 
 impl Ord for Availability {
-    /// 对应 Java: `@Override public int compareTo(Availability o)`
+    /// Corresponds to Java: `@Override public int compareTo(Availability o)`
     ///
-    /// 直接比较两个可用性区间的日期范围。
+/// Compare the date ranges of two availability ranges directly.
     fn cmp(&self, other: &Self) -> Ordering {
         self.m_range.cmp(&other.m_range)
     }
@@ -71,23 +71,23 @@ impl PartialOrd for Availability {
 }
 
 impl PartialEq for Availability {
-    /// Java 侧未覆写 `equals`/`hashCode`（沿用对象标识比较）；Rust 侧因 [`Ord`]
-    /// 需要 `Eq` 父 trait，这里按「区间与可用单位数都相等」做值比较。
+/// The Java side does not override `equals`/`hashCode` (it keeps object identity comparison); the Rust side, because [`Ord`]
+/// requires the `Eq` supertrait, performs value comparison here based on "both the range and the number of available units are equal".
     ///
-    /// 说明：该实现与 `compareTo`（只比较区间）在「区间相同、单位数不同」时存在
-    /// 语义差异，与 Java 的 `Comparable`/`equals` 契约（本类未实现 `equals`）一致。
+/// Note: this implementation differs semantically from `compareTo` (which compares only the range) when "the ranges are the same but the unit counts differ",
+/// which is consistent with Java's `Comparable`/`equals` contract (this class does not implement `equals`).
     fn eq(&self, other: &Self) -> bool {
         self.m_range == other.m_range && self.m_units == other.m_units
     }
 }
 
-/// 说明：`Availability` 含 `f64` 字段，无法自动派生 `Eq`；但 Java 侧实现了
-/// `Comparable`，Rust 的 `Ord` 要求 `Eq` 作为父 trait，故这里手工实现 `Eq`。
+/// Note: `Availability` contains an `f64` field and cannot automatically derive `Eq`; however, the Java side implements
+/// `Comparable`, and Rust's `Ord` requires `Eq` as a supertrait, so `Eq` is implemented manually here.
 impl Eq for Availability {}
 
 impl Hash for Availability {
-    /// Java 侧未覆写 `hashCode`；Rust 侧为便于把 `Availability` 用作哈希键，
-    /// 按区间与可用单位数的位模式计算。
+/// The Java side does not override `hashCode`; the Rust side, to make it convenient to use `Availability` as a hash key,
+/// computes it from the bit patterns of the range and the number of available units.
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.m_range.hash(state);
         self.m_units.map(f64::to_bits).hash(state);
@@ -95,10 +95,10 @@ impl Hash for Availability {
 }
 
 impl Display for Availability {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 注意：Java 的 `Number.toString()` 会保留 `.0`（如 `1.0`），Rust 的 `f64`
-    /// `Display` 会输出 `1`，二者在本方法上存在细微差异。
+/// Note: Java's `Number.toString()` keeps `.0` (e.g. `1.0`), whereas Rust's `f64`
+/// `Display` outputs `1`; the two differ slightly in this method.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -115,11 +115,11 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveTime};
 
-    /// 构造测试用日期时间。
+/// Construct a date-time for testing.
     fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         NaiveDateTime::new(
-            NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
-            NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间"),
+            NaiveDate::from_ymd_opt(year, month, day).expect("valid date"),
+            NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time"),
         )
     }
 

@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/mpp/FilterReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/FilterReader.java`
 //!
-//! 从 MPP 文件里读出筛选器定义：`FixedData` 给出每个筛选器的 ID 与名称，`Var2Data`
-//! 给出该筛选器的条件数据，「是否显示相关摘要行」标志与提示列表也取自条件数据。
+//! Reads filter definitions from an MPP file: `FixedData` gives each filter's ID and name, and `Var2Data`
+//! gives that filter's criteria data; the "show related summary rows" flag and the prompt list also come from the criteria data.
 //!
-//! # 继承的还原（trait 默认方法）
+//! # Reproducing inheritance (trait default methods)
 //!
-//! Java 的 `abstract class FilterReader` 由
+//! Java's `abstract class FilterReader` is extended by
 //! [`FilterReader9`](crate::mpp::filter_reader9::FilterReader9) /
 //! [`FilterReader12`](crate::mpp::filter_reader12::FilterReader12) /
-//! [`FilterReader14`](crate::mpp::filter_reader14::FilterReader14) 继承。Rust 没有继承，
-//! 故：
+//! [`FilterReader14`](crate::mpp::filter_reader14::FilterReader14). Rust has no inheritance,
+//! so:
 //!
-//! - 本类成为 [`FilterReader`] **trait**：Java 的 2 个 `protected abstract` 方法
-//!   （`getVarDataType` / `getCriteriaReader`）对应 trait 的必需方法；
-//! - Java 的公开方法 `process` 是**具体方法**，Rust 侧改为 trait 的**默认方法**；
-//! - 子类各自持有一个条件读取器实例（Java 的 `private final CriteriaReader m_criteraReader`），
-//!   并由 `get_criteria_reader` 以 `&dyn CriteriaReader` 暴露。
+//! - This class becomes the [`FilterReader`] **trait**: Java's 2 `protected abstract` methods
+//! (`getVarDataType` / `getCriteriaReader`) correspond to the trait's required methods;
+//! - Java's public `process` method is a **concrete method**, changed on the Rust side to a **default method** of the trait;
+//! - Each subclass holds a criteria reader instance (Java's `private final CriteriaReader m_criteraReader`),
+//! exposed by `get_criteria_reader` as `&dyn CriteriaReader`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `protected abstract Integer getVarDataType()` | `fn get_var_data_type(&self) -> i32` | Java 侧该 `Integer` 恒非空（子类返回常量 1 / 6），与 `CalendarFactory` 的取舍一致 |
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 项目文件在本 crate 中以 `Rc<RefCell<..>>` 共享 |
-//! | `file.getFilters().addFilter(filter)` | `file.try_borrow_mut()` + `FilterContainer::add_filter` | 容器按 `Rc<RefCell<Filter>>` 存放；文件正被借用时跳过该筛选器（Java 无此情形），不 panic |
-//! | `List<GenericCriteriaPrompt> prompts` | 局部 `Vec<GenericCriteriaPrompt>`（仍按 Java 的 `setPrompts` 写入筛选器） | 类型一致，无需改动 |
-//! | `boolean[] criteriaType` | 局部 `[bool; 2]` | 每次循环复用同一个数组，与 Java 一致 |
+//! | `protected abstract Integer getVarDataType()` | `fn get_var_data_type(&self) -> i32` | On the Java side this `Integer` is always non-null (subclasses return the constants 1 / 6), consistent with the `CalendarFactory` trade-off |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | The project file is shared in this crate as `Rc<RefCell<..>>` |
+//! | `file.getFilters().addFilter(filter)` | `file.try_borrow_mut()` + `FilterContainer::add_filter` | The container stores entries as `Rc<RefCell<Filter>>`; the filter is skipped when the file is already borrowed (this case does not occur in Java), without panicking |
+//! | `List<GenericCriteriaPrompt> prompts` | A local `Vec<GenericCriteriaPrompt>` (still written into the filter via Java's `setPrompts`) | Same type, no change needed |
+//! | `boolean[] criteriaType` | A local `[bool; 2]` | The same array is reused each iteration, consistent with Java |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -43,23 +43,23 @@ use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::var2_data::Var2Data;
 use crate::project_file::ProjectFile;
 
-/// 筛选器定义读取器。
+/// Filter definition reader.
 ///
-/// 对应 Java: `abstract class FilterReader`
+/// Corresponds to Java: `abstract class FilterReader`
 pub trait FilterReader {
-    /// 取本版本文件用于读取筛选器条件数据的 `Var2Data` 数据类型键。
+/// Get the `Var2Data` data type key used by this file version to read filter criteria data.
     ///
-    /// 对应 Java: `protected abstract Integer getVarDataType()`
+    /// Corresponds to Java: `protected abstract Integer getVarDataType()`
     fn get_var_data_type(&self) -> i32;
 
-    /// 取本版本文件使用的条件读取器。
+/// Get the criteria reader used by this file version.
     ///
-    /// 对应 Java: `protected abstract CriteriaReader getCriteriaReader()`
+    /// Corresponds to Java: `protected abstract CriteriaReader getCriteriaReader()`
     fn get_criteria_reader(&self) -> &dyn CriteriaReader;
 
-    /// 读取全部筛选器定义并加入项目文件。
+/// Read all filter definitions and add them to the project file.
     ///
-    /// 对应 Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData)`
+    /// Corresponds to Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData)`
     fn process(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -120,7 +120,7 @@ pub trait FilterReader {
                 Some(&mut criteria_type),
             ));
 
-            // Java 注释：判断筛选器属于任务还是资源的逻辑，只有在筛选器有条件时才有效
+// Java comment: the logic that determines whether a filter belongs to tasks or resources is only valid when the filter has criteria
             // Java: filter.setIsTaskFilter(criteriaType[0]); filter.setIsResourceFilter(criteriaType[1]);
             filter.set_is_task_filter(criteria_type[0]);
             filter.set_is_resource_filter(criteria_type[1]);
@@ -129,7 +129,7 @@ pub trait FilterReader {
             filter.set_prompts(prompts);
 
             // Java: file.getFilters().addFilter(filter);
-            // Rust 侧容器存 `Rc<RefCell<Filter>>`；文件正被借用时跳过（不 panic）
+// The Rust-side container stores `Rc<RefCell<Filter>>`; skips when the file is already borrowed (without panicking)
             if let Ok(mut project) = file.try_borrow_mut() {
                 project
                     .get_filters_mut()
@@ -150,7 +150,7 @@ mod tests {
     use crate::task_field::TaskField;
     use crate::test_operator::{Operand, TestOperator};
 
-    /// 筛选器定长数据：`[0..4)` = ID，`[4..)` = 名称（UTF-16LE + NUL）。
+/// Filter fixed data: `[0..4)` = ID, `[4..)` = name (UTF-16LE + NUL).
     fn filter_fixed_record(id: i32, name: &str) -> Vec<u8> {
         let mut record = id.to_le_bytes().to_vec();
         for unit in name.encode_utf16() {
@@ -160,7 +160,7 @@ mod tests {
         record
     }
 
-    /// 筛选器条件数据：`[4]` = 是否显示相关摘要行，条件块自偏移 0 起。
+/// Filter criteria data: `[4]` = whether to show related summary rows, with the criteria block starting at offset 0.
     fn filter_var_data(show_related_summary_rows: bool, criteria: &[u8]) -> Vec<u8> {
         let mut data = criteria.to_vec();
         if data.len() <= 4 {
@@ -170,14 +170,14 @@ mod tests {
         data
     }
 
-    /// 名称中的 `&` 被剥掉，ID / 标志 / 条件 / 提示均按 Java 语义写入项目文件。
+/// The `&` in the name is stripped, and the ID / flag / criteria / prompts are all written into the project file with Java semantics.
     #[test]
     fn process_reads_filter_definitions() {
         let (criteria, _) = criteria_data(0x1B, TaskField::Name, "AB");
 
         let fixed = fixed_data(&[
             filter_fixed_record(1, "&My Filter"),
-            // 定长数据少于 4 字节 ⇒ 跳过（Java: continue）
+// Fixed data is fewer than 4 bytes ⇒ skip (Java: continue)
             vec![0u8; 3],
         ]);
         let (_, var_data) = var_data_with_meta(&[(1, 1, filter_var_data(true, &criteria))]);
@@ -198,7 +198,7 @@ mod tests {
         assert!(!filter.is_resource_filter());
         assert!(filter.get_prompts().is_empty());
 
-        let criteria = filter.get_criteria().expect("应解析出条件");
+        let criteria = filter.get_criteria().expect("criteria should be parsed");
         assert_eq!(criteria.get_operator(), Some(TestOperator::And));
         let children = criteria.get_criteria_list();
         assert_eq!(children.len(), 1);
@@ -212,18 +212,18 @@ mod tests {
         );
     }
 
-    /// 变长数据缺失 / 条件数据为空时不 panic，且筛选器仍被登记。
+/// Does not panic when the variable data is missing / the criteria data is empty, and the filter is still registered.
     #[test]
     fn process_tolerates_missing_var_data() {
         let fixed = fixed_data(&[filter_fixed_record(1, "Empty")]);
 
-        // 变长数据里没有 ID = 1 的条目
+// There is no entry with ID = 1 in the variable data
         let (_, var_data) = var_data_with_meta(&[(2, 1, vec![0u8; 8])]);
         let file = ProjectFile::new();
         FilterReader9::new().process(&file, &fixed, &var_data);
         assert!(file.borrow().get_filters().get_task_filters().is_empty());
 
-        // 条件数据全零：条件块为空 ⇒ 无条件，但条件类型保持 Java 的初始化值 true/true
+// The criteria data is all zeros: the criteria block is empty ⇒ no criteria, but the criteria type keeps Java's initialized value true/true
         let (_, var_data) = var_data_with_meta(&[(1, 1, vec![0u8; 32])]);
         let file = ProjectFile::new();
         FilterReader9::new().process(&file, &fixed, &var_data);
@@ -239,7 +239,7 @@ mod tests {
         assert!(filter.get_criteria().is_none());
     }
 
-    /// 空的定长数据不会有任何筛选器，也不 panic。
+/// Empty fixed data produces no filters and does not panic.
     #[test]
     fn process_with_no_filters() {
         let fixed = crate::mpp::custom_field_value_reader::test_support::empty_fixed_data();

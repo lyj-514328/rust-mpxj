@@ -1,25 +1,25 @@
-//! 对应 Java: `org/mpxj/mpp/View8.java`
+//! Corresponds to Java: `org/mpxj/mpp/View8.java`
 //!
-//! MPP8 文件的视图：视图数据在用户第一次查看该视图时才会写入文件；本类只从视图数据块中
-//! 取出 ID、名称与视图类型（MPP8 没有属性块，因此没有表格名称等信息）。
+//! View for MPP8 files: view data is written to the file only when the user first views the view; this class only reads
+//! the ID, name and view type from the view data block (MPP8 has no property block, so there is no table name and similar information).
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # How inheritance is reproduced: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `View8 extends AbstractMppView` | [`View8`] **持有**一个 [`AbstractMppView`]，转发其访问器 / setter / `toString()` |
-//! | `public View8(ProjectFile parent, byte[] data)` | [`View8::new`]（Java 不抛异常，Rust 侧同样返回 `Self`） |
+//! | `View8 extends AbstractMppView` | [`View8`] **holds** an [`AbstractMppView`] and forwards its accessors / setters / `toString()` |
+//! | `public View8(ProjectFile parent, byte[] data)` | [`View8::new`] (Java throws no exception; Rust likewise returns `Self`) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 越界读取：Java 对数据不足的 `data` 调 `ByteArrayHelper.getInt` / `getShort` 会抛
-//! `ArrayIndexOutOfBoundsException`，Rust 侧返回 0（并注释），不 panic。
+//! Out-of-bounds reads: calling `ByteArrayHelper.getInt` / `getShort` on `data` with insufficient bytes makes Java throw
+//! `ArrayIndexOutOfBoundsException`; Rust returns 0 (and comments), without panicking.
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -33,28 +33,28 @@ use crate::table::Table;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// 固定数据块中视图类型字段的偏移（MPP8 与 MPP9 相差 4 字节）。
+/// Offset of the view type field in the fixed data block (MPP8 and MPP9 differ by 4 bytes).
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(data, 116)`
+/// Corresponds to Java: `ByteArrayHelper.getShort(data, 116)`
 const VIEW_TYPE_OFFSET: usize = 116;
 
-/// MPP8 视图。
+/// MPP8 view.
 ///
-/// 对应 Java: `public final class View8 extends AbstractMppView`
+/// Corresponds to Java: `public final class View8 extends AbstractMppView`
 pub struct View8 {
-    /// 对应 Java: `extends AbstractMppView`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends AbstractMppView` (Rust uses composition instead of inheritance)
     view: AbstractMppView,
 }
 
 impl View8 {
-    /// 构造方法：从视图数据块中取出视图数据。
+/// Constructor: extracts view data from the view data block.
     ///
-    /// 对应 Java: `public View8(ProjectFile parent, byte[] data)`
+    /// Corresponds to Java: `public View8(ProjectFile parent, byte[] data)`
     pub fn new(parent: &Rc<RefCell<ProjectFile>>, data: &[u8]) -> Self {
         let mut view = AbstractMppView::new(parent);
 
         // Java: m_id = Integer.valueOf(ByteArrayHelper.getInt(data, 0));
-        // （Java 在数据不足 4 字节时抛 AIOOBE，Rust 侧取 0）
+// (Java throws AIOOBE when there are fewer than 4 bytes; Rust takes 0)
         let id = if data.len() >= 4 {
             ByteArrayHelper::get_int(data, 0)
         } else {
@@ -67,7 +67,7 @@ impl View8 {
         view.set_name(MPPUtility::remove_ampersands(Some(name.as_str())));
 
         // Java: m_type = ViewType.getInstance(ByteArrayHelper.getShort(data, 116));
-        // （Java 在数据不足 118 字节时抛 AIOOBE，Rust 侧取 0，即 ViewType.UNKNOWN）
+// (Java throws AIOOBE when there are fewer than 118 bytes; Rust takes 0, i.e. ViewType.UNKNOWN)
         let type_value = if data.len() >= VIEW_TYPE_OFFSET + 2 {
             ByteArrayHelper::get_short(data, VIEW_TYPE_OFFSET)
         } else {
@@ -78,50 +78,50 @@ impl View8 {
         Self { view }
     }
 
-    /// 取父项目文件。
+/// Gets the parent project file.
     ///
-    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+/// Corresponds to Java: `AbstractView.m_file` (protected field)
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.view.get_file()
     }
 
-    /// 取内部持有的 `AbstractMppView` 实例。
+/// Gets the internally held `AbstractMppView` instance.
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达。
+/// Rust-specific: Java inheritance is expressed by composition on the Rust side.
     pub fn as_abstract_mpp_view(&self) -> &AbstractMppView {
         &self.view
     }
 }
 
 impl View for View8 {
-    /// 对应 Java: `AbstractView.getID()`（继承）
+/// Corresponds to Java: `AbstractView.getID()` (inherited)
     fn get_id(&self) -> Option<i32> {
         self.view.get_id()
     }
 
-    /// 对应 Java: `AbstractView.getName()`（继承）
+/// Corresponds to Java: `AbstractView.getName()` (inherited)
     fn get_name(&self) -> Option<&str> {
         self.view.get_name()
     }
 
-    /// 对应 Java: `AbstractView.getType()`（继承）
+/// Corresponds to Java: `AbstractView.getType()` (inherited)
     fn get_type(&self) -> Option<ViewType> {
         self.view.get_type()
     }
 
-    /// 对应 Java: `AbstractView.getTableName()`（继承，MPP8 恒为 `None`）
+/// Corresponds to Java: `AbstractView.getTableName()` (inherited; always `None` for MPP8)
     fn get_table_name(&self) -> Option<&str> {
         self.view.get_table_name()
     }
 
-    /// 对应 Java: `AbstractView.getTable()`（继承，MPP8 恒为 `None`）
+/// Corresponds to Java: `AbstractView.getTable()` (inherited; always `None` for MPP8)
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
 }
 
 impl Display for View8 {
-    /// 对应 Java: `AbstractView.toString()`（本类未覆写）
+/// Corresponds to Java: `AbstractView.toString()` (not overridden by this class)
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.view, f)
     }
@@ -131,7 +131,7 @@ impl Display for View8 {
 mod tests {
     use super::*;
 
-    /// 构造 MPP8 的视图数据块（ID + UTF-16LE 名称 + 偏移 116 处的视图类型）。
+/// Constructs the MPP8 view data block (ID + UTF-16LE name + view type at offset 116).
     fn view_data(id: i32, name: &str, view_type: i32) -> Vec<u8> {
         let mut data = vec![0u8; 120];
         data[0..4].copy_from_slice(&id.to_le_bytes());
@@ -144,7 +144,7 @@ mod tests {
         data
     }
 
-    /// ID、名称与类型按 Java 的偏移解析。
+/// The ID, name and type are parsed using the Java offsets.
     #[test]
     fn parses_view_data() {
         let file = ProjectFile::new();
@@ -162,7 +162,7 @@ mod tests {
         );
     }
 
-    /// 未知类型值回落到 `UNKNOWN`。
+/// Unknown type values fall back to `UNKNOWN`.
     #[test]
     fn unknown_type_falls_back() {
         let file = ProjectFile::new();
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(view.get_type(), Some(ViewType::Unknown));
     }
 
-    /// 数据块过短时不 panic（Java 抛 AIOOBE 的位置在 Rust 侧取默认值）。
+/// Does not panic when the data block is too short (places where Java throws AIOOBE take default values on the Rust side).
     #[test]
     fn short_data_does_not_panic() {
         let file = ProjectFile::new();
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(view.get_id(), Some(0));
         assert_eq!(view.get_type(), Some(ViewType::Unknown));
 
-        // 名称足够长但类型字段刚好越界（长度 117）
+// the name is long enough but the type field is exactly out of bounds (length 117)
         let mut data = view_data(2, "X", 1);
         data.truncate(VIEW_TYPE_OFFSET + 1);
         let view = View8::new(&file, &data);

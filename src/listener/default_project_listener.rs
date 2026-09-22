@@ -1,8 +1,8 @@
-//! 对应 Java: `org/mpxj/listener/DefaultProjectListener.java`
+//! Corresponds to Java: `org/mpxj/listener/DefaultProjectListener.java`
 //!
-//! [`ProjectListener`] 的空实现。
+//! Empty implementation of [`ProjectListener`].
 //!
-//! # Java → Rust 方法对照
+//! # Java to Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
@@ -17,18 +17,20 @@
 //! | `@Override public void relationRead(Relation relation)` | [`ProjectListener::relation_read`] |
 //! | `@Override public void relationWritten(Relation relation)` | [`ProjectListener::relation_written`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - Java 的用法是**继承**本类后覆写需要的事件方法；Rust 没有继承，改为**实现**
-//!   [`ProjectListener`] trait，只覆写关心的方法（trait 方法没有默认体，需要写全，
-//!   但每个空实现只有一行）。本类型本身仍是「全部为空实现」的默认实现。
-//! - Java 的隐式无参构造方法落为 [`DefaultProjectListener::new`] 与 `Default`。
+//! - In Java the idiom is to **extend** this class and override the event methods of interest;
+//!   Rust has no inheritance, so it becomes **implementing** the [`ProjectListener`] trait and
+//!   overriding only the methods of interest (trait methods have no default body, so they must
+//!   all be written, but each empty implementation is a single line). This type itself remains
+//!   the default implementation in which everything is an empty implementation.
+//! - Java's implicit no-argument constructor maps to [`DefaultProjectListener::new`] and `Default`.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 本类未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 无对应代码 |
+//! | This class does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | No corresponding code |
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,75 +42,75 @@ use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
 use crate::task::Task;
 
-/// [`ProjectListener`] 的默认（空）实现。
+/// Default (empty) implementation of [`ProjectListener`].
 ///
-/// 对应 Java: `public class DefaultProjectListener implements ProjectListener`
+/// Corresponds to Java: `public class DefaultProjectListener implements ProjectListener`
 pub struct DefaultProjectListener;
 
 impl DefaultProjectListener {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `DefaultProjectListener` 的隐式无参构造方法。
+    /// Corresponds to Java: implicit no-argument constructor of `DefaultProjectListener`.
     pub fn new() -> Self {
         Self
     }
 }
 
 impl Default for DefaultProjectListener {
-    /// 对应 Java: `DefaultProjectListener` 的隐式无参构造方法。
+    /// Corresponds to Java: implicit no-argument constructor of `DefaultProjectListener`.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ProjectListener for DefaultProjectListener {
-    /// 对应 Java: `@Override public void taskRead(Task task)`
+    /// Corresponds to Java: `@Override public void taskRead(Task task)`
     fn task_read(&mut self, _task: &Rc<RefCell<Task>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void taskWritten(Task task)`
+    /// Corresponds to Java: `@Override public void taskWritten(Task task)`
     fn task_written(&mut self, _task: &Rc<RefCell<Task>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void resourceRead(Resource resource)`
+    /// Corresponds to Java: `@Override public void resourceRead(Resource resource)`
     fn resource_read(&mut self, _resource: &Rc<RefCell<Resource>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void resourceWritten(Resource resource)`
+    /// Corresponds to Java: `@Override public void resourceWritten(Resource resource)`
     fn resource_written(&mut self, _resource: &Rc<RefCell<Resource>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void calendarRead(ProjectCalendar calendar)`
+    /// Corresponds to Java: `@Override public void calendarRead(ProjectCalendar calendar)`
     fn calendar_read(&mut self, _calendar: &Rc<RefCell<ProjectCalendar>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void calendarWritten(ProjectCalendar calendar)`
+    /// Corresponds to Java: `@Override public void calendarWritten(ProjectCalendar calendar)`
     fn calendar_written(&mut self, _calendar: &Rc<RefCell<ProjectCalendar>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void assignmentRead(ResourceAssignment assignment)`
+    /// Corresponds to Java: `@Override public void assignmentRead(ResourceAssignment assignment)`
     fn assignment_read(&mut self, _assignment: &Rc<RefCell<ResourceAssignment>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void assignmentWritten(ResourceAssignment assignment)`
+    /// Corresponds to Java: `@Override public void assignmentWritten(ResourceAssignment assignment)`
     fn assignment_written(&mut self, _assignment: &Rc<RefCell<ResourceAssignment>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void relationRead(Relation relation)`
+    /// Corresponds to Java: `@Override public void relationRead(Relation relation)`
     fn relation_read(&mut self, _relation: &Rc<RefCell<Relation>>) {
-        // 默认实现
+        // Default implementation
     }
 
-    /// 对应 Java: `@Override public void relationWritten(Relation relation)`
+    /// Corresponds to Java: `@Override public void relationWritten(Relation relation)`
     fn relation_written(&mut self, _relation: &Rc<RefCell<Relation>>) {
-        // 默认实现
+        // Default implementation
     }
 }

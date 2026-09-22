@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/mpp/AbstractCalendarAndExceptionFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/AbstractCalendarAndExceptionFactory.java`
 //!
-//! 在 [`crate::mpp::abstract_calendar_factory::AbstractCalendarFactory`] 的基础上，
-//! 补齐 MPP12 / MPP14 共用的「例外日期 + 工作周」解析：数据块前 420 字节是标准工作时段，
-//! 其后是例外日期块与工作周块。
+//! Building on [`crate::mpp::abstract_calendar_factory::AbstractCalendarFactory`],
+//! this adds the shared MPP12 / MPP14 "exception dates + working weeks" parsing: the first 420 bytes of the data block are standard working times,
+//! followed by the exception date blocks and working week blocks.
 //!
-//! # 继承关系的还原
+//! # Restoring the inheritance relationship
 //!
-//! Java: `abstract class AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`。
-//! Rust 侧按「组合 + 转发」还原（与 `VarMeta` / `AbstractVarMeta` 的做法一致）：
+//! Java: `abstract class AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`.
+//! The Rust side restores this using "composition + forwarding" (matching the approach of `VarMeta` / `AbstractVarMeta`):
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends AbstractCalendarFactory` | 字段 `base: AbstractCalendarFactory`（组合） |
-//! | 继承而来的 `processCalendarData` | [`AbstractCalendarAndExceptionFactory::process_calendar_data`] 转发给 `base`，并把子类作为 `factory` 传入 |
-//! | 继承而来的 8 个抽象方法 | 仍由最终子类实现 [`AbstractCalendarFactoryMethods`]（本类型不参与，避免重复实现） |
-//! | 本类覆写的 `processCalendarExceptions` | [`AbstractCalendarAndExceptionFactory::process_calendar_exceptions`]（MPP12 / MPP14 的 `process_calendar_exceptions` 直接转发到它） |
+//! | `extends AbstractCalendarFactory` | field `base: AbstractCalendarFactory` (composition) |
+//! | inherited `processCalendarData` | [`AbstractCalendarAndExceptionFactory::process_calendar_data`] forwards to `base`, passing the subclass as `factory` |
+//! | the 8 inherited abstract methods | still implemented by the final subclass via [`AbstractCalendarFactoryMethods`] (this type does not participate, avoiding duplicate implementations) |
+//! | `processCalendarExceptions` overridden by this class | [`AbstractCalendarAndExceptionFactory::process_calendar_exceptions`] (MPP12 / MPP14 `process_calendar_exceptions` forwards directly to it) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `byte[] data` | `&[u8]` | 同全包约定 |
-//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java 越界抛 `ArrayIndexOutOfBoundsException`，Rust 返回 0（不 panic） |
-//! | `RecurrenceType` 为 `null` 时的 `switch` | `match` 的 `None` 分支 | Java 的 `switch(null)` 抛 `NullPointerException`；Rust 侧把「递归类型值非法」视作「按普通例外处理」并返回 `None` |
-//! | `DayOfWeekHelper.getInstance(...)` 返回 `null` | `Option<Weekday>` | 为 `None` 时跳过 `setDayOfWeek`（Java 会把 `null` 存进 `RecurringData`） |
-//! | `LocalTime.plus(duration, MILLIS)` | [`plus_milliseconds`] | 复刻 Java 的按天回绕语义 |
-//! | 例外名称长度为负时 `offset += nameLength` | 负值按 0 处理 | Java 会把偏移量往回转（可能死循环），Rust 侧只允许向前推进 |
+//! | `byte[] data` | `&[u8]` | same convention as the whole package |
+//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java throws `ArrayIndexOutOfBoundsException` out of bounds; Rust returns 0 (no panic) |
+//! | `switch` when `RecurrenceType` is `null` | `match` `None` branch | Java's `switch(null)` throws `NullPointerException`; the Rust side treats "invalid recurrence type value" as "process as an ordinary exception" and returns `None` |
+//! | `DayOfWeekHelper.getInstance(...)` returns `null` | `Option<Weekday>` | when `None`, skip `setDayOfWeek` (Java stores `null` into `RecurringData`) |
+//! | `LocalTime.plus(duration, MILLIS)` | [`plus_milliseconds`] | replicates Java's day-wrapping semantics |
+//! | `offset += nameLength` when the exception name length is negative | negative values treated as 0 | Java moves the offset backwards (possibly looping forever); the Rust side only allows forward progress |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -56,24 +56,24 @@ use crate::project_file::ProjectFile;
 use crate::recurrence_type::RecurrenceType;
 use crate::recurring_data::RecurringData;
 
-/// 例外日期数据的起始偏移（前 420 字节为工作时段数据）。
+/// Start offset of the exception date data (the first 420 bytes are working time data).
 ///
-/// 对应 Java: `int offset = 420; // The first 420 is for the working hours data`
+/// Corresponds to Java: `int offset = 420; // The first 420 is for the working hours data`
 const EXCEPTION_DATA_OFFSET: usize = 420;
 
-/// 单条例外日期的固定长度。
+/// Fixed length of a single exception date.
 ///
-/// 对应 Java 注释：`Each exception is a 92 byte block, followed by a variable length text block`
+/// Corresponds to Java comment: `Each exception is a 92 byte block, followed by a variable length text block`
 const EXCEPTION_BLOCK_SIZE: usize = 92;
 
-/// 一个工作周块的固定长度：7 × 60 + 2 + 2 + 8 + 4。
+/// Fixed length of one working week block: 7 × 60 + 2 + 2 + 8 + 4.
 ///
-/// 对应 Java: `data.length >= offset + ((7 * 60) + 2 + 2 + 8 + 4)`
+/// Corresponds to Java: `data.length >= offset + ((7 * 60) + 2 + 2 + 8 + 4)`
 const WORK_WEEK_BLOCK_SIZE: usize = (7 * 60) + 2 + 2 + 8 + 4;
 
-/// 递归类型映射表（下标为 MPP 文件中的整数值）。
+/// Recurrence type mapping table (indexed by the integer value in the MPP file).
 ///
-/// 对应 Java: `private static final RecurrenceType[] RECURRENCE_TYPES`
+/// Corresponds to Java: `private static final RecurrenceType[] RECURRENCE_TYPES`
 const RECURRENCE_TYPES: [Option<RecurrenceType>; 8] = [
     None,
     Some(RecurrenceType::Daily),
@@ -85,14 +85,14 @@ const RECURRENCE_TYPES: [Option<RecurrenceType>; 8] = [
     Some(RecurrenceType::Daily),
 ];
 
-/// 「是否为相对递归」映射表（下标为 MPP 文件中的整数值）。
+/// "Is relative recurrence" mapping table (indexed by the integer value in the MPP file).
 ///
-/// 对应 Java: `private static final boolean[] RELATIVE_MAP`
+/// Corresponds to Java: `private static final boolean[] RELATIVE_MAP`
 const RELATIVE_MAP: [bool; 6] = [false, false, false, true, false, true];
 
-/// 星期的位掩码（下标为 `DayOfWeekHelper::get_value` 的取值）。
+/// Bitmask of weekdays (indexed by the value returned by `DayOfWeekHelper::get_value`).
 ///
-/// 对应 Java: `private static final int[] DAY_MASKS`
+/// Corresponds to Java: `private static final int[] DAY_MASKS`
 const DAY_MASKS: [i32; 8] = [
     0x00, 0x01, // Sunday
     0x02, // Monday
@@ -103,36 +103,36 @@ const DAY_MASKS: [i32; 8] = [
     0x40, // Saturday
 ];
 
-/// 从 MPP 文件读取日历数据（含例外日期与工作周）。
+/// Read calendar data from the MPP file (including exception dates and working weeks).
 ///
-/// 对应 Java: `abstract class AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`
+/// Corresponds to Java: `abstract class AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`
 pub struct AbstractCalendarAndExceptionFactory {
-    /// 基类部分（Java 里本类就是 `AbstractCalendarFactory`）。
+/// Base class part (in Java this class itself is `AbstractCalendarFactory`).
     base: AbstractCalendarFactory,
 }
 
 impl AbstractCalendarAndExceptionFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public AbstractCalendarAndExceptionFactory(ProjectFile file)`
+    /// Corresponds to Java: `public AbstractCalendarAndExceptionFactory(ProjectFile file)`
     pub fn new(file: Rc<RefCell<ProjectFile>>) -> Self {
         Self {
             base: AbstractCalendarFactory::new(file),
         }
     }
 
-    /// 取组合的基类部分。
+/// Get the composed base class part.
     ///
-    /// Rust 特有：Java 通过继承直接使用基类成员，Rust 侧用组合故需显式取用。
+/// Rust-specific: Java uses base class members directly through inheritance; the Rust side uses composition, so they must be obtained explicitly.
     pub fn get_base(&self) -> &AbstractCalendarFactory {
         &self.base
     }
 
-    /// 日历数据块的结构：4 字节块头 + 7 × 60 字节（一周七天）+（MPP12 起）例外日期块。
+/// Structure of the calendar data block: 4-byte block header + 7 × 60 bytes (seven days a week) + (from MPP12) exception date blocks.
     ///
-    /// 对应 Java: `AbstractCalendarFactory#processCalendarData(...)`（本类未覆写，直接继承）
+/// Corresponds to Java: `AbstractCalendarFactory#processCalendarData(...)` (not overridden by this class, inherited directly)
     ///
-    /// 转发给组合的基类实现，并把 `factory`（最终子类）传入以完成抽象方法的动态分派。
+/// Forward to the composed base class implementation, passing in `factory` (the final subclass) to complete dynamic dispatch of the abstract methods.
     pub fn process_calendar_data(
         &self,
         factory: &dyn AbstractCalendarFactoryMethods,
@@ -150,9 +150,9 @@ impl AbstractCalendarAndExceptionFactory {
         )
     }
 
-    /// 解析日历数据块中的例外日期（含重复例外与工作周）。
+/// Parse exception dates in the calendar data block (including recurring exceptions and working weeks).
     ///
-    /// 对应 Java: `@Override protected void processCalendarExceptions(byte[] data, ProjectCalendar cal)`
+    /// Corresponds to Java: `@Override protected void processCalendarExceptions(byte[] data, ProjectCalendar cal)`
     pub fn process_calendar_exceptions(&self, data: &[u8], cal: &Rc<RefCell<ProjectCalendar>>) {
         // Java: if (data.length > 420)
         if data.len() <= EXCEPTION_DATA_OFFSET {
@@ -162,7 +162,7 @@ impl AbstractCalendarAndExceptionFactory {
         // Java: int offset = 420;
         let mut offset = EXCEPTION_DATA_OFFSET;
         // Java: int exceptionCount = ByteArrayHelper.getShort(data, offset);
-        // （Java 在 data.length == 421 时越界抛异常；Rust 侧返回 0）
+// (Java throws out of bounds when data.length == 421; the Rust side returns 0)
         let exception_count = get_short_safe(data, offset);
 
         {
@@ -244,7 +244,7 @@ impl AbstractCalendarAndExceptionFactory {
                     }
 
                     // Java: offset += (92 + exceptionNameLength);
-                    // （Java 的长度为负时会回退偏移量，Rust 侧只允许向前推进，避免死循环）
+// (Java moves the offset backwards when the length is negative; the Rust side only allows forward progress, avoiding an infinite loop)
                     offset += EXCEPTION_BLOCK_SIZE + exception_name_length.max(0) as usize;
                 }
             }
@@ -254,9 +254,9 @@ impl AbstractCalendarAndExceptionFactory {
         self.process_work_weeks(data, offset, cal);
     }
 
-    /// 解析重复例外的递归规则；不构成重复例外时返回 `None`（Java 的 `null`）。
+/// Parse the recurrence rule of a recurring exception; return `None` (Java's `null`) when it does not form a recurring exception.
     ///
-    /// 对应 Java: `private RecurringData readRecurringData(byte[] data, int offset, LocalDate fromDate, LocalDate toDate)`
+    /// Corresponds to Java: `private RecurringData readRecurringData(byte[] data, int offset, LocalDate fromDate, LocalDate toDate)`
     fn read_recurring_data(
         &self,
         data: &[u8],
@@ -339,8 +339,8 @@ impl AbstractCalendarAndExceptionFactory {
             }
 
             None => {
-                // Java 的 switch(null) 抛 NullPointerException；Rust 侧把非法递归类型
-                // 视作「不构成重复例外」，交由调用方按普通例外处理。
+// Java's switch(null) throws NullPointerException; the Rust side treats an invalid recurrence type
+// as "not forming a recurring exception", leaving the caller to process it as an ordinary exception.
                 return None;
             }
         }
@@ -359,9 +359,9 @@ impl AbstractCalendarAndExceptionFactory {
         Some(rd)
     }
 
-    /// 把整数值映射为递归类型；非法值返回 `None`（Java 的 `null`）。
+/// Map an integer value to a recurrence type; return `None` (Java's `null`) for an invalid value.
     ///
-    /// 对应 Java: `private RecurrenceType getRecurrenceType(int value)`
+    /// Corresponds to Java: `private RecurrenceType getRecurrenceType(int value)`
     fn get_recurrence_type(&self, value: i32) -> Option<RecurrenceType> {
         if value < 0 || value as usize >= RECURRENCE_TYPES.len() {
             return None;
@@ -370,9 +370,9 @@ impl AbstractCalendarAndExceptionFactory {
         RECURRENCE_TYPES[value as usize]
     }
 
-    /// 判断递归是否为「相对」；非法值返回 `false`。
+/// Determine whether the recurrence is "relative"; return `false` for an invalid value.
     ///
-    /// 对应 Java: `private boolean getRelative(int value)`
+    /// Corresponds to Java: `private boolean getRelative(int value)`
     fn get_relative(&self, value: i32) -> bool {
         if value < 0 || value as usize >= RELATIVE_MAP.len() {
             return false;
@@ -381,9 +381,9 @@ impl AbstractCalendarAndExceptionFactory {
         RELATIVE_MAP[value as usize]
     }
 
-    /// 读取工作周定义。
+/// Read the working week definition.
     ///
-    /// 对应 Java: `private void processWorkWeeks(byte[] data, int offset, ProjectCalendar cal)`
+    /// Corresponds to Java: `private void processWorkWeeks(byte[] data, int offset, ProjectCalendar cal)`
     fn process_work_weeks(&self, data: &[u8], offset: usize, cal: &Rc<RefCell<ProjectCalendar>>) {
         // Java: skip 4 byte header
         let mut offset = offset + 4;
@@ -427,7 +427,7 @@ impl AbstractCalendarAndExceptionFactory {
             if name_length != 0 {
                 // Java: String name = MPPUtility.getUnicodeString(data, offset, nameLength);
                 //       offset += nameLength; week.setName(name);
-                // （Java 的长度为负时会回退偏移量，Rust 侧只允许向前推进）
+// (Java moves the offset backwards when the length is negative; the Rust side only allows forward progress)
                 if name_length > 0 {
                     let name = MPPUtility::get_unicode_string_with_max_length(
                         data,
@@ -444,9 +444,9 @@ impl AbstractCalendarAndExceptionFactory {
         }
     }
 
-    /// 读取工作周中的某一天。
+/// Read a single day of the working week.
     ///
-    /// 对应 Java: `private void processWorkWeekDay(byte[] data, int offset, ProjectCalendarWeek week, DayOfWeek day)`
+    /// Corresponds to Java: `private void processWorkWeekDay(byte[] data, int offset, ProjectCalendarWeek week, DayOfWeek day)`
     fn process_work_week_day(
         &self,
         data: &[u8],
@@ -467,8 +467,8 @@ impl AbstractCalendarAndExceptionFactory {
 
             if range_count == 0 {
                 // Java: week.setCalendarDayType(day, DayType.NON_WORKING);
-                //（Java 先 addCalendarHours 再设置类型；Rust 侧顺序相反但结果一致：
-                //  `DayType::NonWorking` 保证该天存在一个空的工作时段集合）
+// (Java calls addCalendarHours first and then sets the type; the Rust side uses the opposite order but the result is identical:
+// `DayType::NonWorking` guarantees the day has an empty working time collection)
                 week.set_calendar_day_type(day, DayType::NonWorking);
                 let _ = week.add_calendar_hours(day);
             } else {
@@ -483,7 +483,7 @@ impl AbstractCalendarAndExceptionFactory {
                     let start_time =
                         MPPUtility::get_time(data, offset + 8 + (index as usize * 2));
                     // Java: int durationInSeconds = ByteArrayHelper.getInt(data, offset + 20 + (index * 4)) * 6;
-                    // （Java 的 int 乘法会回绕，Rust 侧用 wrapping_mul 保持语义）
+// (Java's int multiplication wraps around; the Rust side uses wrapping_mul to preserve the semantics)
                     let duration_in_seconds =
                         get_int_safe(data, offset + 20 + (index as usize * 4)).wrapping_mul(6);
                     // Java: LocalTime finishTime = startTime.plusSeconds(durationInSeconds);
@@ -507,24 +507,24 @@ mod tests {
     use super::*;
     use chrono::NaiveTime;
 
-    /// 1983-12-31（MPP 日期的纪元）。
+/// 1983-12-31 (the MPP date epoch).
     fn epoch() -> NaiveDate {
-        NaiveDate::from_ymd_opt(1983, 12, 31).expect("合法日期")
+        NaiveDate::from_ymd_opt(1983, 12, 31).expect("valid date")
     }
 
-    /// 把日期转成 MPP 的「自纪元起的天数」。
+/// Convert a date to MPP's "number of days since the epoch".
     fn date_days(year: i32, month: u32, day: u32) -> u16 {
-        let date = NaiveDate::from_ymd_opt(year, month, day).expect("合法日期");
+        let date = NaiveDate::from_ymd_opt(year, month, day).expect("valid date");
         (date - epoch()).num_days() as u16
     }
 
-    /// 时间值的「十分之一分钟」编码。
+/// "Tenths of a minute" encoding of a time value.
     fn tenths_of_minute(hour: u32, minute: u32) -> u16 {
         ((hour * 60 + minute) * 10) as u16
     }
 
     fn time(hour: u32, minute: u32) -> NaiveTime {
-        NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间")
+        NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time")
     }
 
     fn calendar() -> Rc<RefCell<ProjectCalendar>> {
@@ -542,37 +542,37 @@ mod tests {
     fn data_without_exceptions_or_work_weeks_is_ignored() {
         let cal = calendar();
 
-        // 长度 421：只够读到 exceptionCount 的第一个字节（Java 会越界抛异常）
+// Length 421: only enough to read the first byte of exceptionCount (Java throws out of bounds)
         factory().process_calendar_exceptions(&vec![0u8; 421], &cal);
         assert_eq!(cal.borrow_mut().get_calendar_exceptions().len(), 0);
         assert_eq!(cal.borrow().get_work_weeks().len(), 0);
 
-        // 长度 420：Java 的 `data.length > 420` 为假，直接跳过
+// Length 420: Java's `data.length > 420` is false, so it is skipped directly
         factory().process_calendar_exceptions(&vec![0u8; 420], &cal);
         assert_eq!(cal.borrow().get_work_weeks().len(), 0);
     }
 
     #[test]
     fn single_day_exception_is_parsed() {
-        // 420 字节工作时段 + exceptionCount(2) + 4 字节对齐 + 92 字节例外块
+// 420 bytes of working time + exceptionCount(2) + 4-byte alignment + 92-byte exception block
         let mut data = vec![0u8; 424 + EXCEPTION_BLOCK_SIZE];
         data[EXCEPTION_DATA_OFFSET..EXCEPTION_DATA_OFFSET + 2]
             .copy_from_slice(&1u16.to_le_bytes());
 
         let exception = &mut data[424..424 + EXCEPTION_BLOCK_SIZE];
-        // fromDate / toDate：2024-01-01
+        // fromDate / toDate:2024-01-01
         exception[0..2].copy_from_slice(&date_days(2024, 1, 1).to_le_bytes());
         exception[2..4].copy_from_slice(&date_days(2024, 1, 1).to_le_bytes());
         // occurrences
         exception[4..6].copy_from_slice(&1u16.to_le_bytes());
         // periodCount = 1
         exception[14..16].copy_from_slice(&1u16.to_le_bytes());
-        // 时段：09:00 起，时长 2 小时（以十分之一分钟计）
+// Time period: starts at 09:00, lasts 2 hours (in tenths of a minute)
         exception[20..22].copy_from_slice(&tenths_of_minute(9, 0).to_le_bytes());
         exception[32..36].copy_from_slice(&1200u32.to_le_bytes());
-        // 递归类型 = 1（DAILY，频率固定为 1 → 扁平化为普通例外）
+// Recurrence type = 1 (DAILY, frequency fixed at 1 → flattened into an ordinary exception)
         exception[72..74].copy_from_slice(&1u16.to_le_bytes());
-        // 名称长度 = 0
+// Name length = 0
         exception[88..92].copy_from_slice(&0u32.to_le_bytes());
 
         let cal = calendar();
@@ -608,11 +608,11 @@ mod tests {
         exception[0..2].copy_from_slice(&date_days(2024, 1, 1).to_le_bytes());
         exception[2..4].copy_from_slice(&date_days(2024, 3, 31).to_le_bytes());
         // periodCount = 0
-        // 递归类型 = 6（WEEKLY）
+// Recurrence type = 6 (WEEKLY)
         exception[72..74].copy_from_slice(&6u16.to_le_bytes());
-        // 按周重复的星期位图：周日 + 周一
+// Weekly recurrence weekday bitmap: Sunday + Monday
         exception[76] = 0x03;
-        // 频率 = 2
+// Frequency = 2
         exception[78..80].copy_from_slice(&2u16.to_le_bytes());
         exception[88..92].copy_from_slice(&0u32.to_le_bytes());
 
@@ -623,7 +623,7 @@ mod tests {
         let exceptions = cal_ref.get_calendar_exceptions();
         assert_eq!(exceptions.len(), 1);
 
-        let recurring = exceptions[0].get_recurring().expect("应为重复例外");
+        let recurring = exceptions[0].get_recurring().expect("should be recurring exception");
         assert_eq!(recurring.get_recurrence_type(), Some(RecurrenceType::Weekly));
         assert_eq!(recurring.get_frequency(), Some(2));
         assert!(recurring.get_weekly_day(Weekday::Sun));
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn exception_with_a_name_is_parsed() {
-        // 名称 "AB"（UTF-16LE，含结尾 NUL）共 6 字节 → 对齐为 8 字节
+// Name "AB" (UTF-16LE, including the trailing NUL) is 6 bytes total → aligned to 8 bytes
         let name: Vec<u8> = vec![0x41, 0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00];
         let mut data = vec![0u8; 424 + EXCEPTION_BLOCK_SIZE + name.len()];
         data[EXCEPTION_DATA_OFFSET..EXCEPTION_DATA_OFFSET + 2]
@@ -643,7 +643,7 @@ mod tests {
         exception[0..2].copy_from_slice(&date_days(2024, 5, 1).to_le_bytes());
         exception[2..4].copy_from_slice(&date_days(2024, 5, 1).to_le_bytes());
         exception[72..74].copy_from_slice(&1u16.to_le_bytes());
-        // 名称长度（未对齐的原始值）
+// Name length (the unaligned raw value)
         exception[88..92].copy_from_slice(&6u32.to_le_bytes());
         data[424 + EXCEPTION_BLOCK_SIZE..].copy_from_slice(&name);
 
@@ -658,17 +658,17 @@ mod tests {
 
     #[test]
     fn work_week_is_parsed() {
-        // 420 字节工作时段 + exceptionCount = 0 + 4 字节对齐 + 1 个工作周块
+// 420 bytes of working time + exceptionCount = 0 + 4-byte alignment + 1 working week block
         let week_start = 428usize;
         let mut data = vec![0u8; week_start + WORK_WEEK_BLOCK_SIZE];
 
         //
-        // 一周七天（顺序：周日 → 周六），每天 60 字节
+// Seven days a week (order: Sunday → Saturday), 60 bytes per day
         //
         for day_index in 0..7 {
             let day_offset = week_start + day_index * 60;
             if day_index == 1 {
-                // 周一：1 个时段 08:00-12:00
+// Monday: 1 time period 08:00-12:00
                 data[day_offset] = 0; // dayType != 1
                 data[day_offset + 2..day_offset + 4].copy_from_slice(&1u16.to_le_bytes());
                 data[day_offset + 8..day_offset + 10]
@@ -676,16 +676,16 @@ mod tests {
                 data[day_offset + 20..day_offset + 24]
                     .copy_from_slice(&2400u32.to_le_bytes());
             } else {
-                // 其余天：dayType == 1 → DayType::DEFAULT
+// Remaining days: dayType == 1 → DayType::DEFAULT
                 data[day_offset] = 1;
             }
         }
 
-        // 起始 / 结束日期
+// Start / end date
         let start = week_start + 420;
         data[start..start + 2].copy_from_slice(&date_days(2024, 1, 1).to_le_bytes());
         data[start + 2..start + 4].copy_from_slice(&date_days(2024, 1, 7).to_le_bytes());
-        // 8 字节未知数据 + 名称长度 0
+// 8 bytes of unknown data + name length 0
         data[start + 12..start + 16].copy_from_slice(&0u32.to_le_bytes());
 
         let cal = calendar();
@@ -713,7 +713,7 @@ mod tests {
             Some(DayType::Working)
         );
 
-        let monday = week.get_calendar_hours_for_day(Weekday::Mon).expect("周一工作时段");
+        let monday = week.get_calendar_hours_for_day(Weekday::Mon).expect("Monday working hours");
         assert_eq!(monday.size(), 1);
         assert_eq!(
             monday.get(0),
@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn truncated_work_week_block_is_skipped() {
-        // 差一个字节不够一个完整的工作周块
+// One byte short of a complete working week block
         let data = vec![0u8; 428 + WORK_WEEK_BLOCK_SIZE - 1];
         let cal = calendar();
         factory().process_calendar_exceptions(&data, &cal);

@@ -1,9 +1,9 @@
-//! 对应 Java: `org/mpxj/mpp` 包（Microsoft Project 二进制格式 reader）
+//! Corresponds to Java: the `org/mpxj/mpp` package (Microsoft Project binary format reader)
 //!
-//! 说明：[`ole`] 是 Rust 特有模块 —— MPXJ 直接使用 Apache POI 访问 OLE2 复合文档，
-//! Rust 侧用 `cfb` crate 实现同名的访问层，其余模块与 Java 类一一对应。
+//! Note: [`ole`] is a Rust-specific module — MPXJ uses Apache POI directly to access OLE2 compound documents,
+//! while the Rust side uses the `cfb` crate to implement an equivalent access layer; the remaining modules correspond one-to-one with Java classes.
 
-// ---- 底层二进制工具 ----
+// ---- Low-level binary utilities ----
 
 pub mod abstract_var_meta;
 pub mod comp_obj;
@@ -40,12 +40,12 @@ pub mod var_meta;
 pub mod var_meta9;
 pub mod var_meta12;
 
-// ---- 字段映射辅助 ----
+// ---- Field mapping helpers ----
 
 pub mod enterprise_custom_field_data_type;
 pub mod user_defined_field_map;
 
-// ---- 日历 / 费率 / 可用性 Factory ----
+// ---- Calendar / rate / availability Factory ----
 
 pub mod abstract_calendar_and_exception_factory;
 pub mod abstract_calendar_factory;
@@ -56,7 +56,7 @@ pub mod mpp9_calendar_factory;
 pub mod mpp12_calendar_factory;
 pub mod mpp14_calendar_factory;
 
-// ---- 自定义字段 Reader ----
+// ---- Custom field Reader ----
 
 pub mod custom_field_reader12;
 pub mod custom_field_reader14;
@@ -66,7 +66,7 @@ pub mod custom_field_value_reader9;
 pub mod custom_field_value_reader12;
 pub mod custom_field_value_reader14;
 
-// ---- 其它数据 Reader / Factory ----
+// ---- Other data Reader / Factory ----
 
 pub mod application_version;
 pub mod constraint_factory;
@@ -79,7 +79,7 @@ pub mod task_type_helper;
 pub mod timephased_data_factory;
 pub mod work_contour_helper;
 
-// ---- variant reader 主体 ----
+// ---- variant reader main body ----
 
 pub mod mpp_variant_reader;
 pub mod mpp8_reader;
@@ -88,7 +88,7 @@ pub mod mpp12_reader;
 pub mod mpp14_reader;
 pub mod mpp_reader;
 
-// ---- 展示层：视图 ----
+// ---- Presentation layer: views ----
 
 pub mod abstract_mpp_view;
 pub mod abstract_view;
@@ -110,7 +110,7 @@ pub mod view_state_reader;
 pub mod view_state_reader9;
 pub mod view_state_reader12;
 
-// ---- 展示层：甘特图条形样式 ----
+// ---- Presentation layer: Gantt bar styles ----
 
 pub mod gantt_bar_common_style;
 pub mod gantt_bar_date_format;
@@ -124,7 +124,7 @@ pub mod gantt_bar_style_factory;
 pub mod gantt_bar_style_factory_common;
 pub mod gantt_bar_style_factory14;
 
-// ---- 展示层：表 / 筛选 / 分组 / 图形化指标 ----
+// ---- Presentation layer: tables / filters / groups / graphical indicators ----
 
 pub mod criteria_reader;
 pub mod filter_criteria_reader9;
@@ -143,7 +143,7 @@ pub mod table_factory;
 pub mod table_factory14;
 pub mod table_font_style;
 
-// ---- 展示层：样式与辅助枚举 ----
+// ---- Presentation layer: styles and helper enums ----
 
 pub mod background_pattern;
 pub mod chart_pattern;
@@ -161,6 +161,6 @@ pub mod timescale_format;
 pub mod timescale_tier;
 pub mod timescale_units_helper;
 
-// ---- Rust 特有 ----
+// ---- Rust-specific ----
 
 pub mod ole;

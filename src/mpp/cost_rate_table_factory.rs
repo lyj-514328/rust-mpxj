@@ -1,22 +1,22 @@
-//! 对应 Java: `org/mpxj/mpp/CostRateTableFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/CostRateTableFactory.java`
 //!
-//! 读取资源的成本费率表：MPP 文件里每张表由若干 44 字节记录组成，每个记录给出
-//! 标准费率 / 加班费率 / 每次使用成本 / 结束时间；起始时间由「上一条的结束时间 + 1 分钟」推出。
+//! Reads a resource's cost rate table: in an MPP file each table consists of several 44-byte records, and each record gives
+//! the standard rate / overtime rate / cost per use / end date; the start date is derived as "the previous record's end date + 1 minute".
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | 按全包约定共享；仅在 `RateHelper.convertFromHours` 处读取项目属性 |
-//! | `public void process(Resource resource, int index, byte[] data)` | `process(&self, resource: &mut Resource, index: i32, data: Option<&[u8]>)` | `null` → `None`；`setCostRateTable` 需要 `&mut Resource` |
-//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | [`RateHelper::convert_from_hours`]（`crate::rate_helper`，即 Java 的 `org.mpxj.common.RateHelper`） | 单一实现，与 `MPPUtility.convertRateFromHours` 共用（此前本文件与 `mpp14_reader` 各有一份拷贝，已合并） |
-//! | `MPPUtility.getTimestampFromTenths` 返回 `null` | `Option<NaiveDateTime>`，取不到时跳过该记录 | Java 在此处会 NPE；Rust 侧把无法解析的记录视为非法数据 |
-//! | `endDate.minusMinutes(1)` / `plusMinutes(1)` | `checked_sub_signed` / `checked_add_signed` | 越界时保持原值（不 panic） |
-//! | `ByteArrayHelper.getShort` | `get_short_safe` | 越界返回 0 |
+//! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | Shared per the crate-wide convention; project properties are read only in `RateHelper.convertFromHours` |
+//! | `public void process(Resource resource, int index, byte[] data)` | `process(&self, resource: &mut Resource, index: i32, data: Option<&[u8]>` | `null` → `None`; `setCostRateTable` requires `&mut Resource` |
+//! | `RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)` | [`RateHelper::convert_from_hours`] (`crate::rate_helper`, i.e. Java's `org.mpxj.common.RateHelper`) | A single implementation shared with `MPPUtility.convertRateFromHours` (previously this file and `mpp14_reader` each had a copy; they have been merged) |
+//! | `MPPUtility.getTimestampFromTenths` returns `null` | `Option<NaiveDateTime>`, and the record is skipped when no value is available | Java would NPE here; the Rust side treats unparseable records as invalid data |
+//! | `endDate.minusMinutes(1)` / `plusMinutes(1)` | `checked_sub_signed` / `checked_add_signed` | Keeps the original value on overflow (does not panic) |
+//! | `ByteArrayHelper.getShort` | `get_short_safe` | Returns 0 when out of bounds |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -36,35 +36,35 @@ use crate::resource::Resource;
 use crate::resource_field::ResourceField;
 use crate::time_unit::TimeUnit;
 
-/// 单条费率记录的长度。
+/// Length of a single rate record.
 ///
-/// 对应 Java: `for (int i = 16; i + 44 <= data.length; i += 44)`
+/// Corresponds to Java: `for (int i = 16; i + 44 <= data.length; i += 44)`
 const ITEM_SIZE: usize = 44;
 
-/// 记录区的起始偏移。
+/// Start offset of the record area.
 ///
-/// 对应 Java: `int i = 16`
+/// Corresponds to Java: `int i = 16`
 const DATA_OFFSET: usize = 16;
 
-/// 读取资源成本费率表的公共代码。
+/// Common code for reading a resource cost rate table.
 ///
-/// 对应 Java: `final class CostRateTableFactory`
+/// Corresponds to Java: `final class CostRateTableFactory`
 pub struct CostRateTableFactory {
-    /// 对应 Java 字段: `private final ProjectFile m_file;`
+    /// Corresponds to Java field: `private final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 }
 
 impl CostRateTableFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CostRateTableFactory(ProjectFile file)`
+    /// Corresponds to Java: `public CostRateTableFactory(ProjectFile file)`
     pub fn new(file: Rc<RefCell<ProjectFile>>) -> Self {
         Self { file }
     }
 
-    /// 由一块数据构造（并写入）资源的某张成本费率表。
+/// Build (and write) one of a resource's cost rate tables from a block of data.
     ///
-    /// 对应 Java: `public void process(Resource resource, int index, byte[] data)`
+    /// Corresponds to Java: `public void process(Resource resource, int index, byte[] data)`
     pub fn process(&self, resource: &mut Resource, index: i32, data: Option<&[u8]>) {
         // Java: List<CostRateTableEntry> entries = new ArrayList<>();
         let mut entries: Vec<CostRateTableEntry> = Vec::new();
@@ -84,7 +84,7 @@ impl CostRateTableFactory {
                     let standard_rate = if resource.get_standard_rate().is_none() {
                         Rate::ZERO
                     } else {
-                        // Java 侧缓存值必定存在（否则为 null）；Rust 侧以 0 费率兜底
+// The cached value always exists on the Java side (otherwise it is null); the Rust side falls back to a 0 rate
                         cached_rate(resource, ResourceField::StandardRate).unwrap_or(Rate::ZERO)
                     };
 
@@ -121,12 +121,12 @@ impl CostRateTableFactory {
             }
 
             Some(data) => {
-                // Java: m_file.getProjectProperties()（供 RateHelper.convertFromHours 使用）
+// Java: m_file.getProjectProperties() (used by RateHelper.convertFromHours)
                 let file_ref = self.file.try_borrow().ok();
                 let defaults = file_ref.as_ref().map(|file| file.get_project_properties());
 
                 // Java: RateHelper.convertFromHours(m_file.getProjectProperties(), value, units)
-                //（项目文件正被可变借用时保持原值 —— Java 侧文件始终可用，无此情况）
+// (keeps the original value when the project file is mutably borrowed -- the file is always available on the Java side, so this case does not occur)
                 let convert_from_hours = |value: f64, target_units: TimeUnit| match defaults {
                     Some(defaults) => RateHelper::convert_from_hours(defaults, value, target_units),
                     None => Rate::new(value, target_units),
@@ -154,7 +154,7 @@ impl CostRateTableFactory {
                     ));
 
                     // Java: LocalDateTime endDate = MPPUtility.getTimestampFromTenths(data, i + 40);
-                    // （Java 取不到值时会 NPE，Rust 侧把该记录视为非法并跳过）
+// (Java would NPE when no value is available; the Rust side treats that record as invalid and skips it)
                     let Some(mut end_date) =
                         MPPUtility::get_timestamp_from_tenths(data, i + 40)
                     else {
@@ -238,9 +238,9 @@ impl CostRateTableFactory {
         resource.set_cost_rate_table(index, result);
     }
 
-    /// 把整数转换成时间单位。
+/// Convert an integer into a time unit.
     ///
-    /// 对应 Java: `private TimeUnit getFormat(int format)`
+    /// Corresponds to Java: `private TimeUnit getFormat(int format)`
     fn get_format(&self, format: i32) -> TimeUnit {
         if format == 0xFFFF {
             return TimeUnit::Hours;
@@ -261,18 +261,18 @@ impl CostRateTableFactory {
     }
 }
 
-/// 取资源字段的缓存费率值。
+/// Get the cached rate value of a resource field.
 ///
-/// 对应 Java: `(Rate) resource.getCachedValue(field)`
+/// Corresponds to Java: `(Rate) resource.getCachedValue(field)`
 fn cached_rate(resource: &Resource, field: ResourceField) -> Option<Rate> {
     resource
         .get_cached_value(crate::field_key::FieldKey::from(field))
         .and_then(|value| value.as_rate())
 }
 
-/// 取资源字段的缓存数值。
+/// Get the cached numeric value of a resource field.
 ///
-/// 对应 Java: `(Number) resource.getCachedValue(field)`
+/// Corresponds to Java: `(Number) resource.getCachedValue(field)`
 fn cached_double(resource: &Resource, field: ResourceField) -> Option<f64> {
     resource
         .get_cached_value(crate::field_key::FieldKey::from(field))
@@ -287,28 +287,28 @@ mod tests {
     use crate::project_file::ProjectFile;
     use crate::time_unit_defaults::TimeUnitDefaults;
 
-    /// 时间戳：以「自 1983-12-31 起的秒数 / 6」为单位的 4 字节整数。
+/// Timestamp: a 4-byte integer in units of "seconds since 1983-12-31 / 6".
     fn timestamp_tenths(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i32 {
         let epoch = NaiveDate::from_ymd_opt(1983, 12, 31)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(0, 0, 0)
-            .expect("合法时间");
+            .expect("valid time");
         let value = date_time(year, month, day, hour, minute);
         ((value - epoch).num_seconds() / 6) as i32
     }
 
     fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(year, month, day)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(hour, minute, 0)
-            .expect("合法时间")
+            .expect("valid time")
     }
 
-    /// 一条 44 字节的费率记录。
+/// A single 44-byte rate record.
     fn record(standard: f64, overtime: f64, cost_per_use: f64, end_tenths: i32) -> [u8; 44] {
         let mut data = [0u8; 44];
         data[0..8].copy_from_slice(&standard.to_le_bytes());
-        // 费率格式：0xFFFF → TimeUnit.HOURS（不做换算）
+// Rate format: 0xFFFF → TimeUnit.HOURS (no conversion)
         data[8..10].copy_from_slice(&0xFFFFu16.to_le_bytes());
         data[16..24].copy_from_slice(&overtime.to_le_bytes());
         data[24..26].copy_from_slice(&0xFFFFu16.to_le_bytes());
@@ -317,7 +317,7 @@ mod tests {
         data
     }
 
-    /// 16 字节块头 + 若干 44 字节记录。
+/// A 16-byte block header plus several 44-byte records.
     fn data_block(records: &[[u8; 44]]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         for record in records {
@@ -340,10 +340,10 @@ mod tests {
         factory.process(&mut resource.borrow_mut(), 0, None);
 
         let resource_ref = resource.borrow();
-        let table = resource_ref.get_cost_rate_table(0).expect("表 A");
+        let table = resource_ref.get_cost_rate_table(0).expect("table A");
         assert_eq!(table.len(), 1);
 
-        let entry = table.get(0).expect("第一条");
+        let entry = table.get(0).expect("first entry");
         assert_eq!(
             entry.get_start_date(),
             Some(LocalDateTimeHelper::start_date_na())
@@ -352,9 +352,9 @@ mod tests {
             entry.get_end_date(),
             Some(LocalDateTimeHelper::end_date_na())
         );
-        // Java: `getCostPerUse()` 从当前费率表行取值（此处为默认行的 0.0，非 null），
-        // 故走 `(Number) resource.getCachedValue(ResourceField.COST_PER_USE)` 分支；
-        // 该字段未从文件中读过 → 缓存为 null，Rust 侧同样得到 None。
+// Java: `getCostPerUse()` takes its value from the current rate table row (here 0.0 for the default row, not null),
+// so it takes the `(Number) resource.getCachedValue(ResourceField.COST_PER_USE)` branch;
+// this field was never read from the file → the cache is null, and the Rust side likewise gets None.
         assert_eq!(entry.get_cost_per_use(), None);
         assert_eq!(entry.get_standard_rate(), Rate::ZERO);
         assert_eq!(entry.get_overtime_rate(), Rate::ZERO);
@@ -368,7 +368,7 @@ mod tests {
         factory.process(&mut resource.borrow_mut(), 3, None);
 
         let resource_ref = resource.borrow();
-        let table = resource_ref.get_cost_rate_table(3).expect("表 D");
+        let table = resource_ref.get_cost_rate_table(3).expect("table D");
         assert_eq!(table.len(), 1);
         assert_eq!(
             table.get(0).and_then(|entry| entry.get_end_date()),
@@ -379,9 +379,9 @@ mod tests {
 
     #[test]
     fn data_block_records_are_parsed_sorted_and_chained() {
-        // 记录 A：结束时间 17:01（分钟数 1 不触发「减一分钟」启发式）
-        // 记录 B：结束时间 18:00（分钟数 0 → 减一分钟得到 17:59）
-        // 记录 C：结束时间的秒数非 0 → 整条被忽略
+// Record A: end time 17:01 (minute value 1 does not trigger the "minus one minute" heuristic)
+// Record B: end time 18:00 (minute value 0 → subtract one minute to get 17:59)
+// Record C: the seconds of the end time are non-zero → the whole record is ignored
         let data = data_block(&[
             record(
                 100.0,
@@ -403,19 +403,19 @@ mod tests {
         factory.process(&mut resource.borrow_mut(), 0, Some(&data));
 
         let resource_ref = resource.borrow();
-        let table = resource_ref.get_cost_rate_table(0).expect("表 A");
+        let table = resource_ref.get_cost_rate_table(0).expect("table A");
 
-        // C 被忽略，A / B 按结束时间升序
+// C is ignored, A / B are in ascending end-time order
         assert_eq!(table.len(), 2);
 
-        let first = table.get(0).expect("第一条");
+        let first = table.get(0).expect("first entry");
         assert_eq!(first.get_end_date(), Some(date_time(2024, 6, 30, 17, 59)));
         assert_eq!(first.get_start_date(), Some(LocalDateTimeHelper::start_date_na()));
         assert_eq!(first.get_standard_rate(), Rate::new(200.0, TimeUnit::Hours));
         assert_eq!(first.get_overtime_rate(), Rate::new(250.0, TimeUnit::Hours));
 
-        let second = table.get(1).expect("第二条");
-        // 起始时间 = 上一条结束时间 + 1 分钟
+        let second = table.get(1).expect("second entry");
+// Start time = previous record's end time + 1 minute
         assert_eq!(second.get_start_date(), Some(date_time(2024, 6, 30, 18, 0)));
         assert_eq!(second.get_end_date(), Some(date_time(2024, 12, 31, 17, 1)));
         assert_eq!(second.get_standard_rate(), Rate::new(100.0, TimeUnit::Hours));
@@ -429,7 +429,7 @@ mod tests {
         let (file, resource) = resource();
         let factory = CostRateTableFactory::new(Rc::clone(&file));
 
-        // 不足一条记录 / 记录被截断：Java 会抛数组越界异常
+// Less than one record / truncated record: Java throws an array index out of bounds exception
         for data in [vec![], vec![0u8; 16], vec![0u8; 20], vec![0u8; 59]] {
             factory.process(&mut resource.borrow_mut(), 0, Some(&data));
         }
@@ -445,14 +445,14 @@ mod tests {
         assert_eq!(factory.get_format(0xFFFF), TimeUnit::Hours);
         // getWorkTimeUnits(3) → TimeUnit.DAYS
         assert_eq!(factory.get_format(3), TimeUnit::Days);
-        // getWorkTimeUnits(8) → ELAPSED_MINUTES → 回落为 HOURS
+// getWorkTimeUnits(8) → ELAPSED_MINUTES → falls back to HOURS
         assert_eq!(factory.get_format(8), TimeUnit::Hours);
         assert_eq!(factory.get_format(1), TimeUnit::Minutes);
     }
 
     #[test]
     fn rate_conversion_matches_rate_helper() {
-        // 换算由 `RateHelper` 提供（本文件不再自带实现）
+// The conversion is provided by `RateHelper` (this file no longer carries its own implementation)
         let defaults = TimeUnitDefaults::new();
 
         assert_eq!(
@@ -463,14 +463,14 @@ mod tests {
             RateHelper::convert_from_hours(&defaults, 12.345, TimeUnit::Hours),
             Rate::new(12.35, TimeUnit::Hours)
         );
-        // 每天 480 分钟：100/h -> 800/d
+// 480 minutes per day: 100/h -> 800/d
         assert_eq!(
             RateHelper::convert_from_hours(&defaults, 100.0, TimeUnit::Days),
             Rate::new(800.0, TimeUnit::Days)
         );
         assert_eq!(
             LocalDateTimeHelper::start_date_na().time(),
-            NaiveTime::from_hms_opt(0, 0, 0).expect("合法时间")
+            NaiveTime::from_hms_opt(0, 0, 0).expect("valid time")
         );
     }
 }

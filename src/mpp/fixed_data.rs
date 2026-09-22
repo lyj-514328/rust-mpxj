@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/mpp/FixedData.java`
+//! Corresponds to Java: `org/mpxj/mpp/FixedData.java`
 //!
-//! 表示 MPP 文件中的 "FixedData" 流。所谓 "Fixed Data" 指的是块内每条记录都有已知的
-//! 最大长度，而不是所有记录长度完全一致：每条记录在数据体中的位置由关联的
-//! [`FixedMeta`] 给出（记录的第 4..8 字节是偏移），长度则由相邻记录的偏移差决定。
+//! Represents the "FixedData" stream in an MPP file. "Fixed Data" means that each record in the block has a known
+//! maximum length, rather than all records having exactly the same length: each record's position in the data body is given
+//! by the associated [`FixedMeta`] (bytes 4..8 of the record are the offset), and the length is determined by the offset difference between adjacent records.
 //!
-//! 移植取舍：
-//! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`；Java 用
-//!   `InputStreamHelper.readAvailable(is)` 一次性读完整个块，对应 Rust 侧直接使用整个切片。
-//! - Java 的 `Object[]` 只会存放 `byte[]`，没有被赋值的条目为 `null`，因此 Rust 侧为
-//!   `Vec<Option<Vec<u8>>>`（长度固定为 `FixedMeta` 给出的条数，与 Java 数组一致）。
-//! - Java 的 `toString()` 对应 [`Display`]。
-//! - Java 会抛异常的几处（`meta` 数据项为 `null` 导致的 NPE、`ByteArrayHelper.getInt` /
-//!   `System.arraycopy` 的数组越界、负数组长度）在 Rust 侧改为跳过该条记录或返回 `None`，
-//!   绝不 panic。
-//! - Java 从 `InputStream` 读取失败时抛 `IOException`；Rust 侧输入是切片，读取越界只可能
-//!   出现在本不该发生的情况下，此时该条记录取 `None`。
-//! - 未涉及反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`。
+//! Porting trade-offs:
+//! - Java's constructor takes an `InputStream`; per convention the Rust side changes it to `&[u8]`; Java uses
+//! `InputStreamHelper.readAvailable(is)` to read the entire block at once, corresponding to the Rust side using the whole slice directly.
+//! - Java's `Object[]` only ever stores `byte[]`, and entries that are never assigned are `null`, so the Rust side uses
+//! `Vec<Option<Vec<u8>>>` (a fixed length equal to the count given by `FixedMeta`, consistent with the Java array).
+//! - Java's `toString()` corresponds to [`Display`].
+//! - The few places where Java throws (`meta` item being `null` causing an NPE, array out of bounds in `ByteArrayHelper.getInt` /
+//! `System.arraycopy`, negative array length) are changed on the Rust side to skip that record or return `None`,
+//! never panicking.
+//! - Java throws `IOException` when reading from the `InputStream` fails; on the Rust side the input is a slice, so a read out of bounds can only
+//! occur in a situation that should not happen, in which case that record takes `None`.
+//! - Does not involve reflection, JDBC, XML/JAXB, GUI, `javax.*`, or `Serializable`.
 
 use std::fmt::{Display, Formatter};
 
@@ -23,38 +23,38 @@ use crate::common::byte_array_helper::ByteArrayHelper;
 
 use super::fixed_meta::FixedMeta;
 
-/// `FixedData` 块：按 `FixedMeta` 描述切分出来的定长数据体。
+/// The `FixedData` block: a fixed-length data body split according to the description in `FixedMeta`.
 ///
-/// 对应 Java: `final class FixedData extends MPPComponent`
+/// Corresponds to Java: `final class FixedData extends MPPComponent`
 pub struct FixedData {
-    /// 块内所有数据项（Java 侧为 `Object[]`，未取到数据的条目为 `null`）。
+/// All data items in the block (on the Java side an `Object[]`, with entries without data being `null`).
     ///
-    /// 对应 Java: `private final Object[] m_array`
+    /// Corresponds to Java: `private final Object[] m_array`
     array: Vec<Option<Vec<u8>>>,
-    /// 每条数据项在数据体中的起始偏移（未取到数据的条目保持 0，与 Java 一致）。
+/// The starting offset of each data item in the data body (entries without data stay 0, consistent with Java).
     ///
-    /// 对应 Java: `private final int[] m_offset`
+    /// Corresponds to Java: `private final int[] m_offset`
     offset: Vec<i32>,
 }
 
 impl FixedData {
-    /// 构造方法。使用已经读入的元数据切分数据体。
+/// Constructor. Splits the data body using the already-read metadata.
     ///
-    /// 对应 Java: `FixedData(FixedMeta meta, InputStream is)`
+    /// Corresponds to Java: `FixedData(FixedMeta meta, InputStream is)`
     pub fn new(meta: &FixedMeta, data: &[u8]) -> Self {
         Self::with_max_expected_size(meta, data, 0)
     }
 
-    /// 构造方法。限制单条记录的最大长度，避免复制过多无用数据。
+/// Constructor. Limits the maximum length of a single record to avoid copying too much useless data.
     ///
-    /// 对应 Java: `FixedData(FixedMeta meta, InputStream is, int maxExpectedSize)`
+    /// Corresponds to Java: `FixedData(FixedMeta meta, InputStream is, int maxExpectedSize)`
     pub fn with_max_expected_size(meta: &FixedMeta, data: &[u8], max_expected_size: i32) -> Self {
         Self::with_limits(meta, data, max_expected_size, 0)
     }
 
-    /// 构造方法。限制单条记录的最大长度，并在元数据给出的长度为 0 时改用最小长度。
+/// Constructor. Limits the maximum length of a single record and falls back to the minimum length when the length given by the metadata is 0.
     ///
-    /// 对应 Java: `FixedData(FixedMeta meta, InputStream is, int maxExpectedSize, int minSize)`
+    /// Corresponds to Java: `FixedData(FixedMeta meta, InputStream is, int maxExpectedSize, int minSize)`
     pub fn with_limits(
         meta: &FixedMeta,
         data: &[u8],
@@ -66,18 +66,18 @@ impl FixedData {
         let buffer_length = buffer.len() as i32;
 
         let item_count = meta.get_adjusted_item_count();
-        // Java 用 itemCount 直接构造数组，负数会抛 NegativeArraySizeException；Rust 侧取 0
+// Java constructs the array directly from itemCount; a negative value throws NegativeArraySizeException; the Rust side uses 0
         let item_count = item_count.max(0) as usize;
         let mut array = vec![None; item_count];
         let mut offset = vec![0i32; item_count];
 
         for loop_index in 0..item_count {
-            // Java: meta.getByteArrayValue(loop)，为 null 时后续 getInt 抛 NPE；Rust 侧跳过该条
+// Java: meta.getByteArrayValue(loop); when null the subsequent getInt throws an NPE; the Rust side skips that record
             let Some(meta_data) = meta.get_byte_array_value(loop_index as i32) else {
                 continue;
             };
 
-            // Java: ByteArrayHelper.getInt(metaData, 4)，metaData 不足 8 字节时数组越界；Rust 侧跳过
+// Java: ByteArrayHelper.getInt(metaData, 4); when metaData is shorter than 8 bytes the array is out of bounds; the Rust side skips
             if meta_data.len() < 8 {
                 continue;
             }
@@ -97,7 +97,7 @@ impl FixedData {
                     continue;
                 }
                 let next_item_offset = ByteArrayHelper::get_int(next_meta_data, 4);
-                // Java 的 int 溢出会回绕，Rust 侧用 wrapping 保持语义且不 panic
+// Java's int overflow wraps around; the Rust side uses wrapping to preserve the semantics without panicking
                 next_item_offset.wrapping_sub(item_offset)
             };
 
@@ -128,21 +128,21 @@ impl FixedData {
         Self { array, offset }
     }
 
-    /// 构造方法。忽略元数据给出的长度，改用调用方提供的记录长度。
+/// Constructor. Ignores the length given by the metadata and uses the record length provided by the caller instead.
     ///
-    /// 对应 Java: `FixedData(FixedMeta meta, int itemSize, InputStream is)`
+    /// Corresponds to Java: `FixedData(FixedMeta meta, int itemSize, InputStream is)`
     pub fn with_item_size(meta: &FixedMeta, item_size: i32, data: &[u8]) -> Self {
         // Java: byte[] buffer = InputStreamHelper.readAvailable(is);
         let buffer = data;
         let buffer_length = buffer.len() as i32;
 
         let item_count = meta.get_adjusted_item_count();
-        // Java 用 itemCount 直接构造数组，负数会抛 NegativeArraySizeException；Rust 侧取 0
+// Java constructs the array directly from itemCount; a negative value throws NegativeArraySizeException; the Rust side uses 0
         let item_count = item_count.max(0) as usize;
         let mut array = vec![None; item_count];
         let mut offset = vec![0i32; item_count];
 
-        // Java 在循环中复用（并覆盖）入参 itemSize，Rust 侧保持一致
+// Java reuses (and overwrites) the parameter itemSize in the loop; the Rust side stays consistent
         let mut item_size = item_size;
 
         for loop_index in 0..item_count {
@@ -173,29 +173,29 @@ impl FixedData {
         Self { array, offset }
     }
 
-    /// 构造方法。记录长度固定且已知，无需元数据。
+/// Constructor. The record length is fixed and known, so no metadata is needed.
     ///
-    /// 对应 Java: `FixedData(int itemSize, InputStream is)`
+    /// Corresponds to Java: `FixedData(int itemSize, InputStream is)`
     pub fn with_fixed_size(item_size: i32, data: &[u8]) -> Self {
         Self::with_fixed_size_and_remainder(item_size, data, false)
     }
 
-    /// 构造方法。记录长度固定且已知，可选择是否读取末尾不足一条的残余数据。
+/// Constructor. The record length is fixed and known, with an option to read the trailing remainder that is shorter than one record.
     ///
-    /// 对应 Java: `FixedData(int itemSize, InputStream is, boolean readRemainderBlock)`
+    /// Corresponds to Java: `FixedData(int itemSize, InputStream is, boolean readRemainderBlock)`
     pub fn with_fixed_size_and_remainder(
         item_size: i32,
         data: &[u8],
         read_remainder_block: bool,
     ) -> Self {
-        // Java: is.available() / itemSize，itemSize 为 0 时抛 ArithmeticException；Rust 侧取 0
+// Java: is.available() / itemSize; when itemSize is 0 it throws ArithmeticException; the Rust side uses 0
         let mut item_count = if item_size > 0 {
             data.len() / item_size as usize
         } else {
             0
         };
 
-        // Java: readRemainderBlock && is.available() % itemSize != 0 时多读一条
+// Java: when readRemainderBlock && is.available() % itemSize != 0, read one extra record
         if read_remainder_block && item_size > 0 && data.len() % item_size as usize != 0 {
             item_count += 1;
         }
@@ -216,7 +216,7 @@ impl FixedData {
             };
 
             offset.push(item_offset);
-            // Java 读不足一条时抛异常；Rust 侧取到切片末尾为止（正常情况下不会发生）
+// Java throws when it cannot read a full record; the Rust side reads up to the end of the slice (which does not happen normally)
             let read_size = current_item_size.max(0) as usize;
             array.push(
                 data.get(position..)
@@ -231,9 +231,9 @@ impl FixedData {
         Self { array, offset }
     }
 
-    /// 取指定下标的数据项；下标越界或该位置没有数据时返回 `None`。
+/// Get the data item at the given index; returns `None` when the index is out of bounds or there is no data at that position.
     ///
-    /// 对应 Java: `public byte[] getByteArrayValue(int index)`
+    /// Corresponds to Java: `public byte[] getByteArrayValue(int index)`
     pub fn get_byte_array_value(&self, index: i32) -> Option<&[u8]> {
         // Java: index >= 0 && index < m_array.length && m_array[index] != null
         if index < 0 {
@@ -243,18 +243,18 @@ impl FixedData {
         self.array.get(index as usize)?.as_deref()
     }
 
-    /// 取块内数据项条数（不参考元数据）。
+/// Get the number of data items in the block (without consulting the metadata).
     ///
-    /// 对应 Java: `public int getItemCount()`
+    /// Corresponds to Java: `public int getItemCount()`
     pub fn get_item_count(&self) -> i32 {
         self.array.len() as i32
     }
 
-    /// 判断偏移值是否落在块内。
+/// Determine whether an offset value falls within the block.
     ///
-    /// 对应 Java: `public boolean isValidOffset(Integer offset)`
+    /// Corresponds to Java: `public boolean isValidOffset(Integer offset)`
     ///
-    /// Rust 无重载，`Integer` 版本对应本方法，`int` 版本对应 [`FixedData::is_valid_offset`]。
+/// Rust has no overloading; the `Integer` version corresponds to this method and the `int` version corresponds to [`FixedData::is_valid_offset`].
     pub fn is_valid_offset_optional(&self, offset: Option<i32>) -> bool {
         // Java: offset != null && isValidOffset(offset.intValue())
         match offset {
@@ -263,16 +263,16 @@ impl FixedData {
         }
     }
 
-    /// 判断偏移值是否落在块内。
+/// Determine whether an offset value falls within the block.
     ///
-    /// 对应 Java: `public boolean isValidOffset(int offset)`
+    /// Corresponds to Java: `public boolean isValidOffset(int offset)`
     pub fn is_valid_offset(&self, offset: i32) -> bool {
         offset >= 0 && offset < self.array.len() as i32
     }
 
-    /// 把偏移值转换为数据项下标；找不到时返回 -1（与 Java 一致）。
+/// Convert an offset value to a data item index; returns -1 when not found (consistent with Java).
     ///
-    /// 对应 Java: `public int getIndexFromOffset(int offset)`
+    /// Corresponds to Java: `public int getIndexFromOffset(int offset)`
     pub fn get_index_from_offset(&self, offset: i32) -> i32 {
         for (index, value) in self.offset.iter().enumerate() {
             if *value == offset {
@@ -284,7 +284,7 @@ impl FixedData {
     }
 }
 
-/// 转储块的调试视图（对应 Java 的 `toString()`，仅供调试使用）。
+/// Debug view dumping the block (corresponds to Java's `toString()`, for debugging only).
 impl Display for FixedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "BEGIN FixedData")?;
@@ -296,7 +296,7 @@ impl Display for FixedData {
                 loop_index,
                 self.offset.get(loop_index).copied().unwrap_or(0)
             )?;
-            // Java: ByteArrayHelper.hexdump((byte[]) m_array[loop], true)，元素为 null 时输出空串
+// Java: ByteArrayHelper.hexdump((byte[]) m_array[loop], true); when the element is null an empty string is output
             let item = self
                 .array
                 .get(loop_index)
@@ -310,10 +310,10 @@ impl Display for FixedData {
     }
 }
 
-/// 复制 `data[offset..offset+size]` 到新数组。
+/// Copy `data[offset..offset+size]` into a new array.
 ///
-/// 对应 Java: `MPPUtility.cloneSubArray(byte[] data, int offset, int size)`（Java 越界时
-/// 由 `System.arraycopy` 抛异常，Rust 侧返回 `None`）。
+/// Corresponds to Java: `MPPUtility.cloneSubArray(byte[] data, int offset, int size)` (when out of bounds Java
+/// throws from `System.arraycopy`; the Rust side returns `None`).
 fn clone_sub_array(data: &[u8], offset: i32, size: i32) -> Option<Vec<u8>> {
     if offset < 0 || size < 0 {
         return None;
@@ -328,8 +328,8 @@ fn clone_sub_array(data: &[u8], offset: i32, size: i32) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    /// 手工构造 "FixedMeta" 字节流：16 字节块头 + `offsets.len()` 条 8 字节记录，
-    /// 每条记录的第 4..8 字节存放该条数据在 "FixedData" 数据体中的偏移。
+/// Manually build a "FixedMeta" byte stream: a 16-byte block header + `offsets.len()` 8-byte records,
+/// where bytes 4..8 of each record hold the offset of that data item in the "FixedData" data body.
     fn build_meta_stream(offsets: &[i32]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&0xFADFADBAu32.to_le_bytes());
@@ -346,12 +346,12 @@ mod tests {
         data
     }
 
-    /// 用递增字节的数据体，便于断言切片内容。
+/// A data body of incrementing bytes, to make asserting slice contents easy.
     fn build_data_stream(length: usize) -> Vec<u8> {
         (0..length).map(|index| index as u8).collect()
     }
 
-    /// 按元数据给出的偏移与相邻偏移差切分数据体。
+/// Split the data body according to the offsets given by the metadata and the differences between adjacent offsets.
     #[test]
     fn splits_data_body_by_offset() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 8, 16]), 8).expect("meta");
@@ -362,11 +362,11 @@ mod tests {
         assert_eq!(fixed.get_item_count(), 3);
         assert_eq!(fixed.get_byte_array_value(0), Some(&data[0..8]));
         assert_eq!(fixed.get_byte_array_value(1), Some(&data[8..16]));
-        // 最后一条记录一直取到数据体末尾
+// The last record extends all the way to the end of the data body
         assert_eq!(fixed.get_byte_array_value(2), Some(&data[16..24]));
     }
 
-    /// 偏移与下标互查。
+/// Mutual lookup of offsets and indices.
     #[test]
     fn offset_lookup() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 8, 16]), 8).expect("meta");
@@ -375,7 +375,7 @@ mod tests {
         assert_eq!(fixed.get_index_from_offset(0), 0);
         assert_eq!(fixed.get_index_from_offset(8), 1);
         assert_eq!(fixed.get_index_from_offset(16), 2);
-        // Java: 找不到时返回 -1
+// Java: returns -1 when not found
         assert_eq!(fixed.get_index_from_offset(17), -1);
 
         assert!(fixed.is_valid_offset(0));
@@ -387,7 +387,7 @@ mod tests {
         assert!(!fixed.is_valid_offset_optional(None));
     }
 
-    /// 越界下标 / 空数据体不会 panic。
+/// Out-of-bounds indices / an empty data body do not panic.
     #[test]
     fn out_of_range_and_empty_data() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 8]), 8).expect("meta");
@@ -403,7 +403,7 @@ mod tests {
         assert!(fixed.get_byte_array_value(1000).is_none());
     }
 
-    /// 偏移超出数据体长度时跳过该条记录。
+/// Skip the record when the offset exceeds the length of the data body.
     #[test]
     fn skips_offset_beyond_data() {
         let meta =
@@ -412,12 +412,12 @@ mod tests {
 
         assert_eq!(fixed.get_byte_array_value(0), Some(&build_data_stream(16)[0..8]));
         assert_eq!(fixed.get_byte_array_value(1), Some(&build_data_stream(16)[8..16]));
-        // 第三条偏移越界，Java 侧 continue，Rust 侧保持 None
+// The third offset is out of bounds; the Java side continues, the Rust side keeps None
         assert!(fixed.get_byte_array_value(2).is_none());
         assert_eq!(fixed.get_index_from_offset(1000), -1);
     }
 
-    /// 元数据给出的相邻偏移相同（长度为 0）时改用 minSize。
+/// Fall back to minSize when the metadata gives equal adjacent offsets (length 0).
     #[test]
     fn zero_length_item_uses_min_size() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 0]), 8).expect("meta");
@@ -426,11 +426,11 @@ mod tests {
         let fixed = FixedData::with_limits(&meta, &data, 0, 4);
 
         assert_eq!(fixed.get_byte_array_value(0), Some(&data[0..4]));
-        // 最后一条记录一直取到数据体末尾
+// The last record extends all the way to the end of the data body
         assert_eq!(fixed.get_byte_array_value(1), Some(&data[0..10]));
     }
 
-    /// maxExpectedSize 限制单条记录长度。
+/// maxExpectedSize limits the length of a single record.
     #[test]
     fn max_expected_size_limits_item_length() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 4]), 8).expect("meta");
@@ -439,11 +439,11 @@ mod tests {
         let fixed = FixedData::with_limits(&meta, &data, 6, 0);
 
         assert_eq!(fixed.get_byte_array_value(0), Some(&data[0..4]));
-        // 最后一条从 4 到末尾共 28 字节，被 maxExpectedSize = 6 截断
+// The last record runs from 4 to the end, 28 bytes total, truncated by maxExpectedSize = 6
         assert_eq!(fixed.get_byte_array_value(1), Some(&data[4..10]));
     }
 
-    /// 使用调用方给定的记录长度切分数据体。
+/// Split the data body using the record length given by the caller.
     #[test]
     fn uses_supplied_item_size() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 4, 8]), 8).expect("meta");
@@ -453,11 +453,11 @@ mod tests {
 
         assert_eq!(fixed.get_byte_array_value(0), Some(&data[0..5]));
         assert_eq!(fixed.get_byte_array_value(1), Some(&data[4..9]));
-        // 第三条从偏移 8 起最多只有 10 字节可用，5 字节仍在范围内
+// The third record has at most 10 bytes available from offset 8; 5 bytes are still within range
         assert_eq!(fixed.get_byte_array_value(2), Some(&data[8..13]));
     }
 
-    /// 固定长度数据体：itemSize 为负时取到数据体末尾。
+/// Fixed-length data body: when itemSize is negative, read up to the end of the data body.
     #[test]
     fn fixed_size_constructors() {
         let data = build_data_stream(10);
@@ -468,19 +468,19 @@ mod tests {
         assert_eq!(fixed.get_byte_array_value(1), Some(&data[4..8]));
         assert_eq!(fixed.get_index_from_offset(4), 1);
 
-        // 读取末尾残余数据
+// Read the trailing remainder data
         let fixed = FixedData::with_fixed_size_and_remainder(4, &data, true);
         assert_eq!(fixed.get_item_count(), 3);
         assert_eq!(fixed.get_byte_array_value(2), Some(&data[8..10]));
         assert_eq!(fixed.get_index_from_offset(8), 2);
 
-        // 长度为 0 的记录大小（Java 会抛 ArithmeticException）
+// Record size with length 0 (Java throws ArithmeticException)
         let fixed = FixedData::with_fixed_size(0, &data);
         assert_eq!(fixed.get_item_count(), 0);
         assert!(fixed.get_byte_array_value(0).is_none());
     }
 
-    /// Display 输出每条数据项的下标、偏移与十六进制转储。
+/// The Display output shows each data item's index, offset, and hex dump.
     #[test]
     fn display_dumps_block() {
         let meta = FixedMeta::with_item_size(&build_meta_stream(&[0, 8]), 8).expect("meta");

@@ -1,27 +1,27 @@
-//! 对应 Java: `org/mpxj/mpp/UserDefinedFieldMap.java`
+//! Corresponds to Java: `org/mpxj/mpp/UserDefinedFieldMap.java`
 //!
-//! 本类在「一组用户自定义字段（`UserDefinedField`）」与「一组 MS Project 自定义字段
-//! （内置的 `Text` / `Number` / `Duration` / … 字段）」之间建立映射，使来自其它应用
-//! （例如 Primavera）的用户自定义字段值在导出为 MPX / MSPDI 时能落到 MS Project 的
-//! 自定义字段里，且值不丢失。
+//! This class establishes a mapping between "a set of user-defined fields (`UserDefinedField`)" and "a set of MS Project custom fields
+//! (the built-in `Text` / `Number` / `Duration` / ... fields)", so that user-defined field values coming from other applications
+//! (for example Primavera) land in MS Project's custom fields when exporting to MPX / MSPDI,
+//! without losing the values.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本 crate 的共享方式（见任务约定第 8 条） |
-//! | 构造方法中的 `file.getTasks().getPopulatedFields()` 等 3 行 | [`UserDefinedFieldMap::new`] 汇总 [`ProjectFile::get_populated_entity_fields`] | Rust 在持有父文件借用时一次收集三类实体的已填充字段，避免容器反向借用父文件 |
-//! | `Map<FieldType, FieldType> m_targetMap` / `m_sourceMap` | `HashMap<MppFieldKey, FieldKey>` / `HashMap<FieldKey, MppFieldKey>` | Java 直接拿 `FieldType` 对象作键；Rust 的键需要 `Copy + Eq + Hash`（见 `crate::field_key`），故用等价键。`m_targetMap` 的源键是自定义字段的 unique ID（与 `UserDefinedField.equals` 一致） |
-//! | `Map<FieldTypeClass, Map<DataType, List<FieldType>>> m_fields` | `HashMap<Option<FieldTypeClass>, HashMap<DataType, Vec<FieldKey>>>` | Java 允许 `fieldTypeClass` 为 `null`（此时用 `null` 作 `HashMap` 键）；Rust 用 `Option` 表达「未知实体类型」这一独立分支，语义一致 |
-//! | `m_sourceMap` 的值为源 `FieldType` 对象 | 另有 `m_sources: HashMap<i32, Rc<RefCell<UserDefinedField>>>` | Java 的 `getSource` 直接返回保存的源对象引用；Rust 的等价键无法还原对象，故额外保存句柄（仅对已生成映射的源字段登记） |
-//! | `private List<FieldType> getFieldList(FieldType)` / `getFieldList(FieldTypeClass, DataType)` | [`UserDefinedFieldMap::get_field_list`] / [`get_field_list_for_class`](UserDefinedFieldMap::get_field_list_for_class) | Rust 无方法重载，第二个重载加 `_for_class` 后缀（与 `ProjectFile` 等文件的既有取舍一致） |
-//! | `getTarget(FieldType)` / `getSource(FieldType)` / `generateMapping(FieldType)` 的任意 `FieldType` 参数 | `&MppFieldType` / `&Rc<RefCell<UserDefinedField>>` | [`MppFieldType`] 同时承载内置字段与自定义字段；`generateMapping` 的实参在 Java 中恒为 `UserDefinedField`，故 Rust 侧直接接收其共享句柄 |
-//! | `normaliseDataType(DataType)` 收到 `null` | 收到 `None` 走 `default` 分支回落 `STRING` | Java 的 `switch (type)` 遇到 `null` 会抛 `NullPointerException`，Rust 侧更宽松。
-//! | `field.getDataType()` / `getFieldTypeClass()` 可能为 `null` | `Option<DataType>` / `Option<FieldTypeClass>` | 与 `crate::user_defined_field` 的既有取舍一致 |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | This crate's sharing approach (see task convention item 8) |
+//! | The 3 lines such as `file.getTasks().getPopulatedFields()` in the constructor | [`UserDefinedFieldMap::new`] aggregates [`ProjectFile::get_populated_entity_fields`] | Rust collects the populated fields of the three entity types in one pass while holding the parent file borrow, avoiding the container borrowing the parent file back |
+//! | `Map<FieldType, FieldType> m_targetMap` / `m_sourceMap` | `HashMap<MppFieldKey, FieldKey>` / `HashMap<FieldKey, MppFieldKey>` | Java uses `FieldType` objects directly as keys; Rust keys need `Copy + Eq + Hash` (see `crate::field_key`), so equivalent keys are used. The source key of `m_targetMap` is the custom field's unique ID (consistent with `UserDefinedField.equals`) |
+//! | `Map<FieldTypeClass, Map<DataType, List<FieldType>>> m_fields` | `HashMap<Option<FieldTypeClass>, HashMap<DataType, Vec<FieldKey>>>` | Java allows `fieldTypeClass` to be `null` (using `null` as the `HashMap` key in that case); Rust uses `Option` to express the separate "unknown entity type" branch, with the same semantics |
+//! | The value of `m_sourceMap` is the source `FieldType` object | There is additionally `m_sources: HashMap<i32, Rc<RefCell<UserDefinedField>>>` | Java's `getSource` directly returns the stored source object reference; Rust's equivalent key cannot reconstruct the object, so a handle is stored additionally (registered only for source fields that have generated a mapping) |
+//! | `private List<FieldType> getFieldList(FieldType)` / `getFieldList(FieldTypeClass, DataType)` | [`UserDefinedFieldMap::get_field_list`] / [`get_field_list_for_class`](UserDefinedFieldMap::get_field_list_for_class) | Rust has no method overloading; the second overload gets the `_for_class` suffix (consistent with existing trade-offs in files such as `ProjectFile`) |
+//! | The arbitrary `FieldType` parameters of `getTarget(FieldType)` / `getSource(FieldType)` / `generateMapping(FieldType)` | `&MppFieldType` / `&Rc<RefCell<UserDefinedField>>` | [`MppFieldType`] carries both built-in fields and custom fields; the argument of `generateMapping` is always `UserDefinedField` in Java, so the Rust side directly accepts its shared handle |
+//! | `normaliseDataType(DataType)` receives `null` | Receives `None`, takes the `default` branch and falls back to `STRING` | Java's `switch (type)` throws `NullPointerException` on `null`; the Rust side is more lenient. |
+//! | `field.getDataType()` / `getFieldTypeClass()` may be `null` | `Option<DataType>` / `Option<FieldTypeClass>` | Consistent with the existing trade-offs in `crate::user_defined_field` |
 //!
-//! 跳过的 Java 方法：无（`UserDefinedFieldMap` 的 3 个公开方法与 4 个私有方法全部翻译；
-//! 唯一无法照搬的是构造方法里 `populated` 集合的**来源**，见上表）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java methods: none (all 3 public and 4 private methods of `UserDefinedFieldMap` are translated;
+//! the only thing that cannot be copied verbatim is the **source** of the `populated` set in the constructor, see the table above).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -35,38 +35,38 @@ use crate::field_type_class::FieldTypeClass;
 use crate::project_file::ProjectFile;
 use crate::user_defined_field::UserDefinedField;
 
-/// 用户自定义字段 ↔ MS Project 自定义字段的映射表。
+/// Mapping table between user-defined fields and MS Project custom fields.
 ///
-/// 对应 Java: `public class UserDefinedFieldMap`
+/// Corresponds to Java: `public class UserDefinedFieldMap`
 pub struct UserDefinedFieldMap {
-    /// 源字段（用户自定义字段）→ 目标字段（MS Project 自定义字段）。
+/// Source field (user-defined field) → target field (MS Project custom field).
     ///
-    /// 对应 Java 字段: `private final Map<FieldType, FieldType> m_targetMap = new HashMap<>();`
+    /// Corresponds to Java field: `private final Map<FieldType, FieldType> m_targetMap = new HashMap<>();`
     m_target_map: HashMap<MppFieldKey, FieldKey>,
 
-    /// 目标字段 → 源字段。
+/// Target field → source field.
     ///
-    /// 对应 Java 字段: `private final Map<FieldType, FieldType> m_sourceMap = new HashMap<>();`
+    /// Corresponds to Java field: `private final Map<FieldType, FieldType> m_sourceMap = new HashMap<>();`
     m_source_map: HashMap<FieldKey, MppFieldKey>,
 
-    /// 按「实体类型 + 数据类型」分组的候选目标字段。
+/// Candidate target fields grouped by "entity type + data type".
     ///
-    /// 对应 Java 字段: `private final Map<FieldTypeClass, Map<DataType, List<FieldType>>> m_fields = new HashMap<>();`
+    /// Corresponds to Java field: `private final Map<FieldTypeClass, Map<DataType, List<FieldType>>> m_fields = new HashMap<>();`
     m_fields: HashMap<Option<FieldTypeClass>, HashMap<DataType, Vec<FieldKey>>>,
 
-    /// 已生成映射的源字段句柄（按 unique ID）。
+/// Handles of source fields that have generated a mapping (by unique ID).
     ///
-    /// Rust 特有：Java 在 `m_sourceMap` 里直接保存源 `FieldType` 对象，本 crate 的
-    /// 等价键无法还原对象，故额外登记句柄供 [`UserDefinedFieldMap::get_source`] 使用。
+/// Rust-specific: Java stores the source `FieldType` object directly in `m_sourceMap`; this crate's
+/// equivalent key cannot reconstruct the object, so a handle is registered additionally for [`UserDefinedFieldMap::get_source`] to use.
     m_sources: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
 }
 
 impl UserDefinedFieldMap {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public UserDefinedFieldMap(ProjectFile file, List<FieldType> targetFieldList)`
+    /// Corresponds to Java: `public UserDefinedFieldMap(ProjectFile file, List<FieldType> targetFieldList)`
     ///
-    /// Java 会用「各实体已填充字段」过滤已被占用的目标字段。
+/// Java uses the "populated fields of each entity" to filter out target fields that are already occupied.
     pub fn new(file: &Rc<RefCell<ProjectFile>>, target_field_list: &[FieldKey]) -> Self {
         let populated = file.try_borrow()
             .map(|file| file.get_populated_entity_fields().into_iter().collect::<Vec<_>>())
@@ -74,11 +74,11 @@ impl UserDefinedFieldMap {
         Self::build(file, target_field_list, &populated)
     }
 
-    /// 构造方法（Rust 特有：由调用方给出「已被占用的字段」集合）。
+/// Constructor (Rust-specific: the caller provides the set of "already occupied fields").
     ///
-    /// 对应 Java: `public UserDefinedFieldMap(ProjectFile file, List<FieldType> targetFieldList)`
-    /// 中 `populated` 集合的过滤逻辑（Java 该集合取自
-    /// `file.getTasks().getPopulatedFields()` 等三处）。
+    /// Corresponds to Java: `public UserDefinedFieldMap(ProjectFile file, List<FieldType> targetFieldList)`
+/// the filtering logic of the `populated` set (in Java that set comes from
+/// `file.getTasks().getPopulatedFields()` and two other places).
     pub fn new_with_populated_fields(
         file: &Rc<RefCell<ProjectFile>>,
         target_field_list: &[FieldKey],
@@ -87,7 +87,7 @@ impl UserDefinedFieldMap {
         Self::build(file, target_field_list, populated_fields)
     }
 
-    /// 构造方法的公共实现。
+/// Common implementation of the constructors.
     fn build(
         file: &Rc<RefCell<ProjectFile>>,
         target_field_list: &[FieldKey],
@@ -101,8 +101,8 @@ impl UserDefinedFieldMap {
         };
 
         // Java: if (file == null || file.getUserDefinedFields().isEmpty()) { return; }
-        // Rust 侧 `file` 是共享句柄、不可能为 null；借用冲突（正常调用路径不会发生）
-        // 时按「没有用户自定义字段」处理，避免 panic。
+// On the Rust side `file` is a shared handle and cannot be null; on a borrow conflict (which does not occur on the normal call path)
+// it is treated as "no user-defined fields" to avoid a panic.
         let has_user_defined_fields = file
             .try_borrow()
             .map(|file| !file.get_user_defined_fields().is_empty())
@@ -123,9 +123,9 @@ impl UserDefinedFieldMap {
         result
     }
 
-    /// 由源字段取目标字段；没有映射时原样返回源字段。
+/// Returns the target field for a source field; returns the source field unchanged when there is no mapping.
     ///
-    /// 对应 Java: `public FieldType getTarget(FieldType source)`
+    /// Corresponds to Java: `public FieldType getTarget(FieldType source)`
     pub fn get_target(&self, source: &MppFieldType) -> MppFieldType {
         // Java: FieldType target = m_targetMap.get(source); return target == null ? source : target;
         match self.m_target_map.get(&source.to_key()) {
@@ -134,9 +134,9 @@ impl UserDefinedFieldMap {
         }
     }
 
-    /// 由目标字段取源字段；没有映射时原样返回目标字段。
+/// Returns the source field for a target field; returns the target field unchanged when there is no mapping.
     ///
-    /// 对应 Java: `public FieldType getSource(FieldType target)`
+    /// Corresponds to Java: `public FieldType getSource(FieldType target)`
     pub fn get_source(&self, target: &MppFieldType) -> MppFieldType {
         // Java: FieldType source = m_sourceMap.get(target); return source == null ? target : source;
         match self.m_source_map.get(&target.to_field_key()) {
@@ -144,20 +144,20 @@ impl UserDefinedFieldMap {
                 Some(source) => MppFieldType::Custom(Rc::clone(source)),
                 None => target.clone(),
             },
-            // 目标字段恒为内置字段，该分支只为穷尽匹配而存在
+// The target field is always a built-in field; this arm exists only for exhaustive matching
             Some(MppFieldKey::Builtin(builtin)) => MppFieldType::Builtin(*builtin),
             None => target.clone(),
         }
     }
 
-    /// 为源字段生成映射；候选目标字段用尽时返回 `None`。
+/// Generates a mapping for a source field; returns `None` when the candidate target fields are exhausted.
     ///
-    /// 对应 Java: `public FieldType generateMapping(FieldType source)`
+    /// Corresponds to Java: `public FieldType generateMapping(FieldType source)`
     pub fn generate_mapping(
         &mut self,
         source: &Rc<RefCell<UserDefinedField>>,
     ) -> Option<FieldKey> {
-        // Java: 直接读源字段的属性；Rust 侧源字段是共享句柄，借用冲突时返回 None。
+// Java: read the source field's properties directly; on the Rust side the source field is a shared handle, so it returns None on a borrow conflict.
         let (unique_id, field_type_class, data_type) = {
             let field = source.try_borrow().ok()?;
             (
@@ -172,7 +172,7 @@ impl UserDefinedFieldMap {
         //       FieldType target = fieldList.isEmpty() ? null : fieldList.remove(0);
         let target = match self.remove_first(field_type_class, data_type) {
             Some(target) => Some(target),
-            // Java 注释：期望的数据类型没有候选字段时回落到字符串
+// Java comment: fall back to string when the expected data type has no candidate fields
             None => self.remove_first(field_type_class, DataType::String),
         };
 
@@ -182,28 +182,28 @@ impl UserDefinedFieldMap {
                 .insert(MppFieldKey::Custom(unique_id), target);
             self.m_source_map
                 .insert(target, MppFieldKey::Custom(unique_id));
-            // Rust 特有：登记源字段句柄，供 get_source 归还真实对象。
+// Rust-specific: register the source field handle so get_source can return the real object.
             self.m_sources.insert(unique_id, Rc::clone(source));
         }
 
-        // Java: return target;（null 即 None）
+// Java: return target; (null means None)
         target
     }
 
-    /// 取源字段对应的候选目标字段列表。
+/// Returns the list of candidate target fields for a source field.
     ///
-    /// 对应 Java: `private List<FieldType> getFieldList(FieldType field)`
+    /// Corresponds to Java: `private List<FieldType> getFieldList(FieldType field)`
     fn get_field_list(&mut self, field: &FieldKey) -> &mut Vec<FieldKey> {
         // Java: return getFieldList(field.getFieldTypeClass(), normaliseDataType(field.getDataType()));
-        // 内置字段的实体类型不可能是 null，故用 `Some`。
+// The entity type of a built-in field cannot be null, so `Some` is used.
         let field_type_class = Some(field.get_field_type_class());
         let data_type = normalise_data_type(Some(field.get_data_type()));
         self.get_field_list_for_class(field_type_class, data_type)
     }
 
-    /// 取指定实体类型 / 数据类型的候选目标字段列表（不存在时建立）。
+/// Returns the list of candidate target fields for the given entity type / data type (creating it if absent).
     ///
-    /// 对应 Java: `private List<FieldType> getFieldList(FieldTypeClass fieldTypeClass, DataType dataType)`
+    /// Corresponds to Java: `private List<FieldType> getFieldList(FieldTypeClass fieldTypeClass, DataType dataType)`
     fn get_field_list_for_class(
         &mut self,
         field_type_class: Option<FieldTypeClass>,
@@ -218,7 +218,7 @@ impl UserDefinedFieldMap {
             .or_default()
     }
 
-    /// 从指定分组的候选列表中取出第一个字段（Java 的 `remove(0)`）。
+/// Takes the first field from the candidate list of the given group (Java's `remove(0)`).
     fn remove_first(
         &mut self,
         field_type_class: Option<FieldTypeClass>,
@@ -233,12 +233,12 @@ impl UserDefinedFieldMap {
     }
 }
 
-/// 把数据类型归一到目标字段可用的种类。
+/// Normalizes a data type to a kind usable by the target field.
 ///
-/// 对应 Java: `private DataType normaliseDataType(DataType type)`
+/// Corresponds to Java: `private DataType normaliseDataType(DataType type)`
 ///
-/// Java 收到 `null` 时会在 `switch` 上抛 `NullPointerException`；Rust 侧收到 `None`
-/// 走 `default` 分支回落 `STRING`（见文件头差异表）。
+/// Java throws `NullPointerException` on `null` in the `switch`; the Rust side receives `None`
+/// takes the `default` branch and falls back to `STRING` (see the differences table in the file header).
 fn normalise_data_type(type_: Option<DataType>) -> DataType {
     let Some(type_) = type_ else {
         return DataType::String;
@@ -256,7 +256,7 @@ fn normalise_data_type(type_: Option<DataType>) -> DataType {
         // Java: case PERCENTAGE: case INTEGER: case SHORT: type = DataType.NUMERIC; break;
         DataType::Percentage | DataType::Integer | DataType::Short => DataType::Numeric,
 
-        // Java: case WORK: type = DataType.DURATION; break;（DELAY 同样）
+// Java: case WORK: type = DataType.DURATION; break; (same for DELAY)
         DataType::Work | DataType::Delay => DataType::Duration,
 
         // Java: default: type = DataType.STRING; break;
@@ -270,28 +270,28 @@ mod tests {
     use crate::common::mpp_task_field::MPPTaskField;
     use crate::task_field::TaskField;
 
-    /// 在项目里创建（或复用）一个企业自定义任务字段，返回其共享句柄。
+/// Creates (or reuses) an enterprise custom task field in the project and returns its shared handle.
     ///
-    /// 与 `MPPTaskField.getInstance` 一致：字段号带 `0x8000` 位即自定义字段。
+/// Consistent with `MPPTaskField.getInstance`: a field number with the `0x8000` bit set is a custom field.
     fn source_field(
         file: &Rc<RefCell<ProjectFile>>,
         value: i32,
         data_type: DataType,
     ) -> Rc<RefCell<UserDefinedField>> {
         let field = MPPTaskField::get_instance_with_data_type(file, value, data_type)
-            .expect("应能创建企业自定义字段");
+            .expect("should create enterprise custom field");
         field
             .as_custom()
-            .expect("0x8000 位对应自定义字段")
+            .expect("0x8000 bit corresponds to custom field")
             .clone()
     }
 
-    /// 目标字段（内置自定义字段）的等价键。
+/// The equivalent key of the target field (a built-in custom field).
     fn target(field: TaskField) -> FieldKey {
         FieldKey::Task(field)
     }
 
-    /// 没有任何用户自定义字段时，构造方法直接返回，不登记任何目标字段。
+/// When there are no user-defined fields, the constructor returns immediately and registers no target fields.
     #[test]
     fn no_user_defined_fields_means_no_target_lists() {
         let file = ProjectFile::new();
@@ -301,7 +301,7 @@ mod tests {
         assert!(map.m_target_map.is_empty());
     }
 
-    /// 映射生成后 `getTarget` / `getSource` 双向可查，且候选字段被消耗。
+/// After a mapping is generated, `getTarget` / `getSource` are queryable in both directions and the candidate field is consumed.
     #[test]
     fn mapping_round_trips_in_both_directions() {
         let file = ProjectFile::new();
@@ -312,49 +312,49 @@ mod tests {
         let source_type = MppFieldType::Custom(Rc::clone(&source));
         let target_type = MppFieldType::from(target_key);
 
-        // 尚未建立映射：原样返回入参
+// No mapping established yet: return the argument unchanged
         assert_eq!(map.get_target(&source_type).to_key(), source_type.to_key());
         assert_eq!(map.get_source(&target_type).to_key(), MppFieldKey::Builtin(target_key));
 
-        let generated = map.generate_mapping(&source).expect("应生成映射");
+        let generated = map.generate_mapping(&source).expect("should generate mapping");
         assert_eq!(generated, target_key);
 
-        // getTarget 返回目标字段；getSource 返回原始源字段对象
+// getTarget returns the target field; getSource returns the original source field object
         assert_eq!(
             map.get_target(&source_type).to_key(),
             MppFieldKey::Builtin(target_key)
         );
         let restored = map.get_source(&target_type);
-        let restored_source = restored.as_custom().expect("应为自定义字段");
+        let restored_source = restored.as_custom().expect("should be custom field");
         assert!(Rc::ptr_eq(restored_source, &source));
 
-        // 目标字段是唯一的，第二个源字段拿不到映射
+// The target field is unique, so the second source field gets no mapping
         let second = source_field(&file, 0x8002, DataType::String);
         let second_type = MppFieldType::Custom(Rc::clone(&second));
         let second_key = second_type.to_key();
         assert!(map.generate_mapping(&second).is_none());
-        // 未建立映射的字段仍返回入参自身
+// A field without a mapping still returns the argument itself
         assert_eq!(map.get_target(&second_type).to_key(), second_key);
     }
 
-    /// 期望的数据类型没有候选字段时回落到 `STRING`。
+/// Falls back to `STRING` when the expected data type has no candidate fields.
     #[test]
     fn falls_back_to_string_when_type_is_unavailable() {
         let file = ProjectFile::new();
-        // 源字段是整型（归一后为 NUMERIC）
+// The source field is an integer type (NUMERIC after normalization)
         let source = source_field(&file, 0x8001, DataType::Integer);
-        // 目标列表里只有字符串字段
+// The target list contains only string fields
         let mut map = UserDefinedFieldMap::new(&file, &[target(TaskField::Text2)]);
 
         assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text2)));
     }
 
-    /// 归一后的类型决定分组：整型源字段优先映射到数值字段。
+/// The normalized type determines the group: an integer source field maps to a numeric field first.
     #[test]
     fn integer_source_prefers_numeric_targets() {
         let file = ProjectFile::new();
         let source = source_field(&file, 0x8001, DataType::Short);
-        // 先登记数值字段，再登记字符串字段
+// Register the numeric field first, then the string field
         let mut map = UserDefinedFieldMap::new(&file, &[target(TaskField::Number1), target(TaskField::Text1)]);
 
         assert_eq!(
@@ -363,7 +363,7 @@ mod tests {
         );
     }
 
-    /// 「工期 / 工时」类源字段共用 `DURATION` 分组。
+/// "Duration / work" source fields share the `DURATION` group.
     #[test]
     fn work_and_delay_share_the_duration_group() {
         let file = ProjectFile::new();
@@ -372,11 +372,11 @@ mod tests {
         let mut map = UserDefinedFieldMap::new(&file, &[target(TaskField::Duration1)]);
 
         assert_eq!(map.generate_mapping(&work), Some(target(TaskField::Duration1)));
-        // 周期 / 工期分组已用尽
+// The period / duration group is exhausted
         assert!(map.generate_mapping(&delay).is_none());
     }
 
-    /// 实体类型不同则分组不同：任务源字段不会命中资源字段。
+/// Different entity types use different groups: a task source field does not hit a resource field.
     #[test]
     fn different_field_type_class_does_not_match() {
         let file = ProjectFile::new();
@@ -387,7 +387,7 @@ mod tests {
         assert!(map.generate_mapping(&source).is_none());
     }
 
-    /// `populated` 集合中的目标字段会被过滤掉（Java 第 68 行）。
+/// Target fields in the `populated` set are filtered out (Java line 68).
     #[test]
     fn populated_fields_are_excluded_from_the_target_list() {
         let file = ProjectFile::new();
@@ -402,13 +402,13 @@ mod tests {
         assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text2)));
     }
 
-    /// 构造函数应自动排除任务里已有实际值的自定义字段。
+/// The constructor should automatically exclude custom fields that already have actual values in tasks.
     #[test]
     fn new_skips_targets_already_used_by_tasks() {
         let file = ProjectFile::new();
         let source = source_field(&file, 0x8001, DataType::String);
         let task = file.borrow_mut().get_tasks_mut().add();
-        task.borrow_mut().set(target(TaskField::Text1), Some("已占用".into()));
+        task.borrow_mut().set(target(TaskField::Text1), Some("occupied".into()));
         let mut map = UserDefinedFieldMap::new(
             &file,
             &[target(TaskField::Text1), target(TaskField::Text2)],
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text2)));
     }
 
-    /// 空文本、零值和 false 都不是 Java `PopulatedFields` 所称的已填充字段。
+/// Empty text, zero values and false are not populated fields as defined by Java `PopulatedFields`.
     #[test]
     fn new_keeps_targets_with_only_default_values() {
         let file = ProjectFile::new();
@@ -427,10 +427,10 @@ mod tests {
         assert_eq!(map.generate_mapping(&source), Some(target(TaskField::Text1)));
     }
 
-    /// `normaliseDataType` 的分支与 Java 一致。
+/// The branches of `normaliseDataType` are consistent with Java.
     #[test]
     fn normalise_data_type_follows_java() {
-        // 保持原样
+// Keep as-is
         for data_type in [
             DataType::String,
             DataType::Date,
@@ -442,17 +442,17 @@ mod tests {
             assert_eq!(normalise_data_type(Some(data_type)), data_type);
         }
 
-        // 归纳为数值
+// Normalize to numeric
         for data_type in [DataType::Percentage, DataType::Integer, DataType::Short] {
             assert_eq!(normalise_data_type(Some(data_type)), DataType::Numeric);
         }
 
-        // 归纳为工期
+// Normalize to duration
         for data_type in [DataType::Work, DataType::Delay] {
             assert_eq!(normalise_data_type(Some(data_type)), DataType::Duration);
         }
 
-        // 其余类型回落字符串；Java 传 null 会抛异常，Rust 返回 STRING
+// All other types fall back to string; Java throws on null, Rust returns STRING
         assert_eq!(normalise_data_type(Some(DataType::Guid)), DataType::String);
         assert_eq!(normalise_data_type(Some(DataType::Custom)), DataType::String);
         assert_eq!(normalise_data_type(None), DataType::String);

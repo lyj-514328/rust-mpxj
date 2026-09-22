@@ -1,17 +1,20 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_pt.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_pt.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_pt` 是葡萄牙语资源包，只覆盖部分键；未覆盖的键由 `ResourceBundle`
-//! 从基类回落取值。Rust 侧把该语言实际覆盖的键写成模块级 `pub const`
-//! （标量常量按 Java `RESOURCE_DATA` 的键名命名，数组常量沿用 Java 的字段名），
-//! 并用 [`OVERRIDES`]（对应 `getContents()` 的返回值）汇总；未覆盖的键为 `None`，
-//! 由 `locale_data` 模块回落到英文默认资源。取值逻辑见 `locale_data` 模块头部说明；
-//! `ListResourceBundle` 的协议方法由常量表替代，不移植。
+//! Java's `LocaleData_pt` is a Portuguese resource bundle that overrides only some keys;
+//! keys it does not override fall back to the base class via `ResourceBundle`. On the Rust
+//! side the keys this language actually overrides are written as module-level `pub const`
+//! (scalar constants named after the Java `RESOURCE_DATA` keys, array constants keeping the
+//! Java field names) and aggregated in [`OVERRIDES`] (corresponding to the return value of
+//! `getContents()`); keys that are not overridden are `None` and fall back to the English
+//! default resource in the `locale_data` module. See the `locale_data` module header for the
+//! lookup logic; the `ListResourceBundle` protocol methods are replaced by the constant
+//! table and are not ported.
 //!
-//! 本语言未覆盖的键：`PROGRAM_NAME`、`FILE_VERSION`、`CODE_PAGE`、`DEFAULT_START_TIME`。
+//! Keys not overridden by this language: `PROGRAM_NAME`, `FILE_VERSION`, `CODE_PAGE`, `DEFAULT_START_TIME`.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::currency_symbol_position::CurrencySymbolPosition;
 use crate::date_order::DateOrder;
@@ -19,19 +22,19 @@ use crate::mpx::locale_data::LocaleOverrides;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 葡萄牙语时间单位别名表。
+/// Portuguese time unit alias table.
 ///
-/// 对应 Java: `LocaleData_pt.TIME_UNITS_ARRAY_DATA`（Java 字面量顺序：分钟、小时、天、
-/// 周、月、年、百分比、随后是各「已用」单位；下标 5 是年、下标 6 是百分比，
-/// 与 `TimeUnit` 的取值顺序不同，此处照抄 Java）。
+/// Corresponds to Java: `LocaleData_pt.TIME_UNITS_ARRAY_DATA` (Java literal order: minutes, hours,
+/// days, weeks, months, years, percent, followed by the elapsed units; index 5 is years and
+/// index 6 is percent, which differs from the `TimeUnit` value order; Java is copied verbatim here).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["m"],     // 0 TimeUnit.MINUTES
     &["h"],     // 1 TimeUnit.HOURS
     &["d"],     // 2 TimeUnit.DAYS
-    &["s"],     // 3 TimeUnit.WEEKS（semanas）
-    &["mes"],   // 4 TimeUnit.MONTHS（meses）
-    &["a"],     // 5 TimeUnit.PERCENT（Java 字面量位置，anos）
-    &["%"],     // 6 TimeUnit.YEARS（Java 字面量位置）
+    &["s"],     // 3 TimeUnit.WEEKS (semanas)
+    &["mes"],   // 4 TimeUnit.MONTHS (meses)
+    &["a"],     // 5 TimeUnit.PERCENT (Java literal position, anos)
+    &["%"],     // 6 TimeUnit.YEARS (Java literal position)
     &["em"],    // 7 TimeUnit.ELAPSED_MINUTES
     &["eh"],    // 8 TimeUnit.ELAPSED_HOURS
     &["ed"],    // 9 TimeUnit.ELAPSED_DAYS
@@ -41,20 +44,20 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["e%"],    // 13 TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 葡萄牙语资源键 `ACCRUE_TYPES` 的名表。
+/// Portuguese name table for resource key `ACCRUE_TYPES`.
 ///
-/// 对应 Java: `LocaleData_pt.ACCRUE_TYPES_DATA`（第三项在 Java 源码中是空字符串）。
+/// Corresponds to Java: `LocaleData_pt.ACCRUE_TYPES_DATA` (the third entry is an empty string in the Java source).
 pub const ACCRUE_TYPES_DATA: [Option<&'static str>; 3] = [Some("Inicio"), Some("Fim"), Some("")];
 
-/// 葡萄牙语资源键 `RELATION_TYPES` 的名表。
+/// Portuguese name table for resource key `RELATION_TYPES`.
 ///
-/// 对应 Java: `LocaleData_pt.RELATION_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_pt.RELATION_TYPES_DATA`.
 pub const RELATION_TYPES_DATA: [Option<&'static str>; 4] =
     [Some("TT"), Some("TI"), Some("IT"), Some("II")];
 
-/// 葡萄牙语资源键 `PRIORITY_TYPES` 的名表。
+/// Portuguese name table for resource key `PRIORITY_TYPES`.
 ///
-/// 对应 Java: `LocaleData_pt.PRIORITY_TYPES_DATA`（下标 2、6 在 Java 源码中仍是英文原名）。
+/// Corresponds to Java: `LocaleData_pt.PRIORITY_TYPES_DATA` (indices 2 and 6 remain the original English names in the Java source).
 pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Muito Baixa"),
     Some("Muito Baixo"),
@@ -68,9 +71,9 @@ pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Não Nivelar"),
 ];
 
-/// 葡萄牙语资源键 `CONSTRAINT_TYPES` 的名表。
+/// Portuguese name table for resource key `CONSTRAINT_TYPES`.
 ///
-/// 对应 Java: `LocaleData_pt.CONSTRAINT_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_pt.CONSTRAINT_TYPES_DATA`.
 pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("O Mais Breve Possível"),
     Some("O Mais Tarde Possível"),
@@ -82,9 +85,9 @@ pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("Não Terminar Depois De"),
 ];
 
-/// 葡萄牙语资源键 `TASK_NAMES` 的名表（下标与 MPX 任务字段号对应；行末注释为英文默认名）。
+/// Portuguese name table for resource key `TASK_NAMES` (indices correspond to MPX task field numbers; the end-of-line comments are the English default names).
 ///
-/// 对应 Java: `LocaleData_pt.TASK_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_pt.TASK_NAMES_DATA`.
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                            // -
     Some("Nome"),                    // Name
@@ -241,9 +244,9 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Continuar"),               // Resume
 ];
 
-/// 葡萄牙语资源键 `RESOURCE_NAMES` 的名表（下标与 MPX 资源字段号对应；行末注释为英文默认名）。
+/// Portuguese name table for resource key `RESOURCE_NAMES` (indices correspond to MPX resource field numbers; the end-of-line comments are the English default names).
 ///
-/// 对应 Java: `LocaleData_pt.RESOURCE_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_pt.RESOURCE_NAMES_DATA`.
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                          // -
     Some("Nome"),                  // Name
@@ -265,7 +268,7 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                          // -
     None,                          // -
     None,                          // -
-    Some("Trabaho"),               // Work（Java 源码中的拼写）
+    Some("Trabaho"),               // Work (spelling in the Java source)
     Some("Linha Base de Trabalho"), // Baseline Work
     Some("Trabalho Real"),         // Actual Work
     Some("Trabalho Restante"),     // Remaining Work
@@ -299,43 +302,43 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Campos Ligados"),        // Linked Fields
 ];
 
-/// 对应资源键 `FILE_DELIMITER`
+/// Corresponds to resource key `FILE_DELIMITER`
 pub const FILE_DELIMITER: char = ';';
-/// 对应资源键 `CURRENCY_SYMBOL`（Java 源码为空字符串）
+/// Corresponds to resource key `CURRENCY_SYMBOL` (empty string in the Java source)
 pub const CURRENCY_SYMBOL: &'static str = "";
-/// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+/// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
 pub const CURRENCY_SYMBOL_POSITION: CurrencySymbolPosition = CurrencySymbolPosition::Before;
-/// 对应资源键 `CURRENCY_DIGITS`
+/// Corresponds to resource key `CURRENCY_DIGITS`
 pub const CURRENCY_DIGITS: i32 = 2;
-/// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR`
 pub const CURRENCY_THOUSANDS_SEPARATOR: char = '.';
-/// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
 pub const CURRENCY_DECIMAL_SEPARATOR: char = ',';
-/// 对应资源键 `DATE_ORDER`
+/// Corresponds to resource key `DATE_ORDER`
 pub const DATE_ORDER: DateOrder = DateOrder::Dmy;
-/// 对应资源键 `TIME_FORMAT`
+/// Corresponds to resource key `TIME_FORMAT`
 pub const TIME_FORMAT: ProjectTimeFormat = ProjectTimeFormat::TwentyFourHour;
-/// 对应资源键 `DATE_SEPARATOR`
+/// Corresponds to resource key `DATE_SEPARATOR`
 pub const DATE_SEPARATOR: char = '/';
-/// 对应资源键 `TIME_SEPARATOR`
+/// Corresponds to resource key `TIME_SEPARATOR`
 pub const TIME_SEPARATOR: char = ':';
-/// 对应资源键 `AM_TEXT`
+/// Corresponds to resource key `AM_TEXT`
 pub const AM_TEXT: &'static str = "";
-/// 对应资源键 `PM_TEXT`
+/// Corresponds to resource key `PM_TEXT`
 pub const PM_TEXT: &'static str = "";
-/// 对应资源键 `DATE_FORMAT`
+/// Corresponds to resource key `DATE_FORMAT`
 pub const DATE_FORMAT: ProjectDateFormat = ProjectDateFormat::DdMmYyyy;
-/// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+/// Corresponds to resource key `BAR_TEXT_DATE_FORMAT`
 pub const BAR_TEXT_DATE_FORMAT: i32 = 0;
-/// 对应资源键 `NA`
+/// Corresponds to resource key `NA`
 pub const NA: &'static str = "NA";
-/// 对应资源键 `YES`
+/// Corresponds to resource key `YES`
 pub const YES: &'static str = "Sim";
-/// 对应资源键 `NO`
+/// Corresponds to resource key `NO`
 pub const NO: &'static str = "Não";
 
-/// 葡萄牙语资源包的内容，对应 Java `LocaleData_pt.RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// Contents of the Portuguese resource bundle, corresponding to Java `LocaleData_pt.RESOURCE_DATA`
+/// (i.e. the return value of `getContents()`).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides {
     file_delimiter: Some(FILE_DELIMITER),
     program_name: None,
@@ -416,7 +419,7 @@ mod tests {
         assert_eq!(LocaleData::get_string(MpxLocale::Pt, LocaleData::YES), Some("Sim"));
         assert_eq!(LocaleData::get_string(MpxLocale::Pt, LocaleData::NO), Some("Não"));
         assert_eq!(LocaleData::get_string(MpxLocale::Pt, LocaleData::NA), Some("NA"));
-        // 未覆盖的键回落英文
+        // Keys that are not overridden fall back to English
         assert_eq!(
             LocaleData::get_string(MpxLocale::Pt, LocaleData::PROGRAM_NAME),
             Some("Microsoft Project for Windows")

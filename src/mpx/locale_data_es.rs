@@ -1,21 +1,26 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_es.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_es.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_es` 是西班牙语资源包，只覆盖部分键；未覆盖的键由 `ResourceBundle`
-//! 从基类回落取值。Rust 侧把该语言实际覆盖的键写成模块级 `pub const`
-//! （标量常量按 Java `RESOURCE_DATA` 的键名命名，数组常量沿用 Java 的字段名），
-//! 并用 [`OVERRIDES`]（对应 `getContents()` 的返回值）汇总；未覆盖的键为 `None`，
-//! 由 `locale_data` 模块回落到英文默认资源。取值逻辑见 `locale_data` 模块头部说明；
-//! `ListResourceBundle` 的协议方法由常量表替代，不移植。
+//! Java's `LocaleData_es` is a Spanish resource bundle covering only some keys; keys it
+//! does not cover fall back to the base class in `ResourceBundle`. On the Rust side the
+//! keys this locale actually covers are written as module-level `pub const` values (scalar
+//! constants are named after the Java `RESOURCE_DATA` keys, array constants keep the Java
+//! field names) and aggregated by [`OVERRIDES`] (corresponding to the return value of
+//! `getContents()`); uncovered keys are `None` and fall back to the English default
+//! resources in the `locale_data` module. See the header of the `locale_data` module for
+//! the lookup logic; the `ListResourceBundle` protocol methods are replaced by constant
+//! tables and are not ported.
 //!
-//! 本语言覆盖 `RESOURCE_DATA` 的全部键（`DEFAULT_START_TIME` 的值与英文默认值相同）。
+//! This locale covers every key in `RESOURCE_DATA` (`DEFAULT_START_TIME` has the same value
+//! as the English default).
 //!
-//! Java 源码中部分条目仍写着英文原名（标注 `// TODO Translate`），此处按源码字面量照抄。
-//! 另：Java 源码里若干西语词汇夹带了软连字符 U+00AD（如 `"M\u00ED\u00ADnima"`），
-//! 这里用 `\u{ad}` 原样保留。
+//! Some entries in the Java source still use their English original names (marked
+//! `// TODO Translate`); they are copied here verbatim from the source literals.
+//! Note also that several Spanish words in the Java source contain a soft hyphen U+00AD
+//! (e.g. `"M\u00ED\u00ADnima"`), preserved here as `\u{ad}`.
 //!
-//! 未移植的成员：无。
+//! Skipped Java members: none.
 
 use crate::code_page::CodePage;
 use crate::currency_symbol_position::CurrencySymbolPosition;
@@ -24,19 +29,19 @@ use crate::mpx::locale_data::LocaleOverrides;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 西班牙语时间单位别名表。
+/// Spanish time unit alias table.
 ///
-/// 对应 Java: `LocaleData_es.TIME_UNITS_ARRAY_DATA`（Java 字面量顺序：分钟、小时、天、
-/// 周、月、年、百分比、随后是各「已用」单位；下标 5 是年、下标 6 是百分比，
-/// 与 `TimeUnit` 的取值顺序不同，此处照抄 Java）。
+/// Corresponds to Java: `LocaleData_es.TIME_UNITS_ARRAY_DATA` (Java literal order: minutes,
+/// hours, days, weeks, months, years, percent, followed by the elapsed units; index 5 is
+/// years and index 6 is percent, differing from the `TimeUnit` value order, copied from Java).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["m"],    // 0 TimeUnit.MINUTES
     &["h"],    // 1 TimeUnit.HOURS
     &["d"],    // 2 TimeUnit.DAYS
-    &["s"],    // 3 TimeUnit.WEEKS（Semanas）
-    &["ms"],   // 4 TimeUnit.MONTHS（Meses）
-    &["a"],    // 5 TimeUnit.PERCENT（Java 字面量位置，Años）
-    &["%"],    // 6 TimeUnit.YEARS（Java 字面量位置）
+    &["s"],    // 3 TimeUnit.WEEKS (Semanas)
+    &["ms"],   // 4 TimeUnit.MONTHS (Meses)
+    &["a"],    // 5 TimeUnit.PERCENT (Java literal position, Años)
+    &["%"],    // 6 TimeUnit.YEARS (Java literal position)
     &["em"],   // 7 TimeUnit.ELAPSED_MINUTES
     &["eh"],   // 8 TimeUnit.ELAPSED_HOURS
     &["ed"],   // 9 TimeUnit.ELAPSED_DAYS
@@ -46,21 +51,21 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["e%"],   // 13 TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 西班牙语资源键 `ACCRUE_TYPES` 的名表。
+/// Spanish resource key `ACCRUE_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_es.ACCRUE_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_es.ACCRUE_TYPES_DATA`.
 pub const ACCRUE_TYPES_DATA: [Option<&'static str>; 3] =
     [Some("Comienzo"), Some("Fin"), Some("Prorrateo")];
 
-/// 西班牙语资源键 `RELATION_TYPES` 的名表。
+/// Spanish resource key `RELATION_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_es.RELATION_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_es.RELATION_TYPES_DATA`.
 pub const RELATION_TYPES_DATA: [Option<&'static str>; 4] =
     [Some("FF"), Some("FC"), Some("CF"), Some("CC")];
 
-/// 西班牙语资源键 `PRIORITY_TYPES` 的名表。
+/// Spanish resource key `PRIORITY_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_es.PRIORITY_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_es.PRIORITY_TYPES_DATA`.
 pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Mí\u{ad}nima"),
     Some("Muy Baja"),
@@ -74,9 +79,9 @@ pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("No Redistribuir"),
 ];
 
-/// 西班牙语资源键 `CONSTRAINT_TYPES` 的名表。
+/// Spanish resource key `CONSTRAINT_TYPES` name table.
 ///
-/// 对应 Java: `LocaleData_es.CONSTRAINT_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_es.CONSTRAINT_TYPES_DATA`.
 pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("Lo antes posible"),
     Some("Lo más tarde posible"),
@@ -88,9 +93,9 @@ pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("No finalizar después del"),
 ];
 
-/// 西班牙语资源键 `TASK_NAMES` 的名表（下标与 MPX 任务字段号对应；行末注释为英文默认名）。
+/// Spanish resource key `TASK_NAMES` name table (indices correspond to MPX task field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_es.TASK_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_es.TASK_NAMES_DATA`.
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                              // -
     Some("Nombre"),                    // Name
@@ -147,7 +152,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Comienzo Temprano"),         // Early Start
     Some("Fin Temprano"),              // Early Finish
     Some("Comienzo Tardí\u{ad}o"),     // Late Start
-    Some("Fin TardÃ\u{ad}o"),          // Late Finish（Java 源码中的乱码，原样保留）
+    Some("Fin TardÃ\u{ad}o"),          // Late Finish (garbled text in the Java source, preserved as-is)
     Some("Lí\u{ad}nea de Base de Comienzo"), // Baseline Start
     Some("Lí\u{ad}nea de Base de Fin"), // Baseline Finish
     Some("Comienzo Real"),             // Actual Start
@@ -175,20 +180,20 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Fijo"),                      // Fixed
     Some("Hito"),                      // Milestone
     Some("Crí\u{ad}tico"),             // Critical
-    Some("Marked"),                    // Marked（Java 源码未翻译）
-    Some("Rollup"),                    // Rollup（Java 源码未翻译）
-    Some("BCWS"),                      // BCWS（Java 源码未翻译）
-    Some("BCWP"),                      // BCWP（Java 源码未翻译）
-    Some("SV"),                        // SV（Java 源码未翻译）
-    Some("CV"),                        // CV（Java 源码未翻译）
+    Some("Marked"),                    // Marked (not translated in Java source)
+    Some("Rollup"),                    // Rollup (not translated in Java source)
+    Some("BCWS"),                      // BCWS (not translated in Java source)
+    Some("BCWP"),                      // BCWP (not translated in Java source)
+    Some("SV"),                        // SV (not translated in Java source)
+    Some("CV"),                        // CV (not translated in Java source)
     None,                              // -
-    Some("ID"),                        // ID（Java 源码未翻译）
+    Some("ID"),                        // ID (not translated in Java source)
     Some("Tipo de Restricción"),       // Constraint Type
     Some("Demora"),                    // Delay
-    Some("Free Slack"),                // Free Slack（Java 源码未翻译）
-    Some("Total Slack"),               // Total Slack（Java 源码未翻译）
+    Some("Free Slack"),                // Free Slack (not translated in Java source)
+    Some("Total Slack"),               // Total Slack (not translated in Java source)
     Some("Prioridad"),                 // Priority
-    Some("Subproject File"),           // Subproject File（Java 源码未翻译）
+    Some("Subproject File"),           // Subproject File (not translated in Java source)
     Some("Proyecto"),                  // Project
     Some("ID Único"),                  // Unique ID
     Some("Número de Esquema"),         // Outline Number
@@ -212,7 +217,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Indicador8"),                // Flag8
     Some("Indicador9"),                // Flag9
     Some("Indicador10"),               // Flag10
-    Some("Summary"),                   // Summary（Java 源码未翻译）
+    Some("Summary"),                   // Summary (not translated in Java source)
     Some("Objetos"),                   // Objects
     Some("Campos Enlazados"),          // Linked Fields
     Some("Ocultar Barra"),             // Hide Bar
@@ -227,8 +232,8 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                              // -
     None,                              // -
     None,                              // -
-    Some("Confirmed"),                 // Confirmed（Java 源码未翻译）
-    Some("Update Needed"),             // Update Needed（Java 源码未翻译）
+    Some("Confirmed"),                 // Confirmed (not translated in Java source)
+    Some("Update Needed"),             // Update Needed (not translated in Java source)
     None,                              // -
     None,                              // -
     None,                              // -
@@ -242,14 +247,14 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                              // -
     None,                              // -
     None,                              // -
-    Some("Stop"),                      // Stop（Java 源码未翻译）
-    Some("Resume No Earlier Than"),    // Resume No Earlier Than（Java 源码未翻译）
-    Some("Resume"),                    // Resume（Java 源码未翻译）
+    Some("Stop"),                      // Stop (not translated in Java source)
+    Some("Resume No Earlier Than"),    // Resume No Earlier Than (not translated in Java source)
+    Some("Resume"),                    // Resume (not translated in Java source)
 ];
 
-/// 西班牙语资源键 `RESOURCE_NAMES` 的名表（下标与 MPX 资源字段号对应；行末注释为英文默认名）。
+/// Spanish resource key `RESOURCE_NAMES` name table (indices correspond to MPX resource field numbers; end-of-line comments give the English default name).
 ///
-/// 对应 Java: `LocaleData_es.RESOURCE_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_es.RESOURCE_NAMES_DATA`.
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                            // -
     Some("Nombre"),                  // Name
@@ -275,7 +280,7 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Línea de Base de Trabajo"), // Baseline Work
     Some("Trabajo Real"),            // Actual Work
     Some("Trabajo Restante"),        // Remaining Work
-    Some("Overtime Work"),           // Overtime Work（Java 源码未翻译）
+    Some("Overtime Work"),           // Overtime Work (not translated in Java source)
     Some("Variación de Trabajo"),    // Work Variance
     Some("% Trabajo Completado"),    // % Work Complete
     None,                            // -
@@ -291,10 +296,10 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                            // -
     None,                            // -
     None,                            // -
-    Some("ID"),                      // ID（Java 源码未翻译）
-    Some("Max Units"),               // Max Units（Java 源码未翻译）
-    Some("Standard Rate"),           // Standard Rate（Java 源码未翻译）
-    Some("Overtime Rate"),           // Overtime Rate（Java 源码未翻译）
+    Some("ID"),                      // ID (not translated in Java source)
+    Some("Max Units"),               // Max Units (not translated in Java source)
+    Some("Standard Rate"),           // Standard Rate (not translated in Java source)
+    Some("Overtime Rate"),           // Overtime Rate (not translated in Java source)
     Some("Costo Por Uso"),           // Cost Per Use
     Some("Acumulación de costos"),   // Accrue At
     Some("Sobreasignado"),           // Overallocated
@@ -305,51 +310,51 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Campos Enlazados"),        // Linked Fields
 ];
 
-/// 对应资源键 `FILE_DELIMITER`
+/// Corresponds to resource key `FILE_DELIMITER`
 pub const FILE_DELIMITER: char = ',';
-/// 对应资源键 `PROGRAM_NAME`
+/// Corresponds to resource key `PROGRAM_NAME`
 pub const PROGRAM_NAME: &'static str = "Microsoft Project for Windows";
-/// 对应资源键 `FILE_VERSION`
+/// Corresponds to resource key `FILE_VERSION`
 pub const FILE_VERSION: &'static str = "4.0";
-/// 对应资源键 `CODE_PAGE`
+/// Corresponds to resource key `CODE_PAGE`
 pub const CODE_PAGE: CodePage = CodePage::Ansi;
-/// 对应资源键 `CURRENCY_SYMBOL`
+/// Corresponds to resource key `CURRENCY_SYMBOL`
 pub const CURRENCY_SYMBOL: &'static str = "$";
-/// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+/// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
 pub const CURRENCY_SYMBOL_POSITION: CurrencySymbolPosition = CurrencySymbolPosition::Before;
-/// 对应资源键 `CURRENCY_DIGITS`
+/// Corresponds to resource key `CURRENCY_DIGITS`
 pub const CURRENCY_DIGITS: i32 = 2;
-/// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR`
 pub const CURRENCY_THOUSANDS_SEPARATOR: char = '.';
-/// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+/// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
 pub const CURRENCY_DECIMAL_SEPARATOR: char = ',';
-/// 对应资源键 `DATE_ORDER`
+/// Corresponds to resource key `DATE_ORDER`
 pub const DATE_ORDER: DateOrder = DateOrder::Dmy;
-/// 对应资源键 `TIME_FORMAT`
+/// Corresponds to resource key `TIME_FORMAT`
 pub const TIME_FORMAT: ProjectTimeFormat = ProjectTimeFormat::TwentyFourHour;
-/// 对应资源键 `DEFAULT_START_TIME`（自午夜起的分钟数，值同英文默认值）
+/// Corresponds to resource key `DEFAULT_START_TIME` (minutes since midnight, same value as the English default)
 pub const DEFAULT_START_TIME: i32 = 480;
-/// 对应资源键 `DATE_SEPARATOR`
+/// Corresponds to resource key `DATE_SEPARATOR`
 pub const DATE_SEPARATOR: char = '/';
-/// 对应资源键 `TIME_SEPARATOR`
+/// Corresponds to resource key `TIME_SEPARATOR`
 pub const TIME_SEPARATOR: char = ':';
-/// 对应资源键 `AM_TEXT`
+/// Corresponds to resource key `AM_TEXT`
 pub const AM_TEXT: &'static str = "am";
-/// 对应资源键 `PM_TEXT`
+/// Corresponds to resource key `PM_TEXT`
 pub const PM_TEXT: &'static str = "pm";
-/// 对应资源键 `DATE_FORMAT`
+/// Corresponds to resource key `DATE_FORMAT`
 pub const DATE_FORMAT: ProjectDateFormat = ProjectDateFormat::DdMmYyyy;
-/// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+/// Corresponds to resource key `BAR_TEXT_DATE_FORMAT`
 pub const BAR_TEXT_DATE_FORMAT: i32 = 0;
-/// 对应资源键 `NA`
+/// Corresponds to resource key `NA`
 pub const NA: &'static str = "NA";
-/// 对应资源键 `YES`（Java 源码为 `"S\u00ED\u00AD"`，含软连字符）
+/// Corresponds to resource key `YES` (Java source is `"S\u00ED\u00AD"`, contains a soft hyphen)
 pub const YES: &'static str = "Sí\u{ad}";
-/// 对应资源键 `NO`
+/// Corresponds to resource key `NO`
 pub const NO: &'static str = "No";
 
-/// 西班牙语资源包的内容，对应 Java `LocaleData_es.RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// Contents of the Spanish resource bundle, corresponding to Java `LocaleData_es.RESOURCE_DATA`
+/// (i.e. the return value of `getContents()`).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides {
     file_delimiter: Some(FILE_DELIMITER),
     program_name: Some(PROGRAM_NAME),
@@ -430,7 +435,7 @@ mod tests {
         assert_eq!(LocaleData::get_code_page(MpxLocale::Es), CodePage::Ansi);
         assert_eq!(LocaleData::get_date_order(MpxLocale::Es), DateOrder::Dmy);
         assert_eq!(LocaleData::get_char(MpxLocale::Es, LocaleData::CURRENCY_DECIMAL_SEPARATOR), Some(','));
-        // 覆盖的键里包含 DEFAULT_START_TIME（值同英文默认值）
+        // The covered keys include DEFAULT_START_TIME (same value as the English default)
         assert_eq!(
             LocaleData::get_integer(MpxLocale::Es, LocaleData::DEFAULT_START_TIME),
             Some(480)

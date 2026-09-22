@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/MPP12CalendarFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPP12CalendarFactory.java`
 //!
-//! MPP12（Microsoft Project 2007）专用日历读取：工作日历块从 0 偏移开始，
-//! 例外日期块沿用 [`crate::mpp::abstract_calendar_and_exception_factory`] 的实现。
+//! MPP12 (Microsoft Project 2007) calendar reading: the working calendar block starts at offset 0,
+//! and the exception date block reuses the implementation in [`crate::mpp::abstract_calendar_and_exception_factory`].
 //!
-//! # 继承关系的还原
+//! # Restoring the inheritance relationship
 //!
-//! Java: `class MPP12CalendarFactory extends AbstractCalendarAndExceptionFactory`。Rust 无继承，
-//! 按「组合 + 转发」还原（与 `VarMeta12` / `AbstractVarMeta` 的做法一致）：
+//! Java: `class MPP12CalendarFactory extends AbstractCalendarAndExceptionFactory`. Rust has no inheritance,
+//! so it is restored via "composition + forwarding" (consistent with `VarMeta12` / `AbstractVarMeta`):
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends AbstractCalendarAndExceptionFactory` | 字段 `base: AbstractCalendarAndExceptionFactory`（组合） |
-//! | 继承而来的 `processCalendarData` | [`MPP12CalendarFactory::process_calendar_data`] 转发给 `base`（后者再转发给 `AbstractCalendarFactory`） |
-//! | 继承而来的 `processCalendarExceptions` | [`MPP12CalendarFactory::process_calendar_exceptions`] 转发给 `base.process_calendar_exceptions` |
-//! | 覆写的 6 个访问器 + `getCalendarVarMeta` | [`AbstractCalendarFactoryMethods`] 的对应实现 |
+//! | `extends AbstractCalendarAndExceptionFactory` | field `base: AbstractCalendarAndExceptionFactory` (composition) |
+//! | inherited `processCalendarData` | [`MPP12CalendarFactory::process_calendar_data`] forwards to `base` (which in turn forwards to `AbstractCalendarFactory`) |
+//! | inherited `processCalendarExceptions` | [`MPP12CalendarFactory::process_calendar_exceptions`] forwards to `base.process_calendar_exceptions` |
+//! | the 6 overridden accessors + `getCalendarVarMeta` | the corresponding implementations in [`AbstractCalendarFactoryMethods`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile file` | `Rc<RefCell<ProjectFile>>` | 按全包约定共享 |
-//! | `DocumentInputStream` | `&[u8]`（`&document.get_data()`） | 构造方法一律改收字节切片 |
-//! | `Integer getCalendarNameVarDataType()` | `i32 get_calendar_name_var_data_type()` | Java 的 `Integer` 恒非空 |
+//! | `ProjectFile file` | `Rc<RefCell<ProjectFile>>` | shared per the crate-wide convention |
+//! | `DocumentInputStream` | `&[u8]` (`&document.get_data()`) | constructors uniformly take a byte slice |
+//! | `Integer getCalendarNameVarDataType()` | `i32 get_calendar_name_var_data_type()` | Java's `Integer` is always non-null |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -43,44 +43,44 @@ use crate::mpxj_exception::{MpxjError, MpxjResult};
 use crate::project_calendar::ProjectCalendar;
 use crate::project_file::ProjectFile;
 
-/// 存放日历名称的 VarData 类型。
+/// VarData type holding the calendar name.
 ///
-/// 对应 Java: `private static final Integer CALENDAR_NAME = Integer.valueOf(1);`
+/// Corresponds to Java: `private static final Integer CALENDAR_NAME = Integer.valueOf(1);`
 const CALENDAR_NAME: i32 = 1;
 
-/// 存放日历数据的 VarData 类型。
+/// VarData type holding the calendar data.
 ///
-/// 对应 Java: `private static final Integer CALENDAR_DATA = Integer.valueOf(8);`
+/// Corresponds to Java: `private static final Integer CALENDAR_DATA = Integer.valueOf(8);`
 const CALENDAR_DATA: i32 = 8;
 
-/// MPP12 专用日历工厂。
+/// MPP12-specific calendar factory.
 ///
-/// 对应 Java: `class MPP12CalendarFactory extends AbstractCalendarAndExceptionFactory`
+/// Corresponds to Java: `class MPP12CalendarFactory extends AbstractCalendarAndExceptionFactory`
 pub struct MPP12CalendarFactory {
-    /// 基类部分（Java 里本类就是 `AbstractCalendarAndExceptionFactory`）。
+/// The base class part (in Java this class is `AbstractCalendarAndExceptionFactory`).
     base: AbstractCalendarAndExceptionFactory,
 }
 
 impl MPP12CalendarFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public MPP12CalendarFactory(ProjectFile file)`
+    /// Corresponds to Java: `public MPP12CalendarFactory(ProjectFile file)`
     pub fn new(file: Rc<RefCell<ProjectFile>>) -> Self {
         Self {
             base: AbstractCalendarAndExceptionFactory::new(file),
         }
     }
 
-    /// 取组合的基类部分。
+/// Get the composed base class part.
     ///
-    /// Rust 特有：Java 通过继承直接使用基类成员，Rust 侧用组合故需显式取用。
+/// Rust-specific: Java uses base class members directly through inheritance, while the Rust side uses composition and so requires explicit access.
     pub fn get_base(&self) -> &AbstractCalendarAndExceptionFactory {
         &self.base
     }
 
-    /// 日历数据块的结构：4 字节块头 + 7 × 60 字节（一周七天）+ 例外日期块。
+/// Structure of the calendar data block: 4-byte block header + 7 x 60 bytes (seven days a week) + exception date block.
     ///
-    /// 对应 Java: `AbstractCalendarFactory#processCalendarData(...)`（本类未覆写，直接继承）
+/// Corresponds to Java: `AbstractCalendarFactory#processCalendarData(...)` (not overridden by this class, inherited directly)
     pub fn process_calendar_data(
         &self,
         project_dir: &DirectoryEntry,
@@ -92,19 +92,19 @@ impl MPP12CalendarFactory {
             .process_calendar_data(self, project_dir, project_props, input_stream_factory, resource_map)
     }
 
-    /// 解析日历数据块中的例外日期。
+/// Parse the exception dates in the calendar data block.
     ///
-    /// 对应 Java: `AbstractCalendarAndExceptionFactory#processCalendarExceptions(...)`
-    /// （本类未覆写，直接继承；Rust 侧因无继承而显式转发）
+    /// Corresponds to Java: `AbstractCalendarAndExceptionFactory#processCalendarExceptions(...)`
+/// (not overridden by this class, inherited directly; the Rust side forwards explicitly because it has no inheritance)
     pub fn process_calendar_exceptions(&self, data: &[u8], cal: &Rc<RefCell<ProjectCalendar>>) {
         self.base.process_calendar_exceptions(data, cal);
     }
 }
 
 impl CalendarFactory for MPP12CalendarFactory {
-    /// 对应 Java: `CalendarFactory#processCalendarData(...)`（本类经由继承实现该接口）
+/// Corresponds to Java: `CalendarFactory#processCalendarData(...)` (this class implements that interface via inheritance)
     ///
-    /// 转发给与 Java 同名的方法，避免逻辑重复。
+/// Forwards to the method of the same name as in Java to avoid duplicating logic.
     fn process_calendar_data(
         &self,
         project_dir: &DirectoryEntry,
@@ -123,53 +123,53 @@ impl CalendarFactory for MPP12CalendarFactory {
 }
 
 impl AbstractCalendarFactoryMethods for MPP12CalendarFactory {
-    /// 对应 Java: `@Override protected int getCalendarIDOffset()`
+    /// Corresponds to Java: `@Override protected int getCalendarIDOffset()`
     fn get_calendar_id_offset(&self) -> usize {
         0
     }
 
-    /// 对应 Java: `@Override protected int getBaseIDOffset()`
+    /// Corresponds to Java: `@Override protected int getBaseIDOffset()`
     fn get_base_id_offset(&self) -> usize {
         4
     }
 
-    /// 对应 Java: `@Override protected int getResourceIDOffset()`
+    /// Corresponds to Java: `@Override protected int getResourceIDOffset()`
     fn get_resource_id_offset(&self) -> usize {
         8
     }
 
-    /// 对应 Java: `@Override protected int getCalendarHoursOffset()`
+    /// Corresponds to Java: `@Override protected int getCalendarHoursOffset()`
     fn get_calendar_hours_offset(&self) -> usize {
         0
     }
 
-    /// 对应 Java: `@Override protected Integer getCalendarNameVarDataType()`
+    /// Corresponds to Java: `@Override protected Integer getCalendarNameVarDataType()`
     fn get_calendar_name_var_data_type(&self) -> i32 {
         CALENDAR_NAME
     }
 
-    /// 对应 Java: `@Override protected Integer getCalendarDataVarDataType()`
+    /// Corresponds to Java: `@Override protected Integer getCalendarDataVarDataType()`
     fn get_calendar_data_var_data_type(&self) -> i32 {
         CALENDAR_DATA
     }
 
-    /// 读取 `VarMeta12`。
+/// Read `VarMeta12`.
     ///
-    /// 对应 Java: `@Override protected VarMeta getCalendarVarMeta(DirectoryEntry directory) throws IOException`
+    /// Corresponds to Java: `@Override protected VarMeta getCalendarVarMeta(DirectoryEntry directory) throws IOException`
     /// → `return new VarMeta12(new DocumentInputStream(((DocumentEntry) directory.getEntry("VarMeta"))));`
     fn get_calendar_var_meta(&self, directory: &DirectoryEntry) -> MpxjResult<Rc<dyn VarMeta>> {
-        // Java 在条目缺失时抛异常（POI）或 NullPointerException；Rust 侧返回 Err。
+// Java throws an exception (POI) or NullPointerException when an entry is missing; the Rust side returns Err.
         let Some(document) = directory.get_document("VarMeta") else {
             return Err(MpxjError::new("Missing VarMeta"));
         };
 
-        // 按约定：Java 接收 InputStream 的构造方法改为接收 &[u8]
+// By convention: Java constructors that take an InputStream are changed to take &[u8]
         Ok(Rc::new(VarMeta12::new(&document.get_data())?))
     }
 
-    /// 转发到基类的实现（Java 通过继承获得该实现）。
+/// Forward to the base class implementation (Java obtains this implementation through inheritance).
     ///
-    /// 对应 Java: `AbstractCalendarAndExceptionFactory#processCalendarExceptions(byte[] data, ProjectCalendar cal)`
+    /// Corresponds to Java: `AbstractCalendarAndExceptionFactory#processCalendarExceptions(byte[] data, ProjectCalendar cal)`
     fn process_calendar_exceptions(&self, data: &[u8], cal: &Rc<RefCell<ProjectCalendar>>) {
         self.base.process_calendar_exceptions(data, cal);
     }
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(factory.get_calendar_hours_offset(), 0);
         assert_eq!(factory.get_calendar_name_var_data_type(), CALENDAR_NAME);
         assert_eq!(factory.get_calendar_data_var_data_type(), CALENDAR_DATA);
-        // 基类可访问（组合关系成立）
+// The base class is accessible (the composition relationship holds)
         let _base: &crate::mpp::abstract_calendar_factory::AbstractCalendarFactory =
             factory.get_base().get_base();
     }
@@ -201,7 +201,7 @@ mod tests {
         )));
         let factory = MPP12CalendarFactory::new(ProjectFile::new());
 
-        // 不足 421 字节：基类实现会直接返回
+// fewer than 421 bytes: the base class implementation returns directly
         factory.process_calendar_exceptions(&vec![0u8; 100], &cal);
         assert_eq!(cal.borrow_mut().get_calendar_exceptions().len(), 0);
     }

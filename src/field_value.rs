@@ -1,56 +1,56 @@
-//! 对应 Java 中 `AbstractFieldContainer` 存储的 `Object` 字段值。
+//! Corresponds to the `Object` field values stored by `AbstractFieldContainer` in Java.
 //!
-//! Java 用 `Map<FieldType, Object>` 保存字段，值的实际类型由字段的
-//! `DataType` 决定。Rust 侧需要一个具体枚举来承载这些值，因此引入
-//! `FieldValue`。
+//! Java stores fields in a `Map<FieldType, Object>`, and the actual type of a value is determined by the field's
+//! `DataType`. The Rust side needs a concrete enum to carry these values, hence
+//! `FieldValue`.
 //!
-//! # 存在的变体与 Java 依据
+//! # Existing variants and their Java basis
 //!
-//! Java 的字段表用 `Object` 承载任意值，除标量外还会存放实体引用与集合。
-//! 本枚举按 Java 实际的字段表用法逐项对应：
+//! Java's field table uses `Object` to carry arbitrary values; besides scalars it also stores entity references and collections.
+//! This enum maps item by item to Java's actual field table usage:
 //!
-//! | 变体 | Java 侧类型 | 依据（字段 / 方法） |
+//! | Variant | Java-side type | Basis (field / method) |
 //! |---|---|---|
-//! | 标量变体 | `Integer` / `Short` / `Double` / `Boolean` / `String` / `LocalDate` / `LocalTime` / `LocalDateTime` | 各 `get`/`set` 的既有用法 |
-//! | [`FieldValue::Bytes`] | `byte[]` | OLE 文档的二进制自定义属性（如 `_PID_LINKBASE`） |
-//! | [`FieldValue::Duration`] / [`FieldValue::Rate`] | `org.mpxj.Duration` / `org.mpxj.Rate` | 同上 |
-//! | [`FieldValue::Uuid`] | `java.util.UUID` | `AssignmentField.GUID`、`TaskField.GUID` |
+//! | Scalar variants | `Integer` / `Short` / `Double` / `Boolean` / `String` / `LocalDate` / `LocalTime` / `LocalDateTime` | existing usage of the various `get`/`set` methods |
+//! | [`FieldValue::Bytes`] | `byte[]` | binary custom properties of OLE documents (e.g. `_PID_LINKBASE`) |
+//! | [`FieldValue::Duration`] / [`FieldValue::Rate`] | `org.mpxj.Duration` / `org.mpxj.Rate` | as above |
+//! | [`FieldValue::Uuid`] | `java.util.UUID` | `AssignmentField.GUID`,`TaskField.GUID` |
 //! | [`FieldValue::TimeUnit`] | `org.mpxj.TimeUnit` | `AssignmentField.VARIABLE_RATE_UNITS` |
 //! | [`FieldValue::WorkContour`] | `org.mpxj.WorkContour` | `AssignmentField.WORK_CONTOUR` |
 //! | [`FieldValue::RateSource`] | `org.mpxj.RateSource` | `AssignmentField.RATE_SOURCE` |
 //! | [`FieldValue::ResourceRequestType`] | `org.mpxj.ResourceRequestType` | `AssignmentField.RESOURCE_REQUEST_TYPE` |
-//! | [`FieldValue::Notes`] | `org.mpxj.Notes`（含 `RtfNotes` / `HtmlNotes` / `StructuredNotes` / `ParentNotes`） | `TaskField.NOTES`、`AssignmentField.NOTES` |
+//! | [`FieldValue::Notes`] | `org.mpxj.Notes` (including `RtfNotes` / `HtmlNotes` / `StructuredNotes` / `ParentNotes`) | `TaskField.NOTES`, `AssignmentField.NOTES` |
 //! | [`FieldValue::Steps`] | `List<Step>` | `TaskField.STEPS` |
 //! | [`FieldValue::Relations`] | `List<Relation>` | `TaskField.PREDECESSORS` / `TaskField.SUCCESSORS` |
-//! | [`FieldValue::Resource`] | `org.mpxj.Resource` | 字段表用 `Object`，可承载实体引用（`AssignmentField` 中并无 `RESOURCE` 字段：Java 的 `ResourceAssignment.getResource()` 是经父文件按 unique ID 查找；本变体保留给同类实体引用的字段值） |
+//! | [`FieldValue::Resource`] | `org.mpxj.Resource` | the field table uses `Object`, which can carry entity references (there is no `RESOURCE` field in `AssignmentField`: Java's `ResourceAssignment.getResource()` looks it up by unique ID through the parent file; this variant is kept for field values of the same kind of entity reference) |
 //! | [`FieldValue::TimephasedWork`] / [`FieldValue::TimephasedCost`] | `List<TimephasedWork>` / `List<TimephasedCost>` | `AssignmentField.RAW_TIMEPHASED_*` |
 //! | [`FieldValue::TimeRanges`] | `List<LocalDateTimeRange>` | `TaskField.WORK_SPLITS` |
 //!
-//! # `Clone` / `PartialEq` 语义（不可派生）
+//! # `Clone` / `PartialEq` semantics (cannot be derived)
 //!
-//! Java 的 `AbstractFieldContainer.set` 判定「值是否变化」用的是
-//! `oldValue == value` 与 `oldValue.equals(value)`（见该类的第 112-122 行）：
-//! 基本类型与 `UUID` / `List` 走**值**比较，而 `Notes` / `WorkContour` / `Relation`
-//! **未覆写 `equals`**，实际是**引用**比较。因此本枚举的 `PartialEq` 与 `Clone`
-//! 均为手写实现，逐变体按 Java 的 `equals` 语义选择：
+//! Java's `AbstractFieldContainer.set` determines "whether the value changed" using
+//! `oldValue == value` and `oldValue.equals(value)` (see lines 112-122 of that class):
+//! primitives and `UUID` / `List` use **value** comparison, whereas `Notes` / `WorkContour` / `Relation`
+//! **do not override `equals`**, so it is actually **reference** comparison. Therefore this enum's `PartialEq` and `Clone`
+//! are both hand-written, choosing per variant according to Java's `equals` semantics:
 //!
-//! * 标量、`UUID`、`TimeUnit`、`RateSource`、`ResourceRequestType`：值比较
-//!   （Java 的枚举是单例，`equals` 等价于值比较）。
-//! * `Bytes`：按字节值比较。Java 的 `byte[]` 使用引用比较；Rust 按值比较会使
-//!   相同内容的重新赋值不触发字段事件，属于 Rust 特有的差异。
-//! * `TimephasedWork` / `TimephasedCost` / `LocalDateTimeRange`：值比较 ——
-//!   Java 的 `TimephasedItem` 覆写了 `equals`，`List.equals` 因此是逐元素值比较。
-//! * `Notes` / `Resource` / `Steps`：`Rc::ptr_eq`（Java 侧 `Notes` 未覆写 `equals`，
-//!   按引用比较；`Resource` 的 `equals` 按 ID，但字段表里存的是同一实体的共享引用，
-//!   引用相等即等价）。
-//! * `WorkContour`：按「唯一 ID + 名称」比较。Java 的 `WorkContour` 未覆写
-//!   `equals`（按引用比较），而 Rust 侧存的是值，同一次读取链路中的同一实例
-//!   必然具有相同的唯一 ID 与名称。
-//! * `Relations`：逐元素 `Rc::ptr_eq`（Java 的 `List.equals` + `Relation` 的引用比较）。
+//! * scalars, `UUID`, `TimeUnit`, `RateSource`, `ResourceRequestType`: value comparison
+//! (Java enums are singletons, so `equals` is equivalent to value comparison).
+//! * `Bytes`: compared by byte value. Java's `byte[]` uses reference comparison; comparing by value in Rust makes
+//! reassigning identical content not trigger a field event, which is a Rust-specific difference.
+//! * `TimephasedWork` / `TimephasedCost` / `LocalDateTimeRange`: value comparison —
+//! Java's `TimephasedItem` overrides `equals`, so `List.equals` is an element-by-element value comparison.
+//! * `Notes` / `Resource` / `Steps`: `Rc::ptr_eq` (on the Java side `Notes` does not override `equals`,
+//! so it compares by reference; `Resource`'s `equals` is by ID, but the field table stores a shared reference to the same entity,
+//! so reference equality is equivalent).
+//! * `WorkContour`: compared by "unique ID + name". Java's `WorkContour` does not override
+//! `equals` (compares by reference), whereas the Rust side stores a value, and the same instance within one read chain
+//! necessarily has the same unique ID and name.
+//! * `Relations`: element-by-element `Rc::ptr_eq` (Java's `List.equals` + `Relation`'s reference comparison).
 //!
-//! 判定点只有 [`crate::abstract_field_container::AbstractFieldContainer::update`]
-//! （以及各实体在写字段前的 `old_value == value` 比较），它们都调用本枚举的
-//! `PartialEq`，因此上述语义即为「值变化判定」的语义。
+//! The only decision points are [`crate::abstract_field_container::AbstractFieldContainer::update`]
+//! (and each entity's `old_value == value` comparison before writing a field); they all call this enum's
+//! `PartialEq`, so the above semantics are the semantics of "value change detection".
 
 use std::cell::RefCell;
 use std::fmt::{self, Debug, Formatter};
@@ -73,60 +73,60 @@ use crate::timephased_cost::TimephasedCost;
 use crate::timephased_work::TimephasedWork;
 use crate::work_contour::WorkContour;
 
-/// 字段值，对应 Java 存放在 `Map<FieldType, Object>` 里的 `Object`。
+/// A field value, corresponding to the `Object` stored in Java's `Map<FieldType, Object>`.
 pub enum FieldValue {
-    /// 对应 Java `Integer` / `int`
+/// Corresponds to Java `Integer` / `int`
     Integer(i32),
-    /// 对应 Java `Short` / `short`
+/// Corresponds to Java `Short` / `short`
     Short(i16),
-    /// 对应 Java `Double` / `double`
+/// Corresponds to Java `Double` / `double`
     Double(f64),
-    /// 对应 Java `Boolean` / `boolean`
+/// Corresponds to Java `Boolean` / `boolean`
     Boolean(bool),
-    /// 对应 Java `String`
+/// Corresponds to Java `String`
     String(String),
-    /// 对应 Java `byte[]`（OLE 自定义文档属性）。
+/// Corresponds to Java `byte[]` (OLE custom document properties).
     Bytes(Vec<u8>),
-    /// 对应 Java `java.time.LocalDate`
+/// Corresponds to Java `java.time.LocalDate`
     Date(NaiveDate),
-    /// 对应 Java `java.time.LocalTime`
+/// Corresponds to Java `java.time.LocalTime`
     Time(NaiveTime),
-    /// 对应 Java `java.time.LocalDateTime`
+/// Corresponds to Java `java.time.LocalDateTime`
     DateTime(NaiveDateTime),
-    /// 对应 Java `org.mpxj.Duration`
+/// Corresponds to Java `org.mpxj.Duration`
     Duration(Duration),
-    /// 对应 Java `org.mpxj.Rate`
+/// Corresponds to Java `org.mpxj.Rate`
     Rate(Rate),
-    /// 对应 Java `java.util.UUID`
+/// Corresponds to Java `java.util.UUID`
     Uuid(Uuid),
-    /// 对应 Java `org.mpxj.TimeUnit`
+/// Corresponds to Java `org.mpxj.TimeUnit`
     TimeUnit(TimeUnit),
-    /// 对应 Java `org.mpxj.WorkContour`
+/// Corresponds to Java `org.mpxj.WorkContour`
     WorkContour(WorkContour),
-    /// 对应 Java `org.mpxj.RateSource`
+/// Corresponds to Java `org.mpxj.RateSource`
     RateSource(RateSource),
-    /// 对应 Java `org.mpxj.ResourceRequestType`
+/// Corresponds to Java `org.mpxj.ResourceRequestType`
     ResourceRequestType(ResourceRequestType),
-    /// 对应 Java `org.mpxj.Notes`（`RtfNotes` / `HtmlNotes` / `StructuredNotes` 等子类型经
-    /// trait 对象保真）。
+/// Corresponds to Java `org.mpxj.Notes` (subtypes such as `RtfNotes` / `HtmlNotes` / `StructuredNotes` are preserved
+/// faithfully via a trait object).
     Notes(Rc<dyn Notes>),
-    /// 对应 Java `List<Step>`（可变列表，与 Java 的共享语义一致）。
+/// Corresponds to Java `List<Step>` (a mutable list, consistent with Java's sharing semantics).
     Steps(Rc<RefCell<Vec<Step>>>),
-    /// 对应 Java `List<Relation>`。
+/// Corresponds to Java `List<Relation>`.
     Relations(Vec<Rc<RefCell<Relation>>>),
-    /// 对应 Java `org.mpxj.Resource` 实体引用。
+/// Corresponds to a Java `org.mpxj.Resource` entity reference.
     Resource(Rc<RefCell<Resource>>),
-    /// 对应 Java `List<TimephasedWork>`。
+/// Corresponds to Java `List<TimephasedWork>`.
     TimephasedWork(Vec<TimephasedWork>),
-    /// 对应 Java `List<TimephasedCost>`。
+/// Corresponds to Java `List<TimephasedCost>`.
     TimephasedCost(Vec<TimephasedCost>),
-    /// 对应 Java `List<LocalDateTimeRange>`。
+/// Corresponds to Java `List<LocalDateTimeRange>`.
     TimeRanges(Vec<LocalDateTimeRange>),
 }
 
 impl Clone for FieldValue {
-    /// Java 的字段表按引用共享对象；Rust 侧的 `Clone` 对实体引用型变体做
-    /// `Rc::clone`（共享），对其余变体做值拷贝 —— 语义见文件头。
+/// Java's field table shares objects by reference; the Rust side's `Clone` performs
+/// `Rc::clone` (sharing) for entity-reference variants and a value copy for the remaining variants — see the file header for the semantics.
     fn clone(&self) -> Self {
         match self {
             FieldValue::Integer(value) => FieldValue::Integer(*value),
@@ -157,7 +157,7 @@ impl Clone for FieldValue {
 }
 
 impl PartialEq for FieldValue {
-    /// 逐变体按 Java `equals` 的语义比较，见文件头「`Clone` / `PartialEq` 语义」。
+/// Compares per variant according to Java `equals` semantics; see "`Clone` / `PartialEq` semantics" in the file header.
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
@@ -193,8 +193,8 @@ impl PartialEq for FieldValue {
 }
 
 impl Debug for FieldValue {
-    /// `Rc<dyn Notes>` / `Relation` 等引用型变体未实现 `Debug`，故手写实现：
-    /// 笔记输出其纯文本（等价 Java 的 `toString()`），实体引用输出其地址。
+/// Reference-type variants such as `Rc<dyn Notes>` / `Relation` do not implement `Debug`, so it is hand-written:
+/// notes output their plain text (equivalent to Java's `toString()`), and entity references output their address.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             FieldValue::Integer(value) => f.debug_tuple("Integer").field(value).finish(),
@@ -246,7 +246,7 @@ impl Debug for FieldValue {
 }
 
 impl FieldValue {
-    /// 取整数，类型不匹配时返回 `None`。
+/// Get the integer; returns `None` when the type does not match.
     pub fn as_integer(&self) -> Option<i32> {
         match self {
             FieldValue::Integer(value) => Some(*value),
@@ -255,7 +255,7 @@ impl FieldValue {
         }
     }
 
-    /// 取双精度浮点，类型不匹配时返回 `None`。
+/// Get the double-precision float; returns `None` when the type does not match.
     pub fn as_double(&self) -> Option<f64> {
         match self {
             FieldValue::Double(value) => Some(*value),
@@ -265,7 +265,7 @@ impl FieldValue {
         }
     }
 
-    /// 取布尔值，类型不匹配时返回 `None`。
+/// Get the boolean; returns `None` when the type does not match.
     pub fn as_boolean(&self) -> Option<bool> {
         match self {
             FieldValue::Boolean(value) => Some(*value),
@@ -273,7 +273,7 @@ impl FieldValue {
         }
     }
 
-    /// 取字符串引用，类型不匹配时返回 `None`。
+/// Get a string reference; returns `None` when the type does not match.
     pub fn as_string(&self) -> Option<&str> {
         match self {
             FieldValue::String(value) => Some(value),
@@ -281,7 +281,7 @@ impl FieldValue {
         }
     }
 
-    /// 取日期，类型不匹配时返回 `None`。
+/// Get the date; returns `None` when the type does not match.
     pub fn as_date(&self) -> Option<NaiveDate> {
         match self {
             FieldValue::Date(value) => Some(*value),
@@ -290,7 +290,7 @@ impl FieldValue {
         }
     }
 
-    /// 取时间，类型不匹配时返回 `None`。
+/// Get the time; returns `None` when the type does not match.
     pub fn as_time(&self) -> Option<NaiveTime> {
         match self {
             FieldValue::Time(value) => Some(*value),
@@ -299,7 +299,7 @@ impl FieldValue {
         }
     }
 
-    /// 取日期时间，类型不匹配时返回 `None`。
+/// Get the date-time; returns `None` when the type does not match.
     pub fn as_date_time(&self) -> Option<NaiveDateTime> {
         match self {
             FieldValue::DateTime(value) => Some(*value),
@@ -308,7 +308,7 @@ impl FieldValue {
         }
     }
 
-    /// 取工期，类型不匹配时返回 `None`。
+/// Get the duration; returns `None` when the type does not match.
     pub fn as_duration(&self) -> Option<Duration> {
         match self {
             FieldValue::Duration(value) => Some(*value),
@@ -316,7 +316,7 @@ impl FieldValue {
         }
     }
 
-    /// 取费率，类型不匹配时返回 `None`。
+/// Get the rate; returns `None` when the type does not match.
     pub fn as_rate(&self) -> Option<Rate> {
         match self {
             FieldValue::Rate(value) => Some(*value),
@@ -324,7 +324,7 @@ impl FieldValue {
         }
     }
 
-    /// 取 GUID，类型不匹配时返回 `None`。
+/// Get the GUID; returns `None` when the type does not match.
     pub fn as_uuid(&self) -> Option<Uuid> {
         match self {
             FieldValue::Uuid(value) => Some(*value),
@@ -332,7 +332,7 @@ impl FieldValue {
         }
     }
 
-    /// 取时间单位，类型不匹配时返回 `None`。
+/// Get the time unit; returns `None` when the type does not match.
     pub fn as_time_unit(&self) -> Option<TimeUnit> {
         match self {
             FieldValue::TimeUnit(value) => Some(*value),
@@ -340,7 +340,7 @@ impl FieldValue {
         }
     }
 
-    /// 取工时分布，类型不匹配时返回 `None`。
+/// Get the work contour; returns `None` when the type does not match.
     pub fn as_work_contour(&self) -> Option<&WorkContour> {
         match self {
             FieldValue::WorkContour(value) => Some(value),
@@ -348,7 +348,7 @@ impl FieldValue {
         }
     }
 
-    /// 取费率来源，类型不匹配时返回 `None`。
+/// Get the rate source; returns `None` when the type does not match.
     pub fn as_rate_source(&self) -> Option<RateSource> {
         match self {
             FieldValue::RateSource(value) => Some(*value),
@@ -356,7 +356,7 @@ impl FieldValue {
         }
     }
 
-    /// 取资源请求类型，类型不匹配时返回 `None`。
+/// Get the resource request type; returns `None` when the type does not match.
     pub fn as_resource_request_type(&self) -> Option<ResourceRequestType> {
         match self {
             FieldValue::ResourceRequestType(value) => Some(*value),
@@ -364,7 +364,7 @@ impl FieldValue {
         }
     }
 
-    /// 取笔记对象（共享句柄），类型不匹配时返回 `None`。
+/// Get the notes object (shared handle); returns `None` when the type does not match.
     pub fn as_notes(&self) -> Option<&Rc<dyn Notes>> {
         match self {
             FieldValue::Notes(value) => Some(value),
@@ -372,7 +372,7 @@ impl FieldValue {
         }
     }
 
-    /// 取步骤列表（共享列表），类型不匹配时返回 `None`。
+/// Get the step list (shared list); returns `None` when the type does not match.
     pub fn as_steps(&self) -> Option<&Rc<RefCell<Vec<Step>>>> {
         match self {
             FieldValue::Steps(value) => Some(value),
@@ -380,7 +380,7 @@ impl FieldValue {
         }
     }
 
-    /// 取关系列表，类型不匹配时返回 `None`。
+/// Get the relation list; returns `None` when the type does not match.
     pub fn as_relations(&self) -> Option<&[Rc<RefCell<Relation>>]> {
         match self {
             FieldValue::Relations(value) => Some(value),
@@ -388,7 +388,7 @@ impl FieldValue {
         }
     }
 
-    /// 取资源实体引用，类型不匹配时返回 `None`。
+/// Get the resource entity reference; returns `None` when the type does not match.
     pub fn as_resource(&self) -> Option<&Rc<RefCell<Resource>>> {
         match self {
             FieldValue::Resource(value) => Some(value),
@@ -396,7 +396,7 @@ impl FieldValue {
         }
     }
 
-    /// 取 timephased 工时列表，类型不匹配时返回 `None`。
+/// Get the timephased work list; returns `None` when the type does not match.
     pub fn as_timephased_work(&self) -> Option<&[TimephasedWork]> {
         match self {
             FieldValue::TimephasedWork(value) => Some(value),
@@ -404,7 +404,7 @@ impl FieldValue {
         }
     }
 
-    /// 取 timephased 成本列表，类型不匹配时返回 `None`。
+/// Get the timephased cost list; returns `None` when the type does not match.
     pub fn as_timephased_cost(&self) -> Option<&[TimephasedCost]> {
         match self {
             FieldValue::TimephasedCost(value) => Some(value),
@@ -412,7 +412,7 @@ impl FieldValue {
         }
     }
 
-    /// 取时间段列表，类型不匹配时返回 `None`。
+/// Get the date-time range list; returns `None` when the type does not match.
     pub fn as_time_ranges(&self) -> Option<&[LocalDateTimeRange]> {
         match self {
             FieldValue::TimeRanges(value) => Some(value),
@@ -420,7 +420,7 @@ impl FieldValue {
         }
     }
 
-    /// 返回该值在 Java 侧对应的类型名，便于日志与错误信息。
+/// Return the type name corresponding to this value on the Java side, for logging and error messages.
     pub fn type_name(&self) -> &'static str {
         match self {
             FieldValue::Integer(_) => "Integer",
@@ -573,12 +573,12 @@ mod tests {
         let rtf: Rc<dyn Notes> = Rc::new(RtfNotes::new(Some("{\\rtf1 hello}".to_owned())));
         let value = FieldValue::Notes(Rc::clone(&rtf));
 
-        // 子类型信息未丢失：仍是 RtfNotes 的文本表示
+// Subtype information is not lost: it is still the text representation of RtfNotes
         assert_eq!(
             value.as_notes().map(|notes| notes.to_string()),
             Some("hello".to_owned())
         );
-        // Java 的 Notes 未覆写 equals ⇒ 引用比较
+// Java's Notes does not override equals ⇒ reference comparison
         assert_eq!(value, FieldValue::Notes(Rc::clone(&rtf)));
         assert_ne!(
             value,

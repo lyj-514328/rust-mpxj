@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/mpp/ExtendedData.java`
+//! Corresponds to Java: `org/mpxj/mpp/ExtendedData.java`
 
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
@@ -9,35 +9,35 @@ use crate::common::byte_array_helper::ByteArrayHelper;
 use crate::mpp::fix_defer_fix::FixDeferFix;
 use crate::mpp::mpp_utility::MppUtility;
 
-/// 扩展数据结构：保存与任务、资源相关联的附加非核心数据项。
+/// Extended data structure: holds additional non-core data items associated with tasks and resources.
 ///
-/// 对应 Java: `final class ExtendedData`（包级可见）
+/// Corresponds to Java: `final class ExtendedData` (package-visible)
 ///
-/// 构造时把 var data 块中指定偏移处的数据块按 `[长度:4][类型:4][数据]` 逐项解析出来，
-/// 并以「类型 → 数据」的形式放进 map。
+/// On construction, parse the data block at the specified offset in the var data block item by item as `[length:4][type:4][data]`
+/// and put it into a map as "type -> data".
 ///
-/// # 移植说明（取舍）
+/// # Porting notes (trade-offs)
 ///
-/// - Java 的 `private final FixDeferFix m_data` 是「持有引用」；Rust 侧用
-///   `&'a FixDeferFix`（不可变借用）表达，调用方只需保证 var data 活得比本对象久
-///   （Java 里 `ExtendedData` 也只在同一方法内使用局部 var data）。
-/// - Java 的 `byte[] getByteArray(Integer)` 返回内部数组本身；Rust 侧返回
-///   `Option<&[u8]>`（借用内部存储，不复制）。
-/// - Java 中若干处会抛出异常：解析项头时越界（`ArrayIndexOutOfBoundsException`）、
-///   `size` 为负（`NegativeArraySizeException`）、子数组越过数据末尾
-///   （`IndexOutOfBoundsException`）。Rust 侧一律改为「结束解析 / 跳过该项 / 返回默认值」
-///   并注释，绝不 panic。
+/// - Java's `private final FixDeferFix m_data` "holds a reference"; the Rust side expresses this as
+/// `&'a FixDeferFix` (an immutable borrow); the caller only needs to ensure var data outlives this object
+/// (in Java, `ExtendedData` also only uses a local var data within the same method).
+/// - Java's `byte[] getByteArray(Integer)` returns the internal array itself; the Rust side returns
+/// `Option<&[u8]>` (borrows the internal storage, no copy).
+/// - Java throws exceptions in several places: out-of-bounds while parsing the item header (`ArrayIndexOutOfBoundsException`),
+/// a negative `size` (`NegativeArraySizeException`), a sub-array past the end of the data
+/// (`IndexOutOfBoundsException`). The Rust side always changes these to "stop parsing / skip the item / return the default value"
+/// with a comment, and never panics.
 pub struct ExtendedData<'a> {
-    /// 对应 Java 字段 `m_data`
+    /// Corresponds to Java field `m_data`
     m_data: &'a FixDeferFix,
-    /// 对应 Java 字段 `m_map`（类型 → 数据项）
+/// Corresponds to Java field `m_map` (type -> data item)
     m_map: HashMap<i32, Vec<u8>>,
 }
 
 impl<'a> ExtendedData<'a> {
-    /// 构造方法。以 var data 块中 `offset` 处的扩展数据块为输入。
+/// Constructor. Takes the extended data block at `offset` in the var data block as input.
     ///
-    /// 对应 Java: `ExtendedData(FixDeferFix varData, int offset)`
+    /// Corresponds to Java: `ExtendedData(FixDeferFix varData, int offset)`
     pub fn new(var_data: &'a FixDeferFix, offset: i32) -> Self {
         let mut map = HashMap::new();
 
@@ -45,8 +45,8 @@ impl<'a> ExtendedData<'a> {
             let mut index = 0usize;
 
             while index < data.len() {
-                // Java: `ByteArrayHelper.getInt(data, index)`，越界时抛异常；
-                // Rust 侧放弃剩余数据（保留已解析的项）。
+// Java: `ByteArrayHelper.getInt(data, index)`, throws on out-of-bounds;
+// the Rust side discards the remaining data (keeping the items already parsed).
                 if index + 4 > data.len() {
                     break;
                 }
@@ -59,8 +59,8 @@ impl<'a> ExtendedData<'a> {
                 let item_type = ByteArrayHelper::get_int(&data, index);
                 index += 4;
 
-                // Java: size 为负时 `MPPUtility.cloneSubArray` 抛 NegativeArraySizeException，
-                // 数据不够长时抛 IndexOutOfBoundsException；Rust 侧终止解析。
+// Java: when size is negative `MPPUtility.cloneSubArray` throws NegativeArraySizeException,
+// and throws IndexOutOfBoundsException when the data is too short; the Rust side stops parsing.
                 let Ok(size) = usize::try_from(size) else {
                     break;
                 };
@@ -79,92 +79,92 @@ impl<'a> ExtendedData<'a> {
         }
     }
 
-    /// 从扩展数据中取字符串。
+/// Get a string from the extended data.
     ///
-    /// 对应 Java: `public String getString(Integer type)`
+    /// Corresponds to Java: `public String getString(Integer type)`
     pub fn get_string(&self, item_type: i32) -> Option<String> {
         let item = self.m_map.get(&item_type)?;
         let offset = Self::get_offset(item)?;
         self.m_data.get_string(offset)
     }
 
-    /// 从扩展数据中取 Unicode 字符串。
+/// Get a Unicode string from the extended data.
     ///
-    /// 对应 Java: `public String getUnicodeString(Integer type)`
+    /// Corresponds to Java: `public String getUnicodeString(Integer type)`
     pub fn get_unicode_string(&self, item_type: i32) -> Option<String> {
         let item = self.m_map.get(&item_type)?;
         let offset = Self::get_offset(item)?;
         self.m_data.get_unicode_string(offset)
     }
 
-    /// 从扩展数据中取短整型值。
+/// Get a short integer value from the extended data.
     ///
-    /// 对应 Java: `public int getShort(Integer type)`
+    /// Corresponds to Java: `public int getShort(Integer type)`
     pub fn get_short(&self, item_type: i32) -> i32 {
         match self.m_map.get(&item_type) {
-            // Java 在 item 不足 2 字节时抛异常，Rust 侧回落为 0
+// Java throws when the item is shorter than 2 bytes; the Rust side falls back to 0
             Some(item) if item.len() >= 2 => ByteArrayHelper::get_short(item, 0),
             _ => 0,
         }
     }
 
-    /// 从扩展数据中取整型值。
+/// Get an integer value from the extended data.
     ///
-    /// 对应 Java: `public int getInt(Integer type)`
+    /// Corresponds to Java: `public int getInt(Integer type)`
     pub fn get_int(&self, item_type: i32) -> i32 {
         match self.m_map.get(&item_type) {
-            // Java 在 item 不足 4 字节时抛异常，Rust 侧回落为 0
+// Java throws when the item is shorter than 4 bytes; the Rust side falls back to 0
             Some(item) if item.len() >= 4 => ByteArrayHelper::get_int(item, 0),
             _ => 0,
         }
     }
 
-    /// 从扩展数据中取长整型值（六字节）。
+/// Get a long integer value from the extended data (six bytes).
     ///
-    /// 对应 Java: `public long getLong(Integer type)`
+    /// Corresponds to Java: `public long getLong(Integer type)`
     pub fn get_long(&self, item_type: i32) -> i64 {
         match self.m_map.get(&item_type) {
-            // Java 在 item 不足 6 字节时抛异常，Rust 侧回落为 0
+// Java throws when the item is shorter than 6 bytes; the Rust side falls back to 0
             Some(item) if item.len() >= 6 => MppUtility::get_long6(item, 0),
             _ => 0,
         }
     }
 
-    /// 从扩展数据中取双精度浮点值。
+/// Get a double-precision floating-point value from the extended data.
     ///
-    /// 对应 Java: `public double getDouble(Integer type)`
+    /// Corresponds to Java: `public double getDouble(Integer type)`
     pub fn get_double(&self, item_type: i32) -> f64 {
         match self.m_map.get(&item_type) {
-            // Java 在 item 不足 8 字节时抛异常，Rust 侧回落为 0
+// Java throws when the item is shorter than 8 bytes; the Rust side falls back to 0
             Some(item) if item.len() >= 8 => MppUtility::get_double(item, 0),
             _ => 0.0,
         }
     }
 
-    /// 从扩展数据中取时间戳。
+/// Get a timestamp from the extended data.
     ///
-    /// 对应 Java: `public LocalDateTime getTimestamp(Integer type)`
+    /// Corresponds to Java: `public LocalDateTime getTimestamp(Integer type)`
     pub fn get_timestamp(&self, item_type: i32) -> Option<NaiveDateTime> {
         match self.m_map.get(&item_type) {
-            // Java 在 item 不足 4 字节时抛异常，Rust 侧返回 None
+// Java throws when the item is shorter than 4 bytes; the Rust side returns None
             Some(item) if item.len() >= 4 => MppUtility::get_timestamp(item, 0),
             _ => None,
         }
     }
 
-    /// 取原始字节数组。
+/// Get the raw byte array.
     ///
-    /// 对应 Java: `public byte[] getByteArray(Integer type)`
+    /// Corresponds to Java: `public byte[] getByteArray(Integer type)`
     pub fn get_byte_array(&self, item_type: i32) -> Option<&[u8]> {
         self.m_map.get(&item_type).map(Vec::as_slice)
     }
 
-    /// 把整型值转换成偏移量。
+/// Convert an integer value into an offset.
     ///
-    /// 对应 Java: `private int getOffset(byte[] data)`
+    /// Corresponds to Java: `private int getOffset(byte[] data)`
     ///
-    /// Java 侧 item 不足 4 字节时 `ByteArrayHelper.getInt` 会抛异常，
-    /// Rust 侧返回 `None`（调用方随即回落为「没有该项」）。
+/// On the Java side, when the item is shorter than 4 bytes `ByteArrayHelper.getInt` throws,
+/// and the Rust side returns `None` (the caller then falls back to "no such item").
     fn get_offset(data: &[u8]) -> Option<i32> {
         if data.len() < 4 {
             return None;
@@ -174,11 +174,11 @@ impl<'a> ExtendedData<'a> {
     }
 }
 
-/// 调试输出：输出扩展数据块的格式化内容。
+/// Debug output: print the formatted contents of the extended data block.
 ///
-/// 对应 Java: `@Override public String toString()`
+/// Corresponds to Java: `@Override public String toString()`
 ///
-/// Java 用 `HashMap` 迭代（顺序不定），Rust 的 `HashMap` 同样不保证顺序。
+/// Java iterates with `HashMap` (order unspecified); Rust's `HashMap` likewise does not guarantee order.
 impl Display for ExtendedData<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         writeln!(formatter, "BEGIN ExtendedData")?;
@@ -202,15 +202,15 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
 
-    /// 在 `data` 的 `offset` 处写入一个 FixDeferFix 数据块（`nextBlockOffset = -1`，
-    /// 即数据紧随其后），返回写入的字节数。
+/// Write a FixDeferFix data block at `offset` in `data` (`nextBlockOffset = -1`,
+/// i.e. the data follows immediately), and return the number of bytes written.
     fn write_block(data: &mut [u8], offset: usize, payload: &[u8]) {
         data[offset..offset + 4].copy_from_slice(&(-1i32).to_le_bytes());
         data[offset + 4..offset + 8].copy_from_slice(&(payload.len() as i32).to_le_bytes());
         data[offset + 8..offset + 8 + payload.len()].copy_from_slice(payload);
     }
 
-    /// 构造「扩展数据块」自身的字节内容：`[长度:4][类型:4][数据]` 序列。
+/// Build the byte contents of the "extended data block" itself: a sequence of `[length:4][type:4][data]`.
     fn extended_block(items: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut result = Vec::new();
 
@@ -223,12 +223,12 @@ mod tests {
         result
     }
 
-    /// 构造 var data：偏移 8 处放扩展数据块本身（**单块**场景，负载不得超过首块容量 28 字节）。
+/// Build var data: place the extended data block itself at offset 8 (**single-block** case; the payload must not exceed the first block's capacity of 28 bytes).
     fn var_data(items: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let block = extended_block(items);
         assert!(
             block.len() <= 28,
-            "负载超过首块容量 28 字节，请改用 var_data_chained"
+            "payload exceeds first block capacity of 28 bytes，use var_data_chained instead"
         );
 
         let mut data = vec![0u8; 8 + 8 + block.len()];
@@ -236,26 +236,26 @@ mod tests {
         data
     }
 
-    /// 构造**跨两个块**的 var data。
+/// Build var data spanning **two blocks**.
     ///
-    /// `FixDeferFix` 是链式块布局：偏移处先是「下一块偏移」（`-1` 表示链尾），紧随其后是
-    /// 「本条数据长度」，之后才是数据本体；首块承载 28 字节，后续块每块承载 32 字节。
+/// `FixDeferFix` uses a chained block layout: at the offset comes the "next block offset" first (`-1` marks the end of the chain), immediately followed by
+/// "the length of this data item", and only then the data itself; the first block carries 28 bytes, and each subsequent block carries 32 bytes.
     fn var_data_chained(items: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let block = extended_block(items);
         assert!(
             block.len() > 28 && block.len() - 28 <= 32,
-            "本辅助函数只覆盖「首块 28 字节 + 第二块不超过 32 字节」的情形"
+            "this helper only covers the case of「first block 28 bytes + second block no more than 32 bytes」"
         );
 
-        // 第二块头部所在偏移：8（块 1 的头部起点）+ 8（头部长度）+ 28（块 1 承载的数据）
+// Offset of the second block header: 8 (start of block 1's header) + 8 (header length) + 28 (data carried by block 1)
         let block2_offset: i32 = 44;
 
         let mut data = vec![0u8; 8];
-        // 块 1：下一块偏移 + 本条数据总长度 + 前 28 字节数据
+// Block 1: next block offset + total length of this data item + first 28 bytes of data
         data.extend_from_slice(&block2_offset.to_le_bytes());
         data.extend_from_slice(&(block.len() as i32).to_le_bytes());
         data.extend_from_slice(&block[..28]);
-        // 块 2：链尾标记 + 剩余数据
+// Block 2: end-of-chain marker + remaining data
         data.extend_from_slice(&(-1i32).to_le_bytes());
         data.extend_from_slice(&block[28..]);
 
@@ -279,13 +279,13 @@ mod tests {
             Some([0x34u8, 0x12, 0x00, 0x00].as_slice())
         );
         assert_eq!(extended.get_double(200), 1.0);
-        // 六字节小端长整型
+// Six-byte little-endian long integer
         assert_eq!(extended.get_long(300), 0x0605_0403_0201);
     }
 
     #[test]
     fn reads_timestamp_items() {
-        // 偏移 0 的 2 字节为时间（十分之一分钟），偏移 2 的 2 字节为「纪元 + 天数」
+// The 2 bytes at offset 0 are the time (tenths of a minute); the 2 bytes at offset 2 are "epoch + days"
         let data = var_data(&[(100, vec![0x00, 0x00, 0x02, 0x00])]);
         let fix_defer_fix = FixDeferFix::new(&data);
         let extended = ExtendedData::new(&fix_defer_fix, 8);
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn short_items_do_not_panic() {
-        // 只有 2 字节：short 可读，int / long / double / timestamp 取不到
+// Only 2 bytes: short is readable; int / long / double / timestamp cannot be read
         let data = var_data(&[(100, vec![0x34, 0x12])]);
         let fix_defer_fix = FixDeferFix::new(&data);
         let extended = ExtendedData::new(&fix_defer_fix, 8);
@@ -329,13 +329,13 @@ mod tests {
         assert_eq!(extended.get_long(100), 0);
         assert_eq!(extended.get_double(100), 0.0);
         assert_eq!(extended.get_timestamp(100), None);
-        // 不足 4 字节时无法解释偏移量
+// Cannot interpret the offset when there are fewer than 4 bytes
         assert_eq!(extended.get_string(100), None);
     }
 
     #[test]
     fn string_items_are_located_through_negative_offsets() {
-        // 扩展数据块中，字符串项存放的是「-1 - 偏移量」；这里指向 var data 的偏移 100
+// In the extended data block, a string item stores "-1 - offset"; this points to offset 100 in var data
         let items = vec![
             (10, (-1i32 - 100).to_le_bytes().to_vec()),
             (11, (-1i32 - 150).to_le_bytes().to_vec()),
@@ -344,9 +344,9 @@ mod tests {
 
         let mut data = vec![0u8; 200];
         write_block(&mut data, 8, &block);
-        // 偏移 100 处放单字节字符串 "AB"
+// Place the single-byte string "AB" at offset 100
         write_block(&mut data, 100, &[0x41, 0x42]);
-        // 偏移 150 处放 UTF-16LE 字符串 "CD"
+// Place the UTF-16LE string "CD" at offset 150
         write_block(&mut data, 150, &[0x43, 0x00, 0x44, 0x00]);
 
         let fix_defer_fix = FixDeferFix::new(&data);
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn absent_var_data_yields_an_empty_map() {
-        // getByteArray(offset) 返回 None（offset 必须大于 0）
+// getByteArray(offset) returns None (offset must be greater than 0)
         let data = vec![0u8; 32];
         let fix_defer_fix = FixDeferFix::new(&data);
         let extended = ExtendedData::new(&fix_defer_fix, 0);

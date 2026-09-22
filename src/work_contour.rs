@@ -1,46 +1,47 @@
-//! 对应 Java: `org/mpxj/WorkContour.java`
+//! Corresponds to Java: `org/mpxj/WorkContour.java`
 
 use std::fmt::{self, Display, Formatter};
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 
-/// 工时分布（work contour）值。
+/// Work contour value.
 ///
-/// 对应 Java: `public final class WorkContour implements ProjectEntityWithUniqueID`
+/// Corresponds to Java: `public final class WorkContour implements ProjectEntityWithUniqueID`
 ///
-/// 移植说明：
-/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；Rust 在本文件实现对应 trait。
-/// - Java 的 `double... curveValues` 可变参数映射为 `Option<Vec<f64>>`：`null` 表示曲线
-///   已被手工编辑（`CONTOURED`），与 Java 的 `null` 语义一致。
-/// - Java 的 `public static final` 常量（`FLAT`、`BACK_LOADED` 等）无法在 Rust 中 `const`
-///   构造（`Vec<f64>` / `String` 都不是 const 可构造类型），因此改为同名函数返回新实例。
+/// Porting notes:
+/// - The Java side implements the `ProjectEntityWithUniqueID` interface; Rust implements the corresponding trait in this file.
+/// - Java's `double... curveValues` varargs map to `Option<Vec<f64>>`: `null` means the curve
+///   has been manually edited (`CONTOURED`), consistent with Java's `null` semantics.
+/// - Java's `public static final` constants (`FLAT`, `BACK_LOADED`, etc.) cannot be built as
+///   Rust `const` values (`Vec<f64>` / `String` are not const-constructible), so they are
+///   changed to same-named functions returning new instances.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 #[derive(Debug, Clone)]
 pub struct WorkContour {
-    /// 工时分布名称。
+    /// Work contour name.
     ///
-    /// 对应 Java: `private final String m_name;`
+    /// Corresponds to Java: `private final String m_name;`
     m_name: Option<String>,
-    /// 是否为源应用程序内置的工时分布。
+    /// Whether this is a work contour built into the source application.
     ///
-    /// 对应 Java: `private final boolean m_default;`
+    /// Corresponds to Java: `private final boolean m_default;`
     m_default: bool,
-    /// 唯一 ID。
+    /// Unique ID.
     ///
-    /// 对应 Java: `private final Integer m_uniqueID;`
+    /// Corresponds to Java: `private final Integer m_uniqueID;`
     m_unique_id: Option<i32>,
-    /// 曲线取值：每 5% 工期一个值（含 0%），共 21 个值，总和为 100%。
+    /// Curve values: one value per 5% of duration (including 0%), 21 values in total, summing to 100%.
     ///
-    /// 对应 Java: `private final double[] m_curveValues;`
+    /// Corresponds to Java: `private final double[] m_curveValues;`
     m_curve_values: Option<Vec<f64>>,
 }
 
 impl WorkContour {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public WorkContour(Integer uniqueID, String name, boolean isDefault, double... curveValues)`
+    /// Corresponds to Java: `public WorkContour(Integer uniqueID, String name, boolean isDefault, double... curveValues)`
     ///
-    /// `curve_values` 为 `None` 对应 Java 传入 `null`（手工编辑的时间分段数据）。
+    /// `curve_values` being `None` corresponds to Java passing `null` (manually edited time-phased data).
     pub fn new(
         unique_id: Option<i32>,
         name: Option<String>,
@@ -55,43 +56,44 @@ impl WorkContour {
         }
     }
 
-    /// 取唯一 ID。
+    /// Return the unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.m_unique_id
     }
 
-    /// 取定义曲线的取值数组。
+    /// Return the array of values defining the curve.
     ///
-    /// 对应 Java: `public double[] getCurveValues()`
+    /// Corresponds to Java: `public double[] getCurveValues()`
     ///
-    /// 返回 21 个 `double`，各代表 5% 工期（含 0%），总和为 100%；`CONTOURED` 返回 `None`
-    /// （Java 返回 `null`），因为其工时/成本已手工编排，不使用曲线。
+    /// Returns 21 `double` values, each representing 5% of the duration (including 0%), summing
+    /// to 100%; `CONTOURED` returns `None` (Java returns `null`) because its work/cost has been
+    /// manually arranged and does not use a curve.
     pub fn get_curve_values(&self) -> Option<&[f64]> {
         self.m_curve_values.as_deref()
     }
 
-    /// 取工时分布名称。
+    /// Return the work contour name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.m_name.as_deref()
     }
 
-    /// 判断时间分段数据是否已被手工编辑。
+    /// Determine whether the time-phased data has been manually edited.
     ///
-    /// 对应 Java: `public boolean isContourManual()`
+    /// Corresponds to Java: `public boolean isContourManual()`
     pub fn is_contour_manual(&self) -> bool {
         self.m_curve_values.is_none()
     }
 
-    /// 判断该工时分布是否为「平坦」的。
+    /// Determine whether this work contour is "flat".
     ///
-    /// 对应 Java: `public boolean isContourFlat()`
+    /// Corresponds to Java: `public boolean isContourFlat()`
     ///
     /// Java: `m_curveValues != null && m_curveValues[0] == 0.0 &&
-    /// DoubleStream.of(m_curveValues).skip(1).distinct().count() == 1`。
+    /// DoubleStream.of(m_curveValues).skip(1).distinct().count() == 1`.
     pub fn is_contour_flat(&self) -> bool {
         let values = match &self.m_curve_values {
             Some(values) => values,
@@ -102,7 +104,7 @@ impl WorkContour {
             return false;
         }
 
-        // Java: 跳过首个取值后，剩余取值去重后只剩 1 个（即全部相同）
+        // Java: after skipping the first value, the remaining values de-duplicate to just 1 (i.e. all equal)
         let mut tail = values.iter().skip(1);
         match tail.next() {
             Some(first) => tail.all(|value| value == first),
@@ -110,16 +112,16 @@ impl WorkContour {
         }
     }
 
-    /// 判断是否为源应用程序内置的工时分布。
+    /// Determine whether this is a work contour built into the source application.
     ///
-    /// 对应 Java: `public boolean isContourDefault()`
+    /// Corresponds to Java: `public boolean isContourDefault()`
     pub fn is_contour_default(&self) -> bool {
         self.m_default
     }
 
-    /// `FLAT` 工时分布。
+    /// `FLAT` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour FLAT`
+    /// Corresponds to Java: `public static final WorkContour FLAT`
     pub fn flat() -> Self {
         Self::new(
             Some(1),
@@ -132,9 +134,9 @@ impl WorkContour {
         )
     }
 
-    /// `BACK_LOADED` 工时分布。
+    /// `BACK_LOADED` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour BACK_LOADED`
+    /// Corresponds to Java: `public static final WorkContour BACK_LOADED`
     pub fn back_loaded() -> Self {
         Self::new(
             Some(2),
@@ -147,9 +149,9 @@ impl WorkContour {
         )
     }
 
-    /// `FRONT_LOADED` 工时分布。
+    /// `FRONT_LOADED` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour FRONT_LOADED`
+    /// Corresponds to Java: `public static final WorkContour FRONT_LOADED`
     pub fn front_loaded() -> Self {
         Self::new(
             Some(3),
@@ -162,9 +164,9 @@ impl WorkContour {
         )
     }
 
-    /// `DOUBLE_PEAK` 工时分布。
+    /// `DOUBLE_PEAK` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour DOUBLE_PEAK`
+    /// Corresponds to Java: `public static final WorkContour DOUBLE_PEAK`
     pub fn double_peak() -> Self {
         Self::new(
             Some(4),
@@ -177,9 +179,9 @@ impl WorkContour {
         )
     }
 
-    /// `EARLY_PEAK` 工时分布。
+    /// `EARLY_PEAK` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour EARLY_PEAK`
+    /// Corresponds to Java: `public static final WorkContour EARLY_PEAK`
     pub fn early_peak() -> Self {
         Self::new(
             Some(5),
@@ -192,9 +194,9 @@ impl WorkContour {
         )
     }
 
-    /// `LATE_PEAK` 工时分布。
+    /// `LATE_PEAK` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour LATE_PEAK`
+    /// Corresponds to Java: `public static final WorkContour LATE_PEAK`
     pub fn late_peak() -> Self {
         Self::new(
             Some(6),
@@ -207,9 +209,9 @@ impl WorkContour {
         )
     }
 
-    /// `BELL` 工时分布。
+    /// `BELL` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour BELL`
+    /// Corresponds to Java: `public static final WorkContour BELL`
     pub fn bell() -> Self {
         Self::new(
             Some(7),
@@ -222,9 +224,9 @@ impl WorkContour {
         )
     }
 
-    /// `TURTLE` 工时分布。
+    /// `TURTLE` work contour.
     ///
-    /// 对应 Java: `public static final WorkContour TURTLE`
+    /// Corresponds to Java: `public static final WorkContour TURTLE`
     pub fn turtle() -> Self {
         Self::new(
             Some(8),
@@ -237,23 +239,23 @@ impl WorkContour {
         )
     }
 
-    /// `CONTOURED` 工时分布（无曲线取值，对应 Java 传入 `null`）。
+    /// `CONTOURED` work contour (no curve values; corresponds to Java passing `null`).
     ///
-    /// 对应 Java: `public static final WorkContour CONTOURED`
+    /// Corresponds to Java: `public static final WorkContour CONTOURED`
     pub fn contoured() -> Self {
         Self::new(Some(9), Some("CONTOURED".to_owned()), false, None)
     }
 }
 
 impl ProjectEntityWithUniqueID for WorkContour {
-    /// 对应 Java: `@Override public Integer getUniqueID()`。
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`.
     fn get_unique_id(&self) -> Option<i32> {
         WorkContour::get_unique_id(self)
     }
 }
 
 impl Display for WorkContour {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.m_name.as_deref().unwrap_or("null"))
     }
@@ -290,7 +292,7 @@ mod tests {
         assert!(!value.is_contour_manual());
         assert!(value.is_contour_flat());
 
-        let curve = value.get_curve_values().expect("FLAT 有曲线取值");
+        let curve = value.get_curve_values().expect("FLAT has curve values");
         assert_eq!(curve.len(), 21);
         assert_eq!(curve.first(), Some(&0.0));
     }
@@ -337,7 +339,7 @@ mod tests {
             assert!(contour.get_name().is_some());
         }
 
-        // 除 CONTOURED 外都带 21 个曲线取值
+        // All except CONTOURED carry 21 curve values
         for contour in &contours[..8] {
             assert_eq!(contour.get_curve_values().map(|curve| curve.len()), Some(21));
         }

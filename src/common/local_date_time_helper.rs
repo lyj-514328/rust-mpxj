@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/common/LocalDateTimeHelper.java`
+//! Corresponds to Java: `org/mpxj/common/LocalDateTimeHelper.java`
 
 use std::cmp::Ordering;
 
@@ -8,34 +8,35 @@ use crate::duration::Duration;
 use crate::project_calendar::ProjectCalendar;
 use crate::time_unit::TimeUnit;
 
-/// 处理 `LocalDateTime`（Rust 侧为 [`NaiveDateTime`]）的工具方法。
+/// Utility methods for handling `LocalDateTime` (on the Rust side [`NaiveDateTime`]).
 ///
-/// 对应 Java: `public final class LocalDateTimeHelper`
+/// Corresponds to Java: `public final class LocalDateTimeHelper`
 ///
-/// 移植说明：
-/// - `START_DATE_NA` / `END_DATE_NA` 在 Java 中是 `static final` 常量；chrono 的日期时间构造不是
-///   `const fn`，因此 Rust 侧改为 [`LocalDateTimeHelper::start_date_na`] /
-///   [`LocalDateTimeHelper::end_date_na`] 两个函数。
-/// - `parseBest(DateTimeFormatter, String)` 的 `DateTimeFormatter` 在 chrono 中没有等价对象，
-///   改用 chrono 的格式字符串 `&str`；解析失败时 Java 抛 `DateTimeParseException`，Rust 返回 `None`。
-/// - `getVariance` 使用的 `org.mpxj.Duration`、`ProjectCalendar`、`TimeUnit` 在 Rust 侧对应
-///   [`crate::duration::Duration`]、[`crate::project_calendar::ProjectCalendar`] 与
-///   [`crate::time_unit::TimeUnit`]。
+/// Porting notes:
+/// - `START_DATE_NA` / `END_DATE_NA` are `static final` constants in Java; chrono's date-time
+///   construction is not `const fn`, so the Rust side changes them to the two functions
+///   [`LocalDateTimeHelper::start_date_na`] / [`LocalDateTimeHelper::end_date_na`].
+/// - The `DateTimeFormatter` of `parseBest(DateTimeFormatter, String)` has no equivalent in
+///   chrono, so chrono's format string `&str` is used instead; Java throws
+///   `DateTimeParseException` on parse failure, Rust returns `None`.
+/// - The `org.mpxj.Duration`, `ProjectCalendar`, and `TimeUnit` used by `getVariance`
+///   correspond on the Rust side to [`crate::duration::Duration`],
+///   [`crate::project_calendar::ProjectCalendar`], and [`crate::time_unit::TimeUnit`].
 ///
-/// 未移植的方法：无。
+/// Unported methods: none.
 pub struct LocalDateTimeHelper;
 
 impl LocalDateTimeHelper {
-    /// 对应 Java: `public static LocalDateTime getDayStartDate(LocalDateTime date)`
+    /// Corresponds to Java: `public static LocalDateTime getDayStartDate(LocalDateTime date)`
     ///
-    /// 返回当天 00:00:00，null 返回 `None`。
+    /// Returns 00:00:00 of the same day; returns `None` for null.
     pub fn get_day_start_date(date: Option<NaiveDateTime>) -> Option<NaiveDateTime> {
         date.map(|date| NaiveDateTime::new(date.date(), NaiveTime::MIN))
     }
 
-    /// 对应 Java: `public static int compare(LocalDateTime startDate, LocalDateTime endDate, LocalDateTime targetDate)`
+    /// Corresponds to Java: `public static int compare(LocalDateTime startDate, LocalDateTime endDate, LocalDateTime targetDate)`
     ///
-    /// 目标日期早于区间返回 -1，晚于区间返回 1，落在区间内返回 0。
+    /// Returns -1 if the target date is before the range, 1 if after, and 0 if within the range.
     pub fn compare_with_range(
         start_date: NaiveDateTime,
         end_date: NaiveDateTime,
@@ -50,21 +51,22 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static int compare(LocalDateTime startRange1, LocalDateTime endRange1, LocalDateTime startRange2, LocalDateTime endRange2)`
+    /// Corresponds to Java: `public static int compare(LocalDateTime startRange1, LocalDateTime endRange1, LocalDateTime startRange2, LocalDateTime endRange2)`
     ///
-    /// 区间 1 结束于区间 2 开始之前返回 -1，区间 1 开始于区间 2 结束之后返回 1，相交返回 0。
+    /// Returns -1 if range 1 ends before range 2 starts, 1 if range 1 starts after range 2
+    /// ends, and 0 if they intersect.
     pub fn compare_ranges(
         start_range1: NaiveDateTime,
         end_range1: NaiveDateTime,
         start_range2: NaiveDateTime,
         end_range2: NaiveDateTime,
     ) -> i32 {
-        // 区间 1 结束于区间 2 开始之前
+        // Range 1 ends before range 2 starts
         if end_range1 <= start_range2 {
             return -1;
         }
 
-        // 区间 1 开始于区间 2 结束之后
+        // Range 1 starts after range 2 ends
         if start_range1 >= end_range2 {
             return 1;
         }
@@ -72,9 +74,9 @@ impl LocalDateTimeHelper {
         0
     }
 
-    /// 对应 Java: `public static int compare(LocalDateTime d1, LocalDateTime d2)`
+    /// Corresponds to Java: `public static int compare(LocalDateTime d1, LocalDateTime d2)`
     ///
-    /// 处理 null：两边都为 null 返回 0，仅左边为 null 返回 1，仅右边为 null 返回 -1。
+    /// Handles null: both null returns 0, only left null returns 1, only right null returns -1.
     pub fn compare(d1: Option<NaiveDateTime>, d2: Option<NaiveDateTime>) -> i32 {
         match (d1, d2) {
             (None, None) => 0,
@@ -88,9 +90,9 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime min(LocalDateTime d1, LocalDateTime d2)`
+    /// Corresponds to Java: `public static LocalDateTime min(LocalDateTime d1, LocalDateTime d2)`
     ///
-    /// 非 null 值始终早于 null 值。
+    /// A non-null value is always earlier than a null value.
     pub fn min(d1: Option<NaiveDateTime>, d2: Option<NaiveDateTime>) -> Option<NaiveDateTime> {
         match (d1, d2) {
             (None, d2) => d2,
@@ -99,9 +101,9 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime max(LocalDateTime d1, LocalDateTime d2)`
+    /// Corresponds to Java: `public static LocalDateTime max(LocalDateTime d1, LocalDateTime d2)`
     ///
-    /// 非 null 值始终晚于 null 值。
+    /// A non-null value is always later than a null value.
     pub fn max(d1: Option<NaiveDateTime>, d2: Option<NaiveDateTime>) -> Option<NaiveDateTime> {
         match (d1, d2) {
             (None, d2) => d2,
@@ -110,10 +112,11 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static LocalDateTime parseBest(DateTimeFormatter format, String value)`
+    /// Corresponds to Java: `public static LocalDateTime parseBest(DateTimeFormatter format, String value)`
     ///
-    /// Java 用 `format.parseBest` 先尝试 `LocalDateTime`，失败再尝试 `LocalDate` 并转为当天 00:00；
-    /// Rust 侧用 `format` 作为 chrono 格式字符串复现同样的两级回退。
+    /// Java uses `format.parseBest` to try `LocalDateTime` first, then `LocalDate` on failure
+    /// and converts it to 00:00 of the same day; the Rust side uses `format` as a chrono format
+    /// string to reproduce the same two-level fallback.
     pub fn parse_best(format: &str, value: &str) -> Option<NaiveDateTime> {
         if let Ok(date_time) = NaiveDateTime::parse_from_str(value, format) {
             return Some(date_time);
@@ -125,9 +128,10 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static Duration getVariance(ProjectCalendar calendar, LocalDateTime date1, LocalDateTime date2, TimeUnit format)`
+    /// Corresponds to Java: `public static Duration getVariance(ProjectCalendar calendar, LocalDateTime date1, LocalDateTime date2, TimeUnit format)`
     ///
-    /// 在给定日历下计算两个日期之间的工作时间差；任一参数为 null 时返回 0 工期。
+    /// Computes the working-time difference between two dates under the given calendar; returns
+    /// a zero duration when any argument is null.
     pub fn get_variance(
         calendar: Option<&ProjectCalendar>,
         date1: Option<NaiveDateTime>,
@@ -140,9 +144,9 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static final LocalDateTime START_DATE_NA`
+    /// Corresponds to Java: `public static final LocalDateTime START_DATE_NA`
     ///
-    /// 表示 NA 的区间起始日期：1984-01-01 00:00:00。
+    /// The range start date representing NA: 1984-01-01 00:00:00.
     pub fn start_date_na() -> NaiveDateTime {
         match (
             NaiveDate::from_ymd_opt(1984, 1, 1),
@@ -153,9 +157,10 @@ impl LocalDateTimeHelper {
         }
     }
 
-    /// 对应 Java: `public static final LocalDateTime END_DATE_NA`
+    /// Corresponds to Java: `public static final LocalDateTime END_DATE_NA`
     ///
-    /// 表示 NA 的区间结束日期：2049-12-31 23:59:00（沿用旧版 MS Project 识别的取值，详见 Java 注释）。
+    /// The range end date representing NA: 2049-12-31 23:59:00 (the value recognized by older
+    /// versions of MS Project; see the Java comments for details).
     pub fn end_date_na() -> NaiveDateTime {
         match (
             NaiveDate::from_ymd_opt(2049, 12, 31),

@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/common/AssignmentFieldLists.java`
+//! Corresponds to Java: `org/mpxj/common/AssignmentFieldLists.java`
 
 use crate::assignment_field::AssignmentField;
 
-/// Assignment 字段按逻辑分组后的集合。
+/// Collections of Assignment fields grouped logically.
 ///
-/// 对应 Java: `public final class AssignmentFieldLists`
+/// Corresponds to Java: `public final class AssignmentFieldLists`
 ///
-/// 移植说明：
-/// - Java 的 `AssignmentField[]` 静态数组逐个落地为定长数组常量 `[AssignmentField; N]`，元素与顺序与 Java 完全一致。
-/// - Java 的 `CUSTOM_FIELDS` 由静态初始化块把 16 个数组依次 `addAll` 成 `ArrayList<AssignmentField>`；Rust 侧展开为 `&'static [AssignmentField]` 常量，顺序与 Java 的 `addAll` 调用顺序一致。
-/// - Java 源文件中 `CUSTOM_FIELDS` 声明在 `ENTERPRISE_RESOURCE_MULTI_VALUE` 之后、`RAW_TIMEPHASED_BASELINE_WORKS` 之前；Rust 侧为便于阅读把 `CUSTOM_FIELDS` 统一放在全部 `AssignmentField[]` 常量之后，顺序语义不变。
+/// Porting notes:
+/// - Each Java `AssignmentField[]` static array is ported as a fixed-size array constant `[AssignmentField; N]`, with elements and order exactly matching Java.
+/// - Java's `CUSTOM_FIELDS` is built by a static initializer that `addAll`s 16 arrays in turn into an `ArrayList<AssignmentField>`; the Rust side expands it into a `&'static [AssignmentField]` constant in the same order as the Java `addAll` calls.
+/// - In the Java source `CUSTOM_FIELDS` is declared after `ENTERPRISE_RESOURCE_MULTI_VALUE` and before `RAW_TIMEPHASED_BASELINE_WORKS`; on the Rust side `CUSTOM_FIELDS` is placed uniformly after all `AssignmentField[]` constants for readability, without changing the ordering semantics.
 ///
-/// 未移植的成员：无。
+/// Skipped Java members: none.
 pub struct AssignmentFieldLists;
 
 impl AssignmentFieldLists {
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_COSTS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_COSTS`
     pub const BASELINE_COSTS: [AssignmentField; 10] = [
         AssignmentField::Baseline1Cost,
         AssignmentField::Baseline2Cost,
@@ -29,7 +29,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10Cost,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_WORKS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_WORKS`
     pub const BASELINE_WORKS: [AssignmentField; 10] = [
         AssignmentField::Baseline1Work,
         AssignmentField::Baseline2Work,
@@ -43,7 +43,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10Work,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_MATERIALS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_MATERIALS`
     pub const BASELINE_MATERIALS: [AssignmentField; 10] = [
         AssignmentField::Baseline1Material,
         AssignmentField::Baseline2Material,
@@ -57,7 +57,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10Material,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_STARTS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_STARTS`
     pub const BASELINE_STARTS: [AssignmentField; 10] = [
         AssignmentField::Baseline1Start,
         AssignmentField::Baseline2Start,
@@ -71,7 +71,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10Start,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_FINISHES`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_FINISHES`
     pub const BASELINE_FINISHES: [AssignmentField; 10] = [
         AssignmentField::Baseline1Finish,
         AssignmentField::Baseline2Finish,
@@ -85,7 +85,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10Finish,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_BUDGET_COSTS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_BUDGET_COSTS`
     pub const BASELINE_BUDGET_COSTS: [AssignmentField; 10] = [
         AssignmentField::Baseline1BudgetCost,
         AssignmentField::Baseline2BudgetCost,
@@ -99,7 +99,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10BudgetCost,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] BASELINE_BUDGET_WORKS`
+    /// Corresponds to Java: `public static final AssignmentField[] BASELINE_BUDGET_WORKS`
     pub const BASELINE_BUDGET_WORKS: [AssignmentField; 10] = [
         AssignmentField::Baseline1BudgetWork,
         AssignmentField::Baseline2BudgetWork,
@@ -113,7 +113,7 @@ impl AssignmentFieldLists {
         AssignmentField::Baseline10BudgetWork,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_TEXT`
     pub const CUSTOM_TEXT: [AssignmentField; 30] = [
         AssignmentField::Text1,
         AssignmentField::Text2,
@@ -147,7 +147,7 @@ impl AssignmentFieldLists {
         AssignmentField::Text30,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_START`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_START`
     pub const CUSTOM_START: [AssignmentField; 10] = [
         AssignmentField::Start1,
         AssignmentField::Start2,
@@ -161,7 +161,7 @@ impl AssignmentFieldLists {
         AssignmentField::Start10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_FINISH`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_FINISH`
     pub const CUSTOM_FINISH: [AssignmentField; 10] = [
         AssignmentField::Finish1,
         AssignmentField::Finish2,
@@ -175,7 +175,7 @@ impl AssignmentFieldLists {
         AssignmentField::Finish10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_DATE`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_DATE`
     pub const CUSTOM_DATE: [AssignmentField; 10] = [
         AssignmentField::Date1,
         AssignmentField::Date2,
@@ -189,7 +189,7 @@ impl AssignmentFieldLists {
         AssignmentField::Date10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_NUMBER`
     pub const CUSTOM_NUMBER: [AssignmentField; 20] = [
         AssignmentField::Number1,
         AssignmentField::Number2,
@@ -213,7 +213,7 @@ impl AssignmentFieldLists {
         AssignmentField::Number20,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_DURATION`
     pub const CUSTOM_DURATION: [AssignmentField; 10] = [
         AssignmentField::Duration1,
         AssignmentField::Duration2,
@@ -227,7 +227,7 @@ impl AssignmentFieldLists {
         AssignmentField::Duration10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_DURATION_UNITS`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_DURATION_UNITS`
     pub const CUSTOM_DURATION_UNITS: [AssignmentField; 10] = [
         AssignmentField::Duration1Units,
         AssignmentField::Duration2Units,
@@ -241,7 +241,7 @@ impl AssignmentFieldLists {
         AssignmentField::Duration10Units,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_COST`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_COST`
     pub const CUSTOM_COST: [AssignmentField; 10] = [
         AssignmentField::Cost1,
         AssignmentField::Cost2,
@@ -255,7 +255,7 @@ impl AssignmentFieldLists {
         AssignmentField::Cost10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final AssignmentField[] CUSTOM_FLAG`
     pub const CUSTOM_FLAG: [AssignmentField; 20] = [
         AssignmentField::Flag1,
         AssignmentField::Flag2,
@@ -279,7 +279,7 @@ impl AssignmentFieldLists {
         AssignmentField::Flag20,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_COST`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_COST`
     pub const ENTERPRISE_CUSTOM_COST: [AssignmentField; 10] = [
         AssignmentField::EnterpriseCost1,
         AssignmentField::EnterpriseCost2,
@@ -293,7 +293,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseCost10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_DATE`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_DATE`
     pub const ENTERPRISE_CUSTOM_DATE: [AssignmentField; 30] = [
         AssignmentField::EnterpriseDate1,
         AssignmentField::EnterpriseDate2,
@@ -327,7 +327,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseDate30,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_DURATION`
     pub const ENTERPRISE_CUSTOM_DURATION: [AssignmentField; 10] = [
         AssignmentField::EnterpriseDuration1,
         AssignmentField::EnterpriseDuration2,
@@ -341,7 +341,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseDuration10,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_FLAG`
     pub const ENTERPRISE_CUSTOM_FLAG: [AssignmentField; 20] = [
         AssignmentField::EnterpriseFlag1,
         AssignmentField::EnterpriseFlag2,
@@ -365,7 +365,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseFlag20,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_NUMBER`
     pub const ENTERPRISE_CUSTOM_NUMBER: [AssignmentField; 40] = [
         AssignmentField::EnterpriseNumber1,
         AssignmentField::EnterpriseNumber2,
@@ -409,7 +409,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseNumber40,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_CUSTOM_TEXT`
     pub const ENTERPRISE_CUSTOM_TEXT: [AssignmentField; 40] = [
         AssignmentField::EnterpriseText1,
         AssignmentField::EnterpriseText2,
@@ -453,7 +453,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseText40,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_RESOURCE_MULTI_VALUE`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_RESOURCE_MULTI_VALUE`
     pub const ENTERPRISE_RESOURCE_MULTI_VALUE: [AssignmentField; 10] = [
         AssignmentField::EnterpriseResourceMultiValue20,
         AssignmentField::EnterpriseResourceMultiValue21,
@@ -467,7 +467,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseResourceMultiValue29,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] ENTERPRISE_RESOURCE_OUTLINE_CODE`
+    /// Corresponds to Java: `public static final AssignmentField[] ENTERPRISE_RESOURCE_OUTLINE_CODE`
     pub const ENTERPRISE_RESOURCE_OUTLINE_CODE: [AssignmentField; 29] = [
         AssignmentField::EnterpriseResourceOutlineCode1,
         AssignmentField::EnterpriseResourceOutlineCode2,
@@ -500,7 +500,7 @@ impl AssignmentFieldLists {
         AssignmentField::EnterpriseResourceOutlineCode29,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_WORKS`
+    /// Corresponds to Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_WORKS`
     pub const RAW_TIMEPHASED_BASELINE_WORKS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineWork,
         AssignmentField::RawTimephasedBaseline1Work,
@@ -515,7 +515,7 @@ impl AssignmentFieldLists {
         AssignmentField::RawTimephasedBaseline10Work,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_COSTS`
+    /// Corresponds to Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_COSTS`
     pub const RAW_TIMEPHASED_BASELINE_COSTS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineCost,
         AssignmentField::RawTimephasedBaseline1Cost,
@@ -530,7 +530,7 @@ impl AssignmentFieldLists {
         AssignmentField::RawTimephasedBaseline10Cost,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_BUDGET_WORKS`
+    /// Corresponds to Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_BUDGET_WORKS`
     pub const RAW_TIMEPHASED_BASELINE_BUDGET_WORKS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineBudgetWork,
         AssignmentField::RawTimephasedBaseline1BudgetWork,
@@ -545,7 +545,7 @@ impl AssignmentFieldLists {
         AssignmentField::RawTimephasedBaseline10BudgetWork,
     ];
 
-    /// 对应 Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_BUDGET_COSTS`
+    /// Corresponds to Java: `public static final AssignmentField[] RAW_TIMEPHASED_BASELINE_BUDGET_COSTS`
     pub const RAW_TIMEPHASED_BASELINE_BUDGET_COSTS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineBudgetCost,
         AssignmentField::RawTimephasedBaseline1BudgetCost,
@@ -560,9 +560,9 @@ impl AssignmentFieldLists {
         AssignmentField::RawTimephasedBaseline10BudgetCost,
     ];
 
-    /// 对应 Java: `public static final List<AssignmentField> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<AssignmentField> CUSTOM_FIELDS`
     ///
-    /// Java 在静态初始化块中按 `CUSTOM_TEXT`、`CUSTOM_DATE`、`CUSTOM_START`、`CUSTOM_FINISH`、`CUSTOM_COST`、`CUSTOM_FLAG`、`CUSTOM_NUMBER`、`CUSTOM_DURATION`、`ENTERPRISE_CUSTOM_TEXT`、`ENTERPRISE_CUSTOM_DATE`、`ENTERPRISE_CUSTOM_COST`、`ENTERPRISE_CUSTOM_FLAG`、`ENTERPRISE_CUSTOM_NUMBER`、`ENTERPRISE_CUSTOM_DURATION`、`ENTERPRISE_RESOURCE_OUTLINE_CODE`、`ENTERPRISE_RESOURCE_MULTI_VALUE` 的顺序 `addAll` 拼接；此处保持同一顺序。
+    /// Java concatenates via `addAll` in the static initializer in the order `CUSTOM_TEXT`, `CUSTOM_DATE`, `CUSTOM_START`, `CUSTOM_FINISH`, `CUSTOM_COST`, `CUSTOM_FLAG`, `CUSTOM_NUMBER`, `CUSTOM_DURATION`, `ENTERPRISE_CUSTOM_TEXT`, `ENTERPRISE_CUSTOM_DATE`, `ENTERPRISE_CUSTOM_COST`, `ENTERPRISE_CUSTOM_FLAG`, `ENTERPRISE_CUSTOM_NUMBER`, `ENTERPRISE_CUSTOM_DURATION`, `ENTERPRISE_RESOURCE_OUTLINE_CODE`, `ENTERPRISE_RESOURCE_MULTI_VALUE`; the same order is kept here.
     pub const CUSTOM_FIELDS: &'static [AssignmentField] = &[
         AssignmentField::Text1,
         AssignmentField::Text2,

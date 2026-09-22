@@ -1,25 +1,25 @@
-//! 对应 Java: `org/mpxj/mpp/FilterCriteriaReader9.java`
+//! Corresponds to Java: `org/mpxj/mpp/FilterCriteriaReader9.java`
 //!
-//! MPP9 的筛选条件块读取器：告诉 [`CriteriaReader`] 9 版文件里条件块的布局。
+//! Filter criteria block reader for MPP9: tells [`CriteriaReader`] the layout of the criteria block in version 9 files.
 //!
-//! # 继承的还原（trait 实现）
+//! # How inheritance is reproduced (trait implementation)
 //!
-//! Java 的 `class FilterCriteriaReader9 extends CriteriaReader`。Rust 侧改为
-//! **实现 [`CriteriaReader`] trait 的零尺寸结构体**：Java 的 10 个
-//! `@Override protected` 方法逐一对应 trait 的必需方法，Java 继承来的公开方法 `process`
-//! 由 trait 的默认方法提供（无需在本类重复实现）。
+//! Java's `class FilterCriteriaReader9 extends CriteriaReader`. The Rust side instead becomes
+//! **a zero-sized struct implementing the [`CriteriaReader`] trait**: Java's 10
+//! `@Override protected` methods correspond one-to-one to the trait's required methods, and the public `process` method inherited in Java
+//! is provided by the trait's default method (no need to reimplement it in this class).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `m_criteriaBlockMap`（继承自 `CriteriaReader` 的 `protected` 字段） | 方法入参 `blocks: &CriteriaBlockMap` | Rust 的 trait 不能带字段，见 [`crate::mpp::criteria_reader`] |
-//! | `ByteArrayHelper.getShort(block, n)` 越界抛 `ArrayIndexOutOfBoundsException` | [`checked_short`] 返回 `None`（块指针解析不出 ⇒ 无子块 / 无兄弟块） | 遵循「不 panic」约定 |
-//! | `ByteArrayHelper.getInt(block, 40)` 越界抛异常 | [`checked_int`] 返回 `None` ⇒ 字段类型为 `None` | 同上 |
+//! | `m_criteriaBlockMap` (a `protected` field inherited from `CriteriaReader`) | method parameter `blocks: &CriteriaBlockMap` | Rust traits cannot have fields; see [`crate::mpp::criteria_reader`] |
+//! | `ByteArrayHelper.getShort(block, n)` throws `ArrayIndexOutOfBoundsException` on out of bounds | [`checked_short`] returns `None` (the block pointer cannot be parsed ⇒ no child block / no sibling block) | follows the "no panic" convention |
+//! | `ByteArrayHelper.getInt(block, 40)` throws on out of bounds | [`checked_int`] returns `None` ⇒ the field type is `None` | same as above |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,53 +30,53 @@ use crate::mpp::criteria_reader::{CriteriaBlockMap, CriteriaReader};
 use crate::mpp::custom_field_value_reader::{checked_int, checked_short};
 use crate::project_file::ProjectFile;
 
-/// MPP9 筛选条件块读取器。
+/// MPP9 filter criteria block reader.
 ///
-/// 对应 Java: `class FilterCriteriaReader9 extends CriteriaReader`
+/// Corresponds to Java: `class FilterCriteriaReader9 extends CriteriaReader`
 pub struct FilterCriteriaReader9;
 
 impl FilterCriteriaReader9 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: implicit default constructor (Java does not explicitly declare a constructor).
     pub fn new() -> Self {
         Self
     }
 }
 
 impl Default for FilterCriteriaReader9 {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`FilterCriteriaReader9::new`]。
+/// Corresponds to Java: implicit default constructor, equivalent to [`FilterCriteriaReader9::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl CriteriaReader for FilterCriteriaReader9 {
-    /// 对应 Java: `@Override protected int getCriteriaStartOffset()`
+    /// Corresponds to Java: `@Override protected int getCriteriaStartOffset()`
     fn get_criteria_start_offset(&self) -> i32 {
         20
     }
 
-    /// 对应 Java: `@Override protected int getCriteriaBlockSize()`
+    /// Corresponds to Java: `@Override protected int getCriteriaBlockSize()`
     fn get_criteria_block_size(&self) -> i32 {
         80
     }
 
-    /// 对应 Java: `@Override protected byte[] getChildBlock(byte[] block)`
+    /// Corresponds to Java: `@Override protected byte[] getChildBlock(byte[] block)`
     fn get_child_block(&self, block: &[u8], blocks: &CriteriaBlockMap) -> Option<Vec<u8>> {
         // Java: int offset = ByteArrayHelper.getShort(block, 74); return m_criteriaBlockMap.get(Integer.valueOf(offset));
         let offset = checked_short(block, 74)?;
         blocks.get(&offset).cloned()
     }
 
-    /// 对应 Java: `@Override protected byte[] getListNextBlock(byte[] block)`
+    /// Corresponds to Java: `@Override protected byte[] getListNextBlock(byte[] block)`
     fn get_list_next_block(&self, block: &[u8], blocks: &CriteriaBlockMap) -> Option<Vec<u8>> {
         // Java: int offset = ByteArrayHelper.getShort(block, 76); return m_criteriaBlockMap.get(Integer.valueOf(offset));
         let offset = checked_short(block, 76)?;
         blocks.get(&offset).cloned()
     }
 
-    /// 对应 Java: `@Override protected FieldType getFieldType(byte[] block)`
+    /// Corresponds to Java: `@Override protected FieldType getFieldType(byte[] block)`
     fn get_field_type(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -87,29 +87,29 @@ impl CriteriaReader for FilterCriteriaReader9 {
         FieldTypeHelper::get_instance(file, field_index)
     }
 
-    /// 对应 Java: `@Override protected int getTextOffset(byte[] block)`
+    /// Corresponds to Java: `@Override protected int getTextOffset(byte[] block)`
     fn get_text_offset(&self, block: &[u8]) -> i32 {
-        // Java: return ByteArrayHelper.getShort(block, 68);（越界抛异常，Rust 侧按 0 处理）
+// Java: return ByteArrayHelper.getShort(block, 68); (throws on out of bounds; Rust treats it as 0)
         checked_short(block, 68).unwrap_or(0)
     }
 
-    /// 对应 Java: `@Override protected int getPromptOffset(byte[] block)`
+    /// Corresponds to Java: `@Override protected int getPromptOffset(byte[] block)`
     fn get_prompt_offset(&self, block: &[u8]) -> i32 {
-        // Java: return ByteArrayHelper.getShort(block, 72);（越界抛异常，Rust 侧按 0 处理）
+// Java: return ByteArrayHelper.getShort(block, 72); (throws on out of bounds; Rust treats it as 0)
         checked_short(block, 72).unwrap_or(0)
     }
 
-    /// 对应 Java: `@Override protected int getValueOffset()`
+    /// Corresponds to Java: `@Override protected int getValueOffset()`
     fn get_value_offset(&self) -> i32 {
         32
     }
 
-    /// 对应 Java: `@Override protected int getTimeUnitsOffset()`
+    /// Corresponds to Java: `@Override protected int getTimeUnitsOffset()`
     fn get_time_units_offset(&self) -> i32 {
         42
     }
 
-    /// 对应 Java: `@Override protected int getCriteriaTextStartOffset()`
+    /// Corresponds to Java: `@Override protected int getCriteriaTextStartOffset()`
     fn get_criteria_text_start_offset(&self) -> i32 {
         16
     }
@@ -122,10 +122,10 @@ mod tests {
     use crate::mpp::criteria_reader::CriteriaReader;
     use crate::task_field::TaskField;
 
-    /// 构造一个 80 字节的块，写入块指针与字段号。
+/// Constructs an 80-byte block and writes the block pointer and field number.
     ///
-    /// 注意：**不要**同时写「工期单位」偏移（42），它与字段号（40 起 4 字节）在 Java 的
-    /// 布局中重叠——`getFieldType` 读的是 40 处的 4 字节整数，而 `getTimeUnitsOffset()` 为 42。
+/// Note: do **not** also write the "time units" offset (42); it overlaps with the field number (4 bytes starting at 40) in Java's
+/// layout — `getFieldType` reads the 4-byte integer at 40, while `getTimeUnitsOffset()` is 42.
     fn make_block(child: i32, next: i32, field_id: i32) -> Vec<u8> {
         let mut block = vec![0u8; 80];
         block[74..76].copy_from_slice(&(child as u16).to_le_bytes());
@@ -136,7 +136,7 @@ mod tests {
         block
     }
 
-    /// 偏移常量与 Java 一致。
+/// Offset constants match Java.
     #[test]
     fn offsets_match_java() {
         let reader = FilterCriteriaReader9::new();
@@ -147,12 +147,12 @@ mod tests {
         assert_eq!(reader.get_criteria_text_start_offset(), 16);
 
         let block = make_block(0, 0, 0);
-        // 文本偏移在 68、提示偏移在 72
+// text offset at 68, prompt offset at 72
         assert_eq!(reader.get_text_offset(&block), 4);
         assert_eq!(reader.get_prompt_offset(&block), 8);
     }
 
-    /// 子块 / 兄弟块按块映射解析。
+/// Child / sibling blocks are resolved through the block map.
     #[test]
     fn block_pointers_resolve_through_map() {
         let reader = FilterCriteriaReader9::new();
@@ -167,17 +167,17 @@ mod tests {
             Some(vec![0x22u8; 80])
         );
 
-        // 指向不存在的偏移 ⇒ None
+// points to a nonexistent offset ⇒ None
         let block = make_block(999, 999, 0);
         assert!(reader.get_child_block(&block, &blocks).is_none());
         assert!(reader.get_list_next_block(&block, &blocks).is_none());
 
-        // 块太短（读不出指针）⇒ None，不 panic
+// block too short (pointer cannot be read) ⇒ None, no panic
         assert!(reader.get_child_block(&[0u8; 10], &blocks).is_none());
         assert!(reader.get_list_next_block(&[0u8; 10], &blocks).is_none());
     }
 
-    /// 字段号映射为字段类型。
+/// Maps the field number to a field type.
     #[test]
     fn field_type_is_resolved_from_block() {
         let reader = FilterCriteriaReader9::new();
@@ -194,15 +194,15 @@ mod tests {
             Some(FieldKey::Task(TaskField::Name))
         );
 
-        // 未识别的字段号 ⇒ None
+// unrecognized field number ⇒ None
         let block = make_block(0, 0, 0x1234_0005);
         assert!(reader.get_field_type(&file, &block).is_none());
 
-        // 块太短 ⇒ None
+// block too short ⇒ None
         assert!(reader.get_field_type(&file, &[0u8; 10]).is_none());
     }
 
-    /// 默认构造与 `new` 等价。
+/// Default construction is equivalent to `new`.
     #[test]
     fn default_matches_new() {
         assert_eq!(

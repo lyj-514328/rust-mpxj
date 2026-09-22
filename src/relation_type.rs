@@ -1,39 +1,39 @@
-//! 对应 Java: `org/mpxj/RelationType.java`
+//! Corresponds to Java: `org/mpxj/RelationType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 任务关系类型的枚举。
+/// Enum of task relationship types.
 ///
-/// 对应 Java: `public enum RelationType implements MpxjEnum`
+/// Corresponds to Java: `public enum RelationType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`RelationType::ALL`] 加
-/// [`RelationType::get_instance`] 的 `match`。
+/// Java uses `EnumHelper.createTypeArray` reflection to generate an int → enum array;
+/// the Rust side uses no reflection and instead relies on [`RelationType::ALL`] plus
+/// the `match` in [`RelationType::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RelationType {
-    /// 完成-完成。
+/// Finish-to-finish.
     ///
-    /// 对应 Java: `FINISH_FINISH(0, "FF")`
+    /// Corresponds to Java: `FINISH_FINISH(0, "FF")`
     FinishFinish = 0,
-    /// 完成-开始。
+/// Finish-to-start.
     ///
-    /// 对应 Java: `FINISH_START(1, "FS")`
+    /// Corresponds to Java: `FINISH_START(1, "FS")`
     FinishStart = 1,
-    /// 开始-完成。
+/// Start-to-finish.
     ///
-    /// 对应 Java: `START_FINISH(2, "SF")`
+    /// Corresponds to Java: `START_FINISH(2, "SF")`
     StartFinish = 2,
-    /// 开始-开始。
+/// Start-to-start.
     ///
-    /// 对应 Java: `START_START(3, "SS")`
+    /// Corresponds to Java: `START_START(3, "SS")`
     StartStart = 3,
 }
 
 impl RelationType {
-    /// 全部取值，按 int 值升序排列。
+/// All values, ordered by ascending int value.
     ///
-    /// 对应 Java: `private static final RelationType[] TYPE_VALUES`（不含反射部分）。
+/// Corresponds to Java: `private static final RelationType[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [RelationType; 4] = [
         RelationType::FinishFinish,
         RelationType::FinishStart,
@@ -41,9 +41,9 @@ impl RelationType {
         RelationType::StartStart,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `FINISH_START`。
+/// Get the enum instance for an int value, falling back to `FINISH_START` when out of bounds.
     ///
-    /// 对应 Java: `public static RelationType getInstance(int type)`
+    /// Corresponds to Java: `public static RelationType getInstance(int type)`
     pub fn get_instance(value: i32) -> RelationType {
         match value {
             0 => RelationType::FinishFinish,
@@ -55,16 +55,16 @@ impl RelationType {
         }
     }
 
-    /// 对应 Java: `public static RelationType getInstance(Number type)`
+    /// Corresponds to Java: `public static RelationType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `FINISH_START`。
+/// On the Java side `null` goes through `getInstance(-1)` and ultimately falls back to `FINISH_START`.
     pub fn get_instance_optional(value: Option<i32>) -> RelationType {
         RelationType::get_instance(value.unwrap_or(-1))
     }
 
-    /// 返回该关系类型的名称（如 `"FS"`）。
+/// Return the name of this relationship type (e.g. `"FS"`).
     ///
-    /// 对应 Java: `private final String m_name;` 经 `toString()` 暴露。
+/// Corresponds to Java: `private final String m_name;` exposed via `toString()`.
     pub fn get_name(&self) -> &'static str {
         match self {
             RelationType::FinishFinish => "FF",
@@ -76,18 +76,18 @@ impl RelationType {
 }
 
 impl MpxjEnum for RelationType {
-    /// 返回该枚举关联的 int 值。
+/// Return the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for RelationType {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回字段 `m_name`。
+/// Java returns the field `m_name`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }

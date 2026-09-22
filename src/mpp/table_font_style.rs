@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/mpp/TableFontStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/TableFontStyle.java`
 //!
-//! 在 [`FontStyle`]（基础字体 + 颜色 / 字型）之上再附加「表列字体样式」的信息：所属行、
-//! 所属列字段，以及各项属性「是否被显式修改」的标志位。
+//! On top of [`FontStyle`] (base font + color / font style), this adds "table column font style" information: the owning row,
+//! the owning column field, and flags for whether each attribute has been explicitly modified.
 //!
-//! # 继承的还原（组合 + 转发）
+//! # How inheritance is restored (composition + forwarding)
 //!
-//! Java 的 `public class TableFontStyle extends FontStyle`。Rust 没有继承，故：
+//! Java's `public class TableFontStyle extends FontStyle`. Rust has no inheritance, so:
 //!
-//! - 本类**持有一个** [`FontStyle`]（私有字段 `font_style`），Java 继承来的 8 个 getter
-//!   （`getFontBase` / `getBold` / `getColor` / `getItalic` / `getUnderline` /
-//!   `getStrikethrough` / `getBackgroundColor` / `getBackgroundPattern`）逐一**转发**给该字段；
-//! - Java 的 `super(fontBase, italic, bold, underline, strikethrough, color, backgroundColor,
-//!   backgroundPattern)` 在 [`TableFontStyle::new`] 中对应一次 [`FontStyle::new`] 调用；
-//! - 本类新增的字段（行 unique ID、列字段、8 个 changed 标志）作为本类自己的字段。
+//! - This class **holds a** [`FontStyle`] (private field `font_style`); the 8 getters inherited in Java
+//!   (`getFontBase` / `getBold` / `getColor` / `getItalic` / `getUnderline` /
+//! `getStrikethrough` / `getBackgroundColor` / `getBackgroundPattern`) are **forwarded** to that field one by one;
+//! - Java's `super(fontBase, italic, bold, underline, strikethrough, color, backgroundColor,
+//! backgroundPattern)` corresponds to one [`FontStyle::new`] call in [`TableFontStyle::new`];
+//! - The fields newly added by this class (row unique ID, column field, 8 changed flags) are the class's own fields.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `Color color` / `Color backgroundColor`（`java.awt.Color`） | `Option<Color>`，`Color` = [`crate::mpp::mpp_utility::Color`] | 与 [`FontStyle`] 的取舍一致（`java.awt.*` 属跳过项；`MPPUtility.getColor` 与 `ColorType.getColor()` 都可能返回 `null`） |
-//! | `FontBase fontBase` | `Option<FontBase>` | Java 调用点写成 `fontBases.get(index)`，字体表缺该序号时为 `null` |
-//! | `FieldType fieldType` | `Option<MppFieldType>` | 本 crate 用 [`MppFieldType`] 表达 `FieldType`；字段号未识别时为 `None`（Java 的占位对象无法表达） |
-//! | `BackgroundPattern backgroundPattern` | [`BackgroundPattern`]（非 `Option`） | Java 的调用点都传入确定值（`SOLID` / `TRANSPARENT` / `getInstance(...)`，后者不会返回 `null`） |
-//! | `toString()` | [`Display`] | 逐段拼接顺序与 Java 一致；`java.awt.Color` 按 `java.awt.Color[r=..,g=..,b=..]` 输出，`null` 输出 `null` |
-//! | 未覆写 `equals` / `hashCode` | 仅派生 `Debug` / `Clone` | `MppFieldType` 只实现了 `Clone`（未实现 `PartialEq`），因此本类无法派生 `PartialEq` / `Eq` / `Hash`（Java 侧本来也只有引用相等） |
+//! | `Color color` / `Color backgroundColor` (`java.awt.Color`) | `Option<Color>`, `Color` = [`crate::mpp::mpp_utility::Color`] | Consistent with the trade-off in [`FontStyle`] (`java.awt.*` is a skipped item; both `MPPUtility.getColor` and `ColorType.getColor()` may return `null`) |
+//! | `FontBase fontBase` | `Option<FontBase>` | The Java call site is written `fontBases.get(index)`; it is `null` when the font table lacks that index |
+//! | `FieldType fieldType` | `Option<MppFieldType>` | This crate uses [`MppFieldType`] to represent `FieldType`; it is `None` when the field number is unrecognized (Java's placeholder object cannot express this) |
+//! | `BackgroundPattern backgroundPattern` | [`BackgroundPattern`] (not `Option`) | All Java call sites pass a definite value (`SOLID` / `TRANSPARENT` / `getInstance(...)`, the latter never returns `null`) |
+//! | `toString()` | [`Display`] | The segment-by-segment concatenation order matches Java; `java.awt.Color` is output as `java.awt.Color[r=..,g=..,b=..]`, and `null` outputs `null` |
+//! | `equals` / `hashCode` not overridden | Only derive `Debug` / `Clone` | `MppFieldType` only implements `Clone` (not `PartialEq`), so this class cannot derive `PartialEq` / `Eq` / `Hash` (Java only has reference equality anyway) |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML (JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -37,79 +37,79 @@ use crate::mpp::font_base::FontBase;
 use crate::mpp::font_style::FontStyle;
 use crate::mpp::mpp_utility::{format_optional_display, Color};
 
-/// 表格列 / 行 / 单元格的字体样式。
+/// Font style of a table column / row / cell.
 ///
-/// 对应 Java: `public class TableFontStyle extends FontStyle`
+/// Corresponds to Java: `public class TableFontStyle extends FontStyle`
 ///
-/// 说明：`MppFieldType` 未实现 `Debug`，故本类不派生 `Debug`，而是手工实现（复用
-/// [`Display`]，与 `crate::group` / `crate::table` 等模型的既有做法一致）。
+/// Note: `MppFieldType` does not implement `Debug`, so this class does not derive `Debug` but implements it manually (reusing
+/// [`Display`], consistent with the existing approach of models such as `crate::group` / `crate::table`).
 #[derive(Clone)]
 pub struct TableFontStyle {
-    /// 组合的基类实例（对应 Java 的 `extends FontStyle`）。
+/// The composed base class instance (corresponding to Java's `extends FontStyle`).
     font_style: FontStyle,
 
-    /// 受影响行所属实体的 unique ID；`-1` 表示作用于所有行。
+/// Unique ID of the entity the affected row belongs to; `-1` means it applies to all rows.
     ///
-    /// 对应 Java: `private final int m_rowUniqueID;`
+    /// Corresponds to Java: `private final int m_rowUniqueID;`
     row_unique_id: i32,
 
-    /// 样式作用的表格列（字段）。
+/// The table column (field) the style applies to.
     ///
-    /// 对应 Java: `private final FieldType m_fieldType;`
+    /// Corresponds to Java: `private final FieldType m_fieldType;`
     field_type: Option<MppFieldType>,
 
-    /// 斜体是否被显式修改。
+/// Whether italic has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_italicChanged;`
+    /// Corresponds to Java: `private final boolean m_italicChanged;`
     italic_changed: bool,
 
-    /// 粗体是否被显式修改。
+/// Whether bold has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_boldChanged;`
+    /// Corresponds to Java: `private final boolean m_boldChanged;`
     bold_changed: bool,
 
-    /// 下划线是否被显式修改。
+/// Whether underline has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_underlineChanged;`
+    /// Corresponds to Java: `private final boolean m_underlineChanged;`
     underline_changed: bool,
 
-    /// 删除线是否被显式修改。
+/// Whether strikethrough has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_strikethroughChanged;`
+    /// Corresponds to Java: `private final boolean m_strikethroughChanged;`
     strikethrough_changed: bool,
 
-    /// 字色是否被显式修改。
+/// Whether the font color has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_colorChanged;`
+    /// Corresponds to Java: `private final boolean m_colorChanged;`
     color_changed: bool,
 
-    /// 字体是否被显式修改。
+/// Whether the font has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_fontChanged;`
+    /// Corresponds to Java: `private final boolean m_fontChanged;`
     font_changed: bool,
 
-    /// 背景色是否被显式修改。
+/// Whether the background color has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_backgroundColorChanged;`
+    /// Corresponds to Java: `private final boolean m_backgroundColorChanged;`
     background_color_changed: bool,
 
-    /// 背景图案是否被显式修改。
+/// Whether the background pattern has been explicitly modified.
     ///
-    /// 对应 Java: `private final boolean m_backgroundPatternChanged;`
+    /// Corresponds to Java: `private final boolean m_backgroundPatternChanged;`
     background_pattern_changed: bool,
 }
 
 impl TableFontStyle {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `public TableFontStyle(int rowUniqueID, FieldType fieldType, FontBase fontBase, boolean italic,
     /// boolean bold, boolean underline, boolean strikethrough, Color color, Color backgroundColor,
     /// BackgroundPattern backgroundPattern, boolean italicChanged, boolean boldChanged,
     /// boolean underlineChanged, boolean strikethroughChanged, boolean colorChanged,
     /// boolean fontChanged, boolean backgroundColorChanged, boolean backgroundPatternChanged)`
     ///
-    /// 参数顺序与 Java 完全一致（`italic` 在 `bold` 之前）。
+/// The parameter order is exactly the same as Java (`italic` before `bold`).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         row_unique_id: i32,
@@ -158,146 +158,146 @@ impl TableFontStyle {
         }
     }
 
-    /// 取受影响行的 unique ID（`-1` 表示作用于所有行）。
+/// Returns the unique ID of the affected row (`-1` means it applies to all rows).
     ///
-    /// 对应 Java: `public int getRowUniqueID()`
+    /// Corresponds to Java: `public int getRowUniqueID()`
     pub fn get_row_unique_id(&self) -> i32 {
         self.row_unique_id
     }
 
-    /// 取本样式作用的表格列（字段）。
+/// Returns the table column (field) this style applies to.
     ///
-    /// 对应 Java: `public FieldType getFieldType()`
+    /// Corresponds to Java: `public FieldType getFieldType()`
     pub fn get_field_type(&self) -> Option<&MppFieldType> {
         self.field_type.as_ref()
     }
 
-    /// 取粗体是否被显式修改。
+/// Returns whether bold has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getBoldChanged()`
+    /// Corresponds to Java: `public boolean getBoldChanged()`
     pub fn get_bold_changed(&self) -> bool {
         self.bold_changed
     }
 
-    /// 取字色是否被显式修改。
+/// Returns whether the font color has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getColorChanged()`
+    /// Corresponds to Java: `public boolean getColorChanged()`
     pub fn get_color_changed(&self) -> bool {
         self.color_changed
     }
 
-    /// 取斜体是否被显式修改。
+/// Returns whether italic has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getItalicChanged()`
+    /// Corresponds to Java: `public boolean getItalicChanged()`
     pub fn get_italic_changed(&self) -> bool {
         self.italic_changed
     }
 
-    /// 取下划线是否被显式修改。
+/// Returns whether underline has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getUnderlineChanged()`
+    /// Corresponds to Java: `public boolean getUnderlineChanged()`
     pub fn get_underline_changed(&self) -> bool {
         self.underline_changed
     }
 
-    /// 取删除线是否被显式修改。
+/// Returns whether strikethrough has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getStrikethroughChanged()`
+    /// Corresponds to Java: `public boolean getStrikethroughChanged()`
     pub fn get_strikethrough_changed(&self) -> bool {
         self.strikethrough_changed
     }
 
-    /// 取字体是否被显式修改。
+/// Returns whether the font has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getFontChanged()`
+    /// Corresponds to Java: `public boolean getFontChanged()`
     pub fn get_font_changed(&self) -> bool {
         self.font_changed
     }
 
-    /// 取背景色是否被显式修改。
+/// Returns whether the background color has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getBackgroundColorChanged()`
+    /// Corresponds to Java: `public boolean getBackgroundColorChanged()`
     pub fn get_background_color_changed(&self) -> bool {
         self.background_color_changed
     }
 
-    /// 取背景图案是否被显式修改。
+/// Returns whether the background pattern has been explicitly modified.
     ///
-    /// 对应 Java: `public boolean getBackgroundPatternChanged()`
+    /// Corresponds to Java: `public boolean getBackgroundPatternChanged()`
     pub fn get_background_pattern_changed(&self) -> bool {
         self.background_pattern_changed
     }
 
     // -----------------------------------------------------------------
-    // 以下为继承自 FontStyle 的成员（组合 + 转发）
+// The following are members inherited from FontStyle (composition + forwarding)
     // -----------------------------------------------------------------
 
-    /// 取基础字体。
+/// Returns the base font.
     ///
-    /// 对应 Java: `FontStyle.getFontBase()`
+    /// Corresponds to Java: `FontStyle.getFontBase()`
     pub fn get_font_base(&self) -> Option<&FontBase> {
         self.font_style.get_font_base()
     }
 
-    /// 取粗体标志。
+/// Returns the bold flag.
     ///
-    /// 对应 Java: `FontStyle.getBold()`
+    /// Corresponds to Java: `FontStyle.getBold()`
     pub fn get_bold(&self) -> bool {
         self.font_style.get_bold()
     }
 
-    /// 取字色。
+/// Returns the font color.
     ///
-    /// 对应 Java: `FontStyle.getColor()`
+    /// Corresponds to Java: `FontStyle.getColor()`
     pub fn get_color(&self) -> Option<Color> {
         self.font_style.get_color()
     }
 
-    /// 取斜体标志。
+/// Returns the italic flag.
     ///
-    /// 对应 Java: `FontStyle.getItalic()`
+    /// Corresponds to Java: `FontStyle.getItalic()`
     pub fn get_italic(&self) -> bool {
         self.font_style.get_italic()
     }
 
-    /// 取下划线标志。
+/// Returns the underline flag.
     ///
-    /// 对应 Java: `FontStyle.getUnderline()`
+    /// Corresponds to Java: `FontStyle.getUnderline()`
     pub fn get_underline(&self) -> bool {
         self.font_style.get_underline()
     }
 
-    /// 取删除线标志。
+/// Returns the strikethrough flag.
     ///
-    /// 对应 Java: `FontStyle.getStrikethrough()`
+    /// Corresponds to Java: `FontStyle.getStrikethrough()`
     pub fn get_strikethrough(&self) -> bool {
         self.font_style.get_strikethrough()
     }
 
-    /// 取背景色。
+/// Returns the background color.
     ///
-    /// 对应 Java: `FontStyle.getBackgroundColor()`
+    /// Corresponds to Java: `FontStyle.getBackgroundColor()`
     pub fn get_background_color(&self) -> Option<Color> {
         self.font_style.get_background_color()
     }
 
-    /// 取背景图案。
+/// Returns the background pattern.
     ///
-    /// 对应 Java: `FontStyle.getBackgroundPattern()`
+    /// Corresponds to Java: `FontStyle.getBackgroundPattern()`
     pub fn get_background_pattern(&self) -> BackgroundPattern {
         self.font_style.get_background_pattern()
     }
 
-    /// 以只读方式取组合的基类实例（Rust 特有，便于整体转发 / 比较）。
+/// Returns the composed base class instance by shared reference (Rust-specific, convenient for wholesale forwarding / comparison).
     pub fn get_font_style(&self) -> &FontStyle {
         &self.font_style
     }
 }
 
 impl Display for TableFontStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 只输出「被显式修改」的那些属性（其余段落省略）。
+/// Java outputs only those attributes that have been explicitly modified (the other segments are omitted).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut result = format!(
             "[ColumnFontStyle rowUniqueID={} fieldType={}",
@@ -348,8 +348,8 @@ impl Display for TableFontStyle {
 }
 
 impl fmt::Debug for TableFontStyle {
-    /// Java 未覆写调试输出；Rust 侧提供 `Debug`（复用 [`Display`]，因 `MppFieldType`
-    /// 未实现 `Debug` 而无法派生）。
+/// Java does not override debug output; the Rust side provides `Debug` (reusing [`Display`], because `MppFieldType`
+/// does not implement `Debug` and so it cannot be derived).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
@@ -361,7 +361,7 @@ mod tests {
     use crate::field_key::FieldKey;
     use crate::task_field::TaskField;
 
-    /// 构造一个完整的样式。
+/// Builds a complete style.
     fn sample() -> TableFontStyle {
         TableFontStyle::new(
             42,
@@ -385,7 +385,7 @@ mod tests {
         )
     }
 
-    /// 自有 getter 与 Java 一致。
+/// The class's own getters match Java.
     #[test]
     fn own_accessors_match_java() {
         let style = sample();
@@ -404,7 +404,7 @@ mod tests {
         assert!(style.get_background_pattern_changed());
     }
 
-    /// 继承自 `FontStyle` 的 getter 被转发。
+/// The getters inherited from `FontStyle` are forwarded.
     #[test]
     fn inherited_accessors_are_forwarded() {
         let style = sample();
@@ -417,11 +417,11 @@ mod tests {
         assert_eq!(style.get_background_color(), Some(Color::new(0, 0, 255)));
         assert_eq!(style.get_background_pattern(), BackgroundPattern::Solid);
 
-        // 组合的基类实例与转发结果一致
+// The composed base class instance is consistent with the forwarded results
         assert_eq!(style.get_font_style().get_color(), style.get_color());
     }
 
-    /// `toString` 只输出被修改的属性；未修改时只有前两段。
+/// `toString` outputs only the modified attributes; when nothing is modified there are only the first two segments.
     #[test]
     fn display_matches_java_format() {
         let style = sample();
@@ -456,7 +456,7 @@ mod tests {
         );
     }
 
-    /// 颜色 / 字体为 `null` 时按 Java 的拼接语义输出。
+/// When the color / font is `null`, output follows Java's concatenation semantics.
     #[test]
     fn display_renders_nulls() {
         let style = TableFontStyle::new(

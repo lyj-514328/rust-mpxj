@@ -1,43 +1,44 @@
-//! 对应 Java: `org/mpxj/RecurrenceType.java`
+//! Corresponds to Java: `org/mpxj/RecurrenceType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 重复（周期）类型的枚举。
+/// Enum of recurrence (periodic) types.
 ///
-/// 对应 Java: `public enum RecurrenceType implements MpxjEnum`
+/// Corresponds to Java: `public enum RecurrenceType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(RecurrenceType.class, 13)` 反射生成查找数组：
-/// 枚举只有 4 个取值，数组长度却是 `4 + 13 = 17`，因此下标 2、3、5、6、7、9…15
-/// 都是空洞。`getInstance(int)` 在 `type < 1 || type >= 17` 时回落到 `DAILY`，
-/// 命中空洞时返回 `null`。
+/// Java uses `EnumHelper.createTypeArray(RecurrenceType.class, 13)` to reflectively generate
+/// the lookup array: the enum has only 4 values but the array length is `4 + 13 = 17`, so
+/// indices 2, 3, 5, 6, 7, 9…15 are all holes. `getInstance(int)` falls back to `DAILY` when
+/// `type < 1 || type >= 17`, and returns `null` when it hits a hole.
 ///
-/// Rust 侧不使用反射，改为 [`RecurrenceType::ALL`] 加 [`RecurrenceType::get_instance`]
-/// 的 `match`；为忠实表达 Java 可能返回 `null` 的行为，本方法返回 `Option<RecurrenceType>`。
+/// The Rust side does not use reflection and instead uses [`RecurrenceType::ALL`] plus a
+/// `match` in [`RecurrenceType::get_instance`]; to faithfully express Java's behavior of
+/// possibly returning `null`, this method returns `Option<RecurrenceType>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RecurrenceType {
-    /// 每天。
+    /// Daily.
     ///
-    /// 对应 Java: `DAILY(1, "Daily")`
+    /// Corresponds to Java: `DAILY(1, "Daily")`
     Daily = 1,
-    /// 每周。
+    /// Weekly.
     ///
-    /// 对应 Java: `WEEKLY(4, "Weekly")`
+    /// Corresponds to Java: `WEEKLY(4, "Weekly")`
     Weekly = 4,
-    /// 每月。
+    /// Monthly.
     ///
-    /// 对应 Java: `MONTHLY(8, "Monthly")`
+    /// Corresponds to Java: `MONTHLY(8, "Monthly")`
     Monthly = 8,
-    /// 每年。
+    /// Yearly.
     ///
-    /// 对应 Java: `YEARLY(16, "Yearly")`
+    /// Corresponds to Java: `YEARLY(16, "Yearly")`
     Yearly = 16,
 }
 
 impl RecurrenceType {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, ordered by ascending int value.
     ///
-    /// 对应 Java: `private static final RecurrenceType[] TYPE_VALUES`（不含反射部分与空洞）。
+    /// Corresponds to Java: `private static final RecurrenceType[] TYPE_VALUES` (excluding the reflection part and the holes).
     pub const ALL: [RecurrenceType; 4] = [
         RecurrenceType::Daily,
         RecurrenceType::Weekly,
@@ -45,16 +46,16 @@ impl RecurrenceType {
         RecurrenceType::Yearly,
     ];
 
-    /// Java 查找数组的长度：`EnumHelper.createTypeArray(RecurrenceType.class, 13)`
-    /// = 枚举个数 4 + 偏移 13。
+    /// Length of Java's lookup array: `EnumHelper.createTypeArray(RecurrenceType.class, 13)`
+    /// = enum count 4 + offset 13.
     const TYPE_VALUES_LENGTH: i32 = 17;
 
-    /// 根据 int 值取枚举实例。
+    /// Return an enum instance for an int value.
     ///
-    /// 越界（`type < 1 || type >= 17`）回落到 `DAILY`；落在查找数组空洞中的值
-    /// 对应 Java 的 `null`，此处返回 `None`。
+    /// Out-of-range values (`type < 1 || type >= 17`) fall back to `DAILY`; values that fall in
+    /// holes of the lookup array correspond to Java's `null` and return `None` here.
     ///
-    /// 对应 Java: `public static RecurrenceType getInstance(int type)`
+    /// Corresponds to Java: `public static RecurrenceType getInstance(int type)`
     pub fn get_instance(value: i32) -> Option<RecurrenceType> {
         match value {
             1 => Some(RecurrenceType::Daily),
@@ -65,14 +66,14 @@ impl RecurrenceType {
             _ if value < 1 || value >= RecurrenceType::TYPE_VALUES_LENGTH => {
                 Some(RecurrenceType::Daily)
             }
-            // Java: 查找数组中的空洞，返回 null。
+            // Java: a hole in the lookup array, returns null.
             _ => None,
         }
     }
 
-    /// 返回该重复类型对应的名称（如 `"Daily"`）。
+    /// Return the name corresponding to this recurrence type (e.g. `"Daily"`).
     ///
-    /// 对应 Java: `private final String m_name;` 经 `toString()` 暴露。
+    /// Corresponds to Java: `private final String m_name;` exposed via `toString()`.
     pub fn get_name(&self) -> &'static str {
         match self {
             RecurrenceType::Daily => "Daily",
@@ -84,18 +85,18 @@ impl RecurrenceType {
 }
 
 impl MpxjEnum for RecurrenceType {
-    /// 返回该枚举关联的 int 值。
+    /// Return the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for RecurrenceType {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回字段 `m_name`。
+    /// Java returns the field `m_name`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
@@ -128,7 +129,7 @@ mod tests {
 
     #[test]
     fn recurrence_type_returns_none_for_lookup_array_holes() {
-        // Java 侧 createTypeArray 的偏移 13 造成空洞，getInstance 返回 null。
+        // The offset 13 of createTypeArray on the Java side creates holes, and getInstance returns null.
         for value in [2, 3, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15] {
             assert_eq!(RecurrenceType::get_instance(value), None);
         }

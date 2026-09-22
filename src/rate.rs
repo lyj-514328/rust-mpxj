@@ -1,32 +1,32 @@
-//! 对应 Java: `org/mpxj/Rate.java`
+//! Corresponds to Java: `org/mpxj/Rate.java`
 
 use crate::time_unit::TimeUnit;
 use std::fmt::{self, Display, Formatter};
 
-/// 单位时间（如 `$10/h`）的货币费率。
+/// A currency rate per unit of time (for example `$10/h`).
 ///
-/// 对应 Java: `public final class Rate`
+/// Corresponds to Java: `public final class Rate`
 ///
-/// 另注：Java 的两个公开构造方法（`Number` / `double` 重载，Rust 无法重载）
-/// 合并为 [`Rate::new`]。
+/// Also note: Java's two public constructors (`Number` / `double` overloads, which Rust cannot overload)
+/// are merged into [`Rate::new`].
 #[derive(Debug, Clone, Copy)]
 pub struct Rate {
-    /// 金额。
+/// Amount.
     ///
-    /// 对应 Java: `private final double m_amount;`
+    /// Corresponds to Java: `private final double m_amount;`
     m_amount: f64,
-    /// 时间单位。
+/// Time unit.
     ///
-    /// 对应 Java: `private final TimeUnit m_units;`
+    /// Corresponds to Java: `private final TimeUnit m_units;`
     m_units: TimeUnit,
 }
 
 impl Rate {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public Rate(double amount, TimeUnit time)`
-    /// 及 `public Rate(Number amount, TimeUnit time)`（内部用 `NumberHelper.getDouble`，
-    /// `null` 视为 0；Rust 侧由调用方传入已经取好的 `f64`）。
+    /// Corresponds to Java: `public Rate(double amount, TimeUnit time)`
+/// and `public Rate(Number amount, TimeUnit time)` (internally uses `NumberHelper.getDouble`,
+/// where `null` is treated as 0; on the Rust side the caller passes an already-resolved `f64`).
     pub const fn new(amount: f64, units: TimeUnit) -> Rate {
         Rate {
             m_amount: amount,
@@ -34,23 +34,23 @@ impl Rate {
         }
     }
 
-    /// 返回金额部分。
+/// Return the amount part.
     ///
-    /// 对应 Java: `public double getAmount()`
+    /// Corresponds to Java: `public double getAmount()`
     pub fn get_amount(&self) -> f64 {
         self.m_amount
     }
 
-    /// 返回时间单位部分。
+/// Return the time unit part.
     ///
-    /// 对应 Java: `public TimeUnit getUnits()`
+    /// Corresponds to Java: `public TimeUnit getUnits()`
     pub fn get_units(&self) -> TimeUnit {
         self.m_units
     }
 
-    /// 比较两个可能为空的费率（`null` 或金额为 0 都按「0 费率」处理）。
+/// Compare two possibly null rates (`null` or an amount of 0 is treated as a "zero rate").
     ///
-    /// 对应 Java: `public static boolean equals(Rate rate1, Rate rate2)`
+    /// Corresponds to Java: `public static boolean equals(Rate rate1, Rate rate2)`
     pub fn equals(rate1: Option<&Rate>, rate2: Option<&Rate>) -> bool {
         if rate1.is_none_or(|rate| rate.get_amount() == 0.0)
             && rate2.is_none_or(|rate| rate.get_amount() == 0.0)
@@ -64,41 +64,41 @@ impl Rate {
         }
     }
 
-    /// 只比较金额部分（不考虑单位，带 `0.00001` 的误差容忍）。
+/// Compare only the amount part (ignoring the unit, with a tolerance of `0.00001`).
     ///
-    /// 对应 Java: `public boolean amountComponentEquals(Rate rhs)`
+    /// Corresponds to Java: `public boolean amountComponentEquals(Rate rhs)`
     pub fn amount_component_equals(&self, rhs: &Rate) -> bool {
         // Java: NumberHelper.equals(m_amount, rhs.m_amount, 0.00001)
         (self.m_amount - rhs.m_amount).abs() < 0.00001
     }
 
-    /// 由金额与单位创建 `Rate`；金额为 `None` 时返回 `None`。
+/// Create a `Rate` from an amount and unit; return `None` when the amount is `None`.
     ///
-    /// 对应 Java: `public static Rate valueOf(Double value, TimeUnit units)`
+    /// Corresponds to Java: `public static Rate valueOf(Double value, TimeUnit units)`
     pub fn value_of(value: Option<f64>, units: TimeUnit) -> Option<Rate> {
         value.map(|value| Rate::new(value, units))
     }
 
-    /// 0 费率（每小时）。
+/// Zero rate (per hour).
     ///
-    /// 对应 Java: `public static final Rate ZERO`
+    /// Corresponds to Java: `public static final Rate ZERO`
     pub const ZERO: Rate = Rate::new(0.0, TimeUnit::Hours);
 }
 
 impl PartialEq for Rate {
-    /// 金额（在误差范围内）与单位都相等时返回 `true`。
+/// Return `true` when both the amount (within tolerance) and the unit are equal.
     ///
-    /// 对应 Java: `@Override public boolean equals(Object obj)`
+    /// Corresponds to Java: `@Override public boolean equals(Object obj)`
     fn eq(&self, other: &Self) -> bool {
         self.amount_component_equals(other) && self.m_units == other.m_units
     }
 }
 
 impl Display for Rate {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 注意：Java 的 `double` 字符串化会保留 `.0`（如 `10.0`），Rust 的 `f64`
-    /// `Display` 会输出 `10`，二者在本方法上存在细微差异。
+/// Note: Java's `double` string conversion keeps `.0` (for example `10.0`), while Rust's `f64`
+/// `Display` outputs `10`; the two differ slightly in this method.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.m_amount, self.m_units)
     }

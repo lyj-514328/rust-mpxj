@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/mpp/Props12.java`
+//! Corresponds to Java: `org/mpxj/mpp/Props12.java`
 
 use std::fmt;
 
@@ -10,59 +10,59 @@ use crate::mpp::props::{InputStreamCursor, Props, read_error};
 use crate::mpp::props_key::PropsKey;
 use crate::mpxj_exception::MpxjResult;
 
-/// MPP12 文件的 `Props` 流。
+/// The `Props` stream of an MPP12 file.
 ///
-/// 对应 Java: `final class Props12 extends Props`
+/// Corresponds to Java: `final class Props12 extends Props`
 ///
-/// # 继承的还原（组合 + `Deref` + 转发）
+/// # Restoring inheritance (composition + `Deref` + forwarding)
 ///
-/// Java 的 `Props12` 继承 [`Props`]（Java 侧未覆写 `toString()`）。Rust 无继承，本类用
-/// **组合 + `Deref`/`DerefMut`** 还原：持有一个 [`Props`]（字段 `props`），于是 `&Props12`
-/// 能自动强转（deref coercion）成 `&Props` —— 「形参是 `&Props` 的方法」也可以直接接收
-/// `&Props12`，对应 Java 里「子类实例可直接传给基类形参」（本 crate 已在
-/// [`crate::recurring_task`] 用同一手法还原继承）。
+/// Java's `Props12` extends [`Props`] (Java does not override `toString()`). Rust has no inheritance, so this class uses
+/// **composition + `Deref`/`DerefMut`** to restore it: it holds a [`Props`] (field `props`), so `&Props12`
+/// automatically coerces (deref coercion) to `&Props` — "a method whose parameter is `&Props`" can directly accept
+/// `&Props12`, corresponding to Java's "a subclass instance can be passed directly to a base-class parameter" (this crate already
+/// restores inheritance with the same technique in [`crate::recurring_task`]).
 ///
-/// 类末尾仍保留 `Props` 全部公开方法的显式转发，供不需要强转的调用点直接调用；这些同名方法
-/// 会遮蔽 `Deref` 目标 [`Props`] 上的同名方法，而它们本身就是逐方法转发、行为完全一致，
-/// 因此不存在语义冲突。
+/// At the end of the class, explicit forwarding of all of `Props`'s public methods is still kept so call sites that do not need the coercion can call them directly; these same-named methods
+/// shadow the same-named methods on the `Deref` target [`Props`], but they are themselves method-by-method forwards with identical behavior,
+/// so there is no semantic conflict.
 ///
-/// # 构造方法与 `InputStream`
+/// # Constructor and `InputStream`
 ///
-/// Java: `Props12(InputStream is) throws IOException`。Rust 侧按本工程约定把
-/// `InputStream` 换成 `&[u8]`；Java 的 `IOException`（读取不足）对应 Rust 的
-/// `Err(MpxjError)`。
+/// Java: `Props12(InputStream is) throws IOException`. On the Rust side, per this project's convention,
+/// `InputStream` is replaced by `&[u8]`; Java's `IOException` (insufficient data) corresponds to Rust's
+/// `Err(MpxjError)`.
 ///
-/// # 块布局（Java 构造方法）
+/// # Block layout (Java constructor)
 ///
 /// ```text
-/// byte[16] header      headerCount = 该头部的 short（偏移 12）—— 条目数
+/// byte[16] header      headerCount = the short in this header (offset 12) — number of entries
 /// headerCount × {
-///     int  attrib1     属性数据长度
-///     int  attrib2     属性键
+/// int  attrib1     attribute data length
+/// int  attrib2     attribute key
 ///     int  unknown
 ///     byte data[attrib1]
-///     byte pad         仅当 attrib1 为奇数时补齐到两字节边界
+/// byte pad         pads to a two-byte boundary only when attrib1 is odd
 /// }
 /// ```
 ///
-/// 与 `Props9` 不同，`Props12` 不做 `available()` 预检，直接读 16 字节头部；
-/// 循环中出现 `availableBytes < attrib1 || attrib1 < 1` 时中断（不抛异常）。
+/// Unlike `Props9`, `Props12` does not do an `available()` pre-check and reads the 16-byte header directly;
+/// the loop breaks when `availableBytes < attrib1 || attrib1 < 1` occurs (without throwing).
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - `availableBytes` 用 `i64` 累减（Java 是 `int`，极端输入下会溢出）。
-/// - `toString()` 沿用 [`Props`] 的实现（Java 未覆写）。
+/// - `availableBytes` is decremented as `i64` (Java uses `int`, which overflows on extreme input).
+/// - `toString()` reuses [`Props`]'s implementation (Java does not override it).
 ///
-/// 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+/// Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class uses none.
 pub struct Props12 {
-    /// 对应 Java: `extends Props`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends Props` (Rust uses composition instead of inheritance)
     props: Props,
 }
 
 impl Props12 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `Props12(InputStream is) throws IOException`
+    /// Corresponds to Java: `Props12(InputStream is) throws IOException`
     pub fn new(data: &[u8]) -> MpxjResult<Self> {
         let mut result = Self { props: Props::new() };
         let mut is = InputStreamCursor::new(data);
@@ -95,7 +95,7 @@ impl Props12 {
             result.props.put(attrib2, item.to_vec());
             found_count += 1;
 
-            // Java: 对齐到两字节边界
+// Java: align to a two-byte boundary
             if item.len() % 2 != 0 {
                 is.skip(1);
             }
@@ -105,89 +105,89 @@ impl Props12 {
     }
 
     // -----------------------------------------------------------------
-    // 以下方法在 Java 侧继承自 Props，Rust 侧转发给内部持有的 Props
+// The following methods are inherited from Props on the Java side; on the Rust side they forward to the internally held Props
     // -----------------------------------------------------------------
 
-    /// 取属性数据（原始字节）。
+/// Get the attribute data (raw bytes).
     ///
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`
+    /// Corresponds to Java: `Props.getByteArray(PropsKey key)`
     pub fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
         self.props.get_byte_array(key)
     }
 
-    /// 取字节值。
+/// Get the byte value.
     ///
-    /// 对应 Java: `Props.getByte(PropsKey key)`
+    /// Corresponds to Java: `Props.getByte(PropsKey key)`
     pub fn get_byte(&self, key: PropsKey) -> i8 {
         self.props.get_byte(key)
     }
 
-    /// 取短整型值。
+/// Get the short value.
     ///
-    /// 对应 Java: `Props.getShort(PropsKey key)`
+    /// Corresponds to Java: `Props.getShort(PropsKey key)`
     pub fn get_short(&self, key: PropsKey) -> i32 {
         self.props.get_short(key)
     }
 
-    /// 取整型值。
+/// Get the int value.
     ///
-    /// 对应 Java: `Props.getInt(PropsKey key)`
+    /// Corresponds to Java: `Props.getInt(PropsKey key)`
     pub fn get_int(&self, key: PropsKey) -> i32 {
         self.props.get_int(key)
     }
 
-    /// 取双精度值。
+/// Get the double value.
     ///
-    /// 对应 Java: `Props.getDouble(PropsKey key)`
+    /// Corresponds to Java: `Props.getDouble(PropsKey key)`
     pub fn get_double(&self, key: PropsKey) -> f64 {
         self.props.get_double(key)
     }
 
-    /// 取时间值。
+/// Get the time value.
     ///
-    /// 对应 Java: `Props.getTime(PropsKey key)`
+    /// Corresponds to Java: `Props.getTime(PropsKey key)`
     pub fn get_time(&self, key: PropsKey) -> Option<NaiveTime> {
         self.props.get_time(key)
     }
 
-    /// 取时间戳。
+/// Get the timestamp.
     ///
-    /// 对应 Java: `Props.getTimestamp(PropsKey key)`
+    /// Corresponds to Java: `Props.getTimestamp(PropsKey key)`
     pub fn get_timestamp(&self, key: PropsKey) -> Option<NaiveDateTime> {
         self.props.get_timestamp(key)
     }
 
-    /// 取布尔值。
+/// Get the boolean value.
     ///
-    /// 对应 Java: `Props.getBoolean(PropsKey key)`
+    /// Corresponds to Java: `Props.getBoolean(PropsKey key)`
     pub fn get_boolean(&self, key: PropsKey) -> bool {
         self.props.get_boolean(key)
     }
 
-    /// 取 UTF-16LE 字符串。
+/// Get the UTF-16LE string.
     ///
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`
+    /// Corresponds to Java: `Props.getUnicodeString(PropsKey key)`
     pub fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
         self.props.get_unicode_string(key)
     }
 
-    /// 取 GUID。
+/// Get the GUID.
     ///
-    /// 对应 Java: `Props.getUUID(PropsKey key)`
+    /// Corresponds to Java: `Props.getUUID(PropsKey key)`
     pub fn get_uuid(&self, key: PropsKey) -> Option<Uuid> {
         self.props.get_uuid(key)
     }
 
-    /// 取全部键（升序）。
+/// Get all keys (ascending).
     ///
-    /// 对应 Java: `Props.keySet()`
+    /// Corresponds to Java: `Props.keySet()`
     pub fn key_set(&self) -> Vec<i32> {
         self.props.key_set()
     }
 }
 
 impl fmt::Display for Props12 {
-    /// 对应 Java: `Props.toString()`（`Props12` 未覆写）
+/// Corresponds to Java: `Props.toString()` (`Props12` does not override it)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.props, f)
     }
@@ -196,14 +196,14 @@ impl fmt::Display for Props12 {
 impl std::ops::Deref for Props12 {
     type Target = Props;
 
-    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+/// Corresponds to Java: the "subclass instance can be used directly as a base-class instance" behavior from the inheritance relationship
     fn deref(&self) -> &Self::Target {
         &self.props
     }
 }
 
 impl std::ops::DerefMut for Props12 {
-    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+/// Corresponds to Java: the "subclass instance can be used directly as a base-class instance" behavior from the inheritance relationship
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.props
     }
@@ -213,7 +213,7 @@ impl std::ops::DerefMut for Props12 {
 mod tests {
     use super::*;
 
-    /// 按 MPP12 的块布局构造数据。
+/// Build data according to the MPP12 block layout.
     fn build_props12(header_count: i32, entries: &[(i32, i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(header_count as i16).to_le_bytes());
@@ -223,7 +223,7 @@ mod tests {
             data.extend_from_slice(&key.to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
             data.extend_from_slice(value);
-            // Java: 对齐到两字节边界
+// Java: align to a two-byte boundary
             if value.len() % 2 != 0 {
                 data.push(0);
             }
@@ -244,7 +244,7 @@ mod tests {
             ],
         );
 
-        let props = Props12::new(&data).expect("应能解析");
+        let props = Props12::new(&data).expect("should parse");
         assert_eq!(props.key_set(), vec![37748744, 37748745]);
         assert_eq!(props.get_int(PropsKey::Title), 1234);
         assert_eq!(props.get_short(PropsKey::Subject), 258);
@@ -257,14 +257,14 @@ mod tests {
             &[(1, 37748744, vec![0x07]), (2, 37748745, vec![0x02, 0x01])],
         );
 
-        let props = Props12::new(&data).expect("应能解析");
+        let props = Props12::new(&data).expect("should parse");
         assert_eq!(props.get_byte(PropsKey::Title), 7);
         assert_eq!(props.get_short(PropsKey::Subject), 258);
     }
 
     #[test]
     fn short_header_returns_error() {
-        // Java: InputStreamHelper.read(is, 16) 在数据不足时抛异常
+// Java: InputStreamHelper.read(is, 16) throws when there is insufficient data
         assert!(Props12::new(&[0u8; 15]).is_err());
     }
 
@@ -278,7 +278,7 @@ mod tests {
             ],
         );
 
-        let props = Props12::new(&data).expect("应能解析");
+        let props = Props12::new(&data).expect("should parse");
         assert_eq!(props.key_set(), vec![37748744]);
     }
 
@@ -289,7 +289,7 @@ mod tests {
         data.extend_from_slice(&37748745i32.to_le_bytes());
         data.extend_from_slice(&0i32.to_le_bytes());
 
-        let props = Props12::new(&data).expect("应能解析");
+        let props = Props12::new(&data).expect("should parse");
         assert_eq!(props.key_set(), vec![37748744]);
     }
 
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn missing_keys_return_defaults_and_display_works() {
-        let props = Props12::new(&build_props12(0, &[])).expect("应能解析");
+        let props = Props12::new(&build_props12(0, &[])).expect("should parse");
 
         assert_eq!(props.get_byte(PropsKey::Company), 0);
         assert_eq!(props.get_short(PropsKey::Company), 0);

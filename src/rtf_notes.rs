@@ -1,61 +1,61 @@
-//! 对应 Java: `org/mpxj/RtfNotes.java`
+//! Corresponds to Java: `org/mpxj/RtfNotes.java`
 
 use crate::common::rtf_helper::RtfHelper;
 use crate::notes::Notes;
 use std::fmt::{self, Display, Formatter};
 
-/// 以 RTF 格式保存的笔记。
+/// Notes stored in RTF format.
 ///
-/// 对应 Java: `public class RtfNotes extends Notes`
+/// Corresponds to Java: `public class RtfNotes extends Notes`
 ///
-/// # 继承关系如何还原
+/// # How the inheritance relationship is reproduced
 ///
-/// Java 中 `RtfNotes` 直接继承 `Notes`；Rust 无继承，改为独立 struct 实现
-/// [`crate::notes::Notes`] trait。Java 通过 `super(RtfHelper.strip(rtf))` 存进基类的
-/// `m_text` 直接作为本 struct 的字段；`m_rtf` 亦然。
+/// In Java, `RtfNotes` directly extends `Notes`; Rust has no inheritance, so it is changed to a standalone struct implementing
+/// the [`crate::notes::Notes`] trait. Java stores the result of `super(RtfHelper.strip(rtf))` into the base class's
+/// `m_text`, which becomes this struct's field directly; the same applies to `m_rtf`.
 ///
-/// 说明：任务描述里曾提到 `RtfNotes` 继承 `StructuredNotes`，但 Java 源码中
-/// `RtfNotes extends Notes`（与 `StructuredNotes` 无继承关系），本移植以源码为准。
+/// Note: the task description once mentioned that `RtfNotes` extends `StructuredNotes`, but in the Java source
+/// `RtfNotes extends Notes` (no inheritance relationship with `StructuredNotes`); this port follows the source.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub struct RtfNotes {
-    /// 去掉 RTF 标记后的纯文本，供 `Display` 使用。
+/// Plain text with RTF markup stripped, used by `Display`.
     ///
-    /// 对应 Java: `Notes.m_text`（由 `super(RtfHelper.strip(rtf))` 赋值）
+/// Corresponds to Java: `Notes.m_text` (assigned by `super(RtfHelper.strip(rtf))`)
     m_text: Option<String>,
 
-    /// 原始 RTF 文档。
+/// The original RTF document.
     ///
-    /// 对应 Java: `private final String m_rtf;`
+    /// Corresponds to Java: `private final String m_rtf;`
     m_rtf: Option<String>,
 }
 
 impl RtfNotes {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public RtfNotes(String rtf)`
+    /// Corresponds to Java: `public RtfNotes(String rtf)`
     ///
-    /// Java 的 `String` 引用可为 `null`，故入参用 `Option`。
+/// Java's `String` reference may be `null`, so the parameter uses `Option`.
     pub fn new(rtf: Option<String>) -> RtfNotes {
         let m_text = RtfHelper::strip(rtf.as_deref());
 
         RtfNotes { m_text, m_rtf: rtf }
     }
 
-    /// 返回原始 RTF 文档。
+/// Return the original RTF document.
     ///
-    /// 对应 Java: `public String getRtf()`
+    /// Corresponds to Java: `public String getRtf()`
     pub fn get_rtf(&self) -> Option<&str> {
         self.m_rtf.as_deref()
     }
 }
 
 impl Display for RtfNotes {
-    /// 返回去掉 RTF 标记后的纯文本。
+/// Return the plain text with RTF markup stripped.
     ///
-    /// 对应 Java: 继承自 `Notes.toString()`
+/// Corresponds to Java: inherited from `Notes.toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.m_text {
             Some(text) => f.write_str(text),
@@ -65,7 +65,7 @@ impl Display for RtfNotes {
 }
 
 impl Notes for RtfNotes {
-    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+/// Corresponds to Java: none (Rust-specific subtype-preserving copy, see [`Notes::to_box`])
     fn to_box(&self) -> Box<dyn Notes> {
         Box::new(RtfNotes {
             m_text: self.m_text.clone(),

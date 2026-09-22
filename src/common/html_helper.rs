@@ -1,36 +1,42 @@
-//! 对应 Java: `org/mpxj/common/HtmlHelper.java`
+//! Corresponds to Java: `org/mpxj/common/HtmlHelper.java`
 //!
-//! # 与 Java 的差异（重要）
+//! # Differences from Java (important)
 //!
-//! Java 侧依赖 [jsoup](https://jsoup.org/) 建 DOM 树，再用 `NodeTraversor` 遍历
-//! 抽取纯文本。本仓库不引入新依赖，因此 Rust 侧用一个**轻量流式解析器**复现
-//! `FormattingVisitor` 的行为：
+//! Java relies on [jsoup](https://jsoup.org/) to build a DOM tree and then uses `NodeTraversor`
+//! to walk it and extract plain text. This repository does not introduce new dependencies, so
+//! the Rust side uses a **lightweight streaming parser** to reproduce the behavior of
+//! `FormattingVisitor`:
 //!
-//! - `head` 阶段：`li` → `"\n * "`，`dt` → `"  "`，`p` / `h1`..`h5` / `tr` → `"\n"`；
-//! - `tail` 阶段：`br` / `dd` / `dt` / `p` / `h1`..`h5` → `"\n"`，
-//!   `a` → ``" <" + href + ">"``（jsoup 的 `absUrl("href")` 在无 base URI 时即属性原值）；
-//! - 文本节点按顺序追加，`" "` 不与缓冲区首尾的空白/换行重复；
-//! - 文本节点中的字符实体（`&amp;`、`&#160;` 等）会被解码，实现采用常见实体表，
-//!   未覆盖的实体原样保留（与 jsoup 的完整实体表存在差异）。
+//! - `head` phase: `li` → `"\n * "`, `dt` → `"  "`, `p` / `h1`..`h5` / `tr` → `"\n"`;
+//! - `tail` phase: `br` / `dd` / `dt` / `p` / `h1`..`h5` → `"\n"`,
+//!   `a` → ``" <" + href + ">"`` (jsoup's `absUrl("href")` is the raw attribute value when
+//!   there is no base URI);
+//! - Text nodes are appended in order, and `" "` is not duplicated with leading/trailing
+//!   whitespace or newlines in the buffer;
+//! - Character entities in text nodes (`&amp;`, `&#160;`, etc.) are decoded using a table of
+//!   common entities; uncovered entities are left as-is (a difference from jsoup's complete
+//!   entity table).
 //!
-//! 由于不建树，`getPlainTextFromHtml` 与 `getPlainTextFromBodyFragment` 在
-//! Rust 侧走同一条解析路径；对上述这些标签/文本的输出结果与 jsoup 树遍历一致，
-//! 但 jsoup 对畸形 HTML 的树修复行为（例如自动补全闭合标签的归属）无法完全复现。
+//! Because no tree is built, `getPlainTextFromHtml` and `getPlainTextFromBodyFragment` take the
+//! same parsing path on the Rust side; the output for the tags/text above matches jsoup's tree
+//! traversal, but jsoup's tree-repair behavior for malformed HTML (e.g. the ownership of
+//! automatically inserted closing tags) cannot be fully reproduced.
 //!
-//! `script` / `style` 的内容在 jsoup 中是 `DataNode`（`nodeName()` 为 `#data`），
-//! 不会被当作文本追加；Rust 侧对这些标签的内容同样跳过。
+//! The contents of `script` / `style` are `DataNode`s in jsoup (`nodeName()` is `#data`) and are
+//! not appended as text; the Rust side likewise skips the contents of these tags.
 
-/// HTML 相关的辅助方法。
+/// HTML-related helper methods.
 ///
-/// 对应 Java: `public final class HtmlHelper`
+/// Corresponds to Java: `public final class HtmlHelper`
 pub struct HtmlHelper;
 
 impl HtmlHelper {
-    /// 把纯文本（保留换行）粗略转换为 HTML 文档。
+    /// Roughly convert plain text (preserving newlines) to an HTML document.
     ///
-    /// 对应 Java: `public static String getHtmlFromPlainText(String text)`
+    /// Corresponds to Java: `public static String getHtmlFromPlainText(String text)`
     ///
-    /// Java 对 `null` 会抛 `NullPointerException`；Rust 侧参数为 `&str`，不可为 `null`。
+    /// Java throws `NullPointerException` for `null`; the Rust parameter is `&str` and cannot be
+    /// `null`.
     pub fn get_html_from_plain_text(text: &str) -> String {
         format!(
             "<html><body>{}</body></html>",
@@ -38,23 +44,24 @@ impl HtmlHelper {
         )
     }
 
-    /// 从 HTML 中抽取纯文本。
+    /// Extract plain text from HTML.
     ///
-    /// 对应 Java: `public static String strip(String html)`
+    /// Corresponds to Java: `public static String strip(String html)`
     ///
-    /// `None` 入参返回 `None`；抽取结果为空串时同样返回 `None`。
-    /// Java 的 `replaceAll("(^\\h*)|(\\h*$)", "").trim()` 在 Rust 侧用
-    /// [`str::trim`] 近似（Rust 的 `trim` 同样会去掉首尾的 `\u{A0}`，且范围略宽）。
+    /// A `None` input returns `None`; an empty extraction result also returns `None`.
+    /// Java's `replaceAll("(^\\h*)|(\\h*$)", "").trim()` is approximated on the Rust side with
+    /// [`str::trim`] (Rust's `trim` likewise strips leading/trailing `\u{A0}`, with a slightly
+    /// wider range).
     pub fn strip(html: Option<&str>) -> Option<String> {
         let html = html?;
 
-        // Java: 先找 "<HTML>"，找不到再找 "<html>"
+        // Java: look for "<HTML>" first, then "<html>" if not found
         let html_index = html.find("<HTML>").or_else(|| html.find("<html>"));
 
         let result = match html_index {
             // Java: getPlainTextFromHtml(result.substring(htmlIndex))
             Some(index) => Self::get_plain_text_from_html(&html[index..]),
-            // Java: 无 <html> 标签时按 body fragment 处理
+            // Java: when there is no <html> tag, treat it as a body fragment
             None => Self::get_plain_text_from_body_fragment(html),
         };
 
@@ -66,23 +73,23 @@ impl HtmlHelper {
         }
     }
 
-    /// 从完整 HTML 文档中抽取纯文本。
+    /// Extract plain text from a complete HTML document.
     ///
-    /// 对应 Java: `public static String getPlainTextFromHtml(String html)`
+    /// Corresponds to Java: `public static String getPlainTextFromHtml(String html)`
     pub fn get_plain_text_from_html(html: &str) -> String {
         Self::get_plain_text(html)
     }
 
-    /// 从可能含 HTML 元素的文本片段中抽取纯文本。
+    /// Extract plain text from a text fragment that may contain HTML elements.
     ///
-    /// 对应 Java: `public static String getPlainTextFromBodyFragment(String body)`
+    /// Corresponds to Java: `public static String getPlainTextFromBodyFragment(String body)`
     pub fn get_plain_text_from_body_fragment(body: &str) -> String {
         Self::get_plain_text(body)
     }
 
-    /// 遍历（流式解析）文档抽取纯文本。
+    /// Walk (streaming parse) the document to extract plain text.
     ///
-    /// 对应 Java: `private static String getPlainText(Document document)`
+    /// Corresponds to Java: `private static String getPlainText(Document document)`
     fn get_plain_text(source: &str) -> String {
         let mut visitor = FormattingVisitor::new();
         tokenize(source, &mut visitor);
@@ -90,23 +97,23 @@ impl HtmlHelper {
     }
 }
 
-/// 对应 Java: `private static class HtmlHelper.FormattingVisitor`
+/// Corresponds to Java: `private static class HtmlHelper.FormattingVisitor`
 struct FormattingVisitor {
-    /// 对应 Java 字段 `private final StringBuilder m_buffer`
+    /// Corresponds to Java field `private final StringBuilder m_buffer`
     buffer: String,
 }
 
 impl FormattingVisitor {
-    /// 对应 Java: `public FormattingVisitor()`
+    /// Corresponds to Java: `public FormattingVisitor()`
     fn new() -> Self {
         Self {
             buffer: String::new(),
         }
     }
 
-    /// 对应 Java: `@Override public void head(Node node, int depth)`
+    /// Corresponds to Java: `@Override public void head(Node node, int depth)`
     ///
-    /// 只在标签名命中 Java 的列表时向缓冲区追加内容。
+    /// Only appends to the buffer when the tag name matches one of the lists in Java.
     fn head_start_tag(&mut self, name: &str) {
         match name {
             "li" => self.append("\n * "),
@@ -116,7 +123,7 @@ impl FormattingVisitor {
         }
     }
 
-    /// 对应 Java: `@Override public void tail(Node node, int depth)`
+    /// Corresponds to Java: `@Override public void tail(Node node, int depth)`
     fn tail_end_tag(&mut self, name: &str, href: Option<&str>) {
         match name {
             "br" | "dd" | "dt" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" => self.append("\n"),
@@ -128,15 +135,16 @@ impl FormattingVisitor {
         }
     }
 
-    /// 对应 Java: `head` 中对 `TextNode` 调用 `((TextNode) node).text()` 后追加。
+    /// Corresponds to Java: appending after calling `((TextNode) node).text()` on a `TextNode` in `head`.
     fn text(&mut self, text: &str) {
         let decoded = decode_entities(text);
         self.append(&decoded);
     }
 
-    /// 对应 Java: `private void append(String text)`
+    /// Corresponds to Java: `private void append(String text)`
     ///
-    /// 避免出现连续空白：单个空格的文本节点在缓冲区为空、或以空格/换行结尾时被丢弃。
+    /// Avoid consecutive whitespace: a text node consisting of a single space is dropped when
+    /// the buffer is empty or ends with a space/newline.
     fn append(&mut self, text: &str) {
         if text == " "
             && (self.buffer.is_empty()
@@ -149,24 +157,25 @@ impl FormattingVisitor {
         self.buffer.push_str(text);
     }
 
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn into_string(self) -> String {
         self.buffer
     }
 }
 
-/// DOM 树遍历中一个尚未闭合的元素。
+/// An element in the DOM tree traversal that has not yet been closed.
 struct OpenElement {
-    /// 小写标签名。
+    /// Lowercase tag name.
     name: String,
-    /// `a` 标签的 `href` 属性值（用于 `tail` 阶段输出）。
+    /// The `href` attribute value of an `a` tag (used for output in the `tail` phase).
     href: Option<String>,
 }
 
-/// 对应 Java 中 `NodeTraversor.traverse(formatter, document)` 对节点树的深度优先遍历。
+/// Corresponds to the depth-first traversal of the node tree by
+/// `NodeTraversor.traverse(formatter, document)` in Java.
 ///
-/// 这里改为对原始 HTML 的流式扫描：遇到开始标签进入 `head`，遇到结束标签（或输入结束）
-/// 按「由内向外」的顺序补出 `tail`。
+/// Here it is changed to a streaming scan of the raw HTML: entering `head` on a start tag, and
+/// emitting `tail` from the inside out on an end tag (or at end of input).
 fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
     let mut rest = source;
     let mut stack: Vec<OpenElement> = Vec::new();
@@ -175,7 +184,7 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
         visitor.text(&rest[..tag_start]);
         rest = &rest[tag_start..];
 
-        // 注释：跳过整个注释，jsoup 中它是 Comment 节点，不产生文本。
+        // Comment: skip the entire comment; in jsoup it is a Comment node and produces no text.
         if let Some(after_open) = rest.strip_prefix("<!--") {
             match after_open.find("-->") {
                 Some(index) => {
@@ -186,7 +195,7 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
             }
         }
 
-        // 文档类型声明 / 其它 <! ... >：跳过。
+        // Document type declaration / other <! ... >: skip.
         if rest.starts_with("<!") {
             match rest.find('>') {
                 Some(index) => {
@@ -200,7 +209,7 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
             }
         }
 
-        // 未闭合的 '<' 之后没有 '>'：按普通文本处理。
+        // No '>' after an unclosed '<': treat it as ordinary text.
         let Some(tag_end) = rest.find('>') else {
             visitor.text(rest);
             rest = "";
@@ -211,7 +220,7 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
         rest = &rest[tag_end + 1..];
 
         if let Some(name) = tag_content.strip_prefix('/') {
-            // 结束标签
+            // End tag
             let name = name.trim().to_ascii_lowercase();
             close_element(&name, &mut stack, visitor);
             continue;
@@ -223,8 +232,8 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
             continue;
         }
 
-        // script / style 的内容在 jsoup 中是 DataNode（`nodeName()` 为 `#data`），
-        // 不会当作 TextNode 追加；这里整段跳过到对应的结束标签。
+        // The contents of script / style are DataNodes in jsoup (`nodeName()` is `#data`)
+        // and are not appended as TextNodes; here the whole span is skipped to the matching end tag.
         if !self_closing && (name == "script" || name == "style") {
             rest = skip_raw_text_element(rest, &name);
             continue;
@@ -242,18 +251,19 @@ fn tokenize(source: &str, visitor: &mut FormattingVisitor) {
         }
     }
 
-    // 标签之后剩余的尾文本。
+    // Trailing text remaining after the tags.
     if !rest.is_empty() {
         visitor.text(rest);
     }
 
-    // 输入结束后，jsoup 会隐式闭合仍在栈中的元素，遍历同样会补出它们的 tail。
+    // After the input ends, jsoup implicitly closes the elements still on the stack, and the traversal likewise emits their tail.
     while let Some(element) = stack.pop() {
         visitor.tail_end_tag(&element.name, element.href.as_deref());
     }
 }
 
-/// 跳过 `script` / `style` 元素的原始内容，返回闭合标签之后的位置。
+/// Skip the raw contents of a `script` / `style` element and return the position after the
+/// closing tag.
 fn skip_raw_text_element<'a>(text: &'a str, name: &str) -> &'a str {
     let lower = text.to_ascii_lowercase();
     let closing = format!("</{name}");
@@ -268,7 +278,8 @@ fn skip_raw_text_element<'a>(text: &'a str, name: &str) -> &'a str {
     }
 }
 
-/// 关闭指定名称的元素：弹出并补出 tail 的元素直到（含）该元素。
+/// Close the element with the given name: pop and emit the tail of elements until (and including)
+/// that element.
 fn close_element(name: &str, stack: &mut Vec<OpenElement>, visitor: &mut FormattingVisitor) {
     let Some(position) = stack.iter().rposition(|element| element.name == name) else {
         return;
@@ -281,7 +292,8 @@ fn close_element(name: &str, stack: &mut Vec<OpenElement>, visitor: &mut Formatt
     }
 }
 
-/// 从标签内容中取出小写标签名（不含属性与自闭合斜杠）。
+/// Extract the lowercase tag name from the tag content (excluding attributes and the self-closing
+/// slash).
 fn tag_name(tag_content: &str) -> String {
     tag_content
         .trim_start()
@@ -291,7 +303,8 @@ fn tag_name(tag_content: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// 取出 `a` 标签的 `href` 属性值（jsoup 的 `absUrl("href")` 在无 base URI 时返回属性原值）。
+/// Extract the `href` attribute value of an `a` tag (jsoup's `absUrl("href")` returns the raw
+/// attribute value when there is no base URI).
 fn href_for(tag_content: &str, name: &str) -> Option<String> {
     if name != "a" {
         return None;
@@ -314,7 +327,7 @@ fn href_for(tag_content: &str, name: &str) -> Option<String> {
     }
 }
 
-/// HTML 的空元素（jsoup 中无需闭合，`head` 之后立即 `tail`）。
+/// HTML void elements (no closing needed in jsoup; `tail` immediately follows `head`).
 fn is_void_element(name: &str) -> bool {
     matches!(
         name,
@@ -335,9 +348,9 @@ fn is_void_element(name: &str) -> bool {
     )
 }
 
-/// 解码文本节点中的字符实体（jsoup 在解析阶段完成解码）。
+/// Decode character entities in a text node (jsoup decodes them during parsing).
 ///
-/// 覆盖数字实体与常见命名实体；未覆盖的命名实体原样保留。
+/// Covers numeric entities and common named entities; uncovered named entities are left as-is.
 fn decode_entities(text: &str) -> String {
     if !text.contains('&') {
         return text.to_owned();
@@ -366,11 +379,11 @@ fn decode_entities(text: &str) -> String {
     result
 }
 
-/// 尝试解码开头的实体，返回（字符, 消耗的字节数）。
+/// Try to decode the entity at the start, returning (character, number of bytes consumed).
 fn decode_entity_at(candidate: &str) -> Option<(char, usize)> {
     let body = candidate.strip_prefix('&')?;
     let semicolon = body.find(';')?;
-    // jsoup 允许未以 ';' 结尾的实体，但命名实体长度有限；这里限制搜索范围。
+    // jsoup allows entities not terminated by ';', but named entities have a bounded length; the search range is limited here.
     if semicolon > 32 {
         return None;
     }
@@ -393,7 +406,7 @@ fn decode_entity_at(candidate: &str) -> Option<(char, usize)> {
     named_entity(name).map(|c| (c, length))
 }
 
-/// 常见命名字符实体表（小写）。
+/// Common named character entity table (lowercase).
 fn named_entity(name: &str) -> Option<char> {
     let value = match name {
         "amp" => '&',
@@ -477,7 +490,7 @@ mod tests {
 
     #[test]
     fn strip_emits_newlines_for_paragraph_and_breaks() {
-        // 对应 Java FormattingVisitor：<br> 的 tail 追加 "\n"
+        // Corresponds to Java FormattingVisitor: the tail of <br> appends "\n"
         assert_eq!(
             HtmlHelper::strip(Some("<html><body>a<br/>b</body></html>")),
             Some("a\nb".to_owned())
@@ -527,7 +540,7 @@ mod tests {
 
     #[test]
     fn collapsed_space_is_not_duplicated() {
-        // 文本 " " 在缓冲区末尾已有空格/换行时被丢弃
+        // The text " " is dropped when the buffer already ends with a space/newline
         assert_eq!(
             HtmlHelper::strip(Some("<body>a <b> </b>c</body>")),
             Some("a c".to_owned())

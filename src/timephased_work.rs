@@ -1,47 +1,47 @@
-//! 对应 Java: `org/mpxj/TimephasedWork.java`
+//! Corresponds to Java: `org/mpxj/TimephasedWork.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `public TimephasedWork()` | `TimephasedWork::new()`（即 [`TimephasedItem::new`]，见下） |
-//! | `public TimephasedWork(TimephasedWork sourceItem)` | 由 `Clone` 承担（Java 的复制构造方法与按字段复制等价，Rust 侧 `TimephasedItem` 已派生 [`Clone`]） |
+//! | `public TimephasedWork()` | `TimephasedWork::new()` (i.e. [`TimephasedItem::new`], see below) |
+//! | `public TimephasedWork(TimephasedWork sourceItem)` | handled by `Clone` (Java's copy constructor is equivalent to a field-by-field copy, and the Rust `TimephasedItem` already derives [`Clone`]) |
 //! | `public TimephasedWork(TimephasedWork sourceItem, double factor)` | [`TimephasedItem::from_work`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use them, so nothing is skipped.
 //!
-//! # 继承关系的还原方式：类型别名
+//! # How the inheritance relationship is restored: type alias
 //!
-//! Java 的 `public final class TimephasedWork extends TimephasedItem<Duration>` 在 Rust 侧
-//! 以**类型别名**承载：`pub type TimephasedWork = TimephasedItem<Duration>;`。
-//! 继承而来的方法（`getStart` / `setStart` / `getTotalAmount` / ... ）直接由
-//! [`TimephasedItem`] 提供，本类特有的构造方法以额外的 `impl TimephasedItem<Duration>` 块实现
-//! （Rust 允许在同一 crate 内为泛型实例写 inherent impl）。
+//! Java's `public final class TimephasedWork extends TimephasedItem<Duration>` is represented on the Rust side
+//! by a **type alias**: `pub type TimephasedWork = TimephasedItem<Duration>;`.
+//! The inherited methods (`getStart` / `setStart` / `getTotalAmount` / ...) are provided directly by
+//! [`TimephasedItem`], and the constructors specific to this class are implemented in an extra `impl TimephasedItem<Duration>` block
+//! (Rust allows writing an inherent impl for a generic instance within the same crate).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`T` 的类型**：Java 是 `TimephasedItem<Duration>`（包装类型），Rust 是
-//!   `TimephasedItem<crate::duration::Duration>`（值类型），取值为 `Option<Duration>`。
-//! - **`from_work` 的空值处理**：Java 的实现直接对 `getTotalAmount()` /
-//!   `getAmountPerHour()` 解引用，为空时抛 `NullPointerException`；Rust 侧为空时保留为
-//!   `None`（不 panic），非空时按 `factor` 等比缩放并保留原单位。
-//! - **`equals` / `hashCode`**：继承自 [`TimephasedItem`]，其 Rust 侧取舍见该类型的文件头
-//!   （按 Java 的「四字段全部非空且相等」语义实现 `PartialEq`，不实现 `Eq` / `Hash`）。
+//! - **The type of `T`**: Java uses `TimephasedItem<Duration>` (boxed type), Rust uses
+//! `TimephasedItem<crate::duration::Duration>` (value type), with the value being `Option<Duration>`.
+//! - **Null handling in `from_work`**: the Java implementation directly dereferences `getTotalAmount()` /
+//! `getAmountPerHour()` and throws `NullPointerException` when they are null; the Rust side keeps them as
+//! `None` when null (without panicking), and scales proportionally by `factor` while preserving the original unit when non-null.
+//! - **`equals` / `hashCode`**: inherited from [`TimephasedItem`]; see that type's file header for the Rust-side trade-offs
+//! (`PartialEq` is implemented following Java's semantics of "all four fields non-null and equal"; `Eq` / `Hash` are not implemented).
 
 use crate::duration::Duration;
 use crate::timephased_item::TimephasedItem;
 
-/// 分摊在一段时间上的工时。
+/// Work spread over a period of time.
 ///
-/// 对应 Java: `public final class TimephasedWork extends TimephasedItem<Duration>`
+/// Corresponds to Java: `public final class TimephasedWork extends TimephasedItem<Duration>`
 ///
-/// （Rust 侧为 `TimephasedItem<Duration>` 的类型别名，见文件头说明。）
+/// (On the Rust side this is a type alias for `TimephasedItem<Duration>`, see the file header.)
 pub type TimephasedWork = TimephasedItem<Duration>;
 
 impl TimephasedItem<Duration> {
-    /// 按比例复制一个工时项（缩放总量与每小时工时，起止时间原样复制）。
+/// Copy a work item proportionally (scaling the total amount and the amount per hour, copying the start and end times as-is).
     ///
-    /// 对应 Java: `public TimephasedWork(TimephasedWork sourceItem, double factor)`
+    /// Corresponds to Java: `public TimephasedWork(TimephasedWork sourceItem, double factor)`
     ///
     /// Java:
     /// ```text
@@ -73,7 +73,7 @@ mod tests {
     fn date(year: i32, month: u32, day: u32) -> NaiveDateTime {
         chrono::NaiveDate::from_ymd_opt(year, month, day)
             .and_then(|value| value.and_hms_opt(0, 0, 0))
-            .expect("合法日期")
+            .expect("valid date")
     }
 
     fn work() -> TimephasedWork {

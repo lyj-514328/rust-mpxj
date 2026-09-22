@@ -1,52 +1,52 @@
-//! 对应 Java: `org/mpxj/mpp/FixFix.java`
+//! Corresponds to Java: `org/mpxj/mpp/FixFix.java`
 //!
-//! 表示 Microsoft Project 98 文件格式里的一块定长数据项。正常情况下块大小是 `itemSize`
-//! 的整数倍，但也见过偏大的实例，因此这里记录块大小除以 `itemSize` 的余数
-//! （[`FixFix::get_diff`]），供调用方判断是否需要用别的记录大小重新解释数据。
+//! Represents a block of fixed-length data items in the Microsoft Project 98 file format. Normally the block size is an integer
+//! multiple of `itemSize`, but oversized instances have also been seen, so the remainder of the block size divided by
+//! `itemSize` is recorded here ([`FixFix::get_diff`]), letting callers decide whether the data must be reinterpreted with a different record size.
 //!
-//! 移植取舍：
-//! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`；Java 的
-//!   `is.available()` 对应切片长度。
-//! - Java 继承 `MPPComponent` 复用 `readByteArray`；Rust 侧直接按记录大小切分切片。
-//! - Java 的 `Object[]` 只会存放 `byte[]`，因此 Rust 侧为 `Vec<Vec<u8>>`
-//!   （构造时每条记录都会被填充，Java 里的 `null` 检查在本类中恒不成立）。
-//! - Java 的 `toString()` 对应 [`Display`]。
-//! - Java 会抛异常的两处（`itemSize` 为 0 导致的除零、`getByteArrayValue` 的数组越界）
-//!   在 Rust 侧分别取 0 / 返回 `None`，绝不 panic。
-//! - 未涉及反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`。
+//! Porting trade-offs:
+//! - The Java constructor accepts an `InputStream`; by convention the Rust side takes `&[u8]`; Java's
+//! `is.available()` corresponds to the slice length.
+//! - Java extends `MPPComponent` to reuse `readByteArray`; the Rust side splits the slice directly by record size.
+//! - Java's `Object[]` only ever holds `byte[]`, so the Rust side uses `Vec<Vec<u8>>`
+//! (every record is populated at construction time, so the `null` check in Java never holds in this class).
+//! - Java's `toString()` corresponds to [`Display`].
+//! - The two places where Java throws (division by zero when `itemSize` is 0, and the array out-of-bounds in `getByteArrayValue`)
+//! respectively yield 0 / return `None` on the Rust side and never panic.
+//! - Does not involve reflection, JDBC, XML/JAXB, GUI, `javax.*`, or `Serializable`.
 
 use std::fmt::{Display, Formatter};
 
 use crate::common::byte_array_helper::ByteArrayHelper;
 
-/// `FixFix` 块：MPP98 格式中的定长数据块。
+/// `FixFix` block: a fixed-length data block in the MPP98 format.
 ///
-/// 对应 Java: `final class FixFix extends MPPComponent`
+/// Corresponds to Java: `final class FixFix extends MPPComponent`
 pub struct FixFix {
-    /// 块内所有数据项。
+/// All data items in the block.
     ///
-    /// 对应 Java: `private final Object[] m_array`
+    /// Corresponds to Java: `private final Object[] m_array`
     array: Vec<Vec<u8>>,
-    /// 块的整体大小。
+/// The overall size of the block.
     ///
-    /// 对应 Java: `private final int m_size`
+    /// Corresponds to Java: `private final int m_size`
     size: i32,
-    /// 块大小除以记录大小后的余数。
+/// The remainder of the block size divided by the record size.
     ///
-    /// 对应 Java: `private final int m_diff`
+    /// Corresponds to Java: `private final int m_diff`
     diff: i32,
 }
 
 impl FixFix {
-    /// 构造方法。从数据中按 `item_size` 切分定长记录，并记录除不尽的余数。
+/// Constructor. Splits fixed-length records from the data by `item_size` and records the remainder of the division.
     ///
-    /// 对应 Java: `FixFix(int itemSize, InputStream is)`
+    /// Corresponds to Java: `FixFix(int itemSize, InputStream is)`
     pub fn new(item_size: i32, data: &[u8]) -> Self {
         // Java: m_size = is.available()
         let size = data.len() as i32;
 
-        // Java: m_size % itemSize 与 m_size / itemSize，itemSize 为 0 时抛
-        // ArithmeticException；Rust 侧统一取 0
+// Java: m_size % itemSize and m_size / itemSize, throws when itemSize is 0
+// ArithmeticException; the Rust side uniformly takes 0
         let (diff, item_count) = if item_size > 0 {
             (size % item_size, size / item_size)
         } else {
@@ -57,8 +57,8 @@ impl FixFix {
         let mut position = 0usize;
 
         for _ in 0..item_count {
-            // Java: readByteArray(is, itemSize)，读不足一条时抛异常；
-            // Rust 侧取到切片末尾为止（正常情况下不会发生）
+// Java: readByteArray(is, itemSize), throws when fewer than one record can be read;
+// the Rust side reads up to the end of the slice (should not happen under normal conditions)
             let read_size = item_size as usize;
             if let Some(item) = data
                 .get(position..)
@@ -73,25 +73,25 @@ impl FixFix {
         Self { array, size, diff }
     }
 
-    /// 取块大小除以记录大小后的余数；非 0 说明块内记录的大小与预期不符。
+/// Get the remainder of the block size divided by the record size; a non-zero value means the records in the block do not match the expected size.
     ///
-    /// 对应 Java: `public int getDiff()`
+    /// Corresponds to Java: `public int getDiff()`
     pub fn get_diff(&self) -> i32 {
         self.diff
     }
 
-    /// 取块的整体大小。
+/// Get the overall size of the block.
     ///
-    /// 对应 Java: `public int getSize()`
+    /// Corresponds to Java: `public int getSize()`
     pub fn get_size(&self) -> i32 {
         self.size
     }
 
-    /// 取指定下标的数据项；下标越界时返回 `None`。
+/// Get the data item at the given index; returns `None` when the index is out of bounds.
     ///
-    /// 对应 Java: `public byte[] getByteArrayValue(int index)`
+    /// Corresponds to Java: `public byte[] getByteArrayValue(int index)`
     ///
-    /// Java 侧没有做下标检查（越界抛 `ArrayIndexOutOfBoundsException`），Rust 侧返回 `None`。
+/// The Java side performs no index check (out of bounds throws `ArrayIndexOutOfBoundsException`); the Rust side returns `None`.
     pub fn get_byte_array_value(&self, index: i32) -> Option<&[u8]> {
         if index < 0 {
             return None;
@@ -100,15 +100,15 @@ impl FixFix {
         self.array.get(index as usize).map(Vec::as_slice)
     }
 
-    /// 取块内记录条数。
+/// Get the number of records in the block.
     ///
-    /// 对应 Java: `public int getItemCount()`
+    /// Corresponds to Java: `public int getItemCount()`
     pub fn get_item_count(&self) -> i32 {
         self.array.len() as i32
     }
 }
 
-/// 转储块的调试视图（对应 Java 的 `toString()`，仅供调试使用）。
+/// Debug view that dumps the block (corresponds to Java's `toString()`, for debugging only).
 impl Display for FixFix {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "BEGIN FixFix")?;
@@ -128,12 +128,12 @@ impl Display for FixFix {
 mod tests {
     use super::*;
 
-    /// 用递增字节的数据便于断言切片内容。
+/// Use data with incrementing bytes to make slice content easy to assert.
     fn build_data(length: usize) -> Vec<u8> {
         (0..length).map(|index| index as u8).collect()
     }
 
-    /// 正常情况：块大小是记录大小的整数倍。
+/// Normal case: the block size is an integer multiple of the record size.
     #[test]
     fn splits_full_blocks() {
         let data = build_data(12);
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(fix.get_byte_array_value(2), Some(&data[8..12]));
     }
 
-    /// 块大小偏大时余数非 0，余下的字节不会成为一条记录。
+/// When the block size is oversized the remainder is non-zero and the leftover bytes do not become a record.
     #[test]
     fn reports_remainder() {
         let data = build_data(10);
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(fix.get_item_count(), 2);
     }
 
-    /// 越界下标返回 None（Java 会抛 ArrayIndexOutOfBoundsException）。
+/// An out-of-bounds index returns None (Java throws ArrayIndexOutOfBoundsException).
     #[test]
     fn out_of_range_index_returns_none() {
         let fix = FixFix::new(4, &build_data(8));
@@ -169,7 +169,7 @@ mod tests {
         assert!(fix.get_byte_array_value(-1).is_none());
     }
 
-    /// 空数据块与记录大小为 0（Java 会抛 ArithmeticException）。
+/// Empty data block and record size 0 (Java throws ArithmeticException).
     #[test]
     fn empty_block_and_zero_item_size() {
         let fix = FixFix::new(4, &[]);
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(fix.get_item_count(), 0);
     }
 
-    /// Display 输出每条记录的十六进制转储。
+/// Display prints a hex dump of each record.
     #[test]
     fn display_dumps_block() {
         let fix = FixFix::new(2, &build_data(4));

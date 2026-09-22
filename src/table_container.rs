@@ -1,39 +1,39 @@
-//! 对应 Java: `org/mpxj/TableContainer.java`
+//! Corresponds to Java: `org/mpxj/TableContainer.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `@Override protected void added(Table table)` | 私有回调（在 [`TableContainer::new`] 中注册到 [`crate::list_with_callbacks::ListWithCallbacks::set_added_callback`]） |
-//! | `@Override protected void removed(Table table)` | 私有回调（同上，注册到 `set_removed_callback`） |
+//! | `@Override protected void added(Table table)` | Private callback (registered in [`TableContainer::new`] via [`crate::list_with_callbacks::ListWithCallbacks::set_added_callback`]) |
+//! | `@Override protected void removed(Table table)` | Private callback (same as above, registered via `set_removed_callback`) |
 //! | `public Table getTaskTableByName(String name)` | [`TableContainer::get_task_table_by_name`] |
 //! | `public Table getResourceTableByName(String name)` | [`TableContainer::get_resource_table_by_name`] |
-//! | `private Map<String, Table> getIndex(Table table)` | 私有函数 `index_for` |
-//! | 继承自 `ListWithCallbacks<Table>` 的 `add` / `add(int, T)` / `set` / `get` / `remove(int)` / `clear` / `size` / `isEmpty` / `iterator` | [`TableContainer::add`] / [`TableContainer::add_at`] / [`TableContainer::set`] / [`TableContainer::get`] / [`TableContainer::remove`] / [`TableContainer::clear`] / [`TableContainer::len`] / [`TableContainer::is_empty`] / [`TableContainer::iter`]（另提供 [`TableContainer::as_slice`]） |
-//! | 继承自 `ListWithCallbacks<Table>` 的 `remove(Object)` / `indexOf` / `contains` 等按元素查找的方法 | 未移植：Java 用 `equals`（对象同一性）查找，Rust 侧元素是 `Rc<RefCell<Table>>`，调用方可用 [`TableContainer::as_slice`] 配合 `Rc::ptr_eq` 自行判断 |
+//! | `private Map<String, Table> getIndex(Table table)` | Private function `index_for` |
+//! | Inherited from `ListWithCallbacks<Table>`: `add` / `add(int, T)` / `set` / `get` / `remove(int)` / `clear` / `size` / `isEmpty` / `iterator` | [`TableContainer::add`] / [`TableContainer::add_at`] / [`TableContainer::set`] / [`TableContainer::get`] / [`TableContainer::remove`] / [`TableContainer::clear`] / [`TableContainer::len`] / [`TableContainer::is_empty`] / [`TableContainer::iter`] (also provides [`TableContainer::as_slice`]) |
+//! | Element-lookup methods inherited from `ListWithCallbacks<Table>`, such as `remove(Object)` / `indexOf` / `contains` | Not ported: Java looks up using `equals` (object identity), whereas Rust stores `Rc<RefCell<Table>>` elements, so callers can use [`TableContainer::as_slice`] with `Rc::ptr_eq` to decide for themselves |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 继承关系的还原方式：组合 + 转发
+//! # How the inheritance relationship is restored: composition + forwarding
 //!
-//! Java 的 `TableContainer extends ListWithCallbacks<Table>`。Rust 没有继承，本类改为
-//! **组合**一个 [`crate::list_with_callbacks::ListWithCallbacks`] 并转发其公开行为；
-//! Java 中由 `added` / `removed` 两个覆写钩子维护的**名称索引**则改用
-//! `ListWithCallbacks` 的回调字段实现（回调闭包捕获索引的 `Rc` 句柄，见
-//! [`TableContainer::new`]），语义与 Java 一致。
+//! Java's `TableContainer extends ListWithCallbacks<Table>`. Rust has no inheritance, so this class instead
+//! **composes** a [`crate::list_with_callbacks::ListWithCallbacks`] and forwards its public behavior;
+//! the **name index** that Java maintains through the two override hooks `added` / `removed` is instead
+//! implemented with `ListWithCallbacks`'s callback fields (the callback closure captures the index's `Rc` handle, see
+//! [`TableContainer::new`]), with semantics identical to Java.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **元素形态**：Java 的列表存 `Table` 引用；Rust 侧存 `Rc<RefCell<Table>>`
-//!   （与本 crate 其它容器一致），使名称索引可以与列表共享同一批实例。
-//! - **名称为 `null` 的表格**：Java 的 `HashMap` 允许 `null` 键，因此未命名表格也能进入索引；
-//!   Rust 的 `HashMap<String, _>` 无法表达 `null` 键，[`TableContainer::new`] 中注册的回调
-//!   对无名表格**不入索引**（`get_task_table_by_name(None)` 因此恒为 `None`）。
-//! - **`replaced` 回调**：Java 的 `ListWithCallbacks.replaced` 未被 `TableContainer` 覆写，
-//!   因此 [`TableContainer::set`] 替换元素后名称索引**不会**更新（与 Java 一致，此处保持原样）。
-//! - **索引借用失败时降级**：回调通过 `try_borrow` 读取表格名称 / 资源标志；若调用方正持有
-//!   该表格的可变借用（Java 无此情形），则该次索引更新被跳过，不会 panic。
-//! - **`getTaskTableByName` 的入参**：Java 接受可为 `null` 的 `String`，Rust 侧用 `Option<&str>`。
+//! - **Element form**: Java's list stores `Table` references; the Rust side stores `Rc<RefCell<Table>>`
+//! (consistent with this crate's other containers), so the name index can share the same instances as the list.
+//! - **Tables whose name is `null`**: Java's `HashMap` allows `null` keys, so unnamed tables can also enter the index;
+//! Rust's `HashMap<String, _>` cannot express a `null` key, so the callback registered in [`TableContainer::new`]
+//! does **not index** unnamed tables (`get_task_table_by_name(None)` is therefore always `None`).
+//! - **The `replaced` callback**: Java's `ListWithCallbacks.replaced` is not overridden by `TableContainer`,
+//! so the name index is **not** updated after [`TableContainer::set`] replaces an element (consistent with Java; kept as is here).
+//! - **Degrade gracefully when the index borrow fails**: the callback reads the table name / resource flag via `try_borrow`; if the caller currently holds
+//! a mutable borrow of that table (impossible in Java), that index update is skipped, without panicking.
+//! - **The argument of `getTaskTableByName`**: Java accepts a `String` that may be `null`; the Rust side uses `Option<&str>`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -43,31 +43,31 @@ use std::rc::Rc;
 use crate::list_with_callbacks::ListWithCallbacks;
 use crate::table::Table;
 
-/// 按名称索引的表格表（列表与索引共享同一批 `Rc` 实例）。
+/// A table list indexed by name (the list and the index share the same `Rc` instances).
 type TableIndex = Rc<RefCell<HashMap<String, Rc<RefCell<Table>>>>>;
 
-/// 项目下的表格定义集合。
+/// The collection of table definitions in a project.
 ///
-/// 对应 Java: `public class TableContainer extends ListWithCallbacks<Table>`
+/// Corresponds to Java: `public class TableContainer extends ListWithCallbacks<Table>`
 pub struct TableContainer {
-    /// 列表本体（对应 Java 的 `extends ListWithCallbacks<Table>`）。
+/// The list itself (corresponds to Java's `extends ListWithCallbacks<Table>`).
     items: ListWithCallbacks<Rc<RefCell<Table>>>,
 
-    /// 按名称索引的任务表。
+/// Task tables indexed by name.
     ///
-    /// 对应 Java: `private final Map<String, Table> m_taskTablesByName = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<String, Table> m_taskTablesByName = new HashMap<>();`
     task_tables_by_name: TableIndex,
 
-    /// 按名称索引的资源表。
+/// Resource tables indexed by name.
     ///
-    /// 对应 Java: `private final Map<String, Table> m_resourceTablesByName = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<String, Table> m_resourceTablesByName = new HashMap<>();`
     resource_tables_by_name: TableIndex,
 }
 
 impl TableContainer {
-    /// 构造方法（并注册维护名称索引的 `added` / `removed` 回调）。
+/// Constructor (also registers the `added` / `removed` callbacks that maintain the name index).
     ///
-    /// 对应 Java: 隐式默认构造方法 + `added` / `removed` 两个覆写钩子。
+/// Corresponds to Java: the implicit default constructor + the two override hooks `added` / `removed`.
     pub fn new() -> Self {
         let task_tables_by_name: TableIndex = Rc::new(RefCell::new(HashMap::new()));
         let resource_tables_by_name: TableIndex = Rc::new(RefCell::new(HashMap::new()));
@@ -109,17 +109,17 @@ impl TableContainer {
         }
     }
 
-    /// 按名称取任务表定义。
+/// Get a task table definition by name.
     ///
-    /// 对应 Java: `public Table getTaskTableByName(String name)`
+    /// Corresponds to Java: `public Table getTaskTableByName(String name)`
     pub fn get_task_table_by_name(&self, name: Option<&str>) -> Option<Rc<RefCell<Table>>> {
         let name = name?;
         self.task_tables_by_name.borrow().get(name).map(Rc::clone)
     }
 
-    /// 按名称取资源表定义。
+/// Get a resource table definition by name.
     ///
-    /// 对应 Java: `public Table getResourceTableByName(String name)`
+    /// Corresponds to Java: `public Table getResourceTableByName(String name)`
     pub fn get_resource_table_by_name(&self, name: Option<&str>) -> Option<Rc<RefCell<Table>>> {
         let name = name?;
         self.resource_tables_by_name
@@ -128,39 +128,39 @@ impl TableContainer {
             .map(Rc::clone)
     }
 
-    /// 追加一个表格，并更新名称索引。
+/// Append a table and update the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)`
     pub fn add(&mut self, table: Rc<RefCell<Table>>) {
         self.items.add(table);
     }
 
-    /// 在指定下标插入一个表格，并更新名称索引。
+/// Insert a table at the specified index and update the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     ///
-    /// 越界返回 `false`（Java 抛 `IndexOutOfBoundsException`）。
+/// Returns `false` when out of bounds (Java throws `IndexOutOfBoundsException`).
     pub fn add_at(&mut self, index: usize, table: Rc<RefCell<Table>>) -> bool {
         self.items.add_at(index, table)
     }
 
-    /// 清空列表（与 Java 一致：不触发 `removed` 回调，名称索引因此不会清空）。
+/// Clear the list (consistent with Java: the `removed` callback is not triggered, so the name index is not cleared).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.items.clear();
     }
 
-    /// 按下标取表格；越界返回 `None`。
+/// Get a table by index; returns `None` when out of bounds.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<&Rc<RefCell<Table>>> {
         self.items.get(index)
     }
 
-    /// 替换指定下标的表格并返回旧元素（不更新名称索引，与 Java 一致）。
+/// Replace the table at the specified index and return the old element (does not update the name index, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(
         &mut self,
         index: usize,
@@ -169,52 +169,52 @@ impl TableContainer {
         self.items.set(index, table)
     }
 
-    /// 移除指定下标的表格并返回它，同时更新名称索引。
+/// Remove the table at the specified index and return it, updating the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<Table>>> {
         self.items.remove(index)
     }
 
-    /// 表格个数。
+/// The number of tables.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 列表是否为空。
+/// Whether the list is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代列表中的表格。
+/// Iterate over the tables in the list.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<Table>>> {
         self.items.iter()
     }
 
-    /// 以切片形式访问列表中的表格。
+/// Access the tables in the list as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the list view of `ListWithCallbacks`.
     pub fn as_slice(&self) -> &[Rc<RefCell<Table>>] {
         self.items.as_slice()
     }
 }
 
 impl Default for TableContainer {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`TableContainer::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`TableContainer::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for TableContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出列表规模与两张名称索引的键，
-    /// 便于诊断（不输出 `Table` 内容）。
+/// Java does not override `toString()`; the Rust side outputs the list size and the keys of the two name indexes,
+/// to aid diagnosis (it does not output `Table` contents).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let read_keys = |index: &TableIndex| -> Vec<String> {
             let mut keys: Vec<String> = index.borrow().keys().cloned().collect();
@@ -230,7 +230,7 @@ impl Debug for TableContainer {
     }
 }
 
-/// 取应使用的名称索引（Java 的 `getIndex(Table)`）。
+/// Get the name index to use (Java's `getIndex(Table)`).
 fn index_for(
     table: &Rc<RefCell<Table>>,
     task_tables: &TableIndex,
@@ -243,7 +243,7 @@ fn index_for(
     }
 }
 
-/// 读取表格名称；已被可变借用时返回 `None`。
+/// Read the table name; returns `None` when it is already mutably borrowed.
 fn read_name(table: &Rc<RefCell<Table>>) -> Option<String> {
     table
         .try_borrow()
@@ -251,7 +251,7 @@ fn read_name(table: &Rc<RefCell<Table>>) -> Option<String> {
         .and_then(|table| table.get_name().map(str::to_owned))
 }
 
-/// 读取资源表标志；已被可变借用时按 `false`（任务表）处理。
+/// Read the resource table flag; when already mutably borrowed it is treated as `false` (task table).
 fn read_resource_flag(table: &Rc<RefCell<Table>>) -> bool {
     table
         .try_borrow()
@@ -263,7 +263,7 @@ fn read_resource_flag(table: &Rc<RefCell<Table>>) -> bool {
 mod tests {
     use super::*;
 
-    /// 创建一个带名称与资源标志的表格。
+/// Create a table with a name and resource flag.
     fn table(name: &str, resource: bool) -> Rc<RefCell<Table>> {
         let mut value = Table::new();
         value.set_name(Some(name.to_owned()));
@@ -315,7 +315,7 @@ mod tests {
         let second = table("Entry", false);
         container.add(Rc::clone(&second));
 
-        // Java 的 HashMap.put 以最后加入者为准
+// Java's HashMap.put lets the last insertion win
         assert!(container
             .get_task_table_by_name(Some("Entry"))
             .map(|found| Rc::ptr_eq(&found, &second))
@@ -327,7 +327,7 @@ mod tests {
         let mut container = TableContainer::new();
         container.add(table("Entry", false));
 
-        let removed = container.remove(0).expect("移除成功");
+        let removed = container.remove(0).expect("removal succeeded");
         assert!(container.is_empty());
         assert!(!removed.borrow().get_resource_flag());
         assert!(container.get_task_table_by_name(Some("Entry")).is_none());
@@ -357,10 +357,10 @@ mod tests {
             Some("B".to_owned())
         );
 
-        let replaced = container.set(0, table("C", false)).expect("替换成功");
+        let replaced = container.set(0, table("C", false)).expect("replacement succeeded");
         assert_eq!(replaced.borrow().get_name(), Some("B"));
 
-        // 越界不修改列表
+// Out of bounds does not modify the list
         assert!(!container.add_at(9, table("D", false)));
         assert_eq!(container.len(), 2);
     }

@@ -1,64 +1,64 @@
-//! 对应 Java: `org/mpxj/mpp/BackgroundPattern.java`
+//! Corresponds to Java: `org/mpxj/mpp/BackgroundPattern.java`
 //!
-//! 分组（group）填充图案。
+//! Group fill patterns.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum BackgroundPattern implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final BackgroundPattern[] TYPE_VALUES = EnumHelper.createTypeArray(BackgroundPattern.class)` | [`BackgroundPattern::get_instance`] 的 `match` + [`BackgroundPattern::ALL`] | 表长 14（偏移 0），取值 0..13 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getName()` / `toString()` | [`BackgroundPattern::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum BackgroundPattern implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final BackgroundPattern[] TYPE_VALUES = EnumHelper.createTypeArray(BackgroundPattern.class)` | the `match` in [`BackgroundPattern::get_instance`] + [`BackgroundPattern::ALL`] | The table length is 14 (offset 0); values 0..13 are all filled, so Java's `getInstance` never returns `null` |
+//! | `getName()` / `toString()` | [`BackgroundPattern::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 注意：Java 侧本类**没有** `getInstance(Number)` 重载，因此 Rust 侧也不提供
-//! `get_instance_optional`。
+//! Note: on the Java side this class does **not** have a `getInstance(Number)` overload, so the Rust side does not provide
+//! `get_instance_optional`.
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 背景填充图案。
+/// Background fill pattern.
 ///
-/// 对应 Java: `public enum BackgroundPattern`
+/// Corresponds to Java: `public enum BackgroundPattern`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BackgroundPattern {
-    /// 对应 Java: `TRANSPARENT(0, "Transparent")`
+    /// Corresponds to Java: `TRANSPARENT(0, "Transparent")`
     Transparent = 0,
-    /// 对应 Java: `SOLID(1, "Solid")`
+    /// Corresponds to Java: `SOLID(1, "Solid")`
     Solid = 1,
-    /// 对应 Java: `LIGHTDOTTED(2, "Light Dotted")`
+    /// Corresponds to Java: `LIGHTDOTTED(2, "Light Dotted")`
     Lightdotted = 2,
-    /// 对应 Java: `DOTTED(3, "Dotted")`
+    /// Corresponds to Java: `DOTTED(3, "Dotted")`
     Dotted = 3,
-    /// 对应 Java: `HEAVYDOTTED(4, "Heavy Dotted")`
+    /// Corresponds to Java: `HEAVYDOTTED(4, "Heavy Dotted")`
     Heavydotted = 4,
-    /// 对应 Java: `BACKSLASH(5, "Back Slash")`
+    /// Corresponds to Java: `BACKSLASH(5, "Back Slash")`
     Backslash = 5,
-    /// 对应 Java: `FORWARDSLASH(6, "Forward Slash")`
+    /// Corresponds to Java: `FORWARDSLASH(6, "Forward Slash")`
     Forwardslash = 6,
-    /// 对应 Java: `INVERSEBACKSLASH(7, "Inverse Back Slash")`
+    /// Corresponds to Java: `INVERSEBACKSLASH(7, "Inverse Back Slash")`
     Inversebackslash = 7,
-    /// 对应 Java: `INVERSEFORWARDSLASH(8, "Inverse Forward Slash")`
+    /// Corresponds to Java: `INVERSEFORWARDSLASH(8, "Inverse Forward Slash")`
     Inverseforwardslash = 8,
-    /// 对应 Java: `LIGHTVERTICALSTRIPE(9, "Light Vertical Stripe")`
+    /// Corresponds to Java: `LIGHTVERTICALSTRIPE(9, "Light Vertical Stripe")`
     Lightverticalstripe = 9,
-    /// 对应 Java: `HEAVYVERTICALSTRIPE(10, "Heavy Vertical Stripe")`
+    /// Corresponds to Java: `HEAVYVERTICALSTRIPE(10, "Heavy Vertical Stripe")`
     Heavyverticalstripe = 10,
-    /// 对应 Java: `CHECKERED(11, "Checkered")`
+    /// Corresponds to Java: `CHECKERED(11, "Checkered")`
     Checkered = 11,
-    /// 对应 Java: `DENSEFORWARDSLASH(12, "Dense Forward Slash")`
+    /// Corresponds to Java: `DENSEFORWARDSLASH(12, "Dense Forward Slash")`
     Denseforwardslash = 12,
-    /// 对应 Java: `INVERSECHECKERED(13, "Inverse Checkered")`
+    /// Corresponds to Java: `INVERSECHECKERED(13, "Inverse Checkered")`
     Inversecheckered = 13,
 }
 
 impl BackgroundPattern {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final BackgroundPattern[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final BackgroundPattern[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [BackgroundPattern; 14] = [
         BackgroundPattern::Transparent,
         BackgroundPattern::Solid,
@@ -76,11 +76,11 @@ impl BackgroundPattern {
         BackgroundPattern::Inversecheckered,
     ];
 
-    /// 按 int 值取枚举实例。
+/// Get the enum instance by int value.
     ///
-    /// 对应 Java: `public static BackgroundPattern getInstance(int type)`
+    /// Corresponds to Java: `public static BackgroundPattern getInstance(int type)`
     ///
-    /// 越界时 Java 先回落到 `TRANSPARENT.getValue()`（0）再取表，故不会返回 `null`。
+/// On out of bounds, Java first falls back to `TRANSPARENT.getValue()` (0) before indexing the table, so it never returns `null`.
     pub fn get_instance(value: i32) -> BackgroundPattern {
         match value {
             0 => BackgroundPattern::Transparent,
@@ -102,9 +102,9 @@ impl BackgroundPattern {
         }
     }
 
-    /// 取图案名称（未做本地化）。
+/// Get the pattern name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             BackgroundPattern::Transparent => "Transparent",
@@ -124,30 +124,30 @@ impl BackgroundPattern {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for BackgroundPattern {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for BackgroundPattern {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<BackgroundPattern> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`BackgroundPattern::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`BackgroundPattern::get_value`].
     fn from(value: BackgroundPattern) -> i32 {
         value.get_value()
     }
@@ -157,7 +157,7 @@ impl From<BackgroundPattern> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in BackgroundPattern::ALL.iter().enumerate() {
@@ -167,7 +167,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 TRANSPARENT（Java 不会返回 null）。
+/// Out of bounds falls back to TRANSPARENT (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_transparent() {
         for value in [-1, -100, 14, 15, 1000, i32::MAX, i32::MIN] {
@@ -178,7 +178,7 @@ mod tests {
         }
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(BackgroundPattern::Transparent.get_name(), "Transparent");

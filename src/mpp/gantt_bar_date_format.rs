@@ -1,80 +1,80 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarDateFormat.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarDateFormat.java`
 //!
-//! 甘特图时间标尺（timescale）上可显示的日期格式。
+//! Date formats that can be displayed on the Gantt chart timescale.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! - Java 用 `EnumHelper.createTypeArray(GanttBarDateFormat.class)` 反射生成
-//!   int → 枚举的查找表（数组长度 = 常量个数 22，取值 0..21 恰好填满，**但数组下标是
-//!   `m_value` 而非声明序号**，所以 `DDMMYYYY(21)` 落在下标 21）；Rust 不用反射，
-//!   改为 [`GanttBarDateFormat::ALL`] + [`GanttBarDateFormat::get_instance`] 的 `match`。
-//! - **不派生 `Ord`**：Java 枚举的自然序是声明序（`DDMMYYYY` 的 ordinal 为 3），
-//!   而判别值是 21，两者不一致，派生 `Ord` 会引入 Java 没有的顺序语义。
-//! - 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! - Java uses reflection via `EnumHelper.createTypeArray(GanttBarDateFormat.class)` to generate
+//! the int → enum lookup table (array length = constant count 22; values 0..21 exactly fill it, **but the array index is
+//! `m_value` rather than the declaration ordinal**, so `DDMMYYYY(21)` lands at index 21); Rust does not use reflection,
+//! and instead uses [`GanttBarDateFormat::ALL`] + the `match` in [`GanttBarDateFormat::get_instance`].
+//! - **`Ord` is not derived**: the natural order of a Java enum is the declaration order (`DDMMYYYY` has ordinal 3),
+//! while its discriminant value is 21; the two are inconsistent, and deriving `Ord` would introduce ordering semantics that Java does not have.
+//! - Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use them.
 //!
-//! 未移植的 Java 成员：无。
+//! Unported Java members: none.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 甘特图时间标尺的日期格式。
+/// Date format for the Gantt chart timescale.
 ///
-/// 对应 Java: `public enum GanttBarDateFormat implements MpxjEnum`
+/// Corresponds to Java: `public enum GanttBarDateFormat implements MpxjEnum`
 ///
-/// 声明顺序与 Java 一致，判别值即 Java 的 `m_value`（注意 `Ddmmyyyy` 的判别值为 21）。
+/// The declaration order matches Java, and the discriminant value is Java's `m_value` (note that `Ddmmyyyy` has discriminant value 21).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GanttBarDateFormat {
-    /// 对应 Java: `DEFAULT(0, "Default")`
+    /// Corresponds to Java: `DEFAULT(0, "Default")`
     Default = 0,
-    /// 对应 Java: `DDMMYY_MMSS(1, "28/01/02 12:33")`
+    /// Corresponds to Java: `DDMMYY_MMSS(1, "28/01/02 12:33")`
     DdmmyyMmss = 1,
-    /// 对应 Java: `DDMMYY(2, "28/01/02")`
+    /// Corresponds to Java: `DDMMYY(2, "28/01/02")`
     Ddmmyy = 2,
-    /// 对应 Java: `DDMMYYYY(21, "28/01/2002")`
+    /// Corresponds to Java: `DDMMYYYY(21, "28/01/2002")`
     Ddmmyyyy = 21,
-    /// 对应 Java: `DD_MMMM_YYYY_HHMM(3, "28 January 2002 12:33")`
+    /// Corresponds to Java: `DD_MMMM_YYYY_HHMM(3, "28 January 2002 12:33")`
     DdMmmmYyyyHhmm = 3,
-    /// 对应 Java: `DD_MMMM_YYYY(4, "28 January 2002")`
+    /// Corresponds to Java: `DD_MMMM_YYYY(4, "28 January 2002")`
     DdMmmmYyyy = 4,
-    /// 对应 Java: `DD_MMM_HHMM(5, "28 Jan 12:33")`
+    /// Corresponds to Java: `DD_MMM_HHMM(5, "28 Jan 12:33")`
     DdMmmHhmm = 5,
-    /// 对应 Java: `DD_MMM_YY(6, "28 Jan '02")`
+    /// Corresponds to Java: `DD_MMM_YY(6, "28 Jan '02")`
     DdMmmYy = 6,
-    /// 对应 Java: `DD_MMMM(7, "28 January")`
+    /// Corresponds to Java: `DD_MMMM(7, "28 January")`
     DdMmmm = 7,
-    /// 对应 Java: `DD_MMM(8, "28 Jan")`
+    /// Corresponds to Java: `DD_MMM(8, "28 Jan")`
     DdMmm = 8,
-    /// 对应 Java: `DDD_DDMMYY_HHMM(9, "Mon 28/01/02 12:33")`
+    /// Corresponds to Java: `DDD_DDMMYY_HHMM(9, "Mon 28/01/02 12:33")`
     DddDdmmyyHhmm = 9,
-    /// 对应 Java: `DDD_DDMMYY(10, "Mon 28/01/02")`
+    /// Corresponds to Java: `DDD_DDMMYY(10, "Mon 28/01/02")`
     DddDdmmyy = 10,
-    /// 对应 Java: `DDD_DD_MMM_YY(11, "Mon 28 Jan '02")`
+    /// Corresponds to Java: `DDD_DD_MMM_YY(11, "Mon 28 Jan '02")`
     DddDdMmmYy = 11,
-    /// 对应 Java: `DDD_HHMM(12, "Mon 12:33")`
+    /// Corresponds to Java: `DDD_HHMM(12, "Mon 12:33")`
     DddHhmm = 12,
-    /// 对应 Java: `DDD_DD_MMM(16, "Mon 28 Jan")`
+    /// Corresponds to Java: `DDD_DD_MMM(16, "Mon 28 Jan")`
     DddDdMmm = 16,
-    /// 对应 Java: `DDD_DDMM(17, "Mon 28/01")`
+    /// Corresponds to Java: `DDD_DDMM(17, "Mon 28/01")`
     DddDdmm = 17,
-    /// 对应 Java: `DDD_DD(18, "Mon 28")`
+    /// Corresponds to Java: `DDD_DD(18, "Mon 28")`
     DddDd = 18,
-    /// 对应 Java: `DDMM(13, "28/01")`
+    /// Corresponds to Java: `DDMM(13, "28/01")`
     Ddmm = 13,
-    /// 对应 Java: `DD(14, "28")`
+    /// Corresponds to Java: `DD(14, "28")`
     Dd = 14,
-    /// 对应 Java: `HHMM(15, "12:33")`
+    /// Corresponds to Java: `HHMM(15, "12:33")`
     Hhmm = 15,
-    /// 对应 Java: `MWW(19, "1/W05")`
+    /// Corresponds to Java: `MWW(19, "1/W05")`
     Mww = 19,
-    /// 对应 Java: `MWWYY_HHMM(20, "1/W05/02 12:33")`
+    /// Corresponds to Java: `MWWYY_HHMM(20, "1/W05/02 12:33")`
     MwwyyHhmm = 20,
 }
 
 impl GanttBarDateFormat {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final GanttBarDateFormat[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final GanttBarDateFormat[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [GanttBarDateFormat; 22] = [
         GanttBarDateFormat::Default,
         GanttBarDateFormat::DdmmyyMmss,
@@ -100,9 +100,9 @@ impl GanttBarDateFormat {
         GanttBarDateFormat::MwwyyHhmm,
     ];
 
-    /// 根据 int 值取枚举实例，越界（含负值）时回落到 `DEFAULT`。
+/// Get the enum instance by int value; on out of bounds (including negative values) it falls back to `DEFAULT`.
     ///
-    /// 对应 Java: `public static GanttBarDateFormat getInstance(int type)`
+    /// Corresponds to Java: `public static GanttBarDateFormat getInstance(int type)`
     pub fn get_instance(value: i32) -> GanttBarDateFormat {
         match value {
             0 => GanttBarDateFormat::Default,
@@ -132,16 +132,16 @@ impl GanttBarDateFormat {
         }
     }
 
-    /// 对应 Java: `public static GanttBarDateFormat getInstance(Number type)`
+    /// Corresponds to Java: `public static GanttBarDateFormat getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `DEFAULT`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `DEFAULT`.
     pub fn get_instance_optional(value: Option<i32>) -> GanttBarDateFormat {
         GanttBarDateFormat::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取格式名称（即格式样例，如 `"28 January 2002"`），与 Java 一致，未做本地化。
+/// Get the format name (i.e. the format example, such as `"28 January 2002"`), matching Java, not localized.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             GanttBarDateFormat::Default => "Default",
@@ -171,14 +171,14 @@ impl GanttBarDateFormat {
 }
 
 impl MpxjEnum for GanttBarDateFormat {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for GanttBarDateFormat {
-    /// 对应 Java: `@Override public String toString()`，即 `getName()`。
+/// Corresponds to Java: `@Override public String toString()`, i.e. `getName()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn lookup_uses_value_not_declaration_index() {
-        // DDMMYYYY 的 m_value 为 21（声明位置却在第 4 个）
+// DDMMYYYY has m_value 21 (even though it is declared in the 4th position)
         assert_eq!(GanttBarDateFormat::get_instance(21), GanttBarDateFormat::Ddmmyyyy);
         assert_eq!(GanttBarDateFormat::get_instance(3), GanttBarDateFormat::DdMmmmYyyyHhmm);
     }

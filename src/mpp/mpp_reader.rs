@@ -1,69 +1,69 @@
-//! 对应 Java: `org/mpxj/mpp/MPPReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPPReader.java`
 //!
-//! 通过读取 MPP 文件创建 [`ProjectFile`]。本类是 mpp 包的「总入口」：它从 OLE 复合文档的
-//! `\1CompObj` 流里取出文件格式字符串（例如 `MSProject.MPP14`），据此挑出一个变体 reader
-//! （[`MPP8Reader`] / [`MPP9Reader`] / [`MPP12Reader`] / [`MPP14Reader`]，契约见
-//! [`MPPVariantReader`]），再把变体读完的 [`ProjectFile`] 统一做后处理。
+//! Creates a [`ProjectFile`] by reading an MPP file. This class is the "main entry point" of the mpp package: from the OLE compound document's
+//! `\1CompObj` stream it extracts the file format string (e.g. `MSProject.MPP14`) and picks a variant reader
+//! ([`MPP8Reader`] / [`MPP9Reader`] / [`MPP12Reader`] / [`MPP14Reader`]; for the contract see
+//! [`MPPVariantReader`]), then performs uniform post-processing on the [`ProjectFile`] produced by the variant.
 //!
-//! # 继承链的还原（组合 + 转发）
+//! # Restoring the inheritance chain (composition + forwarding)
 //!
-//! Java: `public final class MPPReader extends AbstractProjectStreamReader`。Rust 无继承，
-//! 按 [`crate::reader::abstract_project_stream_reader`] 文件头给出的模板：
-//! [`MPPReader`] 保存监听器列表并同时 `impl` [`ProjectReader`]、[`AbstractProjectReader`]、
-//! [`AbstractProjectStreamReader`]，把可复用的接口方法转调抽象层的 `_default` 方法。
+//! Java: `public final class MPPReader extends AbstractProjectStreamReader`. Rust has no inheritance,
+//! so it follows the template given in the file header of [`crate::reader::abstract_project_stream_reader`]:
+//! [`MPPReader`] stores the listener list and simultaneously `impl`s [`ProjectReader`], [`AbstractProjectReader`],
+//! and [`AbstractProjectStreamReader`], forwarding reusable interface methods to the abstract layer's `_default` methods.
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `read(InputStream)` | 入口方法是 [`MPPReader::read_stream`]（名字加 `_stream` 后缀以与 Java 的另一个重载 `read(POIFSFileSystem)` 区分），接口方法 [`ProjectReader::read_reader`] 转调它 |
-//! | `read(File)` | 入口落在接口方法 [`ProjectReader::read_file`] 内（Java 的 MPPReader 覆盖了基类版本，以便直接对 `File` 建 `POIFSFileSystem`；本 crate 的具体 reader 都把「本层仍为抽象的」方法直接写在 trait 实现里，见 [`crate::reader::abstract_project_stream_reader`] 的接线模板） |
+//! | `read(InputStream)` | The entry method is [`MPPReader::read_stream`] (the `_stream` suffix distinguishes it from Java's other overload `read(POIFSFileSystem)`); the interface method [`ProjectReader::read_reader`] forwards to it |
+//! | `read(File)` | The entry point lives inside the interface method [`ProjectReader::read_file`] (Java's MPPReader overrides the base class version so it can build a `POIFSFileSystem` directly from a `File`; concrete readers in this crate write the methods that are "still abstract at this layer" directly in the trait implementation, see the wiring template in [`crate::reader::abstract_project_stream_reader`]) |
 //! | `readAll(File)` | [`MPPReader::read_all_file`] → `AbstractProjectStreamReader::read_all_file_default` |
 //! | `readAll(InputStream)` | [`MPPReader::read_all_reader`] → `AbstractProjectStreamReader::read_all_reader_default` |
 //! | `addProjectListener(ProjectListener)` | [`MPPReader::add_project_listener`] → `AbstractProjectReader::add_project_listener_default` |
 //! | `read(POIFSFileSystem)` | [`MPPReader::read`] |
 //! | `static getFileFormat(POIFSFileSystem)` | [`MPPReader::get_file_format`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `read(InputStream)` 里 `new POIFSFileSystem(is)` | 先经 [`read_stream_into_cursor`] 把流读入内存，再 `PoifsFileSystem::new` | [`PoifsFileSystem::new`] 要求输入源 `'static`，而 `&mut dyn Read` 不是；MPP 文件通常不大，代价可接受（理由见 `ole.rs` 文件头「输入源统一为 `Box<dyn ReadSeek>`」） |
-//! | `read(File)` 里 `new POIFSFileSystem(file)` 以降低内存占用 | `PoifsFileSystem::new(File::open(path)?)` | 该优化仍是「按文件」路径（`std::fs::File` 满足 `Read + Seek`），未退化为「先读入内存」；`finally { AutoCloseableHelper.closeQuietly(fs); }` 由 `File` 的 `Drop` 取代 |
-//! | `read(POIFSFileSystem)` 的 `catch (IOException \| InstantiationException \| IllegalAccessException)` | 无 `catch` | `IOException` 由 `?` 经 `From<std::io::Error>` 转成前缀为 `Error reading file` 的 [`MpxjError`]（与 `new MPXJException(READ_ERROR, ex)` 一致）；后两个异常来自反射 `newInstance()`，反射已跳过（见 [`file_class_map`]） |
-//! | `FILE_CLASS_MAP`（`Map<String, Class<..>>`）+ `readerClass.newInstance()` | [`file_class_map`]：按格式名直接构造 | 反射在本工程被跳过；对外行为一致（未登记的格式 → `null` / `None`），并消去两个反射相关异常 |
-//! | `static String getFileFormat(..)`（可能返回 `""` 或 `null`） | `Option<String>` | Java 的 `""`（根存储里没有 `\1CompObj` 流）与 `null`（CompObj 未记录 fileFormat）在 Rust 侧统一为 `None` —— 二者在唯一的使用者 `UniversalProjectReader` 中都被 `fileFormat == null \|\| !fileFormat.startsWith("MSProject")` 判为「不是 MPP」，行为等价 |
-//! | `new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")))` | [`MPPReader::read_comp_obj`]：`root.get_document(..)` 失败即 `Err` | POI 的 `getEntry` 找不到条目时抛异常，Rust 侧 [`DirectoryEntry::get_document`] 返回 `None`，此处转为 `Err(INVALID_FILE)`（Java 侧是 `NullPointerException`/`ClassCastException`，属未捕获的运行时异常） |
-//! | `ProjectFile` 直接可变访问 | 一律 `Rc<RefCell<ProjectFile>>` + `try_borrow` / `try_borrow_mut` | Rust 借用冲突时要退化为 `Err` 而不能 panic（Java 是稳定引用，无此情形）；见 [`borrow_file`] / [`borrow_file_mut`] / [`borrow_context`] 与 [`borrow_conflict`] |
-//! | `config.setAutoXXX(false)` 经 `ProjectFile.getProjectConfig()` | 经 `ProjectContext::get_project_config_mut()` | [`ProjectFile::get_project_config`] 在 Rust 侧返回只读的 `Ref<ProjectConfig>`（配置由上下文持有，见其文件头），改写必须走上下文 |
-//! | `task.setSummary(..)` 与 `relation.getSuccessorTask().removePredecessor(..)` 在同一循环里 | 先快照任务列表再逐个处理 | `Task::remove_predecessor` 内部会 `file.borrow_mut()`，若外层仍持有 `ProjectFile` 借用会 panic（Java 无此限制）；先克隆出 `Vec<Rc<RefCell<Task>>>` 并释放文件借用即可等价 |
-//! | `resourceCalendarMap.computeIfAbsent(calendar.getUniqueID(), k -> emptyList())` | `HashMap<Option<i32>, Vec<..>>` + `entry(..).or_default()` | `HashMap` 允许 `null` 键，故 Java 的键类型保持为可空的 `Integer`；Rust 用 `Option<i32>` 键忠实对应（`None` 键插入空列表 → `size() == 0`） |
-//! | `projectFile.getCalendars().removeIf(predicate)` | 先收集待删下标、再逆序 [`ProjectCalendarContainer::remove`] | 容器未提供 `remove_if`，且 `remove` 接收 `&ProjectCalendar`；逆序按下标移除与 `removeIf` 的逐个移除语义一致 |
-//! | `m_readPassword`（`String`，可为 `null`） | `Option<String>` | —— |
+//! | `new POIFSFileSystem(is)` in `read(InputStream)` | First read the stream into memory via [`read_stream_into_cursor`], then `PoifsFileSystem::new` | [`PoifsFileSystem::new`] requires the input source to be `'static`, but `&mut dyn Read` is not; MPP files are usually small, so the cost is acceptable (see "input sources unified as `Box<dyn ReadSeek>`" in the `ole.rs` file header) |
+//! | `new POIFSFileSystem(file)` in `read(File)` to reduce memory usage | `PoifsFileSystem::new(File::open(path)?)` | This optimization still uses the "per-file" path (`std::fs::File` satisfies `Read + Seek`) and does not degrade to "read into memory first"; `finally { AutoCloseableHelper.closeQuietly(fs); }` is replaced by `File`'s `Drop` |
+//! | `catch (IOException \| InstantiationException \| IllegalAccessException)` in `read(POIFSFileSystem)` | No `catch` | `IOException` is converted by `?` via `From<std::io::Error>` into an [`MpxjError`] prefixed with `Error reading file` (consistent with `new MPXJException(READ_ERROR, ex)`); the latter two exceptions come from reflective `newInstance()`, and reflection has been skipped (see [`file_class_map`]) |
+//! | `FILE_CLASS_MAP` (`Map<String, Class<..>>`) + `readerClass.newInstance()` | [`file_class_map`]: construct directly by format name | Reflection is skipped in this project; external behavior is identical (unregistered format → `null` / `None`), and the two reflection-related exceptions are eliminated |
+//! | `static String getFileFormat(..)` (may return `""` or `null`) | `Option<String>` | Java's `""` (no `\1CompObj` stream in the root storage) and `null` (CompObj did not record a fileFormat) are unified as `None` on the Rust side -- in the only consumer, `UniversalProjectReader`, both are judged "not MPP" by `fileFormat == null \|\| !fileFormat.startsWith("MSProject")`, so the behavior is equivalent |
+//! | `new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")))` | [`MPPReader::read_comp_obj`]: if `root.get_document(..)` fails, `Err` | POI's `getEntry` throws when the entry is not found; on the Rust side [`DirectoryEntry::get_document`] returns `None`, which is converted here to `Err(INVALID_FILE)` (on the Java side it is `NullPointerException`/`ClassCastException`, an uncaught runtime exception) |
+//! | Direct mutable access to `ProjectFile` | Always `Rc<RefCell<ProjectFile>>` + `try_borrow` / `try_borrow_mut` | A Rust borrow conflict must degrade to `Err` rather than panic (Java has stable references and no such case); see [`borrow_file`] / [`borrow_file_mut`] / [`borrow_context`] and [`borrow_conflict`] |
+//! | `config.setAutoXXX(false)` via `ProjectFile.getProjectConfig()` | via `ProjectContext::get_project_config_mut()` | [`ProjectFile::get_project_config`] returns a read-only `Ref<ProjectConfig>` on the Rust side (the config is held by the context, see its file header), so modification must go through the context |
+//! | `task.setSummary(..)` and `relation.getSuccessorTask().removePredecessor(..)` in the same loop | Snapshot the task list first, then process one by one | `Task::remove_predecessor` internally calls `file.borrow_mut()`, which would panic if the outer scope still holds a `ProjectFile` borrow (Java has no such restriction); cloning out a `Vec<Rc<RefCell<Task>>>` and releasing the file borrow is equivalent |
+//! | `resourceCalendarMap.computeIfAbsent(calendar.getUniqueID(), k -> emptyList())` | `HashMap<Option<i32>, Vec<..>>` + `entry(..).or_default()` | `HashMap` allows `null` keys, so Java's key type stays the nullable `Integer`; Rust faithfully corresponds with an `Option<i32>` key (a `None` key inserts an empty list → `size() == 0`) |
+//! | `projectFile.getCalendars().removeIf(predicate)` | Collect the indexes to remove first, then [`ProjectCalendarContainer::remove`] in reverse order | The container does not provide `remove_if`, and `remove` takes a `&ProjectCalendar`; removing by index in reverse order matches the one-by-one removal semantics of `removeIf` |
+//! | `m_readPassword` (`String`, may be `null`) | `Option<String>` | -- |
 //!
-//! # 对变体 reader 的接口假设（已核对：四个变体均已落地）
+//! # Interface assumptions for the variant readers (verified: all four variants are in place)
 //!
-//! - 变体类型位于 `crate::mpp::mpp{8,9,12,14}_reader`，类型名 `MPP8Reader` / `MPP9Reader` /
-//!   `MPP12Reader` / `MPP14Reader`；
-//! - 各提供**无参**构造方法 `new()`（对应 Java 的隐式无参构造
-//!   `MPP9Reader reader = new MPP9Reader();`），并实现 [`MPPVariantReader`]；
+//! - The variant types live in `crate::mpp::mpp{8,9,12,14}_reader`, with type names `MPP8Reader` / `MPP9Reader` /
+//!   `MPP12Reader` / `MPP14Reader`;
+//! - Each provides a **no-argument** constructor `new()` (corresponding to Java's implicit no-argument constructor
+//! `MPP9Reader reader = new MPP9Reader();`), and implements [`MPPVariantReader`];
 //! - `MPPVariantReader::process(&self, reader: &MPPReader, file: &Rc<RefCell<ProjectFile>>,
-//!   root: &DirectoryEntry)` 的签名以 [`crate::mpp::mpp_variant_reader`] 为准。
+//! root: &DirectoryEntry)`, refer to [`crate::mpp::mpp_variant_reader`] for the signature.
 //!
-//! 其中 `reader: &MPPReader`（而非 `&Rc<RefCell<MPPReader>>`）是刻意的选择：变体 reader 只需
-//! 读五个开关，而「`&Rc<RefCell<MPPReader>>`」无法由 [`ProjectReader`] 的 `&mut self` 入口
-//! 提供（`RefCell` 不在 `self: Rc<Self>` 之类合法接收者之列），会让 [`MPPReader::read`] 无法
-//! 把 `this`（Java 语义）原样交给 `process`。四个变体 reader（含 `MPP8Reader`）均已按该签名落地，
-//! 本文件的 `use crate::mpp::mpp8_reader::MPP8Reader` 可正常解析。
+//! Here `reader: &MPPReader` (rather than `&Rc<RefCell<MPPReader>>`) is a deliberate choice: a variant reader only needs
+//! to read five flags, whereas "`&Rc<RefCell<MPPReader>>`" cannot be provided by [`ProjectReader`]'s `&mut self` entry point
+//! (`RefCell` is not among legal receivers such as `self: Rc<Self>`), which would prevent [`MPPReader::read`] from
+//! passing `this` (Java semantics) as-is to `process`. All four variant readers (including `MPP8Reader`) are in place with that signature,
+//! and this file's `use crate::mpp::mpp8_reader::MPP8Reader` resolves normally.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! - **反射**：`FILE_CLASS_MAP` 的 `Class` 值 + `readerClass.newInstance()` →
-//!   [`file_class_map`] 直接构造（见上表）；
-//! - **`InstantiationException` / `IllegalAccessException`**：仅由反射抛出，随反射一并消失；
-//! - **`import org.mpxj.TaskField` 的 `Map<TaskField, TaskField>`**：改为常量表
-//!   [`TASK_ESTIMATED_BASELINE_FIELDS`]（`&[(TaskField, TaskField)]`），避免为静态查表引入
-//!   全局可变容器；
-//! - 本类未使用 JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`；也未引用依赖反射分发的
-//!   `UniversalProjectReader` / `ProjectReaderUtility`（本次不移植）。
+//! - **Reflection**: `FILE_CLASS_MAP`'s `Class` values + `readerClass.newInstance()` →
+//! [`file_class_map`] constructs directly (see the table above);
+//! - **`InstantiationException` / `IllegalAccessException`**: thrown only by reflection, and disappear along with it;
+//! - **`Map<TaskField, TaskField>` from `import org.mpxj.TaskField`**: changed to a constant table
+//! [`TASK_ESTIMATED_BASELINE_FIELDS`] (`&[(TaskField, TaskField)]`), to avoid introducing for a static lookup table
+//! a global mutable container;
+//! - This class does not use JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`; nor does it reference the reflection-based dispatch of
+//! `UniversalProjectReader` / `ProjectReaderUtility` (not ported this time).
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -93,23 +93,23 @@ use crate::resource::Resource;
 use crate::task::Task;
 use crate::task_field::TaskField;
 
-/// `\1CompObj` 流的名字（Java 里的 `"\1CompObj"`，即 `\u{1}` + `CompObj`）。
+/// The name of the `\1CompObj` stream (Java's `"\1CompObj"`, i.e. `\u{1}` + `CompObj`).
 const COMP_OBJ: &str = "\u{1}CompObj";
 
-/// 对应 Java: `projectProperties.setFileApplication("Microsoft Project Server")`。
+/// Corresponds to Java: `projectProperties.setFileApplication("Microsoft Project Server")`.
 const FILE_APPLICATION_PROJECT_SERVER: &str = "Microsoft Project Server";
-/// 对应 Java: `projectProperties.setFileApplication("Microsoft")`。
+/// Corresponds to Java: `projectProperties.setFileApplication("Microsoft")`.
 const FILE_APPLICATION_MICROSOFT: &str = "Microsoft";
-/// 对应 Java: `projectProperties.setFileType("MPP")`。
+/// Corresponds to Java: `projectProperties.setFileType("MPP")`.
 const FILE_TYPE_MPP: &str = "MPP";
-/// 对应 Java: `projectFilePath.startsWith("<>\\")`（Project Server 的项目路径前缀）。
+/// Corresponds to Java: `projectFilePath.startsWith("<>\\")` (the Project Server project path prefix).
 const PROJECT_SERVER_PATH_PREFIX: &str = "<>\\";
-/// 对应 Java: `name = "Unnamed Resource";`
+/// Corresponds to Java: `name = "Unnamed Resource";`
 const UNNAMED_RESOURCE: &str = "Unnamed Resource";
-/// 对应 Java: 字符串拼接 `null` 时的渲染（`INVALID_FILE + ": " + format`）。
+/// Corresponds to Java: rendering when string concatenation encounters `null` (`INVALID_FILE + ": " + format`).
 const JAVA_NULL: &str = "null";
-/// 对应 Java: `TaskField.BASELINE_DURATION` → `TaskField.BASELINE_ESTIMATED_DURATION` 等
-/// `TASK_ESTIMATED_BASELINE_FIELDS` 静态表的全部条目（11 组基线 × 3 个字段）。
+/// Corresponds to Java: `TaskField.BASELINE_DURATION` → `TaskField.BASELINE_ESTIMATED_DURATION` etc.
+/// All entries of the `TASK_ESTIMATED_BASELINE_FIELDS` static table (11 baseline groups × 3 fields).
 const TASK_ESTIMATED_BASELINE_FIELDS: &[(TaskField, TaskField)] = &[
     (TaskField::BaselineDuration, TaskField::BaselineEstimatedDuration),
     (TaskField::BaselineStart, TaskField::BaselineEstimatedStart),
@@ -146,46 +146,46 @@ const TASK_ESTIMATED_BASELINE_FIELDS: &[(TaskField, TaskField)] = &[
     (TaskField::Baseline10Finish, TaskField::Baseline10EstimatedFinish),
 ];
 
-/// 通过读取 MPP 文件创建 [`ProjectFile`]。
+/// Creates a [`ProjectFile`] by reading an MPP file.
 ///
-/// 对应 Java: `public final class MPPReader extends AbstractProjectStreamReader`
+/// Corresponds to Java: `public final class MPPReader extends AbstractProjectStreamReader`
 pub struct MPPReader {
-    /// 已注册的监听器。
+/// The registered listeners.
     ///
-    /// 对应 Java: `AbstractProjectReader` 的私有字段
-    /// `private List<ProjectListener> m_projectListeners`（Rust 侧 trait 无法带字段，故落在实现者身上）。
+/// Corresponds to Java: the private field of `AbstractProjectReader`
+/// `private List<ProjectListener> m_projectListeners` (a Rust trait cannot carry fields, so it lives on the implementor).
     listeners: Vec<SharedProjectListener>,
 
-    /// 设为 `true` 时直接取用 MS Project 的原始时间分段数据，不做归一化。
+/// When set to `true`, use MS Project's raw timephased data directly without normalization.
     ///
-    /// 对应 Java: `private boolean m_useRawTimephasedData`
+    /// Corresponds to Java: `private boolean m_useRawTimephasedData`
     use_raw_timephased_data: bool,
 
-    /// 是否读取展示数据（设为 `false` 可省时间与内存）。
+/// Whether to read presentation data (setting to `false` saves time and memory).
     ///
-    /// 对应 Java: `private boolean m_readPresentationData = true`
+    /// Corresponds to Java: `private boolean m_readPresentationData = true`
     read_presentation_data: bool,
 
-    /// 是否只读取项目属性。
+/// Whether to read only the project properties.
     ///
-    /// 对应 Java: `private boolean m_readPropertiesOnly`
+    /// Corresponds to Java: `private boolean m_readPropertiesOnly`
     read_properties_only: bool,
 
-    /// 是否尊重密码保护。
+/// Whether to respect password protection.
     ///
-    /// 对应 Java: `private boolean m_respectPasswordProtection = true`
+    /// Corresponds to Java: `private boolean m_respectPasswordProtection = true`
     respect_password_protection: bool,
 
-    /// 读取密码（Java 中可为 `null`）。
+/// The read password (may be `null` in Java).
     ///
-    /// 对应 Java: `private String m_readPassword`
+    /// Corresponds to Java: `private String m_readPassword`
     read_password: Option<String>,
 }
 
 impl MPPReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（`new MPPReader()`）
+/// Corresponds to Java: the implicit default constructor (`new MPPReader()`)
     pub fn new() -> Self {
         Self {
             listeners: Vec::new(),
@@ -199,27 +199,27 @@ impl MPPReader {
         }
     }
 
-    /// 从输入流读取一份 MPP 文件。
+/// Reads an MPP file from an input stream.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(InputStream is) throws MPXJException`
+    /// Corresponds to Java: `@Override public ProjectFile read(InputStream is) throws MPXJException`
     ///
-    /// Java 直接 `new POIFSFileSystem(is)`；Rust 侧 [`PoifsFileSystem::new`] 要求输入源
-    /// `'static`，故先把流读入内存（见文件头差异表）。
+/// Java directly calls `new POIFSFileSystem(is)`; on the Rust side [`PoifsFileSystem::new`] requires the input source
+/// to be `'static`, so the stream is first read into memory (see the file header difference table).
     pub fn read_stream(&self, input_stream: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         // Java: return read(new POIFSFileSystem(is));
-        // （Java 的 catch (IOException ex) → new MPXJException(READ_ERROR, ex) 由 ? 承担）
+// (Java's catch (IOException ex) → new MPXJException(READ_ERROR, ex) is handled by ?)
         let cursor: Cursor<Vec<u8>> = read_stream_into_cursor(input_stream)?;
         let fs = PoifsFileSystem::new(cursor)?;
         self.read(&fs)
     }
 
-    /// 窥探 OLE 复合文档，取出其中的文件格式名。
+/// Peeks into an OLE compound document and extracts the file format name.
     ///
-    /// 对应 Java: `public static String getFileFormat(POIFSFileSystem fs) throws IOException`
+    /// Corresponds to Java: `public static String getFileFormat(POIFSFileSystem fs) throws IOException`
     ///
-    /// 供 `UniversalProjectReader` 判断该 OLE 复合文档是否是 MPP、还是别的类型。
-    /// Java 返回 `""`（无 `\1CompObj` 流）或 `null`（CompObj 未记录格式）；
-    /// Rust 侧两者统一为 `None`（见文件头差异表）。
+/// Used by `UniversalProjectReader` to determine whether the OLE compound document is MPP or another type.
+/// Java returns `""` (no `\1CompObj` stream) or `null` (CompObj did not record a format);
+/// the Rust side unifies both as `None` (see the file header difference table).
     pub fn get_file_format(fs: &PoifsFileSystem) -> Option<String> {
         let root = fs.get_root();
 
@@ -235,13 +235,13 @@ impl MPPReader {
         comp_obj.get_file_format().map(str::to_owned)
     }
 
-    /// 读取一份已经打开（或由调用方构造）的 OLE 复合文档。
+/// Reads an already-opened (or caller-constructed) OLE compound document.
     ///
-    /// 对应 Java: `public ProjectFile read(POIFSFileSystem fs) throws MPXJException`
+    /// Corresponds to Java: `public ProjectFile read(POIFSFileSystem fs) throws MPXJException`
     pub fn read(&self, fs: &PoifsFileSystem) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         // Java: try { ... } catch (IOException | InstantiationException | IllegalAccessException ex)
         //       { throw new MPXJException(MPXJException.READ_ERROR, ex); }
-        // Rust 侧 I/O 失败由 ? 转成 READ_ERROR；另外两个异常来自反射 newInstance()，反射已跳过。
+// On the Rust side, I/O failures are converted by ? to READ_ERROR; the other two exceptions come from reflective newInstance(), and reflection has been skipped.
 
         // Java: ProjectFile projectFile = new ProjectFile();
         let project_file = ProjectFile::new();
@@ -253,13 +253,13 @@ impl MPPReader {
         self.add_listeners_to_project(&project_file);
 
         //
-        // Java: 打开文件系统并取根目录
+// Java: open the file system and get the root directory
         // DirectoryEntry root = fs.getRoot();
         //
         let root = fs.get_root();
 
         //
-        // Java: 取出 CompObj 数据、校验文件格式、分派处理
+// Java: extract the CompObj data, validate the file format, dispatch processing
         // CompObj compObj = new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")));
         //
         let comp_obj = Self::read_comp_obj(&root)?;
@@ -293,7 +293,7 @@ impl MPPReader {
         variant_reader.process(self, &project_file, &root)?;
 
         //
-        // Java: 更新内部结构 —— 顺带为任务生成大纲编号（MPP 文件里似乎没有该数据）
+// Java: update internal structures -- incidentally generate outline numbers for tasks (MPP files appear to lack this data)
         // config.setAutoOutlineNumber(true);
         // projectFile.updateStructure();
         // config.setAutoOutlineNumber(false);
@@ -303,7 +303,7 @@ impl MPPReader {
         self.set_auto_outline_number(&project_file, false)?;
 
         //
-        // Java: 后处理 —— 设置汇总标志，并清理「拆分列表为空」的任务实例
+// Java: post-processing -- set the summary flag and clean up task instances whose "split list is empty"
         // for (Task task : projectFile.getTasks())
         // {
         //    task.setSummary(task.hasChildTasks() || task.getExternalProject());
@@ -311,8 +311,8 @@ impl MPPReader {
         //    copyEstimatedBaselineFields(task);
         // }
         //
-        // Rust 侧先克隆任务列表：`validationRelations` 最终会触发 `Task::removePredecessor`，
-        // 后者内部要 `file.borrow_mut()`（Java 无此限制，见文件头差异表）。
+// The Rust side clones the task list first: `validationRelations` eventually triggers `Task::removePredecessor`,
+// which internally needs `file.borrow_mut()` (Java has no such restriction, see the file header difference table).
         let tasks: Vec<Rc<RefCell<Task>>> = {
             let file_ref = borrow_file(&project_file)?;
             file_ref.get_tasks().iter().cloned().collect()
@@ -322,7 +322,7 @@ impl MPPReader {
             // Java: task.setSummary(task.hasChildTasks() || task.getExternalProject());
             let summary = match task.try_borrow() {
                 Ok(task_ref) => task_ref.has_child_tasks() || task_ref.get_external_project(),
-                // Java 无此分支（元素必然可读）；Rust 侧避免借用冲突 panic
+// Java has no such branch (elements are always readable); the Rust side avoids a borrow-conflict panic
                 Err(_) => continue,
             };
 
@@ -335,14 +335,14 @@ impl MPPReader {
         }
 
         //
-        // Java: 清理未被使用的资源日历
+// Java: clean up unused resource calendars
         // Map<Integer, List<Resource>> resourceCalendarMap = projectFile.getResources().stream()
         //    .filter(r -> r.getCalendarUniqueID() != null)
         //    .collect(Collectors.groupingBy(Resource::getCalendarUniqueID));
         // projectFile.getCalendars().removeIf(c -> c.isDerived() && !resourceCalendarMap.containsKey(c.getUniqueID()));
         //
-        // 键类型为 `Option<i32>`：`HashMap` 允许 `null` 键，与 Java 的 `Integer` 键一致
-        // （后续 `computeIfAbsent(null, ..)` 会插入一个空列表，见下）。
+// The key type is `Option<i32>`: `HashMap` allows `null` keys, consistent with Java's `Integer` key
+// (a later `computeIfAbsent(null, ..)` inserts an empty list, see below).
         let mut resource_calendar_map: HashMap<Option<i32>, Vec<Rc<RefCell<Resource>>>> = HashMap::new();
         {
             let context = borrow_context(&project_file)?;
@@ -352,7 +352,7 @@ impl MPPReader {
 
             for resource in context_ref.get_resources().iter() {
                 let Ok(resource_ref) = resource.try_borrow() else {
-                    // Java 无此分支；Rust 侧避免借用冲突 panic
+// Java has no such branch; the Rust side avoids a borrow-conflict panic
                     continue;
                 };
 
@@ -372,7 +372,7 @@ impl MPPReader {
             };
             let calendars = context_ref.get_calendars_mut();
 
-            // Java 的 removeIf 谓词
+// Java's removeIf predicate
             let mut to_remove: Vec<usize> = Vec::new();
             for index in 0..calendars.len() {
                 let Some(calendar) = calendars.get(index) else {
@@ -389,7 +389,7 @@ impl MPPReader {
                 }
             }
 
-            // 逆序按下标移除（等价于 removeIf 逐个移除）
+// Remove by index in reverse order (equivalent to removeIf removing one by one)
             for index in to_remove.into_iter().rev() {
                 let Some(calendar) = calendars.get(index) else {
                     continue;
@@ -401,7 +401,7 @@ impl MPPReader {
         }
 
         //
-        // Java: 资源后处理
+// Java: resource post-processing
         // UnitOfMeasureContainer unitsOfMeasure = projectFile.getUnitsOfMeasure();
         // for (Resource resource : projectFile.getResources()) { ... }
         //
@@ -445,7 +445,7 @@ impl MPPReader {
                     }
                 }
 
-                // Java: 资源日历没有名字时继承资源名
+// Java: a resource calendar without a name inherits the resource name
                 // if (calendar.getName() == null || calendar.getName().isEmpty()) { ... }
                 let name_missing = calendar
                     .try_borrow()
@@ -501,7 +501,7 @@ impl MPPReader {
         }
 
         //
-        // Java: 补充分析信息
+// Java: add analysis information
         // String projectFilePath = projectFile.getProjectProperties().getProjectFilePath();
         // if (projectFilePath != null && projectFilePath.startsWith("<>\\")) { ... }
         //
@@ -531,15 +531,15 @@ impl MPPReader {
         Ok(project_file)
     }
 
-    /// 校验任务的全部关系，剔除那些从 MPP 文件里错误读出、指向父任务的关系。
+/// Validates all of a task's relations and removes those incorrectly read from the MPP file that point to a parent task.
     ///
-    /// 对应 Java: `private void validationRelations(Task task)`
+    /// Corresponds to Java: `private void validationRelations(Task task)`
     fn validation_relations(&self, task: &Rc<RefCell<Task>>) {
         // Java: List<Relation> predecessors = task.getPredecessors();
         //       if (predecessors.isEmpty()) { return; }
         let predecessors = match task.try_borrow() {
             Ok(task_ref) => task_ref.get_predecessors(),
-            // Java 无此分支；Rust 侧避免借用冲突 panic
+// Java has no such branch; the Rust side avoids a borrow-conflict panic
             Err(_) => return,
         };
 
@@ -552,13 +552,13 @@ impl MPPReader {
                     relation_ref.get_successor_task(),
                     relation_ref.get_predecessor_task(),
                 ),
-                // Java 无此分支；Rust 侧避免借用冲突 panic
+// Java has no such branch; the Rust side avoids a borrow-conflict panic
                 Err(_) => continue,
             };
 
             let (Some(source_task), Some(target_task)) = (source_task, target_task) else {
-                // Java 在 Task 为 null 时会在 getOutlineNumber() 处抛 NullPointerException；
-                // Rust 侧按「无法判定」处理（不加入无效列表）
+// When Task is null, Java throws a NullPointerException at getOutlineNumber();
+// the Rust side treats it as "cannot be determined" (does not add it to the invalid list)
                 continue;
             };
 
@@ -595,7 +595,7 @@ impl MPPReader {
                         relation_ref.get_type(),
                         relation_ref.get_lag(),
                     ),
-                    // Java 无此分支；Rust 侧避免借用冲突 panic
+// Java has no such branch; the Rust side avoids a borrow-conflict panic
                     Err(_) => continue,
                 };
 
@@ -611,9 +611,9 @@ impl MPPReader {
         }
     }
 
-    /// 基线字段为空、但其「估算版本」有值时，回退到估算字段。
+/// When a baseline field is empty but its "estimated version" has a value, fall back to the estimated field.
     ///
-    /// 对应 Java: `private void copyEstimatedBaselineFields(Task task)`
+    /// Corresponds to Java: `private void copyEstimatedBaselineFields(Task task)`
     fn copy_estimated_baseline_fields(task: &Rc<RefCell<Task>>) {
         for (key, estimated_key) in TASK_ESTIMATED_BASELINE_FIELDS {
             // Java: Object value = task.getCachedValue(entry.getKey());
@@ -621,11 +621,11 @@ impl MPPReader {
             //                            if (value != null) { task.set(entry.getKey(), value); } }
             let value = {
                 let Ok(task_ref) = task.try_borrow() else {
-                    // Java 无此分支；Rust 侧避免借用冲突 panic
+// Java has no such branch; the Rust side avoids a borrow-conflict panic
                     continue;
                 };
 
-                // 借用必须先释放才能 `set`，故此处直接把值克隆出来
+// The borrow must be released before `set`, so the value is cloned out directly here
                 match task_ref.get_cached_value((*key).into()) {
                     Some(value) => Some(value.clone()),
                     None => task_ref
@@ -642,24 +642,24 @@ impl MPPReader {
         }
     }
 
-    /// 读取并解析 `\1CompObj` 流。
+/// Reads and parses the `\1CompObj` stream.
     ///
-    /// Java 在 `read(POIFSFileSystem)` 内联完成；Rust 侧抽成私有辅助函数，
-    /// 因为「取流」与「解析」都要处理失败路径（Java 是运行时异常）。
+/// Java does this inline in `read(POIFSFileSystem)`; the Rust side extracts it into a private helper function,
+/// because both "obtaining the stream" and "parsing" must handle failure paths (runtime exceptions in Java).
     fn read_comp_obj(root: &DirectoryEntry) -> MpxjResult<CompObj> {
         // Java: new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")))
         let Some(document) = root.get_document(COMP_OBJ) else {
-            // Java 侧是 NullPointerException / ClassCastException（未捕获的运行时异常）
+// On the Java side it is NullPointerException / ClassCastException (uncaught runtime exceptions)
             return Err(MpxjError::new(MpxjError::INVALID_FILE));
         };
 
         CompObj::new(&document.get_data())
     }
 
-    /// 关闭/打开 `ProjectConfig` 的自动编号开关（`config.setAutoXXX(flag)`）。
+/// Turns the automatic numbering flags of `ProjectConfig` off/on (`config.setAutoXXX(flag)`).
     ///
-    /// Java 在 `read(POIFSFileSystem)` 内直接对 `ProjectConfig` 逐个赋值；
-    /// Rust 侧抽成辅助函数以减少重复的借取样板代码。
+/// Java assigns to `ProjectConfig` one by one directly inside `read(POIFSFileSystem)`;
+/// the Rust side extracts helper functions to reduce repetitive borrow boilerplate.
     fn set_auto_ids(&self, project_file: &Rc<RefCell<ProjectFile>>, flag: bool) -> MpxjResult<()> {
         let context = borrow_context(project_file)?;
         let Ok(mut context_ref) = context.try_borrow_mut() else {
@@ -681,9 +681,9 @@ impl MPPReader {
         Ok(())
     }
 
-    /// 设置 `config.setAutoOutlineNumber(flag)`。
+/// Sets `config.setAutoOutlineNumber(flag)`.
     ///
-    /// Java 在 `read(POIFSFileSystem)` 内直接赋值；Rust 侧抽成辅助函数。
+/// Java assigns directly inside `read(POIFSFileSystem)`; the Rust side extracts a helper function.
     fn set_auto_outline_number(
         &self,
         project_file: &Rc<RefCell<ProjectFile>>,
@@ -700,129 +700,129 @@ impl MPPReader {
         Ok(())
     }
 
-    /// 若本标志为 `true`，则直接取用 MS Project 的原始时间分段数据，不做归一化。
+/// If this flag is `true`, use MS Project's raw timephased data directly without normalization.
     ///
-    /// 对应 Java: `public boolean getUseRawTimephasedData()`
+    /// Corresponds to Java: `public boolean getUseRawTimephasedData()`
     pub fn get_use_raw_timephased_data(&self) -> bool {
         self.use_raw_timephased_data
     }
 
-    /// 设置「直接取用原始时间分段数据」标志。
+/// Sets the "use raw timephased data directly" flag.
     ///
-    /// 对应 Java: `public void setUseRawTimephasedData(boolean useRawTimephasedData)`
+    /// Corresponds to Java: `public void setUseRawTimephasedData(boolean useRawTimephasedData)`
     pub fn set_use_raw_timephased_data(&mut self, use_raw_timephased_data: bool) {
         self.use_raw_timephased_data = use_raw_timephased_data;
     }
 
-    /// 是否读取 MPP 文件中的展示数据（不读取可省时间与内存）。
+/// Whether to read presentation data in the MPP file (not reading it saves time and memory).
     ///
-    /// 对应 Java: `public boolean getReadPresentationData()`
+    /// Corresponds to Java: `public boolean getReadPresentationData()`
     pub fn get_read_presentation_data(&self) -> bool {
         self.read_presentation_data
     }
 
-    /// 设置「读取展示数据」标志。
+/// Sets the "read presentation data" flag.
     ///
-    /// 对应 Java: `public void setReadPresentationData(boolean readPresentationData)`
+    /// Corresponds to Java: `public void setReadPresentationData(boolean readPresentationData)`
     pub fn set_read_presentation_data(&mut self, read_presentation_data: bool) {
         self.read_presentation_data = read_presentation_data;
     }
 
-    /// 是否只读取项目属性（用于快速访问文档属性）。
+/// Whether to read only the project properties (for fast access to document properties).
     ///
-    /// 对应 Java: `public boolean getReadPropertiesOnly()`
+    /// Corresponds to Java: `public boolean getReadPropertiesOnly()`
     pub fn get_read_properties_only(&self) -> bool {
         self.read_properties_only
     }
 
-    /// 设置「只读取项目属性」标志。
+/// Sets the "read only project properties" flag.
     ///
-    /// 对应 Java: `public void setReadPropertiesOnly(boolean readPropertiesOnly)`
+    /// Corresponds to Java: `public void setReadPropertiesOnly(boolean readPropertiesOnly)`
     pub fn set_read_properties_only(&mut self, read_properties_only: bool) {
         self.read_properties_only = read_properties_only;
     }
 
-    /// 设置读取密码（读取受密码保护的 Project 文件时需要）。
+/// Sets the read password (needed to read a password-protected Project file).
     ///
-    /// 对应 Java: `public void setReadPassword(String password)`
+    /// Corresponds to Java: `public void setReadPassword(String password)`
     ///
-    /// Java 的 `null` → `None`。
+/// Java's `null` → `None`.
     pub fn set_read_password(&mut self, password: Option<String>) {
         self.read_password = password;
     }
 
-    /// 取读取密码（内部使用：受密码保护的 Project 文件需要它才能读取）。
+/// Gets the read password (internal use: a password-protected Project file needs it to be read).
     ///
-    /// 对应 Java: `public String getReadPassword()`
+    /// Corresponds to Java: `public String getReadPassword()`
     pub fn get_read_password(&self) -> Option<&str> {
         self.read_password.as_deref()
     }
 
-    /// 在支持该选项的格式上设为 `false` 可忽略密码保护。
+/// Setting it to `false` on formats that support the option ignores password protection.
     ///
-    /// 对应 Java: `public void setRespectPasswordProtection(boolean respectPasswordProtection)`
+    /// Corresponds to Java: `public void setRespectPasswordProtection(boolean respectPasswordProtection)`
     pub fn set_respect_password_protection(&mut self, respect_password_protection: bool) {
         self.respect_password_protection = respect_password_protection;
     }
 
-    /// 是否尊重密码保护。
+/// Whether to respect password protection.
     ///
-    /// 对应 Java: `public boolean getRespectPasswordProtection()`
+    /// Corresponds to Java: `public boolean getRespectPasswordProtection()`
     pub fn get_respect_password_protection(&self) -> bool {
         self.respect_password_protection
     }
 }
 
 impl Default for MPPReader {
-    /// 对应 Java: 隐式默认构造方法。
+/// Corresponds to Java: the implicit default constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ProjectReader for MPPReader {
-    /// 注册监听器。
+/// Registers a listener.
     ///
-    /// 对应 Java: `@Override public void addProjectListener(ProjectListener listener)`（继承自 `AbstractProjectReader`）
+/// Corresponds to Java: `@Override public void addProjectListener(ProjectListener listener)` (inherited from `AbstractProjectReader`)
     fn add_project_listener(&mut self, listener: Box<dyn crate::listener::project_listener::ProjectListener>) {
         self.add_project_listener_default(listener);
     }
 
-    /// 按路径读取一份 schedule。
+/// Reads a schedule from a path.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(File file)`
+    /// Corresponds to Java: `@Override public ProjectFile read(File file)`
     ///
-    /// Java 特意覆盖基类版本（而不是走 `AbstractProjectStreamReader` 的「开文件得流」），
-    /// 因为直接对 `File` 建 `POIFSFileSystem` 内存占用更低、也能打开更大的 MPP 文件。
-    /// Rust 侧同样直接把 [`std::fs::File`] 交给 [`PoifsFileSystem::new`]。
+/// Java deliberately overrides the base class version (instead of going through `AbstractProjectStreamReader`'s "open file, get stream"),
+/// because building a `POIFSFileSystem` directly from a `File` uses less memory and can open larger MPP files.
+/// The Rust side likewise passes [`std::fs::File`] directly to [`PoifsFileSystem::new`].
     fn read_file(&mut self, path: &Path) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         // Java: fs = new POIFSFileSystem(file); return read(fs);
-        // （Java 的 catch (IOException ex) → new MPXJException(READ_ERROR, ex) 由 ? 承担）
+// (Java's catch (IOException ex) → new MPXJException(READ_ERROR, ex) is handled by ?)
         let handle = File::open(path)?;
         let fs = PoifsFileSystem::new(handle)?;
 
         // Java: finally { AutoCloseableHelper.closeQuietly(fs); }
-        // —— Rust 侧 `fs` 随作用域 Drop（`PoifsFileSystem` 持有文件句柄）。
+// -- on the Rust side `fs` is dropped with the scope (`PoifsFileSystem` holds the file handle).
         self.read(&fs)
     }
 
-    /// 按路径读取全部 schedule（MPP 只含单份 schedule，故返回单元素列表）。
+/// Reads all schedules from a path (an MPP contains a single schedule, so a single-element list is returned).
     ///
-    /// 对应 Java: `AbstractProjectStreamReader.readAll(File file)`
+    /// Corresponds to Java: `AbstractProjectStreamReader.readAll(File file)`
     fn read_all_file(&mut self, path: &Path) -> MpxjResult<Vec<Rc<RefCell<ProjectFile>>>> {
         self.read_all_file_default(path)
     }
 
-    /// 从输入流读取一份 schedule。
+/// Reads a schedule from an input stream.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(InputStream inputStream)`
+    /// Corresponds to Java: `@Override public ProjectFile read(InputStream inputStream)`
     fn read_reader(&mut self, reader: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         self.read_stream(reader)
     }
 
-    /// 从输入流读取全部 schedule（MPP 只含单份 schedule，故返回单元素列表）。
+/// Reads all schedules from an input stream (an MPP contains a single schedule, so a single-element list is returned).
     ///
-    /// 对应 Java: `AbstractProjectStreamReader.readAll(InputStream inputStream)`
+    /// Corresponds to Java: `AbstractProjectStreamReader.readAll(InputStream inputStream)`
     fn read_all_reader(
         &mut self,
         reader: &mut dyn Read,
@@ -832,16 +832,16 @@ impl ProjectReader for MPPReader {
 }
 
 impl AbstractProjectReader for MPPReader {
-    /// 取已注册的监听器列表。
+/// Gets the registered listener list.
     ///
-    /// Rust 特有（Java 的 `m_projectListeners` 是私有字段）。
+/// Rust-specific (Java's `m_projectListeners` is a private field).
     fn project_listeners(&self) -> &[SharedProjectListener] {
         &self.listeners
     }
 
-    /// 取已注册的监听器列表（可变）。
+/// Gets the registered listener list (mutable).
     ///
-    /// Rust 特有（同上）。
+/// Rust-specific (same as above).
     fn project_listeners_mut(&mut self) -> &mut Vec<SharedProjectListener> {
         &mut self.listeners
     }
@@ -849,23 +849,23 @@ impl AbstractProjectReader for MPPReader {
 
 impl AbstractProjectStreamReader for MPPReader {}
 
-/// 对应 Java: `private static final Map<String, Class<? extends MPPVariantReader>> FILE_CLASS_MAP`
-/// 与其静态初始化块，以及 `read(POIFSFileSystem)` 中的
-/// `readerClass = FILE_CLASS_MAP.get(format)` / `readerClass.newInstance()`。
+/// Corresponds to Java: `private static final Map<String, Class<? extends MPPVariantReader>> FILE_CLASS_MAP`
+/// and its static initializer block, as well as in `read(POIFSFileSystem)`
+/// `readerClass = FILE_CLASS_MAP.get(format)` / `readerClass.newInstance()`.
 ///
-/// # 反射的还原
+/// # Restoring reflection
 ///
-/// Java 保存 `Class` 对象并反射创建实例；Rust 没有反射，改为「按格式名匹配后直接构造」。
-/// 对外行为与 Java 一致：已登记的格式名 → 对应变体 reader；未登记的格式（含 `null`）→ `None`
-/// （对应 Java 的 `null`）。副作用是 Java 侧 `newInstance()` 可能抛出的
-/// `InstantiationException` / `IllegalAccessException` 两个失败分支随之消失。
+/// Java stores `Class` objects and creates instances reflectively; Rust has no reflection, so it is changed to "match by format name and construct directly".
+/// External behavior is identical to Java: a registered format name → the corresponding variant reader; an unregistered format (including `null`) → `None`
+/// (corresponding to Java's `null`). The side effect is that the two failure branches of `newInstance()` on the Java side --
+/// `InstantiationException` / `IllegalAccessException` -- disappear as well.
 ///
-/// # 对相关模块的接口假设
+/// # Interface assumptions for related modules
 ///
-/// 见本文件头「对变体 reader 的接口假设」：四个变体类型各有无参构造方法 `new()` 并实现
-/// [`MPPVariantReader`]。
+/// See "Interface assumptions for the variant readers" in this file header: each of the four variant types has a no-argument constructor `new()` and implements
+/// [`MPPVariantReader`].
 fn file_class_map(format: Option<&str>) -> Option<Box<dyn MPPVariantReader>> {
-    // Java: FILE_CLASS_MAP.get(format) —— 键为 null 时返回 null
+// Java: FILE_CLASS_MAP.get(format) -- returns null when the key is null
     let format = format?;
 
     match format {
@@ -894,35 +894,35 @@ fn file_class_map(format: Option<&str>) -> Option<Box<dyn MPPVariantReader>> {
             Some(Box::new(MPP14Reader::new()))
         }
 
-        // Java: 未登记 → Map.get 返回 null → read 抛 INVALID_FILE + ": " + format
+// Java: unregistered → Map.get returns null → read throws INVALID_FILE + ": " + format
         _ => None,
     }
 }
 
-/// 借用项目文件（Rust 特有：Java 直接持有对象引用，无借用概念）。
+/// Borrows the project file (Rust-specific: Java holds an object reference directly and has no concept of borrowing).
 ///
-/// 对应 Java: 无（`ProjectFile projectFile` 局部变量本身）
+/// Corresponds to Java: none (the `ProjectFile projectFile` local variable itself)
 fn borrow_file(file: &Rc<RefCell<ProjectFile>>) -> MpxjResult<Ref<'_, ProjectFile>> {
     file.try_borrow().map_err(|_| borrow_conflict())
 }
 
-/// 可变借用项目文件（Rust 特有）。
+/// Mutably borrows the project file (Rust-specific).
 ///
-/// 对应 Java: 无（同上）
+/// Corresponds to Java: none (same as above)
 fn borrow_file_mut(file: &Rc<RefCell<ProjectFile>>) -> MpxjResult<RefMut<'_, ProjectFile>> {
     file.try_borrow_mut().map_err(|_| borrow_conflict())
 }
 
-/// 取项目文件的项目上下文（Rust 特有）。
+/// Gets the project context of the project file (Rust-specific).
 ///
-/// 对应 Java: `projectFile.getProjectContext()`（Java 无借用失败的可能）
+/// Corresponds to Java: `projectFile.getProjectContext()` (Java has no possibility of borrow failure)
 fn borrow_context(file: &Rc<RefCell<ProjectFile>>) -> MpxjResult<Rc<RefCell<ProjectContext>>> {
     Ok(borrow_file(file)?.get_project_context())
 }
 
-/// `RefCell` 借用冲突时的错误（Rust 特有：Java 是稳定引用，不存在该情形）。
+/// The error for a `RefCell` borrow conflict (Rust-specific: Java has stable references and no such case).
 ///
-/// 借用冲突意味着「调用方已持有可变/不可变引用」，读取无法继续，故按读取失败返回。
+/// A borrow conflict means "the caller already holds a mutable/immutable reference", so reading cannot continue and it is returned as a read failure.
 fn borrow_conflict() -> MpxjError {
     MpxjError::new(MpxjError::READ_ERROR)
 }
@@ -935,44 +935,44 @@ mod tests {
 
     use cfb::CompoundFile;
 
-    /// 在复合文档里写入指定的流（名字含控制字符也没问题）。
+/// Writes the specified stream into the compound document (a name containing control characters is fine).
     fn compound_file_with_streams(streams: &[(&str, &[u8])]) -> Vec<u8> {
-        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
+        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
 
         for (name, data) in streams {
             file.create_stream(name)
-                .expect("创建流")
+                .expect("create stream")
                 .write_all(data)
-                .expect("写入流");
+                .expect("write stream");
         }
 
         file.into_inner().into_inner()
     }
 
-    /// 按 CompObj 的布局拼出 `\1CompObj` 流的内容。
+/// Assembles the content of the `\1CompObj` stream according to the CompObj layout.
     ///
-    /// 与 `comp_obj.rs` 的测试常量保持一致：28 字节填充 + 长度前缀字符串。
+/// Kept consistent with the test constants in `comp_obj.rs`: 28 bytes of padding + length-prefixed strings.
     fn comp_obj_payload(application_name: &str, file_format: Option<&str>) -> Vec<u8> {
         let mut data = vec![0u8; 28];
         append_string(&mut data, application_name);
 
         if let Some(file_format) = file_format {
             append_string(&mut data, file_format);
-            // applicationID（长度 0 表示没有）
+// applicationID (a length of 0 means none)
             data.extend_from_slice(&0i32.to_le_bytes());
         }
 
         data
     }
 
-    /// 追加「长度（含结尾 0 字节）+ 内容 + 0 字节」。
+/// Appends "length (including the trailing 0 byte) + content + 0 byte".
     fn append_string(data: &mut Vec<u8>, value: &str) {
         data.extend_from_slice(&((value.len() + 1) as i32).to_le_bytes());
         data.extend_from_slice(value.as_bytes());
         data.push(0);
     }
 
-    /// 打开一份内存中的复合文档。
+/// Opens an in-memory compound document.
     fn open(bytes: Vec<u8>) -> MpxjResult<PoifsFileSystem> {
         Ok(PoifsFileSystem::new(Cursor::new(bytes))?)
     }
@@ -983,9 +983,9 @@ mod tests {
             "\u{1}CompObj",
             &comp_obj_payload("Microsoft Project 14.0", Some("MSProject.MPP14")),
         )]);
-        let fs = open(bytes).expect("打开复合文档");
+        let fs = open(bytes).expect("open compound document");
 
-        // Java: root.getEntryNames().contains("\1CompObj") 成立 → 解析 CompObj
+// Java: root.getEntryNames().contains("\1CompObj") holds → parse CompObj
         assert_eq!(
             MPPReader::get_file_format(&fs),
             Some("MSProject.MPP14".to_owned())
@@ -994,34 +994,34 @@ mod tests {
 
     #[test]
     fn get_file_format_is_none_without_the_comp_obj_stream() {
-        // 没有任何流的复合文档：Java 返回 ""（Rust 侧统一为 None）
-        let fs = open(compound_file_with_streams(&[])).expect("打开复合文档");
+// A compound document with no streams: Java returns "" (unified as None on the Rust side)
+        let fs = open(compound_file_with_streams(&[])).expect("open compound document");
         assert_eq!(MPPReader::get_file_format(&fs), None);
 
-        // 有别的流、但没有 \1CompObj：同样返回 None
-        let fs = open(compound_file_with_streams(&[("Props", b"props")])).expect("打开复合文档");
+// Other streams exist but no \1CompObj: also returns None
+        let fs = open(compound_file_with_streams(&[("Props", b"props")])).expect("open compound document");
         assert_eq!(MPPReader::get_file_format(&fs), None);
     }
 
     #[test]
     fn get_file_format_is_none_when_comp_obj_has_no_format() {
-        // applicationName 不是 "Microsoft Project 4.0" 且 fileFormat 长度为 0
+// applicationName is not "Microsoft Project 4.0" and the fileFormat length is 0
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Microsoft Project 9.0");
         payload.extend_from_slice(&0i32.to_le_bytes());
 
         let bytes = compound_file_with_streams(&[("\u{1}CompObj", &payload)]);
-        let fs = open(bytes).expect("打开复合文档");
+        let fs = open(bytes).expect("open compound document");
 
-        // Java: fileFormat = compObj.getFileFormat()（null）→ 返回 null
+// Java: fileFormat = compObj.getFileFormat() (null) → returns null
         assert_eq!(MPPReader::get_file_format(&fs), None);
     }
 
     #[test]
     fn get_file_format_is_none_for_a_damaged_comp_obj_stream() {
-        // 截断的 \1CompObj：Java 抛 EOFException；Rust 侧返回 None（不 panic）
+// Truncated \1CompObj: Java throws EOFException; the Rust side returns None (no panic)
         let bytes = compound_file_with_streams(&[("\u{1}CompObj", &[0u8; 4])]);
-        let fs = open(bytes).expect("打开复合文档");
+        let fs = open(bytes).expect("open compound document");
 
         assert_eq!(MPPReader::get_file_format(&fs), None);
     }
@@ -1032,12 +1032,12 @@ mod tests {
             "\u{1}CompObj",
             &comp_obj_payload("Microsoft Project 14.0", Some("MSProject.MPP99")),
         )]);
-        let fs = open(bytes).expect("打开复合文档");
+        let fs = open(bytes).expect("open compound document");
 
         let error = MPPReader::new()
             .read(&fs)
             .err()
-            .expect("未登记的格式应报错");
+            .expect("unregistered format should error");
 
         // Java: throw new MPXJException(MPXJException.INVALID_FILE + ": " + format);
         assert_eq!(
@@ -1048,43 +1048,43 @@ mod tests {
 
     #[test]
     fn read_reports_invalid_file_when_the_format_is_null() {
-        // fileFormat 缺失 → Java 的 FILE_CLASS_MAP.get(null) 返回 null → "Invalid file format: null"
+// fileFormat missing → Java's FILE_CLASS_MAP.get(null) returns null → "Invalid file format: null"
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Microsoft Project 9.0");
         payload.extend_from_slice(&0i32.to_le_bytes());
 
         let bytes = compound_file_with_streams(&[("\u{1}CompObj", &payload)]);
-        let fs = open(bytes).expect("打开复合文档");
+        let fs = open(bytes).expect("open compound document");
 
-        let error = MPPReader::new().read(&fs).err().expect("应报错");
+        let error = MPPReader::new().read(&fs).err().expect("should error");
         assert_eq!(error.message(), "Invalid file format: null".to_owned());
     }
 
     #[test]
     fn read_reports_an_error_when_the_comp_obj_stream_is_missing() {
-        // Java 侧此处是 NullPointerException（未捕获）；Rust 侧转为 Err，不 panic
-        let fs = open(compound_file_with_streams(&[])).expect("打开复合文档");
+// On the Java side this is a NullPointerException (uncaught); the Rust side converts it to Err without panicking
+        let fs = open(compound_file_with_streams(&[])).expect("open compound document");
 
-        let error = MPPReader::new().read(&fs).err().expect("应报错");
+        let error = MPPReader::new().read(&fs).err().expect("should error");
         assert_eq!(error.message(), MpxjError::INVALID_FILE);
     }
 
     #[test]
     fn empty_and_damaged_files_are_reported_as_read_errors() {
-        // 空输入：POI 构造 POIFSFileSystem 时抛 IOException → READ_ERROR
+// Empty input: POI throws IOException when constructing POIFSFileSystem → READ_ERROR
         assert!(PoifsFileSystem::new(Cursor::new(Vec::new())).is_err());
-        // 16 个 0 字节的垃圾数据：同样打不开（不 panic）
+// 16 zero bytes of garbage data: likewise cannot be opened (no panic)
         assert!(PoifsFileSystem::new(Cursor::new(vec![0u8; 16])).is_err());
 
-        // `read(InputStream)` 路径：走 read_stream_into_cursor + PoifsFileSystem::new
+// `read(InputStream)` path: goes through read_stream_into_cursor + PoifsFileSystem::new
         let mut reader = MPPReader::new();
         let error = reader
             .read_reader(&mut &b"not an OLE compound document"[..])
             .err()
-            .expect("应报错");
+            .expect("should error");
         assert!(error.message().starts_with(MpxjError::READ_ERROR));
 
-        // 空流
+// Empty stream
         assert!(reader.read_reader(&mut std::io::empty()).is_err());
     }
 
@@ -1098,12 +1098,12 @@ mod tests {
             "\u{1}CompObj",
             &comp_obj_payload("Microsoft Project 9.0", Some("MSProject.MPP99")),
         )]);
-        std::fs::write(&path, bytes).expect("写入测试文件");
+        std::fs::write(&path, bytes).expect("write test file");
 
         let error = MPPReader::new()
             .read_file(&path)
             .err()
-            .expect("未登记的格式应报错");
+            .expect("unregistered format should error");
 
         assert_eq!(
             error.message(),
@@ -1112,11 +1112,11 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
 
-        // 不存在的路径：Java 抛 IOException → READ_ERROR
+// Nonexistent path: Java throws IOException → READ_ERROR
         let error = MPPReader::new()
             .read_file(Path::new("no-such-dir/no-such-file.mpp"))
             .err()
-            .expect("不存在的路径应报错");
+            .expect("non-existent path should error");
         assert!(error.message().starts_with(MpxjError::READ_ERROR));
     }
 
@@ -1143,14 +1143,14 @@ mod tests {
         assert!(!reader.get_respect_password_protection());
         assert_eq!(reader.get_read_password(), Some("secret"));
 
-        // Java 的 setReadPassword(null) 等价于 None
+// Java's setReadPassword(null) is equivalent to None
         reader.set_read_password(None);
         assert_eq!(reader.get_read_password(), None);
     }
 
     #[test]
     fn file_class_map_covers_exactly_the_java_entries() {
-        // FILE_CLASS_MAP 的 11 个键都应能选出变体 reader
+// All 11 keys of FILE_CLASS_MAP should select a variant reader
         for format in [
             "MSProject.MPP9",
             "MSProject.MPT9",
@@ -1166,11 +1166,11 @@ mod tests {
         ] {
             assert!(
                 file_class_map(Some(format)).is_some(),
-                "{format} 应能选出变体 reader"
+                "{format} should select a variant reader"
             );
         }
 
-        // 未登记的格式与 null（Java 的 Map.get 返回 null）
+// Unregistered format and null (Java's Map.get returns null)
         assert!(file_class_map(Some("MSProject.MPP4")).is_none());
         assert!(file_class_map(Some("")).is_none());
         assert!(file_class_map(None).is_none());
@@ -1178,7 +1178,7 @@ mod tests {
 
     #[test]
     fn baseline_field_table_matches_the_java_static_block() {
-        // Java 的 TASK_ESTIMATED_BASELINE_FIELDS 共 11 组 × 3 个字段
+// Java's TASK_ESTIMATED_BASELINE_FIELDS has 11 groups × 3 fields
         assert_eq!(TASK_ESTIMATED_BASELINE_FIELDS.len(), 33);
 
         assert_eq!(

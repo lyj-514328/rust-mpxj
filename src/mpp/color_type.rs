@@ -1,72 +1,72 @@
-//! 对应 Java: `org/mpxj/mpp/ColorType.java`
+//! Corresponds to Java: `org/mpxj/mpp/ColorType.java`
 //!
-//! Microsoft Project 使用的颜色枚举（注意：这是 MPXJ 自己的颜色枚举，
-//! 不是 `java.awt.Color`）。
+//! Color enum used by Microsoft Project (note: this is MPXJ's own color enum,
+//! not `java.awt.Color`).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum ColorType implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | 构造参数 `java.awt.Color color` / `Color getColor()` | [`crate::mpp::mpp_utility::Color`] + `Option<Color>` | `java.awt.*` 属跳过项；Rust 侧复用 `crate::mpp::mpp_utility::Color`（`MPPUtility.get_color` 的返回值类型），并只保留 R/G/B 分量。Java 中 `AUTOMATIC` 的颜色为 `null`，故 getter 返回 `Option<Color>` |
-//! | `private static final ColorType[] TYPE_VALUES = EnumHelper.createTypeArray(ColorType.class)` | [`ColorType::get_instance`] 的 `match` + [`ColorType::ALL`] | 表长 17（偏移 0），取值 0..16 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getInstance(Number type)` | [`ColorType::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀 |
-//! | 未覆写 `toString()`（继承 `java.lang.Enum.toString()`，输出**常量名**） | `Display`，输出 `BLACK` / `RED` / … / `AUTOMATIC` | Java 枚举即使未覆写也有 `toString()`，其值就是常量名；注意这与 `getName()`（`"Black"` 等）不同 |
+//! | `public enum ColorType implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | constants are ordered by the Java declaration order and the discriminant is the Java int value |
+//! | constructor parameter `java.awt.Color color` / `Color getColor()` | [`crate::mpp::mpp_utility::Color`] + `Option<Color>` | `java.awt.*` is a skipped item; Rust reuses `crate::mpp::mpp_utility::Color` (the return type of `MPPUtility.get_color`) and keeps only the R/G/B components. In Java the color of `AUTOMATIC` is `null`, so the getter returns `Option<Color>` |
+//! | `private static final ColorType[] TYPE_VALUES = EnumHelper.createTypeArray(ColorType.class)` | `match` in [`ColorType::get_instance`] + [`ColorType::ALL`] | table length 17 (offset 0); values 0..16 are all populated, so Java's `getInstance` never returns `null` |
+//! | `getInstance(Number type)` | [`ColorType::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added |
+//! | does not override `toString()` (inherits `java.lang.Enum.toString()`, which outputs the **constant name**) | `Display`, outputting `BLACK` / `RED` / … / `AUTOMATIC` | A Java enum has `toString()` even when it is not overridden, and its value is the constant name; note this differs from `getName()` (`"Black"` etc.) |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*`（含 `java.awt.*`）/ `Serializable`：
-//! 除颜色常量本身外，本类未使用这些机制。
+//! Skipped Java members: reflection-based table creation of `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` (including `java.awt.*`) / `Serializable`:
+//! apart from the color constants themselves, this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpp::mpp_utility::Color;
 use crate::mpxj_enum::MpxjEnum;
 
-/// Microsoft Project 使用的颜色。
+/// Color used by Microsoft Project.
 ///
-/// 对应 Java: `public enum ColorType`
+/// Corresponds to Java: `public enum ColorType`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorType {
-    /// 对应 Java: `BLACK(0, "Black", Color.BLACK)`
+    /// Corresponds to Java: `BLACK(0, "Black", Color.BLACK)`
     Black = 0,
-    /// 对应 Java: `RED(1, "Red", Color.RED)`
+    /// Corresponds to Java: `RED(1, "Red", Color.RED)`
     Red = 1,
-    /// 对应 Java: `YELLOW(2, "Yellow", Color.YELLOW)`
+    /// Corresponds to Java: `YELLOW(2, "Yellow", Color.YELLOW)`
     Yellow = 2,
-    /// 对应 Java: `LIME(3, "Lime", new Color(148, 255, 148))`
+    /// Corresponds to Java: `LIME(3, "Lime", new Color(148, 255, 148))`
     Lime = 3,
-    /// 对应 Java: `AQUA(4, "Aqua", new Color(194, 220, 255))`
+    /// Corresponds to Java: `AQUA(4, "Aqua", new Color(194, 220, 255))`
     Aqua = 4,
-    /// 对应 Java: `BLUE(5, "Blue", Color.BLUE)`
+    /// Corresponds to Java: `BLUE(5, "Blue", Color.BLUE)`
     Blue = 5,
-    /// 对应 Java: `FUSCHIA(6, "Fuschia", Color.MAGENTA)`
+    /// Corresponds to Java: `FUSCHIA(6, "Fuschia", Color.MAGENTA)`
     Fuschia = 6,
-    /// 对应 Java: `WHITE(7, "White", Color.WHITE)`
+    /// Corresponds to Java: `WHITE(7, "White", Color.WHITE)`
     White = 7,
-    /// 对应 Java: `MAROON(8, "Maroon", new Color(128, 0, 0))`
+    /// Corresponds to Java: `MAROON(8, "Maroon", new Color(128, 0, 0))`
     Maroon = 8,
-    /// 对应 Java: `GREEN(9, "Green", new Color(0, 128, 0))`
+    /// Corresponds to Java: `GREEN(9, "Green", new Color(0, 128, 0))`
     Green = 9,
-    /// 对应 Java: `OLIVE(10, "Olive", new Color(128, 128, 0))`
+    /// Corresponds to Java: `OLIVE(10, "Olive", new Color(128, 128, 0))`
     Olive = 10,
-    /// 对应 Java: `NAVY(11, "Navy", new Color(0, 0, 128))`
+    /// Corresponds to Java: `NAVY(11, "Navy", new Color(0, 0, 128))`
     Navy = 11,
-    /// 对应 Java: `PURPLE(12, "Purple", new Color(128, 0, 128))`
+    /// Corresponds to Java: `PURPLE(12, "Purple", new Color(128, 0, 128))`
     Purple = 12,
-    /// 对应 Java: `TEAL(13, "Teal", new Color(0, 128, 128))`
+    /// Corresponds to Java: `TEAL(13, "Teal", new Color(0, 128, 128))`
     Teal = 13,
-    /// 对应 Java: `GRAY(14, "Gray", new Color(128, 128, 128))`
+    /// Corresponds to Java: `GRAY(14, "Gray", new Color(128, 128, 128))`
     Gray = 14,
-    /// 对应 Java: `SILVER(15, "Silver", new Color(192, 192, 192))`
+    /// Corresponds to Java: `SILVER(15, "Silver", new Color(192, 192, 192))`
     Silver = 15,
-    /// 对应 Java: `AUTOMATIC(16, "Automatic", null)`
+    /// Corresponds to Java: `AUTOMATIC(16, "Automatic", null)`
     Automatic = 16,
 }
 
 impl ColorType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declarations.
     ///
-    /// 对应 Java: `private static final ColorType[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final ColorType[] TYPE_VALUES` (after removing the reflection-based table creation).
     pub const ALL: [ColorType; 17] = [
         ColorType::Black,
         ColorType::Red,
@@ -87,12 +87,12 @@ impl ColorType {
         ColorType::Automatic,
     ];
 
-    /// 按 int 值取枚举实例。
+/// Gets the enum instance by int value.
     ///
-    /// 对应 Java: `public static ColorType getInstance(int type)`
+    /// Corresponds to Java: `public static ColorType getInstance(int type)`
     ///
-    /// Java 的查找表长度为 17（`createTypeArray` 偏移 0），0..16 全部被填充，
-    /// 越界时先回落到 `AUTOMATIC.getValue()`（16）再取表，故方法不会返回 `null`。
+/// Java's lookup table length is 17 (`createTypeArray` offset 0) and 0..16 are all populated,
+/// so on out of bounds it first falls back to `AUTOMATIC.getValue()` (16) and then indexes the table; the method therefore never returns `null`.
     pub fn get_instance(value: i32) -> ColorType {
         match value {
             0 => ColorType::Black,
@@ -117,16 +117,16 @@ impl ColorType {
         }
     }
 
-    /// 对应 Java: `public static ColorType getInstance(Number type)`
+    /// Corresponds to Java: `public static ColorType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `AUTOMATIC`。
+/// On the Java side `null` goes through `getInstance(-1)` and finally falls back to `AUTOMATIC`.
     pub fn get_instance_optional(value: Option<i32>) -> ColorType {
         ColorType::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取颜色名称（未做本地化）。
+/// Gets the color name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             ColorType::Black => "Black",
@@ -149,9 +149,9 @@ impl ColorType {
         }
     }
 
-    /// 取与 MS Project 中该颜色对应的颜色值；`AUTOMATIC` 返回 `None`。
+/// Gets the color value corresponding to this color in MS Project; `AUTOMATIC` returns `None`.
     ///
-    /// 对应 Java: `public Color getColor()`（Java 注释：`AUTOMATIC` 时返回 `null`）
+/// Corresponds to Java: `public Color getColor()` (Java comment: returns `null` for `AUTOMATIC`)
     pub fn get_color(&self) -> Option<Color> {
         match self {
             ColorType::Black => Some(Color::new(0, 0, 0)),
@@ -176,17 +176,17 @@ impl ColorType {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for ColorType {
-    /// 对应 Java: 继承自 `java.lang.Enum` 的 `toString()`
+/// Corresponds to Java: `toString()` inherited from `java.lang.Enum`
     ///
-    /// Java 的 `Enum.toString()` 返回常量名（如 `AUTOMATIC`），本类未覆写，故 Rust 侧
-    /// 输出同样的常量名（与 [`ColorType::get_name`] 的 `"Automatic"` 不同）。
+/// Java's `Enum.toString()` returns the constant name (e.g. `AUTOMATIC`); this class does not override it, so the Rust side
+/// outputs the same constant name (different from `"Automatic"` of [`ColorType::get_name`]).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             ColorType::Black => "BLACK",
@@ -211,14 +211,14 @@ impl Display for ColorType {
 }
 
 impl MpxjEnum for ColorType {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<ColorType> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`ColorType::get_value`]。
+/// Rust-specific convenience conversion, equivalent to [`ColorType::get_value`].
     fn from(value: ColorType) -> i32 {
         value.get_value()
     }
@@ -228,7 +228,7 @@ impl From<ColorType> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant is the Java int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in ColorType::ALL.iter().enumerate() {
@@ -238,7 +238,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 AUTOMATIC（Java 不会返回 null）。
+/// Out of bounds falls back to AUTOMATIC (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_automatic() {
         for value in [-1, -100, 17, 18, 1000, i32::MAX, i32::MIN] {
@@ -254,7 +254,7 @@ mod tests {
         );
     }
 
-    /// 名称与 Java 一致。
+/// Name matches Java.
     #[test]
     fn names_match_java() {
         assert_eq!(ColorType::Black.get_name(), "Black");
@@ -265,7 +265,7 @@ mod tests {
         }
     }
 
-    /// `toString()`（Java 的 `Enum.toString()`）输出常量名，与 `getName()` 不同。
+/// `toString()` (Java's `Enum.toString()`) outputs the constant name, unlike `getName()`.
     #[test]
     fn to_string_outputs_the_java_constant_name() {
         assert_eq!(ColorType::Black.to_string(), "BLACK");
@@ -274,7 +274,7 @@ mod tests {
         assert_ne!(ColorType::Automatic.to_string(), ColorType::Automatic.get_name());
     }
 
-    /// 颜色分量与 Java 的 `java.awt.Color` 取值一致；AUTOMATIC 为 null。
+/// Color components match the values of Java's `java.awt.Color`; AUTOMATIC is null.
     #[test]
     fn colors_match_java_awt_values() {
         assert_eq!(ColorType::Black.get_color(), Some(Color::new(0, 0, 0)));
@@ -303,10 +303,10 @@ mod tests {
             Some(Color::new(192, 192, 192))
         );
 
-        // Java: AUTOMATIC 的颜色为 null
+// Java: the color of AUTOMATIC is null
         assert_eq!(ColorType::Automatic.get_color(), None);
 
-        // 除 AUTOMATIC 外全部有颜色
+// all except AUTOMATIC have a color
         assert_eq!(
             ColorType::ALL
                 .iter()

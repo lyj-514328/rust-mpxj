@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/mpp/DataAtOffset.java`
+//! Corresponds to Java: `org/mpxj/mpp/DataAtOffset.java`
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use uuid::Uuid;
@@ -8,60 +8,60 @@ use crate::duration::Duration;
 use crate::mpp::mpp_utility::MppUtility;
 use crate::time_unit::TimeUnit;
 
-/// 协助解读 MPP 文件中数据存储方式的工具类。
+/// Utility class to help interpret how data is stored in an MPP file.
 ///
-/// 对应 Java: `public class DataAtOffset`
+/// Corresponds to Java: `public class DataAtOffset`
 ///
-/// 给定一个字节数组与一个偏移量，本类把该偏移处可能代表的**各种**取值一次性算出来
-/// （1 / 2 / 4 / 6 / 8 / 16 字节窗口），供调试工具按需取用。
+/// Given a byte array and an offset, this class computes **all** possible values that the offset could represent
+/// at once (1 / 2 / 4 / 6 / 8 / 16 byte windows), for debugging tools to use as needed.
 ///
-/// # 移植说明（取舍）
+/// # Porting notes (trade-offs)
 ///
-/// - Java 的 `Integer` / `Long` / `Double` 包装类型对应 Rust 的 `Option<i32>` /
-///   `Option<i64>` / `Option<f64>`：Java 在窗口长度不足时把它们置为 `null`。
-/// - Java 的 `m_workTimeUnit` 字段声明为非 null（`MPPUtility.getByte(data, offset)`
-///   越界时抛 `ArrayIndexOutOfBoundsException`）；Rust 侧不 panic，越界时置为 `None`。
-///   因此 `getWorkTimeUnit()` 在 Rust 里返回 `Option<TimeUnit>`。
-/// - Java 的 `Duration` 是 `crate::duration::Duration`（工期），不是 `std::time::Duration`。
-/// - 其余字段与 Java 一一对应：窗口长度不足时按 Java 的 else 分支置 `None`。
-///   长度判断沿用 Java 的 `offset + N <= data.length`，所以所有对 `data` 的读取都在界内。
+/// - Java's `Integer` / `Long` / `Double` wrapper types correspond to Rust's `Option<i32>` /
+/// `Option<i64>` / `Option<f64>`: Java sets them to `null` when the window is too short.
+/// - Java's `m_workTimeUnit` field is declared non-null (`MPPUtility.getByte(data, offset)`
+/// throws `ArrayIndexOutOfBoundsException` when out of bounds); Rust does not panic and sets it to `None` when out of bounds.
+/// Therefore `getWorkTimeUnit()` returns `Option<TimeUnit>` in Rust.
+/// - Java's `Duration` is `crate::duration::Duration` (a duration), not `std::time::Duration`.
+/// - The remaining fields map one-to-one to Java: when the window is too short they are set to `None` per Java's else branch.
+/// The length check follows Java's `offset + N <= data.length`, so all reads of `data` are in bounds.
 pub struct DataAtOffset {
-    /// 对应 Java 字段 `m_short`
+    /// Corresponds to Java field `m_short`
     m_short: Option<i32>,
-    /// 对应 Java 字段 `m_timeUnit`
+    /// Corresponds to Java field `m_timeUnit`
     m_time_unit: Option<TimeUnit>,
-    /// 对应 Java 字段 `m_percentage`
+    /// Corresponds to Java field `m_percentage`
     m_percentage: Option<f64>,
-    /// 对应 Java 字段 `m_date`
+    /// Corresponds to Java field `m_date`
     m_date: Option<NaiveDate>,
-    /// 对应 Java 字段 `m_time`
+    /// Corresponds to Java field `m_time`
     m_time: Option<NaiveTime>,
-    /// 对应 Java 字段 `m_workTimeUnit`
+    /// Corresponds to Java field `m_workTimeUnit`
     m_work_time_unit: Option<TimeUnit>,
-    /// 对应 Java 字段 `m_timestamp`
+    /// Corresponds to Java field `m_timestamp`
     m_timestamp: Option<NaiveDateTime>,
-    /// 对应 Java 字段 `m_longSix`
+    /// Corresponds to Java field `m_longSix`
     m_long_six: Option<i64>,
-    /// 对应 Java 字段 `m_long`
+    /// Corresponds to Java field `m_long`
     m_long: Option<i64>,
-    /// 对应 Java 字段 `m_double`
+    /// Corresponds to Java field `m_double`
     m_double: Option<f64>,
-    /// 对应 Java 字段 `m_duration`
+    /// Corresponds to Java field `m_duration`
     m_duration: Option<Duration>,
-    /// 对应 Java 字段 `m_guid`
+    /// Corresponds to Java field `m_guid`
     m_guid: Option<Uuid>,
 }
 
 impl DataAtOffset {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public DataAtOffset(byte[] data, int offset)`
+    /// Corresponds to Java: `public DataAtOffset(byte[] data, int offset)`
     pub fn new(data: &[u8], offset: usize) -> Self {
         //
         // 1 byte
         //
-        // Java 侧此处直接取 `data[offset]`，越界会抛 ArrayIndexOutOfBoundsException；
-        // Rust 侧越界时回落为 None（不 panic）。
+// Java reads `data[offset]` directly here, which throws ArrayIndexOutOfBoundsException when out of bounds;
+// Rust falls back to None when out of bounds (without panicking).
         let m_work_time_unit = if offset < data.len() {
             Some(MppUtility::get_work_time_units(MppUtility::get_byte(
                 data, offset,
@@ -146,86 +146,86 @@ impl DataAtOffset {
         }
     }
 
-    /// 取短整型值。
+/// Get the short value.
     ///
-    /// 对应 Java: `public Integer getShort()`
+    /// Corresponds to Java: `public Integer getShort()`
     pub fn get_short(&self) -> Option<i32> {
         self.m_short
     }
 
-    /// 取时间单位值。
+/// Get the time unit value.
     ///
-    /// 对应 Java: `public TimeUnit getTimeUnit()`
+    /// Corresponds to Java: `public TimeUnit getTimeUnit()`
     pub fn get_time_unit(&self) -> Option<TimeUnit> {
         self.m_time_unit
     }
 
-    /// 取百分比值。
+/// Get the percentage value.
     ///
-    /// 对应 Java: `public Double getPercentage()`
+    /// Corresponds to Java: `public Double getPercentage()`
     pub fn get_percentage(&self) -> Option<f64> {
         self.m_percentage
     }
 
-    /// 取日期值。
+/// Get the date value.
     ///
-    /// 对应 Java: `public LocalDate getDate()`
+    /// Corresponds to Java: `public LocalDate getDate()`
     pub fn get_date(&self) -> Option<NaiveDate> {
         self.m_date
     }
 
-    /// 取时间值。
+/// Get the time value.
     ///
-    /// 对应 Java: `public LocalTime getTime()`
+    /// Corresponds to Java: `public LocalTime getTime()`
     pub fn get_time(&self) -> Option<NaiveTime> {
         self.m_time
     }
 
-    /// 取工时单位值。
+/// Get the work time unit value.
     ///
-    /// 对应 Java: `public TimeUnit getWorkTimeUnit()`
+    /// Corresponds to Java: `public TimeUnit getWorkTimeUnit()`
     pub fn get_work_time_unit(&self) -> Option<TimeUnit> {
         self.m_work_time_unit
     }
 
-    /// 取时间戳值。
+/// Get the timestamp value.
     ///
-    /// 对应 Java: `public LocalDateTime getTimestamp()`
+    /// Corresponds to Java: `public LocalDateTime getTimestamp()`
     pub fn get_timestamp(&self) -> Option<NaiveDateTime> {
         self.m_timestamp
     }
 
-    /// 取六字节长整型值。
+/// Get the six-byte long value.
     ///
-    /// 对应 Java: `public Long getLongSix()`
+    /// Corresponds to Java: `public Long getLongSix()`
     pub fn get_long_six(&self) -> Option<i64> {
         self.m_long_six
     }
 
-    /// 取长整型值。
+/// Get the long value.
     ///
-    /// 对应 Java: `public Long getLong()`
+    /// Corresponds to Java: `public Long getLong()`
     pub fn get_long(&self) -> Option<i64> {
         self.m_long
     }
 
-    /// 取双精度浮点值。
+/// Get the double value.
     ///
-    /// 对应 Java: `public Double getDouble()`
+    /// Corresponds to Java: `public Double getDouble()`
     pub fn get_double(&self) -> Option<f64> {
         self.m_double
     }
 
-    /// 取工期值。
+/// Get the duration value.
     ///
-    /// 对应 Java: `public Duration getDuration()`
+    /// Corresponds to Java: `public Duration getDuration()`
     pub fn get_duration(&self) -> Option<Duration> {
         self.m_duration
     }
 
-    /// 取 UUID 值。
+/// Get the UUID value.
     ///
-    /// 对应 Java: `public UUID getGuid()`
+    /// Corresponds to Java: `public UUID getGuid()`
     pub fn get_guid(&self) -> Option<Uuid> {
         self.m_guid
     }
@@ -236,26 +236,26 @@ mod tests {
     use super::*;
     use chrono::Days;
 
-    /// 8 字节窗口：小端 1.0 的 IEEE754 表示。
+/// 8-byte window: the little-endian IEEE754 representation of 1.0.
     const DOUBLE_ONE: [u8; 8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F];
 
-    /// MPP 的日期纪元（见 `MicrosoftProjectConstants.EPOCH_DATE`）。
+/// The MPP date epoch (see `MicrosoftProjectConstants.EPOCH_DATE`).
     fn epoch() -> NaiveDate {
         NaiveDate::from_ymd_opt(1983, 12, 31).unwrap()
     }
 
     #[test]
     fn two_byte_window_is_decoded_in_several_ways() {
-        // 偏移 0 的 2 字节 = 50
+// 2 bytes at offset 0 = 50
         let data = [0x32u8, 0x00];
         let value = DataAtOffset::new(&data, 0);
 
         assert_eq!(value.get_short(), Some(50));
-        // 百分比取值区间为 0..=100
+// the percentage value range is 0..=100
         assert_eq!(value.get_percentage(), Some(50.0));
-        // 日期为纪元 + 50 天
+// the date is epoch + 50 days
         assert_eq!(value.get_date(), epoch().checked_add_days(Days::new(50)));
-        // 时间为 50 个十分之一分钟 = 300 秒
+// the time is 50 tenths of a minute = 300 seconds
         assert_eq!(value.get_time(), Some(NaiveTime::from_hms_opt(0, 5, 0).unwrap()));
         assert!(value.get_time_unit().is_some());
         assert!(value.get_work_time_unit().is_some());
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn timestamp_and_date_use_the_same_two_byte_window() {
-        // 偏移 0 的 2 字节 = 50（时间 300 秒），偏移 2 的 2 字节 = 2（纪元 + 2 天）
+// 2 bytes at offset 0 = 50 (time 300 seconds), 2 bytes at offset 2 = 2 (epoch + 2 days)
         let data = [0x32u8, 0x00, 0x02, 0x00];
         let value = DataAtOffset::new(&data, 0);
 
@@ -287,8 +287,8 @@ mod tests {
 
     #[test]
     fn not_applicable_dates_are_reported_as_absent() {
-        // Java: 65535 表示 NA（日期为 null）；时间仍按「十分之一分钟」换算，
-        // 6553 * 60 = 393180 秒，超过一天后取模得到 47580 秒 = 13:13:00
+// Java: 65535 means NA (the date is null); the time is still converted as tenths of a minute,
+// 6553 * 60 = 393180 seconds, which after taking the modulo past one day gives 47580 seconds = 13:13:00
         let value = DataAtOffset::new(&[0xFFu8, 0xFF], 0);
         assert_eq!(value.get_date(), None);
         assert_eq!(
@@ -300,9 +300,9 @@ mod tests {
     #[test]
     fn longer_windows_are_read_at_the_requested_offset() {
         let mut data = vec![0u8; 32];
-        // 偏移 8：8 字节 double = 1.0
+// offset 8: 8-byte double = 1.0
         data[8..16].copy_from_slice(&DOUBLE_ONE);
-        // 偏移 16：16 字节 GUID（非全零）
+// offset 16: 16-byte GUID (not all zeros)
         for (index, item) in data[16..32].iter_mut().enumerate() {
             *item = index as u8;
         }
@@ -321,14 +321,14 @@ mod tests {
 
     #[test]
     fn six_byte_window_is_read_little_endian() {
-        // 偏移 0 的 6 字节 = 0x58 | 0x02 << 8 | 0x02 << 16
+// 6 bytes at offset 0 = 0x58 | 0x02 << 8 | 0x02 << 16
         let value = DataAtOffset::new(&[0x58u8, 0x02, 0x02, 0x00, 0x00, 0x00], 0);
         assert_eq!(value.get_long_six(), Some(0x02_0258));
     }
 
     #[test]
     fn short_buffers_leave_longer_windows_empty() {
-        // 只有 1 字节：除 1 字节窗口（工时单位）外全部为 None
+// only 1 byte: all are None except the 1-byte window (work time unit)
         let data = [0x03u8];
         let value = DataAtOffset::new(&data, 0);
 
@@ -348,25 +348,25 @@ mod tests {
 
     #[test]
     fn window_sizes_follow_the_java_checks() {
-        // 3 字节：2 字节窗口可用，4 / 6 / 8 / 16 字节窗口不可用
+// 3 bytes: the 2-byte window is available; the 4 / 6 / 8 / 16 byte windows are not
         let value = DataAtOffset::new(&[0x58, 0x02, 0x00], 0);
         assert!(value.get_short().is_some());
         assert_eq!(value.get_timestamp(), None);
         assert_eq!(value.get_long_six(), None);
 
-        // 5 字节：4 字节窗口可用，6 字节窗口不可用
+// 5 bytes: the 4-byte window is available; the 6-byte window is not
         let value = DataAtOffset::new(&[0x58, 0x02, 0x02, 0x00, 0x00], 0);
         assert!(value.get_timestamp().is_some());
         assert_eq!(value.get_long_six(), None);
 
-        // 7 字节：6 字节窗口可用，8 字节窗口不可用
+// 7 bytes: the 6-byte window is available; the 8-byte window is not
         let value = DataAtOffset::new(&[0u8; 7], 0);
         assert!(value.get_long_six().is_some());
         assert_eq!(value.get_long(), None);
         assert_eq!(value.get_double(), None);
         assert_eq!(value.get_duration(), None);
 
-        // 15 字节：8 字节窗口可用，16 字节窗口不可用
+// 15 bytes: the 8-byte window is available; the 16-byte window is not
         let value = DataAtOffset::new(&[0u8; 15], 0);
         assert!(value.get_double().is_some());
         assert_eq!(value.get_guid(), None);
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn offset_past_the_end_of_the_buffer_yields_none_everywhere() {
-        // Java 侧取 `data[offset]` 会抛 ArrayIndexOutOfBoundsException，Rust 侧全部为 None
+// Java's `data[offset]` throws ArrayIndexOutOfBoundsException; Rust returns None for all
         let value = DataAtOffset::new(&[0x01, 0x02, 0x03], 8);
 
         assert_eq!(value.get_work_time_unit(), None);
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn all_zero_guid_is_reported_as_absent() {
-        // Java: `MPPUtility.getGUID` 对全零的 16 字节返回 null
+// Java: `MPPUtility.getGUID` returns null for 16 all-zero bytes
         let data = [0u8; 16];
         let value = DataAtOffset::new(&data, 0);
 

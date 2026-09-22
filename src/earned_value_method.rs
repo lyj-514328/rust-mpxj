@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/EarnedValueMethod.java`
+//! Corresponds to Java: `org/mpxj/EarnedValueMethod.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 挣值（Earned Value）计算方法。
+/// Earned Value calculation method.
 ///
-/// 对应 Java: `public enum EarnedValueMethod implements MpxjEnum`
+/// Corresponds to Java: `public enum EarnedValueMethod implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(EarnedValueMethod.class)` 生成查找表：数组长度
-/// 为 2，取值 0/1 恰好填满，因此 `getInstance` 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(EarnedValueMethod.class)` builds the lookup table: the array length is
+/// 2, and the values 0/1 fill it exactly, so `getInstance` never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EarnedValueMethod {
-    /// 对应 Java: `PERCENT_COMPLETE(0)`
+    /// Corresponds to Java: `PERCENT_COMPLETE(0)`
     PercentComplete = 0,
-    /// 对应 Java: `PHYSICAL_PERCENT_COMPLETE(1)`
+    /// Corresponds to Java: `PHYSICAL_PERCENT_COMPLETE(1)`
     PhysicalPercentComplete = 1,
 }
 
 impl EarnedValueMethod {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final EarnedValueMethod[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final EarnedValueMethod[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [EarnedValueMethod; 2] = [
         EarnedValueMethod::PercentComplete,
         EarnedValueMethod::PhysicalPercentComplete,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `PHYSICAL_PERCENT_COMPLETE`。
+    /// Returns the enum instance for the given int value, falling back to `PHYSICAL_PERCENT_COMPLETE` when out of bounds.
     ///
-    /// 对应 Java: `public static EarnedValueMethod getInstance(int type)`
+    /// Corresponds to Java: `public static EarnedValueMethod getInstance(int type)`
     pub fn get_instance(value: i32) -> EarnedValueMethod {
         match value {
             0 => EarnedValueMethod::PercentComplete,
@@ -37,16 +37,16 @@ impl EarnedValueMethod {
         }
     }
 
-    /// 对应 Java: `public static EarnedValueMethod getInstance(Number type)`
+    /// Corresponds to Java: `public static EarnedValueMethod getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `PHYSICAL_PERCENT_COMPLETE`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `PHYSICAL_PERCENT_COMPLETE`.
     pub fn get_instance_optional(value: Option<i32>) -> EarnedValueMethod {
         EarnedValueMethod::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for EarnedValueMethod {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

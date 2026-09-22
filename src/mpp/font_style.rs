@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/mpp/FontStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/FontStyle.java`
 //!
-//! 在 [`crate::mpp::font_base::FontBase`]（字体名 + 字号）之上再叠加颜色、粗体、斜体、
-//! 下划线等属性，用来表示 MPP 文件 `STYLE_DATA` 等数据块中的字体样式。
+//! On top of [`crate::mpp::font_base::FontBase`] (font name + size), this adds color, bold, italic,
+//! underline, and other attributes, representing the font style in MPP file data blocks such as `STYLE_DATA`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public class FontStyle` | 结构体 [`FontStyle`] | 1:1 移植；字段顺序与 Java 一致 |
-//! | 构造参数 `Color color` / `Color backgroundColor`（`java.awt.Color`） | `Option<Color>`，`Color` = [`crate::mpp::mpp_utility::Color`] | `java.awt.*` 属跳过项；Rust 侧统一复用 [`crate::mpp::mpp_utility::Color`]（`MPPUtility.get_color` 的返回值类型）。Java 的 `MPPUtility.getColor` 与 `ColorType.getColor()` 都可能返回 `null`（自动颜色），构造点也直接传 `null`，故用 `Option` |
-//! | 构造参数 `FontBase fontBase` | `Option<FontBase>` | Java 调用点写成 `fontBases.get(index)`，字体表中没有该序号时会传入 `null`（见 `GanttChartView.getFontStyle`、`GroupReader`） |
-//! | 构造参数 `BackgroundPattern backgroundPattern` | [`crate::mpp::background_pattern::BackgroundPattern`]（非 `Option`） | Java 的 4 处构造点都传入确定值（`BackgroundPattern.SOLID` 或 `BackgroundPattern.getInstance(...)`，后者不会返回 `null`） |
-//! | `toString()` | `Display` | 输出格式与 Java 一致；`java.awt.Color` 部分按 `java.awt.Color[r=..,g=..,b=..]` 形式输出，`null` 输出 `null` |
-//! | 未覆写 `equals` / `hashCode` | 派生 `PartialEq` / `Eq` | Rust 侧为便于比较与测试而派生（逐字段比较），语义比 Java 的引用相等更宽；因 [`crate::mpp::mpp_utility::Color`] 未实现 `Hash`，故**不**派生 `Hash` |
-//! | 类名与模型层可能存在的同名类型 | 本类型位于 `crate::mpp::font_style::FontStyle` | 已核对本仓 Java 源码：`org.mpxj` 根包中**没有**同名类，因此这里不存在与模型层 `crate::FontStyle` 的冲突；模块路径不同，两者互不影响 |
+//! | `public class FontStyle` | struct [`FontStyle`] | 1:1 port; field order matches Java |
+//! | constructor parameter `Color color` / `Color backgroundColor` (`java.awt.Color`) | `Option<Color>`, `Color` = [`crate::mpp::mpp_utility::Color`] | `java.awt.*` is a skipped item; the Rust side uniformly reuses [`crate::mpp::mpp_utility::Color`] (the return type of `MPPUtility.get_color`). Java's `MPPUtility.getColor` and `ColorType.getColor()` can both return `null` (automatic color), and the construction sites also pass `null` directly, hence `Option` |
+//! | constructor parameter `FontBase fontBase` | `Option<FontBase>` | Java call sites are written as `fontBases.get(index)`; `null` is passed when the font table has no such index (see `GanttChartView.getFontStyle`, `GroupReader`) |
+//! | constructor parameter `BackgroundPattern backgroundPattern` | [`crate::mpp::background_pattern::BackgroundPattern`] (not `Option`) | all 4 Java construction sites pass a definite value (`BackgroundPattern.SOLID` or `BackgroundPattern.getInstance(...)`, the latter never returns `null`) |
+//! | `toString()` | `Display` | output format matches Java; the `java.awt.Color` part is output in the form `java.awt.Color[r=..,g=..,b=..]`, and `null` outputs `null` |
+//! | does not override `equals` / `hashCode` | derives `PartialEq` / `Eq` | the Rust side derives these for ease of comparison and testing (field-by-field comparison), a broader semantics than Java's reference equality; because [`crate::mpp::mpp_utility::Color`] does not implement `Hash`, `Hash` is **not** derived |
+//! | a same-named type that may exist in the model layer | this type lives in `crate::mpp::font_style::FontStyle` | the Java source in this repo was checked: there is **no** same-named class in the `org.mpxj` root package, so there is no conflict with the model layer's `crate::FontStyle`; the module paths differ, so the two do not affect each other |
 //!
-//! 未移植 / 跳过：无（JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` 等机制本类未使用）。
+//! Unported / skipped: none (mechanisms such as JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` are not used by this class).
 
 use std::fmt::{self, Display, Formatter};
 
@@ -23,49 +23,49 @@ use crate::mpp::background_pattern::BackgroundPattern;
 use crate::mpp::font_base::FontBase;
 use crate::mpp::mpp_utility::{format_color, format_optional_display, Color};
 
-/// 字体样式（基础字体 + 颜色 / 字型属性）。
+/// Font style (base font + color / typeface attributes).
 ///
-/// 对应 Java: `public class FontStyle`
+/// Corresponds to Java: `public class FontStyle`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontStyle {
-    /// 基础字体。
+/// Base font.
     ///
-    /// 对应 Java: `private final FontBase m_fontBase`
+    /// Corresponds to Java: `private final FontBase m_fontBase`
     font_base: Option<FontBase>,
-    /// 斜体标志。
+/// Italic flag.
     ///
-    /// 对应 Java: `private final boolean m_italic`
+    /// Corresponds to Java: `private final boolean m_italic`
     italic: bool,
-    /// 粗体标志。
+/// Bold flag.
     ///
-    /// 对应 Java: `private final boolean m_bold`
+    /// Corresponds to Java: `private final boolean m_bold`
     bold: bool,
-    /// 下划线标志。
+/// Underline flag.
     ///
-    /// 对应 Java: `private final boolean m_underline`
+    /// Corresponds to Java: `private final boolean m_underline`
     underline: bool,
-    /// 删除线标志。
+/// Strikethrough flag.
     ///
-    /// 对应 Java: `private final boolean m_strikethrough`
+    /// Corresponds to Java: `private final boolean m_strikethrough`
     strikethrough: bool,
-    /// 字色。
+/// Font color.
     ///
-    /// 对应 Java: `private final Color m_color`
+    /// Corresponds to Java: `private final Color m_color`
     color: Option<Color>,
-    /// 背景色。
+/// Background color.
     ///
-    /// 对应 Java: `private final Color m_backgroundColor`
+    /// Corresponds to Java: `private final Color m_backgroundColor`
     background_color: Option<Color>,
-    /// 背景图案。
+/// Background pattern.
     ///
-    /// 对应 Java: `private final BackgroundPattern m_backgroundPattern`
+    /// Corresponds to Java: `private final BackgroundPattern m_backgroundPattern`
     background_pattern: BackgroundPattern,
 }
 
 impl FontStyle {
-    /// 构造函数。
+/// Constructor.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `public FontStyle(FontBase fontBase, boolean italic, boolean bold, boolean underline, boolean strikethrough, Color color, Color backgroundColor, BackgroundPattern backgroundPattern)`
     pub fn new(
         font_base: Option<FontBase>,
@@ -89,67 +89,67 @@ impl FontStyle {
         }
     }
 
-    /// 取基础字体。
+/// Get the base font.
     ///
-    /// 对应 Java: `public FontBase getFontBase()`
+    /// Corresponds to Java: `public FontBase getFontBase()`
     pub fn get_font_base(&self) -> Option<&FontBase> {
         self.font_base.as_ref()
     }
 
-    /// 取粗体标志。
+/// Get the bold flag.
     ///
-    /// 对应 Java: `public boolean getBold()`
+    /// Corresponds to Java: `public boolean getBold()`
     pub fn get_bold(&self) -> bool {
         self.bold
     }
 
-    /// 取字色。
+/// Get the font color.
     ///
-    /// 对应 Java: `public Color getColor()`
+    /// Corresponds to Java: `public Color getColor()`
     pub fn get_color(&self) -> Option<Color> {
         self.color
     }
 
-    /// 取斜体标志。
+/// Get the italic flag.
     ///
-    /// 对应 Java: `public boolean getItalic()`
+    /// Corresponds to Java: `public boolean getItalic()`
     pub fn get_italic(&self) -> bool {
         self.italic
     }
 
-    /// 取下划线标志。
+/// Get the underline flag.
     ///
-    /// 对应 Java: `public boolean getUnderline()`
+    /// Corresponds to Java: `public boolean getUnderline()`
     pub fn get_underline(&self) -> bool {
         self.underline
     }
 
-    /// 取删除线标志。
+/// Get the strikethrough flag.
     ///
-    /// 对应 Java: `public boolean getStrikethrough()`
+    /// Corresponds to Java: `public boolean getStrikethrough()`
     pub fn get_strikethrough(&self) -> bool {
         self.strikethrough
     }
 
-    /// 取背景色。
+/// Get the background color.
     ///
-    /// 对应 Java: `public Color getBackgroundColor()`
+    /// Corresponds to Java: `public Color getBackgroundColor()`
     pub fn get_background_color(&self) -> Option<Color> {
         self.background_color
     }
 
-    /// 取背景图案。
+/// Get the background pattern.
     ///
-    /// 对应 Java: `public BackgroundPattern getBackgroundPattern()`
+    /// Corresponds to Java: `public BackgroundPattern getBackgroundPattern()`
     pub fn get_background_pattern(&self) -> BackgroundPattern {
         self.background_pattern
     }
 }
 
 impl Display for FontStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 逐字段拼接，顺序与 Java 完全一致。
+/// Concatenate field by field, in exactly the same order as Java.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -170,7 +170,7 @@ impl Display for FontStyle {
 mod tests {
     use super::*;
 
-    /// 构造一个用于测试的样式。
+/// Construct a style for testing.
     fn sample() -> FontStyle {
         FontStyle::new(
             Some(FontBase::new(Some(1), "Arial".to_owned(), 10)),
@@ -184,7 +184,7 @@ mod tests {
         )
     }
 
-    /// getter 与 Java 一致（含字段顺序无关的取值）。
+/// The getters match Java (including value retrieval independent of field order).
     #[test]
     fn accessors_match_java() {
         let style = sample();
@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(style.get_background_pattern(), BackgroundPattern::Solid);
     }
 
-    /// Java 中可为 null 的三个参数在 Rust 侧是 `Option`。
+/// The three parameters that can be null in Java are `Option` on the Rust side.
     #[test]
     fn nullable_members_are_options() {
         let style = FontStyle::new(
@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(style.get_background_color(), None);
     }
 
-    /// toString 格式与 Java 一致（含 `null` 分支）。
+/// The toString format matches Java (including the `null` branch).
     #[test]
     fn to_string_matches_java() {
         let style = sample();
@@ -244,7 +244,7 @@ mod tests {
         );
     }
 
-    /// 派生 `PartialEq` 逐字段比较（Java 侧只有引用相等）。
+/// The derived `PartialEq` compares field by field (the Java side only has reference equality).
     #[test]
     fn equality_is_field_wise() {
         assert_eq!(sample(), sample());

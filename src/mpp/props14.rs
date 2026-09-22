@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/mpp/Props14.java`
+//! Corresponds to Java: `org/mpxj/mpp/Props14.java`
 
 use std::cell::RefCell;
 use std::fmt;
@@ -13,68 +13,68 @@ use crate::mpp::props_key::PropsKey;
 use crate::mpxj_exception::{MpxjError, MpxjResult};
 use crate::project_file::ProjectFile;
 
-/// MPP14 文件的 `Props` 流。
+/// The `Props` stream of an MPP14 file.
 ///
-/// 对应 Java: `final class Props14 extends Props`
+/// Corresponds to Java: `final class Props14 extends Props`
 ///
-/// # 继承的还原（组合 + `Deref` + 转发）
+/// # How inheritance is restored (composition + `Deref` + forwarding)
 ///
-/// Java 的 `Props14` 继承 [`Props`]（Java 侧未覆写 `toString()`）。Rust 无继承，本类用
-/// **组合 + `Deref`/`DerefMut`** 还原：持有一个 [`Props`]（字段 `props`），于是 `&Props14`
-/// 能自动强转（deref coercion）成 `&Props` —— 「形参是 `&Props` 的方法」也可以直接接收
-/// `&Props14`，对应 Java 里「子类实例可直接传给基类形参」（本 crate 已在
-/// [`crate::recurring_task`] 用同一手法还原继承）。
+/// Java's `Props14` extends [`Props`] (Java does not override `toString()`). Rust has no inheritance, so this class uses
+/// **composition + `Deref`/`DerefMut`** to restore it: it holds a [`Props`] (field `props`), so `&Props14`
+/// can be automatically coerced (deref coercion) into `&Props` — "methods whose parameter is `&Props`" can also directly accept
+/// `&Props14`, corresponding to "a subclass instance can be passed directly to a base class parameter" in Java (this crate already
+/// restores inheritance with the same technique in [`crate::recurring_task`]).
 ///
-/// 类末尾仍保留 `Props` 全部公开方法的显式转发，供不需要强转的调用点直接调用；这些同名方法
-/// 会遮蔽 `Deref` 目标 [`Props`] 上的同名方法，而它们本身就是逐方法转发、行为完全一致，
-/// 因此不存在语义冲突。
+/// At the end of the class, explicit forwarding of all public `Props` methods is still kept, so call sites that do not need coercion can call them directly; these same-named methods
+/// shadow the same-named methods on the `Deref` target [`Props`], but they are themselves per-method forwards with identical behavior,
+/// so there is no semantic conflict.
 ///
-/// # 构造方法与 `InputStream`
+/// # Constructor and `InputStream`
 ///
-/// Java: `Props14(ProjectFile file, InputStream is) throws IOException`。Rust 侧按本工程
-/// 约定把 `InputStream` 换成 `&[u8]`，顺序读取由 [`InputStreamCursor`] 完成。
-/// `ProjectFile` 仅用于出错时登记被忽略的错误（`addIgnoredError`），**不持有**，
-/// 故用 `&Rc<RefCell<ProjectFile>>` 借用传参，不会造成 `Rc` 循环。
+/// Java: `Props14(ProjectFile file, InputStream is) throws IOException`. On the Rust side, per this project's
+/// convention `InputStream` is replaced with `&[u8]`, and sequential reading is done by [`InputStreamCursor`].
+/// `ProjectFile` is used only to register ignored errors on failure (`addIgnoredError`), and is **not held**,
+/// so it is passed as a borrow `&Rc<RefCell<ProjectFile>>`, which does not cause an `Rc` cycle.
 ///
-/// # 块布局（Java 构造方法）
+/// # Block layout (Java constructor)
 ///
 /// ```text
-/// byte[16] header      headerCount = 该头部的 short（偏移 12）—— 条目数
+/// byte[16] header      headerCount = the short in this header (offset 12) — the entry count
 /// headerCount × {
-///     int  attrib1     属性数据长度
-///     int  attrib2     属性键
+/// int  attrib1     attribute data length
+/// int  attrib2     attribute key
 ///     int  unknown
 ///     byte data[attrib1]
-///     byte pad         仅当 attrib1 为奇数时补齐到两字节边界
+/// byte pad         pads to a two-byte boundary only when attrib1 is odd
 /// }
 /// ```
 ///
-/// 与 `Props12` 的两处差异（Java 原文保留）：
+/// Two differences from `Props12` (kept from the original Java):
 ///
-/// 1. 循环开头检查「剩余不足 12 字节就退出」—— 这是 Java 侧针对 64 位 JRE 下
-///    `DocumentInputStream` 行为的修复；
-/// 2. 读取数据时捕获 `IndexOutOfBoundsException`（POI bug 61677），
-///    登记被忽略的错误后中断解析，而不是向上抛异常。
+/// 1. The loop checks at the start "exit if fewer than 12 bytes remain" — this is the Java side's fix for
+/// the behavior of `DocumentInputStream` under a 64-bit JRE;
+/// 2. When reading data it catches `IndexOutOfBoundsException` (POI bug 61677),
+/// registers an ignored error and aborts parsing instead of throwing upward.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - `availableBytes` 用 `i64` 累减（Java 是 `int`，极端输入下会溢出）。
-/// - `availableBytes` 与 Java 一样**不扣减对齐填充字节**，因此可能大于真实剩余字节数；
-///   这正是 Java 需要捕获 `IndexOutOfBoundsException` 的原因，Rust 侧同样保留该分支。
-/// - POI 的 `IndexOutOfBoundsException` 对应 Rust 的「游标读不到足够字节」，
-///   此时同样登记 `file.addIgnoredError(..)` 并中断循环。
-/// - `toString()` 沿用 [`Props`] 的实现（Java 未覆写）。
+/// - `availableBytes` is decremented using `i64` (Java uses `int`, which overflows with extreme input).
+/// - Like Java, `availableBytes` **does not subtract alignment padding bytes**, so it may be greater than the true number of remaining bytes;
+/// this is exactly why Java needs to catch `IndexOutOfBoundsException`, and the Rust side keeps that branch too.
+/// - POI's `IndexOutOfBoundsException` corresponds to the Rust side's "the cursor cannot read enough bytes",
+/// in which case `file.addIgnoredError(..)` is likewise registered and the loop is aborted.
+/// - `toString()` reuses the [`Props`] implementation (Java does not override it).
 ///
-/// 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+/// Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 pub struct Props14 {
-    /// 对应 Java: `extends Props`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends Props` (Rust uses composition instead of inheritance)
     props: Props,
 }
 
 impl Props14 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `Props14(ProjectFile file, InputStream is) throws IOException`
+    /// Corresponds to Java: `Props14(ProjectFile file, InputStream is) throws IOException`
     pub fn new(file: &Rc<RefCell<ProjectFile>>, data: &[u8]) -> MpxjResult<Self> {
         let mut result = Self { props: Props::new() };
         let mut is = InputStreamCursor::new(data);
@@ -88,7 +88,7 @@ impl Props14 {
         let mut available_bytes = is.available() as i64;
 
         while found_count < header_count {
-            // Java: 剩余不足 12 字节就退出（64 位 JRE 下的修复）
+// Java: exit when fewer than 12 bytes remain (the fix for a 64-bit JRE)
             if available_bytes < 12 {
                 break;
             }
@@ -120,7 +120,7 @@ impl Props14 {
             result.props.put(attrib2, item.to_vec());
             found_count += 1;
 
-            // Java: 对齐到两字节边界
+// Java: align to a two-byte boundary
             if item.len() % 2 != 0 {
                 is.skip(1);
             }
@@ -130,89 +130,89 @@ impl Props14 {
     }
 
     // -----------------------------------------------------------------
-    // 以下方法在 Java 侧继承自 Props，Rust 侧转发给内部持有的 Props
+// The following methods are inherited from Props in Java; the Rust side forwards them to the internally held Props
     // -----------------------------------------------------------------
 
-    /// 取属性数据（原始字节）。
+/// Returns the attribute data (raw bytes).
     ///
-    /// 对应 Java: `Props.getByteArray(PropsKey key)`
+    /// Corresponds to Java: `Props.getByteArray(PropsKey key)`
     pub fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
         self.props.get_byte_array(key)
     }
 
-    /// 取字节值。
+/// Returns a byte value.
     ///
-    /// 对应 Java: `Props.getByte(PropsKey key)`
+    /// Corresponds to Java: `Props.getByte(PropsKey key)`
     pub fn get_byte(&self, key: PropsKey) -> i8 {
         self.props.get_byte(key)
     }
 
-    /// 取短整型值。
+/// Returns a short value.
     ///
-    /// 对应 Java: `Props.getShort(PropsKey key)`
+    /// Corresponds to Java: `Props.getShort(PropsKey key)`
     pub fn get_short(&self, key: PropsKey) -> i32 {
         self.props.get_short(key)
     }
 
-    /// 取整型值。
+/// Returns an integer value.
     ///
-    /// 对应 Java: `Props.getInt(PropsKey key)`
+    /// Corresponds to Java: `Props.getInt(PropsKey key)`
     pub fn get_int(&self, key: PropsKey) -> i32 {
         self.props.get_int(key)
     }
 
-    /// 取双精度值。
+/// Returns a double value.
     ///
-    /// 对应 Java: `Props.getDouble(PropsKey key)`
+    /// Corresponds to Java: `Props.getDouble(PropsKey key)`
     pub fn get_double(&self, key: PropsKey) -> f64 {
         self.props.get_double(key)
     }
 
-    /// 取时间值。
+/// Returns a time value.
     ///
-    /// 对应 Java: `Props.getTime(PropsKey key)`
+    /// Corresponds to Java: `Props.getTime(PropsKey key)`
     pub fn get_time(&self, key: PropsKey) -> Option<NaiveTime> {
         self.props.get_time(key)
     }
 
-    /// 取时间戳。
+/// Returns a timestamp.
     ///
-    /// 对应 Java: `Props.getTimestamp(PropsKey key)`
+    /// Corresponds to Java: `Props.getTimestamp(PropsKey key)`
     pub fn get_timestamp(&self, key: PropsKey) -> Option<NaiveDateTime> {
         self.props.get_timestamp(key)
     }
 
-    /// 取布尔值。
+/// Returns a boolean value.
     ///
-    /// 对应 Java: `Props.getBoolean(PropsKey key)`
+    /// Corresponds to Java: `Props.getBoolean(PropsKey key)`
     pub fn get_boolean(&self, key: PropsKey) -> bool {
         self.props.get_boolean(key)
     }
 
-    /// 取 UTF-16LE 字符串。
+/// Returns a UTF-16LE string.
     ///
-    /// 对应 Java: `Props.getUnicodeString(PropsKey key)`
+    /// Corresponds to Java: `Props.getUnicodeString(PropsKey key)`
     pub fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
         self.props.get_unicode_string(key)
     }
 
-    /// 取 GUID。
+/// Returns a GUID.
     ///
-    /// 对应 Java: `Props.getUUID(PropsKey key)`
+    /// Corresponds to Java: `Props.getUUID(PropsKey key)`
     pub fn get_uuid(&self, key: PropsKey) -> Option<Uuid> {
         self.props.get_uuid(key)
     }
 
-    /// 取全部键（升序）。
+/// Returns all keys (ascending).
     ///
-    /// 对应 Java: `Props.keySet()`
+    /// Corresponds to Java: `Props.keySet()`
     pub fn key_set(&self) -> Vec<i32> {
         self.props.key_set()
     }
 }
 
 impl fmt::Display for Props14 {
-    /// 对应 Java: `Props.toString()`（`Props14` 未覆写）
+/// Corresponds to Java: `Props.toString()` (`Props14` does not override it)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.props, f)
     }
@@ -221,23 +221,23 @@ impl fmt::Display for Props14 {
 impl std::ops::Deref for Props14 {
     type Target = Props;
 
-    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+/// Corresponds to Java: "a subclass instance can be used directly as a base class instance" arising from inheritance
     fn deref(&self) -> &Self::Target {
         &self.props
     }
 }
 
 impl std::ops::DerefMut for Props14 {
-    /// 对应 Java: 继承关系带来的「子类实例可直接当作基类使用」
+/// Corresponds to Java: "a subclass instance can be used directly as a base class instance" arising from inheritance
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.props
     }
 }
 
-/// POI 读取越界时抛出的 `IndexOutOfBoundsException` 的 Rust 对应物。
+/// The Rust counterpart of the `IndexOutOfBoundsException` thrown by POI on an out-of-bounds read.
 ///
-/// 对应 Java: `catch (IndexOutOfBoundsException ex)`
-/// （POI bug: https://bz.apache.org/bugzilla/show_bug.cgi?id=61677）
+/// Corresponds to Java: `catch (IndexOutOfBoundsException ex)`
+/// (POI bug: https://bz.apache.org/bugzilla/show_bug.cgi?id=61677)
 fn index_out_of_bounds_error() -> MpxjError {
     MpxjError::new("Index out of bounds while reading Props data")
 }
@@ -246,7 +246,7 @@ fn index_out_of_bounds_error() -> MpxjError {
 mod tests {
     use super::*;
 
-    /// 按 MPP14 的块布局构造数据。
+/// Builds data using the MPP14 block layout.
     fn build_props14(header_count: i32, entries: &[(i32, i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(header_count as i16).to_le_bytes());
@@ -256,7 +256,7 @@ mod tests {
             data.extend_from_slice(&key.to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
             data.extend_from_slice(value);
-            // Java: 对齐到两字节边界
+// Java: align to a two-byte boundary
             if value.len() % 2 != 0 {
                 data.push(0);
             }
@@ -278,7 +278,7 @@ mod tests {
         );
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
 
         assert_eq!(props.key_set(), vec![37748744, 37748745]);
         assert_eq!(props.get_int(PropsKey::Title), 1234);
@@ -294,7 +294,7 @@ mod tests {
         );
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
 
         assert_eq!(props.get_byte(PropsKey::Title), 7);
         assert_eq!(props.get_short(PropsKey::Subject), 258);
@@ -308,13 +308,13 @@ mod tests {
 
     #[test]
     fn fewer_than_twelve_remaining_bytes_breaks_loop() {
-        // 声明 1 条，但头部之后只剩 8 字节 → Java: availableBytes < 12 → break
+// Declares 1 entry, but only 8 bytes remain after the header → Java: availableBytes < 12 → break
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&1i16.to_le_bytes());
         data.extend_from_slice(&[0u8; 8]);
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
 
         assert!(props.key_set().is_empty());
         assert!(file.borrow().get_ignored_errors().is_empty());
@@ -328,7 +328,7 @@ mod tests {
         data.extend_from_slice(&0i32.to_le_bytes());
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
 
         assert_eq!(props.key_set(), vec![37748744]);
         assert!(file.borrow().get_ignored_errors().is_empty());
@@ -336,9 +336,9 @@ mod tests {
 
     #[test]
     fn truncated_data_records_ignored_error() {
-        // Java 的 availableBytes 不扣减对齐填充字节，因此会「多报」剩余量，
-        // 只有在前面出现过奇数长度条目时，守卫才可能放过一条实际读不到的数据。
-        // 这里前面两条各 1 字节（各填充 1 字节），第 3 条声明 4 字节而实际只有 2 字节：
+// Java's availableBytes does not subtract alignment padding bytes, so it "over-reports" the remaining amount;
+// only when odd-length entries have appeared earlier can the guard let through an entry that cannot actually be read.
+// Here the first two entries are 1 byte each (each padded by 1 byte), and the 3rd declares 4 bytes while only 2 bytes are actually present:
         // → Java: catch (IndexOutOfBoundsException ex) { file.addIgnoredError(ex); break; }
         let data = build_props14(
             3,
@@ -350,7 +350,7 @@ mod tests {
         );
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
 
         assert_eq!(props.key_set(), vec![37748744, 37748745]);
         let borrowed = file.borrow();
@@ -363,23 +363,23 @@ mod tests {
 
     #[test]
     fn truncated_entry_header_returns_error() {
-        // 头部之后只剩 8 字节 → Java 的 `availableBytes < 12` 守卫会先 break，
-        // 因此这里不会出错
+// Only 8 bytes remain after the header → Java's `availableBytes < 12` guard breaks first,
+// so no error occurs here
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&1i16.to_le_bytes());
         data.extend_from_slice(&4i32.to_le_bytes());
         data.extend_from_slice(&37748744i32.to_le_bytes());
 
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &data).expect("应能解析");
+        let props = Props14::new(&file, &data).expect("should parse");
         assert!(props.key_set().is_empty());
     }
 
     #[test]
     fn truncated_entry_after_padding_returns_error() {
-        // `availableBytes` 不扣减对齐填充字节，12 个奇数长度条目之后它比真实剩余量多 12，
-        // 于是第 13 条能越过 `availableBytes < 12` 的守卫，但实际读取必然失败
-        // （Java: POI 在此抛 IOException → Rust 返回 Err）
+// `availableBytes` does not subtract alignment padding bytes; after 12 odd-length entries it is 12 greater than the true remaining amount,
+// so the 13th entry can pass the `availableBytes < 12` guard, but the actual read necessarily fails
+// (Java: POI throws IOException here → Rust returns Err)
         let entries: Vec<(i32, i32, Vec<u8>)> = (0..12)
             .map(|index| (1, 37748744 + index, vec![0x07]))
             .collect();
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn missing_keys_return_defaults_and_display_works() {
         let file = ProjectFile::new();
-        let props = Props14::new(&file, &build_props14(0, &[])).expect("应能解析");
+        let props = Props14::new(&file, &build_props14(0, &[])).expect("should parse");
 
         assert_eq!(props.get_byte(PropsKey::Company), 0);
         assert_eq!(props.get_short(PropsKey::Company), 0);

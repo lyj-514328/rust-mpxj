@@ -1,89 +1,97 @@
-//! 对应 Java: `org/mpxj/common/Tokenizer.java`
+//! Corresponds to Java: `org/mpxj/common/Tokenizer.java`
 //!
-//! 本类实现一个松散的 `java.io.StreamTokenizer` 替代品，专门用于正确解析 MPX 记录，
-//! 尤其是由相邻分隔符表示的空字段。
+//! This class implements a loose replacement for `java.io.StreamTokenizer`, specifically for
+//! correctly parsing MPX records, especially empty fields represented by adjacent delimiters.
 //!
-//! 移植取舍：
-//! - Java 的 `Tokenizer` 是抽象类，由子类覆写 `protected abstract int read()` 提供字符来源
-//!   （见 `ReaderTokenizer` / `InputStreamTokenizer`）。Rust 无继承，这里把「字符来源」抽成
-//!   [`TokenSource`] trait，`Tokenizer` 通过泛型参数 `S` 组合并调用它；默认参数
-//!   `Box<dyn TokenSource>` 用于复现 Java 中 `Tokenizer tk` 变量可指向任意子类的用法。
-//! - `java.io.IOException` → [`crate::MpxjError`]（已实现 `From<std::io::Error>`），
-//!   所有方法返回 [`crate::MpxjResult`]，调用方可用 `?` 直接传播。
-//! - Java 的 `int m_nextCharacter`（单字符回退）与 `int m_nextToken`（单 token 回退）原样保留，
-//!   这是 Java 侧回退语义的实现方式，Rust 侧不需要 `PushbackReader`。
-//! - `StringBuilder m_buffer` → `String`；Java 的 `String getToken()` 返回新建 `String`，
-//!   Rust 侧返回缓冲区借用 `&str`。
-//! - `protected boolean startQuotedIsValid(StringBuilder)` 在 Rust 中没有 protected，
-//!   改为 `pub`（原版中无子类覆写它）。
+//! Porting trade-offs:
+//! - Java's `Tokenizer` is an abstract class whose subclasses override
+//!   `protected abstract int read()` to provide the character source (see `ReaderTokenizer` /
+//!   `InputStreamTokenizer`). Rust has no inheritance, so the "character source" is extracted
+//!   into the [`TokenSource`] trait, which `Tokenizer` composes and calls via the generic
+//!   parameter `S`; the default parameter `Box<dyn TokenSource>` reproduces Java's use of a
+//!   `Tokenizer tk` variable that can point to any subclass.
+//! - `java.io.IOException` → [`crate::MpxjError`] (which already implements
+//!   `From<std::io::Error>`); all methods return [`crate::MpxjResult`], so callers can
+//!   propagate with `?` directly.
+//! - Java's `int m_nextCharacter` (single-character pushback) and `int m_nextToken`
+//!   (single-token pushback) are kept as-is; this is how Java implements pushback semantics,
+//!   and the Rust side does not need a `PushbackReader`.
+//! - `StringBuilder m_buffer` → `String`; Java's `String getToken()` returns a newly created
+//!   `String`, while the Rust side returns a borrowed `&str` of the buffer.
+//! - `protected boolean startQuotedIsValid(StringBuilder)` has no protected in Rust, so it
+//!   becomes `pub` (no subclass overrides it in the original).
 //!
-//! 未移植的方法：无。
+//! Unported methods: none.
 
 use crate::MpxjResult;
 
-/// 对应 Java: `public static final int TT_EOL = '\n'`
+/// Corresponds to Java: `public static final int TT_EOL = '\n'`
 pub const TT_EOL: i32 = '\n' as i32;
 
-/// 对应 Java: `public static final int TT_EOF = -1`
+/// Corresponds to Java: `public static final int TT_EOF = -1`
 pub const TT_EOF: i32 = -1;
 
-/// 对应 Java: `public static final int TT_WORD = -3`
+/// Corresponds to Java: `public static final int TT_WORD = -3`
 pub const TT_WORD: i32 = -3;
 
-/// 字符来源，对应 Java: `protected abstract int read() throws IOException`。
+/// Character source, Corresponds to Java: `protected abstract int read() throws IOException`.
 ///
-/// Java 侧由 `ReaderTokenizer`（按字符读）与 `InputStreamTokenizer`（按字节读）覆写该方法；
-/// Rust 侧由 [`super::reader_tokenizer::CharSource`] 与
-/// [`super::input_stream_tokenizer::ByteSource`] 实现，再由各自的包装类型组合进 [`Tokenizer`]。
+/// In Java this method is overridden by `ReaderTokenizer` (reads by character) and
+/// `InputStreamTokenizer` (reads by byte); on the Rust side it is implemented by
+/// [`super::reader_tokenizer::CharSource`] and
+/// [`super::input_stream_tokenizer::ByteSource`], which are then composed into [`Tokenizer`]
+/// by their respective wrapper types.
 pub trait TokenSource {
-    /// 读取下一个字符编码；数据源结束返回 [`TT_EOF`]（Java 中同为 -1）。
+    /// Read the next character code; returns [`TT_EOF`] at the end of the data source (also -1
+    /// in Java).
     ///
-    /// 对应 Java: `protected abstract int read() throws IOException`
+    /// Corresponds to Java: `protected abstract int read() throws IOException`
     fn read(&mut self) -> MpxjResult<i32>;
 }
 
-/// 让 trait object 本身也可作为 [`Tokenizer`] 的数据源，
-/// 对应 Java 中 `Tokenizer tk` 变量指向任意子类实例的用法。
+/// Allow a trait object itself to serve as a data source for [`Tokenizer`],
+/// corresponding to Java's use of a `Tokenizer tk` variable pointing to any subclass instance.
 ///
-/// 对应 Java: 继承体系（`ReaderTokenizer`/`InputStreamTokenizer` → `Tokenizer`）
+/// Corresponds to Java: the inheritance hierarchy (`ReaderTokenizer`/`InputStreamTokenizer` → `Tokenizer`)
 impl TokenSource for Box<dyn TokenSource> {
     fn read(&mut self) -> MpxjResult<i32> {
         (**self).read()
     }
 }
 
-/// 松散基于 `java.io.StreamTokenizer` 的 MPX 记录分词器。
+/// An MPX record tokenizer loosely based on `java.io.StreamTokenizer`.
 ///
-/// 对应 Java: `public abstract class Tokenizer`
+/// Corresponds to Java: `public abstract class Tokenizer`
 pub struct Tokenizer<S: TokenSource = Box<dyn TokenSource>> {
-    /// 字符来源，对应 Java 中由子类覆写的 `read()`
+    /// Character source, corresponding to Java's `read()` overridden by subclasses
     source: S,
-    /// 对应 Java: `private char m_delimiter = ','`
+    /// Corresponds to Java: `private char m_delimiter = ','`
     delimiter: char,
-    /// 对应 Java: `private int m_nextToken`（单 token 回退）
+    /// Corresponds to Java: `private int m_nextToken` (single-token pushback)
     next_token: i32,
-    /// 对应 Java: `private int m_nextCharacter = -1`（单字符回退）
+    /// Corresponds to Java: `private int m_nextCharacter = -1` (single-character pushback)
     next_character: i32,
-    /// 对应 Java: `private int m_type`
+    /// Corresponds to Java: `private int m_type`
     type_: i32,
-    /// 对应 Java: `private final StringBuilder m_buffer`
+    /// Corresponds to Java: `private final StringBuilder m_buffer`
     buffer: String,
 }
 
 impl<S: TokenSource> Tokenizer<S> {
-    /// 对应 Java: `public static final int TT_EOL = '\n'`
+    /// Corresponds to Java: `public static final int TT_EOL = '\n'`
     pub const TT_EOL: i32 = crate::common::tokenizer::TT_EOL;
 
-    /// 对应 Java: `public static final int TT_EOF = -1`
+    /// Corresponds to Java: `public static final int TT_EOF = -1`
     pub const TT_EOF: i32 = crate::common::tokenizer::TT_EOF;
 
-    /// 对应 Java: `public static final int TT_WORD = -3`
+    /// Corresponds to Java: `public static final int TT_WORD = -3`
     pub const TT_WORD: i32 = crate::common::tokenizer::TT_WORD;
 
-    /// 构造分词器。
+    /// Construct a tokenizer.
     ///
-    /// 对应 Java: `Tokenizer` 的隐式无参构造方法（Java 侧 `read()` 由子类覆写提供，
-    /// Rust 侧改为构造时注入 [`TokenSource`]）。
+    /// Corresponds to Java: the implicit no-argument constructor of `Tokenizer` (in Java
+    /// `read()` is provided by a subclass override; the Rust side injects a [`TokenSource`] at
+    /// construction time).
     pub fn new(source: S) -> Self {
         Self {
             source,
@@ -95,9 +103,9 @@ impl<S: TokenSource> Tokenizer<S> {
         }
     }
 
-    /// 取得下一个 token，返回值代表 token 类型。
+    /// Get the next token; the return value represents the token type.
     ///
-    /// 对应 Java: `public int nextToken() throws IOException`
+    /// Corresponds to Java: `public int nextToken() throws IOException`
     pub fn next_token(&mut self) -> MpxjResult<i32> {
         let mut quoted = false;
         let mut result = self.next_token;
@@ -109,7 +117,7 @@ impl<S: TokenSource> Tokenizer<S> {
         self.buffer.clear();
 
         while result == 0 {
-            // 对应 Java: 优先消费 `m_nextCharacter`（单字符回退），否则向数据源读取
+            // Corresponds to Java: consume `m_nextCharacter` first (single-character pushback), otherwise read from the data source
             let c = if self.next_character != -1 {
                 let c = self.next_character;
                 self.next_character = -1;
@@ -119,7 +127,7 @@ impl<S: TokenSource> Tokenizer<S> {
             };
 
             if c == Self::TT_EOF {
-                // 对应 Java: `case TT_EOF:`
+                // Corresponds to Java: `case TT_EOF:`
                 if !self.buffer.is_empty() {
                     result = Self::TT_WORD;
                     self.next_token = Self::TT_EOF;
@@ -127,7 +135,7 @@ impl<S: TokenSource> Tokenizer<S> {
                     result = Self::TT_EOF;
                 }
             } else if c == '\r' as i32 {
-                // 对应 Java: `case '\r':`——吃掉紧随的 LF，保证 CRLF 只产生一个 EOL
+                // Corresponds to Java: `case '\r':`—consume the immediately following LF so CRLF produces only one EOL
                 self.next_character = self.source.read()?;
                 if self.next_character == '\n' as i32 {
                     self.next_character = -1;
@@ -140,7 +148,7 @@ impl<S: TokenSource> Tokenizer<S> {
                     self.next_token = Self::TT_EOL;
                 }
             } else if c == '\n' as i32 {
-                // 对应 Java: `case '\n':`
+                // Corresponds to Java: `case '\n':`
                 if self.buffer.is_empty() {
                     result = Self::TT_EOL;
                 } else {
@@ -148,7 +156,7 @@ impl<S: TokenSource> Tokenizer<S> {
                     self.next_token = Self::TT_EOL;
                 }
             } else if c == '"' as i32 {
-                // 对应 Java: 引号处理分支（`char quote = '"'`）
+                // Corresponds to Java: quote handling branch (`char quote = '"'`)
                 if !quoted && self.start_quoted_is_valid(&self.buffer) {
                     quoted = true;
                 } else if !quoted {
@@ -156,7 +164,7 @@ impl<S: TokenSource> Tokenizer<S> {
                 } else {
                     self.next_character = self.source.read()?;
                     if self.next_character == '"' as i32 {
-                        // 引号内的双引号 `""` 表示一个字面引号
+                        // A doubled quote `""` inside a quoted field represents a literal quote
                         append_code(&mut self.buffer, c);
                         self.next_character = -1;
                     } else {
@@ -164,7 +172,7 @@ impl<S: TokenSource> Tokenizer<S> {
                     }
                 }
             } else if c == self.delimiter as i32 && !quoted {
-                // 空白未跳过、相邻分隔符产生空字段
+                // Whitespace is not skipped; adjacent delimiters produce empty fields
                 result = Self::TT_WORD;
             } else {
                 append_code(&mut self.buffer, c);
@@ -176,77 +184,82 @@ impl<S: TokenSource> Tokenizer<S> {
         Ok(result)
     }
 
-    /// 控制引号语义：默认只有字段首字符处的引号才视为引号起始。
+    /// Control quote semantics: by default only a quote at the first character of a field is
+    /// treated as the start of a quote.
     ///
-    /// 对应 Java: `protected boolean startQuotedIsValid(StringBuilder buffer)`
+    /// Corresponds to Java: `protected boolean startQuotedIsValid(StringBuilder buffer)`
     pub fn start_quoted_is_valid(&self, buffer: &str) -> bool {
         buffer.is_empty()
     }
 
-    /// 取得最后一个 token 的文本。
+    /// Get the text of the last token.
     ///
-    /// 对应 Java: `public String getToken()`
+    /// Corresponds to Java: `public String getToken()`
     ///
-    /// Java 返回新建的 `String`，Rust 侧返回内部缓冲区借用。
+    /// Java returns a newly created `String`; the Rust side returns a borrow of the internal buffer.
     pub fn get_token(&self) -> &str {
         &self.buffer
     }
 
-    /// 取得最后一个 token 的类型。
+    /// Get the type of the last token.
     ///
-    /// 对应 Java: `public int getType()`
+    /// Corresponds to Java: `public int getType()`
     pub fn get_type(&self) -> i32 {
         self.type_
     }
 
-    /// 设置分词器识别的分隔符。
+    /// Set the delimiter recognized by the tokenizer.
     ///
-    /// 对应 Java: `public void setDelimiter(char delimiter)`
+    /// Corresponds to Java: `public void setDelimiter(char delimiter)`
     pub fn set_delimiter(&mut self, delimiter: char) {
         self.delimiter = delimiter;
     }
 
-    /// 取得当前分隔符。
+    /// Get the current delimiter.
     ///
-    /// 对应 Java: 无此方法（Java 的 `m_delimiter` 为私有字段）；Rust 侧供包装类型转发与测试使用。
+    /// Corresponds to Java: no such method (Java's `m_delimiter` is a private field); the Rust
+    /// side provides it for wrapper-type forwarding and testing.
     pub fn get_delimiter(&self) -> char {
         self.delimiter
     }
 
-    /// 取得字符来源的可变引用。
+    /// Get a mutable reference to the character source.
     ///
-    /// 对应 Java: 无此方法（Java 的子类直接访问自身字段）；Rust 侧供包装类型转发字节/字符级读取。
+    /// Corresponds to Java: no such method (Java's subclasses access their own fields directly);
+    /// the Rust side provides it so wrapper types can forward byte/character-level reads.
     pub fn source_mut(&mut self) -> &mut S {
         &mut self.source
     }
 
-    /// 取回字符来源。
+    /// Take back the character source.
     ///
-    /// 对应 Java: 无此方法（Java 中 `InputStream`/`Reader` 由调用方持有）；
-    /// Rust 侧用归还所有权的办法复现「同一个流先按字节探测、再按字符解码」的用法。
+    /// Corresponds to Java: no such method (in Java the `InputStream`/`Reader` is held by the
+    /// caller); the Rust side reproduces "probe the same stream by byte first, then decode by
+    /// character" by returning ownership.
     pub fn into_source(self) -> S {
         self.source
     }
 }
 
 impl Tokenizer<Box<dyn TokenSource>> {
-    /// 按字节读取的字符来源构造分词器。
+    /// Construct a tokenizer from a byte-reading character source.
     ///
-    /// 对应 Java: `Tokenizer tk = new InputStreamTokenizer(bis)`
+    /// Corresponds to Java: `Tokenizer tk = new InputStreamTokenizer(bis)`
     pub fn from_bytes<R: std::io::Read + 'static>(stream: R) -> Self {
         Self::new(Box::new(super::input_stream_tokenizer::ByteSource::new(stream)))
     }
 
-    /// 按字符读取的字符来源构造分词器（UTF-8 解码）。
+    /// Construct a tokenizer from a character-reading character source (UTF-8 decoding).
     ///
-    /// 对应 Java: `Tokenizer tk = new ReaderTokenizer(reader)`
+    /// Corresponds to Java: `Tokenizer tk = new ReaderTokenizer(reader)`
     pub fn from_chars<R: std::io::Read + 'static>(reader: R) -> Self {
         Self::new(Box::new(super::reader_tokenizer::CharSource::new(reader)))
     }
 
-    /// 按字符读取的字符来源构造分词器，指定解码字符集。
+    /// Construct a tokenizer from a character-reading character source with the specified
+    /// decoding charset.
     ///
-    /// 对应 Java: `new ReaderTokenizer(new InputStreamReader(is, charset))`
+    /// Corresponds to Java: `new ReaderTokenizer(new InputStreamReader(is, charset))`
     pub fn from_chars_with_encoding<R: std::io::Read + 'static>(
         reader: R,
         encoding: &'static encoding_rs::Encoding,
@@ -257,10 +270,11 @@ impl Tokenizer<Box<dyn TokenSource>> {
     }
 }
 
-/// 对应 Java: `m_buffer.append((char) c)`——把读取到的字符编码写入缓冲区。
+/// Corresponds to Java: `m_buffer.append((char) c)`—write the read character code into the buffer.
 ///
-/// Java 的 `(char) c` 会把 `int` 截断为 16 位并允许孤立代理项；Rust 的 `char` 不允许，
-/// 因此非法码点（孤立代理项）回落为 U+FFFD。字节与字符来源产生的编码都在合法范围内。
+/// Java's `(char) c` truncates the `int` to 16 bits and allows lone surrogates; Rust's `char`
+/// does not, so an invalid code point (lone surrogate) falls back to U+FFFD. The codes produced
+/// by the byte and character sources are all within the valid range.
 fn append_code(buffer: &mut String, c: i32) {
     buffer.push(char::from_u32(c as u32).unwrap_or(char::REPLACEMENT_CHARACTER));
 }
@@ -269,7 +283,8 @@ fn append_code(buffer: &mut String, c: i32) {
 mod tests {
     use super::*;
 
-    /// 以字符串作为数据源的测试实现，对应 Java 中覆写 `read()` 的测试子类。
+    /// A test implementation using a string as the data source, corresponding to a test
+    /// subclass overriding `read()` in Java.
     struct StringSource {
         codes: Vec<i32>,
         index: usize,
@@ -300,11 +315,11 @@ mod tests {
         Tokenizer::new(StringSource::new(text))
     }
 
-    /// 读取全部 token，返回 (类型, 文本) 列表，末尾一定包含 TT_EOF。
+    /// Read all tokens and return a list of (type, text); always ends with TT_EOF.
     fn read_all(tk: &mut Tokenizer<StringSource>) -> Vec<(i32, String)> {
         let mut result = Vec::new();
         loop {
-            let token_type = tk.next_token().expect("测试数据源不会失败");
+            let token_type = tk.next_token().expect("test data source should not fail");
             result.push((token_type, tk.get_token().to_string()));
             if token_type == TT_EOF {
                 break;
@@ -394,8 +409,8 @@ mod tests {
     fn unclosed_quote_keeps_delimiter_as_content() {
         let mut tk = tokenizer("\"a,b\n");
         let tokens = read_all(&mut tk);
-        // 引号未闭合：分隔符被当作字段内容（与 Java 的 `c == m_delimiter && !quoted` 判断一致），
-        // 但换行分支不检查 quoted，仍然结束当前 token
+        // Unclosed quote: the delimiter is treated as field content (consistent with Java's `c == m_delimiter && !quoted` check),
+        // but the newline branch does not check quoted and still ends the current token
         assert_eq!(
             tokens,
             vec![
@@ -442,7 +457,7 @@ mod tests {
     fn lone_cr_returns_eol_and_pushes_back_next_character() {
         let mut tk = tokenizer("a\rb");
         let tokens = read_all(&mut tk);
-        // `\r` 分支读到的 `b` 通过 m_nextCharacter 回退，下一次读取时优先消费
+        // The `b` read by the `\r` branch is pushed back via m_nextCharacter and consumed first on the next read
         assert_eq!(
             tokens,
             vec![
@@ -484,7 +499,7 @@ mod tests {
         let mut tk = tokenizer("");
         assert_eq!(tk.next_token().unwrap(), TT_EOF);
         assert_eq!(tk.get_type(), TT_EOF);
-        // 到达 EOF 后可以反复读取
+        // After reaching EOF it can be read repeatedly
         assert_eq!(tk.next_token().unwrap(), TT_EOF);
     }
 
@@ -500,7 +515,7 @@ mod tests {
 
     #[test]
     fn boxed_sources_can_be_used_as_java_like_variable() {
-        // 对应 Java: `Tokenizer tk = new InputStreamTokenizer(is);`
+        // Corresponds to Java: `Tokenizer tk = new InputStreamTokenizer(is);`
         let mut tk: Tokenizer = Tokenizer::from_bytes(std::io::Cursor::new(b"a,b".to_vec()));
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "a");

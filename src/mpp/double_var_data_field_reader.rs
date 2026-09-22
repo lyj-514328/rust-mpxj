@@ -1,32 +1,32 @@
-//! 对应 Java: `org/mpxj/mpp/DoubleVarDataFieldReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/DoubleVarDataFieldReader.java`
 //!
-//! [`VarDataFieldReader`] 的实现：从变长数据块中读一个双精度浮点字段。
+//! Implementation of [`VarDataFieldReader`]: reads a double-precision floating-point field from a variable-length data block.
 //!
-//! # 继承的还原
+//! # How the inheritance is restored
 //!
-//! Java: `class DoubleVarDataFieldReader extends VarDataFieldReader`。
-//! Rust 侧按约定：接口（抽象类）→ trait，实现类 → 独立结构体 + `impl`。
+//! Java: `class DoubleVarDataFieldReader extends VarDataFieldReader`.
+//! The Rust side follows the convention: interface (abstract class) → trait, implementation class → standalone struct + `impl`.
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `DoubleVarDataFieldReader extends VarDataFieldReader` | [`DoubleVarDataFieldReader`] 实现 [`VarDataFieldReader`] |
-//! | `private final CustomFieldContainer m_customFields`（继承自基类） | 结构体自持 `custom_fields` 字段，经 [`VarDataFieldReader::get_custom_fields`] 暴露 |
+//! | `DoubleVarDataFieldReader extends VarDataFieldReader` | [`DoubleVarDataFieldReader`] implements [`VarDataFieldReader`] |
+//! | `private final CustomFieldContainer m_customFields` (inherited from the base class) | The struct holds its own `custom_fields` field, exposed via [`VarDataFieldReader::get_custom_fields`] |
 //! | `public DoubleVarDataFieldReader(CustomFieldContainer)` | [`DoubleVarDataFieldReader::new`] |
 //! | `protected Object readValue(...)` | [`VarDataFieldReader::read_value`] |
 //! | `protected Object coerceValue(Object)` | [`VarDataFieldReader::coerce_value`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `NumberHelper.getDouble(varData.getDouble(id, type))` | [`NumberHelper::get_double`] | Java 把基本类型 `double` 装箱成 `Double`；Rust 侧 `f64` 不装箱，故传 `Some(f64)`（恒非 `None`，与 Java 的自动装箱一致，结果恒为该值本身） |
-//! | `Object` 返回值 | `Option<FieldValue>` | 读到的值恒为 `FieldValue::Double`；`null` → `None` |
-//! | `value instanceof Number` | [`FieldValue::as_double`] | Java 的 `Number` 涵盖 `Integer` / `Short` / `Double`（以及本 crate 未承载的 `Long` / `Float` 等）；Rust 的 `FieldValue` 只有 `Double` / `Integer` / `Short` 三个数值变体，其余变体与 Java 一样返回 `null` → `None` |
-//! | `NumberHelper.getDouble(((Number) value).doubleValue())` | [`FieldValue::as_double`] + `FieldValue::Double` | 语义等价：`Integer(3)` → `Double(3.0)` |
+//! | `NumberHelper.getDouble(varData.getDouble(id, type))` | [`NumberHelper::get_double`] | Java boxes the primitive `double` into `Double`; Rust's `f64` is not boxed, so `Some(f64)` is passed (always non-`None`, consistent with Java's autoboxing, and the result is always that value itself) |
+//! | `Object` return value | `Option<FieldValue>` | The value read is always `FieldValue::Double`; `null` → `None` |
+//! | `value instanceof Number` | [`FieldValue::as_double`] | Java's `Number` covers `Integer` / `Short` / `Double` (as well as `Long` / `Float` etc., which this crate does not carry); Rust's `FieldValue` has only the three numeric variants `Double` / `Integer` / `Short`, and the other variants return `null` → `None` just like Java |
+//! | `NumberHelper.getDouble(((Number) value).doubleValue())` | [`FieldValue::as_double`] + `FieldValue::Double` | Semantically equivalent: `Integer(3)` → `Double(3.0)` |
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -37,34 +37,34 @@ use crate::field_value::FieldValue;
 use crate::mpp::var2_data::Var2Data;
 use crate::mpp::var_data_field_reader::VarDataFieldReader;
 
-/// 从变长数据块中读双精度浮点字段。
+/// Read a double-precision floating-point field from a variable-length data block.
 ///
-/// 对应 Java: `class DoubleVarDataFieldReader extends VarDataFieldReader`
+/// Corresponds to Java: `class DoubleVarDataFieldReader extends VarDataFieldReader`
 pub struct DoubleVarDataFieldReader {
-    /// 自定义字段容器。
+/// Custom field container.
     ///
-    /// 对应 Java 字段（继承自基类）: `private final CustomFieldContainer m_customFields`
+/// Corresponds to Java field (inherited from the base class): `private final CustomFieldContainer m_customFields`
     custom_fields: Rc<RefCell<CustomFieldContainer>>,
 }
 
 impl DoubleVarDataFieldReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public DoubleVarDataFieldReader(CustomFieldContainer customFields)`
+    /// Corresponds to Java: `public DoubleVarDataFieldReader(CustomFieldContainer customFields)`
     pub fn new(custom_fields: Rc<RefCell<CustomFieldContainer>>) -> Self {
         Self { custom_fields }
     }
 }
 
 impl VarDataFieldReader for DoubleVarDataFieldReader {
-    /// 对应 Java: `public CustomFieldContainer getCustomFields()`（Rust 特有访问器，见 trait 说明）
+/// Corresponds to Java: `public CustomFieldContainer getCustomFields()` (Rust-specific accessor, see the trait documentation)
     fn get_custom_fields(&self) -> &Rc<RefCell<CustomFieldContainer>> {
         &self.custom_fields
     }
 
-    /// 按双精度浮点读取数据项（缺数据项时为 0）。
+/// Read the data item as a double-precision float (0 when the data item is missing).
     ///
-    /// 对应 Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
+    /// Corresponds to Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
     fn read_value(
         &self,
         var_data: &Var2Data,
@@ -77,9 +77,9 @@ impl VarDataFieldReader for DoubleVarDataFieldReader {
         ))))
     }
 
-    /// 把取值列表项的值收敛为双精度浮点；不是数值时返回 `None`（Java 返回 null）。
+/// Coerce the value of the value-list item to a double-precision float; return `None` when it is not numeric (Java returns null).
     ///
-    /// 对应 Java: `@Override protected Object coerceValue(Object value)`
+    /// Corresponds to Java: `@Override protected Object coerceValue(Object value)`
     fn coerce_value(&self, value: Option<&FieldValue>) -> Option<FieldValue> {
         // Java: if (value instanceof Number) { return NumberHelper.getDouble(((Number) value).doubleValue()); }
         //       return null;
@@ -93,10 +93,10 @@ mod tests {
     use super::*;
     use crate::custom_field_lookup_table::CustomFieldValueItem;
 
-    /// 数据项类型（测试里统一使用）。
+/// Data item type (used uniformly in tests).
     const TYPE: i32 = 0x12;
 
-    /// 读取 8 字节浮点数据项。
+/// Read an 8-byte floating-point data item.
     #[test]
     fn reads_double_value() {
         let var_data = var_data(&[(
@@ -114,7 +114,7 @@ mod tests {
         );
     }
 
-    /// 数据项缺失时 `Var2Data.getDouble` 返回 0（Java 同样返回 0，而非 null）。
+/// When the data item is missing, `Var2Data.getDouble` returns 0 (Java also returns 0, not null).
     #[test]
     fn missing_entry_reads_zero() {
         let var_data = var_data(&[(1, TYPE, vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x3F])]);
@@ -128,10 +128,10 @@ mod tests {
         );
     }
 
-    /// 数据项不足 8 字节 / 位模式为 NaN 时按 0 处理（与 `Var2Data.getDouble` 一致）。
+/// When the data item is shorter than 8 bytes / the bit pattern is NaN, treat it as 0 (consistent with `Var2Data.getDouble`).
     #[test]
     fn short_or_nan_data_reads_zero() {
-        // 4 字节：不足一个 double
+// 4 bytes: less than one double
         let four_byte_var_data = var_data(&[(1, TYPE, vec![0x00, 0x00, 0xF8, 0x3F])]);
         let reader = DoubleVarDataFieldReader::new(container_with_item(
             CustomFieldValueItem::new(1),
@@ -141,7 +141,7 @@ mod tests {
             Some(FieldValue::Double(0.0))
         );
 
-        // NaN 位模式
+// NaN bit pattern
         let nan_var_data = var_data(&[(1, TYPE, f64::NAN.to_bits().to_le_bytes().to_vec())]);
         let reader = DoubleVarDataFieldReader::new(container_with_item(
             CustomFieldValueItem::new(1),
@@ -152,7 +152,7 @@ mod tests {
         );
     }
 
-    /// `coerce_value`：数值取值（含 `Integer` / `Short`）拓宽为 `Double`。
+/// `coerce_value`: widen numeric values (including `Integer` / `Short`) to `Double`.
     #[test]
     fn coerce_value_widens_numbers() {
         let reader = DoubleVarDataFieldReader::new(container_with_item(
@@ -173,7 +173,7 @@ mod tests {
         );
     }
 
-    /// `coerce_value`：非数值取值与 null（`None`）返回 `None`。
+/// `coerce_value`: non-numeric values and null (`None`) return `None`.
     #[test]
     fn coerce_value_rejects_non_numbers() {
         let reader = DoubleVarDataFieldReader::new(container_with_item(

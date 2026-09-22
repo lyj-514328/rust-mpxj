@@ -1,224 +1,224 @@
-//! 对应 Java: `org/mpxj/mpp/PropsKey.java`
+//! Corresponds to Java: `org/mpxj/mpp/PropsKey.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// `Props` 块中使用的键。
+/// Keys used in `Props` blocks.
 ///
-/// 对应 Java: `enum PropsKey`
+/// Corresponds to Java: `enum PropsKey`
 ///
-/// 说明：
-/// - 变体顺序与 Java 的声明顺序完全一致，名称按 `UPPER_SNAKE` → `PascalCase` 转换。
-/// - Java 侧该枚举只有 `getValue()`（未声明 `implements MpxjEnum`）；Rust 侧按本工程
-///   约定实现 [`MpxjEnum`]（`value()` 返回同一个键值），并额外提供 Java 中由编译器生成的
-///   `values()` / `name()` / `toString()` 的等价物：[`PropsKey::ALL`]、
-///   [`PropsKey::get_name`]、[`Display`]。
-/// - [`PropsKey::get_instance`] 在 Java 侧没有对应方法（Java 用反射表 `EnumHelper` 的写法
-///   在本枚举中也不存在），Rust 侧按「按值查找」提供，供上层按键值反查枚举使用。
-/// - 键值存在重复（例如 `TABLE_NAME` 与 `UPPER_VIEW_NAME` 都是 574619658，
-///   `KEYWORDS` 与 `BASELINE_DATE` 都是 37748749），与 Java 注释「a few duplicate values」
-///   一致；`get_instance` 返回声明顺序中的第一个匹配项。
+/// Notes:
+/// - The variant order exactly matches Java's declaration order, and names are converted from `UPPER_SNAKE` to `PascalCase`.
+/// - On the Java side this enum has only `getValue()` (it does not declare `implements MpxjEnum`); the Rust side, per project
+/// convention, implements [`MpxjEnum`] (`value()` returns the same key value) and additionally provides the equivalents of the compiler-generated
+/// `values()` / `name()` / `toString()` in Java: [`PropsKey::ALL`],
+///   [`PropsKey::get_name`],[`Display`].
+/// - [`PropsKey::get_instance`] has no counterpart on the Java side (and Java's reflection-table `EnumHelper` approach
+/// does not exist for this enum either); the Rust side provides it as "lookup by value" for upper layers to resolve the enum from a key value.
+/// - Key values are duplicated (for example `TABLE_NAME` and `UPPER_VIEW_NAME` are both 574619658,
+/// `KEYWORDS` and `BASELINE_DATE` are both 37748749), consistent with the Java comment "a few duplicate values";
+/// `get_instance` returns the first match in declaration order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PropsKey {
-    /// 对应 Java: `ASSIGNMENT_FIELD_MAP(131095)`
+    /// Corresponds to Java: `ASSIGNMENT_FIELD_MAP(131095)`
     AssignmentFieldMap,
-    /// 对应 Java: `ASSIGNMENT_FIELD_MAP2(50331671)`
+    /// Corresponds to Java: `ASSIGNMENT_FIELD_MAP2(50331671)`
     AssignmentFieldMap2,
-    /// 对应 Java: `AUTO_FILTER(893386767)`
+    /// Corresponds to Java: `AUTO_FILTER(893386767)`
     AutoFilter,
-    /// 对应 Java: `BASELINE10_DATE(37753759)`
+    /// Corresponds to Java: `BASELINE10_DATE(37753759)`
     Baseline10Date,
-    /// 对应 Java: `BASELINE1_DATE(37753750)`
+    /// Corresponds to Java: `BASELINE1_DATE(37753750)`
     Baseline1Date,
-    /// 对应 Java: `BASELINE2_DATE(37753751)`
+    /// Corresponds to Java: `BASELINE2_DATE(37753751)`
     Baseline2Date,
-    /// 对应 Java: `BASELINE3_DATE(37753752)`
+    /// Corresponds to Java: `BASELINE3_DATE(37753752)`
     Baseline3Date,
-    /// 对应 Java: `BASELINE4_DATE(37753753)`
+    /// Corresponds to Java: `BASELINE4_DATE(37753753)`
     Baseline4Date,
-    /// 对应 Java: `BASELINE5_DATE(37753754)`
+    /// Corresponds to Java: `BASELINE5_DATE(37753754)`
     Baseline5Date,
-    /// 对应 Java: `BASELINE6_DATE(37753755)`
+    /// Corresponds to Java: `BASELINE6_DATE(37753755)`
     Baseline6Date,
-    /// 对应 Java: `BASELINE7_DATE(37753756)`
+    /// Corresponds to Java: `BASELINE7_DATE(37753756)`
     Baseline7Date,
-    /// 对应 Java: `BASELINE8_DATE(37753757)`
+    /// Corresponds to Java: `BASELINE8_DATE(37753757)`
     Baseline8Date,
-    /// 对应 Java: `BASELINE9_DATE(37753758)`
+    /// Corresponds to Java: `BASELINE9_DATE(37753758)`
     Baseline9Date,
-    /// 对应 Java: `BASELINE_CALENDAR_NAME(37753747)`
+    /// Corresponds to Java: `BASELINE_CALENDAR_NAME(37753747)`
     BaselineCalendarName,
-    /// 对应 Java: `BASELINE_DATE(37753749)`
+    /// Corresponds to Java: `BASELINE_DATE(37753749)`
     BaselineDate,
-    /// 对应 Java: `CRITICAL_SLACK_LIMIT(37748756)`
+    /// Corresponds to Java: `CRITICAL_SLACK_LIMIT(37748756)`
     CriticalSlackLimit,
-    /// 对应 Java: `CURRENCY_CODE(37753787)`
+    /// Corresponds to Java: `CURRENCY_CODE(37753787)`
     CurrencyCode,
-    /// 对应 Java: `CURRENCY_DIGITS(37748754)`
+    /// Corresponds to Java: `CURRENCY_DIGITS(37748754)`
     CurrencyDigits,
-    /// 对应 Java: `CURRENCY_PLACEMENT(37748753)`
+    /// Corresponds to Java: `CURRENCY_PLACEMENT(37748753)`
     CurrencyPlacement,
-    /// 对应 Java: `CURRENCY_SYMBOL(37748752)`
+    /// Corresponds to Java: `CURRENCY_SYMBOL(37748752)`
     CurrencySymbol,
-    /// 对应 Java: `CUSTOM_FIELDS(71303169)`
+    /// Corresponds to Java: `CUSTOM_FIELDS(71303169)`
     CustomFields,
-    /// 对应 Java: `DAYS_PER_MONTH(37753743)`
+    /// Corresponds to Java: `DAYS_PER_MONTH(37753743)`
     DaysPerMonth,
-    /// 对应 Java: `DEFAULT_CALENDAR_HOURS(37753736)`
+    /// Corresponds to Java: `DEFAULT_CALENDAR_HOURS(37753736)`
     DefaultCalendarHours,
-    /// 对应 Java: `DEFAULT_CALENDAR_NAME(37748750)`
+    /// Corresponds to Java: `DEFAULT_CALENDAR_NAME(37748750)`
     DefaultCalendarName,
-    /// 对应 Java: `DEFAULT_TASK_TYPE(37748785)`
+    /// Corresponds to Java: `DEFAULT_TASK_TYPE(37748785)`
     DefaultTaskType,
-    /// 对应 Java: `DURATION_UNITS(37748757)`
+    /// Corresponds to Java: `DURATION_UNITS(37748757)`
     DurationUnits,
-    /// 对应 Java: `EDITABLE_ACTUAL_COSTS(37748802)`
+    /// Corresponds to Java: `EDITABLE_ACTUAL_COSTS(37748802)`
     EditableActualCosts,
-    /// 对应 Java: `ENCRYPTION_CODE(893386759)`
+    /// Corresponds to Java: `ENCRYPTION_CODE(893386759)`
     EncryptionCode,
-    /// 对应 Java: `END_TIME(37748769)`
+    /// Corresponds to Java: `END_TIME(37748769)`
     EndTime,
-    /// 对应 Java: `ENTERPRISE_CUSTOM_FIELD_MAP(37753797)`
+    /// Corresponds to Java: `ENTERPRISE_CUSTOM_FIELD_MAP(37753797)`
     EnterpriseCustomFieldMap,
-    /// 对应 Java: `FISCAL_YEAR_START(37748801)`
+    /// Corresponds to Java: `FISCAL_YEAR_START(37748801)`
     FiscalYearStart,
-    /// 对应 Java: `FISCAL_YEAR_START_MONTH(37748780)`
+    /// Corresponds to Java: `FISCAL_YEAR_START_MONTH(37748780)`
     FiscalYearStartMonth,
-    /// 对应 Java: `FONT_BASES(54525952)`
+    /// Corresponds to Java: `FONT_BASES(54525952)`
     FontBases,
-    /// 对应 Java: `GUID(37748777)`
+    /// Corresponds to Java: `GUID(37748777)`
     Guid,
-    /// 对应 Java: `HONOR_CONSTRAINTS(37748794)`
+    /// Corresponds to Java: `HONOR_CONSTRAINTS(37748794)`
     HonorConstraints,
-    /// 对应 Java: `HYPERLINK_BASE(37748810)`
+    /// Corresponds to Java: `HYPERLINK_BASE(37748810)`
     HyperlinkBase,
-    /// 对应 Java: `MINUTES_PER_DAY(37748765)`
+    /// Corresponds to Java: `MINUTES_PER_DAY(37748765)`
     MinutesPerDay,
-    /// 对应 Java: `MINUTES_PER_WEEK(37748766)`
+    /// Corresponds to Java: `MINUTES_PER_WEEK(37748766)`
     MinutesPerWeek,
-    /// 对应 Java: `MULTIPLE_CRITICAL_PATHS(37748793)`
+    /// Corresponds to Java: `MULTIPLE_CRITICAL_PATHS(37748793)`
     MultipleCriticalPaths,
-    /// 对应 Java: `NEW_TASKS_ARE_MANUAL(37753800)`
+    /// Corresponds to Java: `NEW_TASKS_ARE_MANUAL(37753800)`
     NewTasksAreManual,
-    /// 对应 Java: `OVERTIME_RATE(37748768)`
+    /// Corresponds to Java: `OVERTIME_RATE(37748768)`
     OvertimeRate,
-    /// 对应 Java: `PASSWORD_FLAG(893386752)`
+    /// Corresponds to Java: `PASSWORD_FLAG(893386752)`
     PasswordFlag,
-    /// 对应 Java: `PROJECT_FILE_PATH(893386760)`
+    /// Corresponds to Java: `PROJECT_FILE_PATH(893386760)`
     ProjectFilePath,
-    /// 对应 Java: `PROJECT_FINISH_DATE(37748739)`
+    /// Corresponds to Java: `PROJECT_FINISH_DATE(37748739)`
     ProjectFinishDate,
-    /// 对应 Java: `PROJECT_START_DATE(37748738)`
+    /// Corresponds to Java: `PROJECT_START_DATE(37748738)`
     ProjectStartDate,
-    /// 对应 Java: `PROTECTION_PASSWORD_HASH(893386756)`
+    /// Corresponds to Java: `PROTECTION_PASSWORD_HASH(893386756)`
     ProtectionPasswordHash,
-    /// 对应 Java: `RELATION_FIELD_MAP(131094)`
+    /// Corresponds to Java: `RELATION_FIELD_MAP(131094)`
     RelationFieldMap,
-    /// 对应 Java: `RESOURCE_CREATION_DATE(205521219)`
+    /// Corresponds to Java: `RESOURCE_CREATION_DATE(205521219)`
     ResourceCreationDate,
-    /// 对应 Java: `RESOURCE_FIELD_MAP(131093)`
+    /// Corresponds to Java: `RESOURCE_FIELD_MAP(131093)`
     ResourceFieldMap,
-    /// 对应 Java: `RESOURCE_FIELD_MAP2(50331669)`
+    /// Corresponds to Java: `RESOURCE_FIELD_MAP2(50331669)`
     ResourceFieldMap2,
-    /// 对应 Java: `RESOURCE_FIELD_NAME_ALIASES(1048578)`
+    /// Corresponds to Java: `RESOURCE_FIELD_NAME_ALIASES(1048578)`
     ResourceFieldNameAliases,
-    /// 对应 Java: `RESOURCE_POOL(37748747)`
+    /// Corresponds to Java: `RESOURCE_POOL(37748747)`
     ResourcePool,
-    /// 对应 Java: `SCHEDULE_FROM(37748740)`
+    /// Corresponds to Java: `SCHEDULE_FROM(37748740)`
     ScheduleFrom,
-    /// 对应 Java: `SHOW_PROJECT_SUMMARY_TASK(54525961)`
+    /// Corresponds to Java: `SHOW_PROJECT_SUMMARY_TASK(54525961)`
     ShowProjectSummaryTask,
-    /// 对应 Java: `SPLIT_TASKS(37748762)`
+    /// Corresponds to Java: `SPLIT_TASKS(37748762)`
     SplitTasks,
-    /// 对应 Java: `STANDARD_RATE(37748767)`
+    /// Corresponds to Java: `STANDARD_RATE(37748767)`
     StandardRate,
-    /// 对应 Java: `START_TIME(37748764)`
+    /// Corresponds to Java: `START_TIME(37748764)`
     StartTime,
-    /// 对应 Java: `STATUS_DATE(37748805)`
+    /// Corresponds to Java: `STATUS_DATE(37748805)`
     StatusDate,
-    /// 对应 Java: `SUBPROJECT_COUNT(37748868)`
+    /// Corresponds to Java: `SUBPROJECT_COUNT(37748868)`
     SubprojectCount,
-    /// 对应 Java: `SUBPROJECT_DATA(37748898)`
+    /// Corresponds to Java: `SUBPROJECT_DATA(37748898)`
     SubprojectData,
-    /// 对应 Java: `SUBPROJECT_TASK_COUNT(37748900)`
+    /// Corresponds to Java: `SUBPROJECT_TASK_COUNT(37748900)`
     SubprojectTaskCount,
-    /// 对应 Java: `TASK_FIELD_ATTRIBUTES(37753744)`
+    /// Corresponds to Java: `TASK_FIELD_ATTRIBUTES(37753744)`
     TaskFieldAttributes,
-    /// 对应 Java: `TASK_FIELD_MAP(131092)`
+    /// Corresponds to Java: `TASK_FIELD_MAP(131092)`
     TaskFieldMap,
-    /// 对应 Java: `TASK_FIELD_MAP2(50331668)`
+    /// Corresponds to Java: `TASK_FIELD_MAP2(50331668)`
     TaskFieldMap2,
-    /// 对应 Java: `TASK_FIELD_NAME_ALIASES(1048577)`
+    /// Corresponds to Java: `TASK_FIELD_NAME_ALIASES(1048577)`
     TaskFieldNameAliases,
-    /// 对应 Java: `TASK_UPDATES_RESOURCE(37748761)`
+    /// Corresponds to Java: `TASK_UPDATES_RESOURCE(37748761)`
     TaskUpdatesResource,
-    /// 对应 Java: `WEEK_START_DAY(37748773)`
+    /// Corresponds to Java: `WEEK_START_DAY(37748773)`
     WeekStartDay,
-    /// 对应 Java: `WORK_UNITS(37748758)`
+    /// Corresponds to Java: `WORK_UNITS(37748758)`
     WorkUnits,
-    /// 对应 Java: `WRITE_RESERVATION_PASSWORD_HASH(893386757)`
+    /// Corresponds to Java: `WRITE_RESERVATION_PASSWORD_HASH(893386757)`
     WriteReservationPasswordHash,
-    /// 对应 Java: `STYLE_DATA(574619656)`
+    /// Corresponds to Java: `STYLE_DATA(574619656)`
     StyleData,
-    /// 对应 Java: `BAR_EXCEPTION_STYLES(574619661)`
+    /// Corresponds to Java: `BAR_EXCEPTION_STYLES(574619661)`
     BarExceptionStyles,
-    /// 对应 Java: `ALTERNATE_STYLE_DATA(574619686)`
+    /// Corresponds to Java: `ALTERNATE_STYLE_DATA(574619686)`
     AlternateStyleData,
-    /// 对应 Java: `TIMESCALE_PROPERTIES(574619678)`
+    /// Corresponds to Java: `TIMESCALE_PROPERTIES(574619678)`
     TimescaleProperties,
-    /// 对应 Java: `TABLE_PROPERTIES(574619655)`
+    /// Corresponds to Java: `TABLE_PROPERTIES(574619655)`
     TableProperties,
-    /// 对应 Java: `FILTER_NAME(574619659)`
+    /// Corresponds to Java: `FILTER_NAME(574619659)`
     FilterName,
-    /// 对应 Java: `GROUP_NAME(574619672)`
+    /// Corresponds to Java: `GROUP_NAME(574619672)`
     GroupName,
-    /// 对应 Java: `COLUMN_PROPERTIES(574619660)`
+    /// Corresponds to Java: `COLUMN_PROPERTIES(574619660)`
     ColumnProperties,
-    /// 对应 Java: `PROGRESS_LINE_PROPERTIES(574619671)`
+    /// Corresponds to Java: `PROGRESS_LINE_PROPERTIES(574619671)`
     ProgressLineProperties,
-    /// 对应 Java: `AUTO_FILTER_PROPERTIES(574619669)`
+    /// Corresponds to Java: `AUTO_FILTER_PROPERTIES(574619669)`
     AutoFilterProperties,
-    /// 对应 Java: `VIEW_NAME(641728536)`
+    /// Corresponds to Java: `VIEW_NAME(641728536)`
     ViewName,
-    /// 对应 Java: `DATA_LINK_FIELD_TYPE(641728535)`
+    /// Corresponds to Java: `DATA_LINK_FIELD_TYPE(641728535)`
     DataLinkFieldType,
-    /// 对应 Java: `DATA_LINK_UNIQUE_ID(641728548)`
+    /// Corresponds to Java: `DATA_LINK_UNIQUE_ID(641728548)`
     DataLinkUniqueId,
-    /// 对应 Java: `DATA_LINK_PATH(641728561)`
+    /// Corresponds to Java: `DATA_LINK_PATH(641728561)`
     DataLinkPath,
-    /// 对应 Java: `TABLE_NAME(574619658)`
+    /// Corresponds to Java: `TABLE_NAME(574619658)`
     TableName,
-    /// 对应 Java: `VIEW_CONTENTS(641728565)`
+    /// Corresponds to Java: `VIEW_CONTENTS(641728565)`
     ViewContents,
-    /// 对应 Java: `UPPER_VIEW_NAME(574619658)`
+    /// Corresponds to Java: `UPPER_VIEW_NAME(574619658)`
     UpperViewName,
-    /// 对应 Java: `LOWER_VIEW_NAME(574619659)`
+    /// Corresponds to Java: `LOWER_VIEW_NAME(574619659)`
     LowerViewName,
-    /// 对应 Java: `COMPANY(37748736)`
+    /// Corresponds to Java: `COMPANY(37748736)`
     Company,
-    /// 对应 Java: `MANAGER(37748737)`
+    /// Corresponds to Java: `MANAGER(37748737)`
     Manager,
-    /// 对应 Java: `COMMENTS(37748741)`
+    /// Corresponds to Java: `COMMENTS(37748741)`
     Comments,
-    /// 对应 Java: `TITLE(37748744)`
+    /// Corresponds to Java: `TITLE(37748744)`
     Title,
-    /// 对应 Java: `SUBJECT(37748745)`
+    /// Corresponds to Java: `SUBJECT(37748745)`
     Subject,
-    /// 对应 Java: `AUTHOR(37748748)`
+    /// Corresponds to Java: `AUTHOR(37748748)`
     Author,
-    /// 对应 Java: `KEYWORDS(37748749)`
+    /// Corresponds to Java: `KEYWORDS(37748749)`
     Keywords,
-    /// 对应 Java: `CATEGORY(37748809)`
+    /// Corresponds to Java: `CATEGORY(37748809)`
     Category,
 }
 
-/// 变体总数。
+/// Total number of variants.
 ///
-/// 对应 Java: `PropsKey.values().length`（Java 无显式常量）。
+/// Corresponds to Java: `PropsKey.values().length` (Java has no explicit constant).
 pub const PROPS_KEY_COUNT: usize = 95;
 
-/// 各变体对应的 Java 枚举常量名（`UPPER_SNAKE`），下标即变体序号。
+/// The Java enum constant name for each variant (`UPPER_SNAKE`); the index is the variant number.
 ///
-/// 对应 Java: `Enum.name()` / `Enum.toString()`（由编译器生成）。
+/// Corresponds to Java: `Enum.name()` / `Enum.toString()` (generated by the compiler).
 const NAMES: [&str; PROPS_KEY_COUNT] = [
     "ASSIGNMENT_FIELD_MAP",
     "ASSIGNMENT_FIELD_MAP2",
@@ -318,9 +318,9 @@ const NAMES: [&str; PROPS_KEY_COUNT] = [
 ];
 
 impl PropsKey {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `PropsKey.values()`
+    /// Corresponds to Java: `PropsKey.values()`
     pub const ALL: [PropsKey; PROPS_KEY_COUNT] = [
         PropsKey::AssignmentFieldMap,
         PropsKey::AssignmentFieldMap2,
@@ -419,9 +419,9 @@ impl PropsKey {
         PropsKey::Category,
     ];
 
-    /// 取键的整数键值。
+/// Get the key's integer key value.
     ///
-    /// 对应 Java: `public Integer getValue()`
+    /// Corresponds to Java: `public Integer getValue()`
     pub fn get_value(&self) -> i32 {
         match self {
             PropsKey::AssignmentFieldMap => 131095,
@@ -522,27 +522,27 @@ impl PropsKey {
         }
     }
 
-    /// 按键值取枚举实例（重复键值返回声明顺序中的第一个），找不到返回 `None`。
+/// Get the enum instance by key value (for duplicate key values, return the first in declaration order); return `None` if not found.
     ///
-    /// Java 侧无对应方法（Java 不使用按键值反查）。
+/// No counterpart on the Java side (Java does not look up by key value).
     pub fn get_instance(value: i32) -> Option<PropsKey> {
         Self::ALL.iter().copied().find(|key| key.get_value() == value)
     }
 
-    /// 取 Java 侧的枚举常量名。
+/// Get the Java-side enum constant name.
     ///
-    /// 对应 Java: `Enum.name()`（`Props` 的 `toString()` 用到 `Enum.toString()`）
+/// Corresponds to Java: `Enum.name()` (`Props`'s `toString()` uses `Enum.toString()`)
     pub fn get_name(&self) -> &'static str {
         NAMES[*self as usize]
     }
 }
 
 impl MpxjEnum for PropsKey {
-    /// 返回键值。
+/// Return the key value.
     ///
-    /// 对应 Java: `public Integer getValue()`
+    /// Corresponds to Java: `public Integer getValue()`
     ///
-    /// 注意：与其它枚举不同，本枚举的 `value()` 不是声明序号，而是 MPP 文件中的键值。
+/// Note: unlike other enums, this enum's `value()` is not the declaration ordinal but the key value in the MPP file.
     fn value(&self) -> i32 {
         self.get_value()
     }
@@ -555,7 +555,7 @@ impl From<PropsKey> for i32 {
 }
 
 impl std::fmt::Display for PropsKey {
-    /// 对应 Java: `Enum.toString()`
+    /// Corresponds to Java: `Enum.toString()`
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.get_name())
     }
@@ -570,7 +570,7 @@ mod tests {
         assert_eq!(PropsKey::ALL.len(), PROPS_KEY_COUNT);
         assert_eq!(NAMES.len(), PROPS_KEY_COUNT);
 
-        // 变体序号与常量名表一一对应
+// The variant number corresponds one-to-one with the constant name table
         for key in PropsKey::ALL {
             assert_eq!(key.get_name(), NAMES[key as usize]);
         }
@@ -596,10 +596,10 @@ mod tests {
 
     #[test]
     fn get_instance_round_trips() {
-        // 键值有重复（见 duplicate_values_return_first_declaration），
-        // 因此只对「首个声明」保证往返一致，其余保证键值相同
+// Key values are duplicated (see duplicate_values_return_first_declaration),
+// so round-trip consistency is guaranteed only for the "first declaration"; for the rest only the key value is guaranteed the same
         for key in PropsKey::ALL {
-            let found = PropsKey::get_instance(key.get_value()).expect("应能找到");
+            let found = PropsKey::get_instance(key.get_value()).expect("should be found");
             assert_eq!(found.get_value(), key.get_value());
         }
 
@@ -613,14 +613,14 @@ mod tests {
 
     #[test]
     fn duplicate_values_return_first_declaration() {
-        // Java: TABLE_NAME(574619658) 与 UPPER_VIEW_NAME(574619658)
+// Java: TABLE_NAME(574619658) and UPPER_VIEW_NAME(574619658)
         assert_eq!(
             PropsKey::get_instance(574619658),
             Some(PropsKey::TableName)
         );
-        // Java: FILTER_NAME(574619659) 与 LOWER_VIEW_NAME(574619659)
+// Java: FILTER_NAME(574619659) and LOWER_VIEW_NAME(574619659)
         assert_eq!(PropsKey::get_instance(574619659), Some(PropsKey::FilterName));
-        // Java: BASELINE_DATE(37753749) 与 KEYWORDS(37748749) 值不同，仅名称相似
+// Java: BASELINE_DATE(37753749) and KEYWORDS(37748749) have different values; only the names are similar
         assert_eq!(
             PropsKey::get_instance(37753749),
             Some(PropsKey::BaselineDate)

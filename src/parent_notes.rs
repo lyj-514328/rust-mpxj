@@ -1,56 +1,56 @@
-//! 对应 Java: `org/mpxj/ParentNotes.java`
+//! Corresponds to Java: `org/mpxj/ParentNotes.java`
 
 use crate::notes::Notes;
 use std::fmt::{self, Display, Formatter};
 
-/// 由一个或多个子笔记组合而成的笔记。
+/// A note composed of one or more child notes.
 ///
-/// 对应 Java: `public class ParentNotes extends Notes`
+/// Corresponds to Java: `public class ParentNotes extends Notes`
 ///
-/// # 继承关系如何还原
+/// # How the inheritance relationship is restored
 ///
-/// Java 中 `ParentNotes` 直接继承 `Notes`；Rust 无继承，改为独立 struct 实现
-/// [`crate::notes::Notes`] trait。Java 构造方法通过 `super(null)` 传给基类的
-/// `m_text` 在本类中不参与任何逻辑（本类重写了 `toString()`），故不再保留该字段。
+/// In Java, `ParentNotes` directly extends `Notes`; Rust has no inheritance, so it becomes a standalone struct implementing
+/// the [`crate::notes::Notes`] trait. The `m_text` that the Java constructor passes to the base class via `super(null)`
+/// does not participate in any logic in this class (this class overrides `toString()`), so the field is no longer kept.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub struct ParentNotes {
-    /// 子笔记列表。
+/// The list of child notes.
     ///
-    /// 对应 Java: `private final List<Notes> m_childNotes;`
+    /// Corresponds to Java: `private final List<Notes> m_childNotes;`
     m_child_notes: Vec<Box<dyn Notes>>,
 }
 
 impl ParentNotes {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ParentNotes(List<Notes> childNotes)`
+    /// Corresponds to Java: `public ParentNotes(List<Notes> childNotes)`
     pub fn new(child_notes: Vec<Box<dyn Notes>>) -> ParentNotes {
         ParentNotes {
             m_child_notes: child_notes,
         }
     }
 
-    /// 返回子笔记列表。
+/// Return the list of child notes.
     ///
-    /// 对应 Java: `public List<Notes> getChildNotes()`
+    /// Corresponds to Java: `public List<Notes> getChildNotes()`
     pub fn get_child_notes(&self) -> &[Box<dyn Notes>] {
         &self.m_child_notes
     }
 }
 
 impl Display for ParentNotes {
-    /// 返回所有子笔记纯文本表示拼接后的结果。
+/// Return the concatenated result of the plain-text representations of all child notes.
     ///
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 先过滤掉 `null` 元素，再逐项 `toString()`，用 `\n` 连接后调用 `trim()`。
-    /// Rust 的 `Vec<Box<dyn Notes>>` 中不存在 `null` 元素，故只需连接与去空白。
+/// Java first filters out `null` elements, then calls `toString()` on each, joins them with `\n` and calls `trim()`.
+/// Rust's `Vec<Box<dyn Notes>>` contains no `null` elements, so only joining and trimming are needed.
     ///
-    /// 另注：Java 的 `String.trim()` 只去掉码点 `<= U+0020` 的首尾字符，Rust 的
-    /// `str::trim()` 会去掉所有 Unicode 空白字符，极端输入下结果略有差异。
+/// Note also: Java's `String.trim()` removes only leading/trailing characters with code points `<= U+0020`, whereas Rust's
+/// `str::trim()` removes all Unicode whitespace characters, so the result may differ slightly for extreme inputs.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let text = self
             .m_child_notes
@@ -64,7 +64,7 @@ impl Display for ParentNotes {
 }
 
 impl Notes for ParentNotes {
-    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+/// Corresponds to Java: none (a Rust-specific subtype-preserving copy, see [`Notes::to_box`])
     fn to_box(&self) -> Box<dyn Notes> {
         Box::new(ParentNotes::new(
             self.m_child_notes

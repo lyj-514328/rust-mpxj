@@ -1,20 +1,20 @@
-//! 对应 Java: `org/mpxj/mpp/FixedMeta.java`
+//! Corresponds to Java: `org/mpxj/mpp/FixedMeta.java`
 //!
-//! 表示 MPP 文件中的 "FixedMeta" 流：块头描述了关联 "FixedData" 块中记录的条数，
-//! 其后是若干条定长记录，每条记录描述 `FixedData` 块中对应记录的位置（偏移等）。
-//! 块内记录的具体结构目前并未完全弄清，因此这里只做整体持有与按偏移切片。
+//! Represents the "FixedMeta" stream in an MPP file: the block header describes the number of records in the associated "FixedData" block,
+//! followed by several fixed-length records, each describing the position (offset, etc.) of the corresponding record in the `FixedData` block.
+//! The exact structure of the records within the block is not yet fully understood, so this only holds the block as a whole and slices it by offset.
 //!
-//! 移植取舍：
-//! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`；Java 的
-//!   `is.available()` 对应 `data.len()`（POI 保证该值准确）。
-//! - Java 继承 `MPPComponent` 复用 `readInt` / `readByteArray`；Rust 侧改为本文件的私有
-//!   函数 [`read_int`] / [`read_byte_array`]（数据不足时对应 Java 的 `EOFException`，
-//!   返回 `Err`）。
-//! - Java 的 `Object[]` 只会存放 `byte[]`，因此 Rust 侧为 `Vec<Option<Vec<u8>>>`。
-//! - Java 的 `toString()` 对应 [`Display`]。
-//! - Java 会抛异常的几处（坏 magic、`itemSize` 为 0 导致的除零、负数组长度、数组越界）
-//!   在 Rust 侧分别改为返回 `Err` 或取 0 / `None`，绝不 panic。
-//! - 未涉及反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`。
+//! Porting trade-offs:
+//! - Java's constructor receives an `InputStream`; by convention the Rust side takes `&[u8]`; Java's
+//! `is.available()` corresponds to `data.len()` (POI guarantees this value is accurate).
+//! - Java inherits `MPPComponent` to reuse `readInt` / `readByteArray`; the Rust side uses this file's private
+//! functions [`read_int`] / [`read_byte_array`] (insufficient data corresponds to Java's `EOFException`,
+//! returning `Err`).
+//! - Java's `Object[]` only ever holds `byte[]`, so the Rust side uses `Vec<Option<Vec<u8>>>`.
+//! - Java's `toString()` corresponds to [`Display`].
+//! - The places where Java throws (bad magic, division by zero caused by `itemSize` being 0, negative array length, array out of bounds)
+//! are changed on the Rust side to return `Err` or to yield 0 / `None` respectively, never panicking.
+//! - Does not involve reflection, JDBC, XML/JAXB, GUI, `javax.*`, `Serializable`.
 
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -24,53 +24,53 @@ use crate::common::byte_array_helper::ByteArrayHelper;
 use super::fixed_data::FixedData;
 use super::fixed_meta_item_size_provider::FixedMetaItemSizeProvider;
 
-/// `FixedMeta` 块：块头 + 若干定长记录。
+/// `FixedMeta` block: block header + several fixed-length records.
 ///
-/// 对应 Java: `final class FixedMeta extends MPPComponent`
+/// Corresponds to Java: `final class FixedMeta extends MPPComponent`
 pub struct FixedMeta {
-    /// 块头报告的记录条数。
+/// The record count reported by the block header.
     ///
-    /// 对应 Java: `private final int m_itemCount`
+    /// Corresponds to Java: `private final int m_itemCount`
     item_count: i32,
-    /// 依据块大小与记录大小推算出的记录条数。
+/// The record count derived from the block size and the record size.
     ///
-    /// 对应 Java: `private final int m_adjustedItemCount`
+    /// Corresponds to Java: `private final int m_adjustedItemCount`
     adjusted_item_count: i32,
-    /// 每条记录对应的数据项（Java 侧为 `Object[]`，每个元素或者是 `byte[]` 或者是 `null`）。
+/// The data item for each record (on the Java side an `Object[]`, where each element is either `byte[]` or `null`).
     ///
-    /// 对应 Java: `private final Object[] m_array`
+    /// Corresponds to Java: `private final Object[] m_array`
     array: Vec<Option<Vec<u8>>>,
 }
 
-/// 块头魔数。
+/// Block header magic number.
 ///
-/// 对应 Java: `private static final int MAGIC = 0xFADFADBA`（Java 的 `int` 为有符号，
-/// 字面量本身就是负数，这里用同样的位模式）。
+/// Corresponds to Java: `private static final int MAGIC = 0xFADFADBA` (Java's `int` is signed,
+/// so the literal itself is negative; the same bit pattern is used here).
 const MAGIC: i32 = 0xFADFADBA_u32 as i32;
 
-/// 块头长度。
+/// Block header length.
 ///
-/// 对应 Java: `private static final int HEADER_SIZE = 16`
+/// Corresponds to Java: `private static final int HEADER_SIZE = 16`
 const HEADER_SIZE: i32 = 16;
 
 impl FixedMeta {
-    /// 构造方法。已知块大小，因此忽略块头里的记录条数，直接按给定记录大小推算。
+/// Constructor. The block size is known, so the record count in the block header is ignored and the count is derived directly from the given record size.
     ///
-    /// 对应 Java: `FixedMeta(InputStream is, final int itemSize)`
+    /// Corresponds to Java: `FixedMeta(InputStream is, final int itemSize)`
     pub fn with_item_size(data: &[u8], item_size: i32) -> io::Result<Self> {
         let provider = move |_file_size: i32, _item_count: i32| item_size;
         Self::new(data, &provider)
     }
 
-    /// 构造方法。由给定的 item size provider 决定记录大小。
+/// Constructor. The record size is determined by the given item size provider.
     ///
-    /// 对应 Java: `FixedMeta(InputStream is, FixedMetaItemSizeProvider itemSizeProvider)`
+    /// Corresponds to Java: `FixedMeta(InputStream is, FixedMetaItemSizeProvider itemSizeProvider)`
     pub fn new(data: &[u8], item_size_provider: &dyn FixedMetaItemSizeProvider) -> io::Result<Self> {
-        // Java: int fileSize = is.available(); POI 保证该值准确
+// Java: int fileSize = is.available(); POI guarantees this value is accurate
         let file_size = data.len() as i32;
 
         //
-        // 块头：4 个 int（第 1 个是 magic，第 3 个是记录条数，其余未知）
+// Block header: 4 ints (the 1st is magic, the 3rd is the record count, the rest are unknown)
         //
         let mut offset = 0usize;
         let magic = read_int(data, &mut offset)?;
@@ -87,9 +87,9 @@ impl FixedMeta {
 
         let item_size = item_size_provider.get_item_size(file_size, item_count);
 
-        // Java: (fileSize - HEADER_SIZE) / itemSize，itemSize 为 0 时抛
-        // ArithmeticException，结果为负时构造数组抛 NegativeArraySizeException；
-        // Rust 侧统一取 0（Java 的 int 除法向零截断，负数分子同样得到 0）。
+// Java: (fileSize - HEADER_SIZE) / itemSize; throws when itemSize is 0
+// ArithmeticException; a negative result makes the array construction throw NegativeArraySizeException;
+// the Rust side uniformly takes 0 (Java's int division truncates toward zero, so a negative numerator also yields 0).
         let adjusted_item_count = if item_size > 0 {
             (file_size - HEADER_SIZE) / item_size
         } else {
@@ -108,16 +108,16 @@ impl FixedMeta {
         })
     }
 
-    /// 构造方法。给出若干候选记录大小，结合另一个定长块的数据条数做启发式选择。
+/// Constructor. Given several candidate record sizes, makes a heuristic choice together with the record count of another fixed-length block.
     ///
-    /// 对应 Java: `FixedMeta(InputStream is, final FixedData otherFixedBlock, final int... itemSizes)`
+    /// Corresponds to Java: `FixedMeta(InputStream is, final FixedData otherFixedBlock, final int... itemSizes)`
     pub fn with_item_sizes(
         data: &[u8],
         other_fixed_block: &FixedData,
         item_sizes: &[i32],
     ) -> io::Result<Self> {
         let provider = move |file_size: i32, item_count: i32| {
-            // Java: itemSizes[0]，数组为空时抛 ArrayIndexOutOfBoundsException；Rust 侧取 0
+// Java: itemSizes[0], which throws ArrayIndexOutOfBoundsException when the array is empty; the Rust side takes 0
             let mut item_size = item_sizes.first().copied().unwrap_or(0);
             let available = file_size - HEADER_SIZE;
             // Java: Integer.MIN_VALUE
@@ -125,14 +125,14 @@ impl FixedMeta {
             let other_fixed_block_count = other_fixed_block.get_item_count();
 
             for &test_item_size in item_sizes {
-                // Java 对 0 取模会抛 ArithmeticException；Rust 侧跳过该候选
+// Java throws ArithmeticException when taking a modulo by 0; the Rust side skips that candidate
                 if test_item_size == 0 || available % test_item_size != 0 {
                     continue;
                 }
 
                 //
-                // 若候选大小正好整除块大小，且与另一块的记录条数一致，基本可以确定
-                // 这就是正确的记录大小，直接结束选择。
+// If a candidate size divides the block size exactly and matches the record count of the other block, it is essentially certain
+// that this is the correct record size, so the selection ends immediately.
                 //
                 if available / test_item_size == other_fixed_block_count {
                     item_size = test_item_size;
@@ -140,8 +140,8 @@ impl FixedMeta {
                 }
 
                 //
-                // 否则用经验规则选择最接近的候选（Java 的 int 溢出会回绕，
-                // Rust 侧用 wrapping 保持同样语义，且不会在 debug 下 panic）。
+// Otherwise use an empirical rule to choose the closest candidate (Java's int overflow wraps,
+// while the Rust side uses wrapping to preserve the same semantics without panicking in debug).
                 //
                 let test_distance = item_count.wrapping_mul(test_item_size).wrapping_sub(available);
                 if test_distance <= 0 && test_distance > distance {
@@ -156,23 +156,23 @@ impl FixedMeta {
         Self::new(data, &provider)
     }
 
-    /// 取块头报告的记录条数。
+/// Get the record count reported by the block header.
     ///
-    /// 对应 Java: `public int getItemCount()`
+    /// Corresponds to Java: `public int getItemCount()`
     pub fn get_item_count(&self) -> i32 {
         self.item_count
     }
 
-    /// 取依据块大小与记录大小推算出的记录条数。
+/// Get the record count derived from the block size and the record size.
     ///
-    /// 对应 Java: `public int getAdjustedItemCount()`
+    /// Corresponds to Java: `public int getAdjustedItemCount()`
     pub fn get_adjusted_item_count(&self) -> i32 {
         self.adjusted_item_count
     }
 
-    /// 取指定下标的数据项；下标越界或该位置没有数据时返回 `None`。
+/// Get the data item at the given index; returns `None` when the index is out of bounds or there is no data at that position.
     ///
-    /// 对应 Java: `public byte[] getByteArrayValue(int index)`
+    /// Corresponds to Java: `public byte[] getByteArrayValue(int index)`
     pub fn get_byte_array_value(&self, index: i32) -> Option<&[u8]> {
         // Java: index >= 0 && index < m_array.length && m_array[index] != null
         if index < 0 {
@@ -183,7 +183,7 @@ impl FixedMeta {
     }
 }
 
-/// 转储块的调试视图（对应 Java 的 `toString()`，仅供调试使用）。
+/// Debug view that dumps the block (corresponds to Java's `toString()`, for debugging only).
 impl Display for FixedMeta {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "BEGIN: FixedMeta")?;
@@ -191,7 +191,7 @@ impl Display for FixedMeta {
 
         for loop_index in 0..self.adjusted_item_count {
             writeln!(f, "   Data at index: {loop_index}")?;
-            // Java: ByteArrayHelper.hexdump((byte[]) m_array[loop], true)，元素为 null 时输出空串
+// Java: ByteArrayHelper.hexdump((byte[]) m_array[loop], true); outputs an empty string when the element is null
             let item = self
                 .array
                 .get(loop_index as usize)
@@ -205,10 +205,10 @@ impl Display for FixedMeta {
     }
 }
 
-/// 从 `data[pos..]` 读取一个小端 int，并前移 `pos`。
+/// Read a little-endian int from `data[pos..]` and advance `pos`.
 ///
-/// 对应 Java: `MPPComponent#readInt(InputStream)`（数据不足时 Java 抛 `EOFException`，
-/// Rust 侧返回 `ErrorKind::UnexpectedEof`）。
+/// Corresponds to Java: `MPPComponent#readInt(InputStream)` (Java throws `EOFException` when there is insufficient data,
+/// the Rust side returns `ErrorKind::UnexpectedEof`).
 fn read_int(data: &[u8], pos: &mut usize) -> io::Result<i32> {
     let end = pos
         .checked_add(4)
@@ -223,10 +223,10 @@ fn read_int(data: &[u8], pos: &mut usize) -> io::Result<i32> {
     Ok(ByteArrayHelper::get_int(bytes, 0))
 }
 
-/// 从 `data[pos..]` 读取 `size` 个字节，并前移 `pos`。
+/// Read `size` bytes from `data[pos..]` and advance `pos`.
 ///
-/// 对应 Java: `MPPComponent#readByteArray(InputStream, int)`（数据不足时 Java 抛
-/// `RuntimeException`，`size` 为负时抛 `NegativeArraySizeException`；Rust 侧返回 `Err`）。
+/// Corresponds to Java: `MPPComponent#readByteArray(InputStream, int)` (Java throws
+/// `RuntimeException` when there is insufficient data and `NegativeArraySizeException` when `size` is negative; the Rust side returns `Err`).
 fn read_byte_array(data: &[u8], pos: &mut usize, size: i32) -> io::Result<Vec<u8>> {
     if size < 0 {
         return Err(io::Error::new(
@@ -252,10 +252,10 @@ fn read_byte_array(data: &[u8], pos: &mut usize, size: i32) -> io::Result<Vec<u8
 mod tests {
     use super::*;
 
-    /// 手工构造 "FixedMeta" 字节流：16 字节块头 + `count` 条 `item_size` 字节记录。
+/// Hand-builds a "FixedMeta" byte stream: a 16-byte block header + `count` `item_size`-byte records.
     ///
-    /// 每条记录：前 4 字节为标记 `index`，第 4..8 字节为该记录指向 `FixedData`
-    /// 数据体中的偏移，其余字节填 `0xEE`。
+/// Each record: the first 4 bytes are the marker `index`, bytes 4..8 are the offset into the `FixedData`
+/// data body that the record points to, and the remaining bytes are filled with `0xEE`.
     fn build_meta_stream(
         item_size: usize,
         count: usize,
@@ -283,10 +283,10 @@ mod tests {
         data
     }
 
-    /// 块头报告的条数与按块大小推算的条数分别存放在两个 getter 中。
+/// The count reported by the block header and the count derived from the block size are stored in two separate getters.
     #[test]
     fn reads_header_and_adjusted_item_count() {
-        // 3 条 8 字节记录 => 16 + 24 = 40 字节，块头谎报 99 条
+// 3 records of 8 bytes => 16 + 24 = 40 bytes; the block header falsely reports 99 records
         let data = build_meta_stream(8, 3, 99, &[0, 8, 16]);
         assert_eq!(data.len(), 40);
 
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(meta.get_adjusted_item_count(), 3);
     }
 
-    /// 按下标取记录内容（含记录内的偏移字段）。
+/// Get the record contents by index (including the offset field within the record).
     #[test]
     fn reads_item_values() {
         let data = build_meta_stream(8, 3, 3, &[0, 8, 16]);
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(ByteArrayHelper::get_int(last, 4), 16);
     }
 
-    /// 越界下标返回 None，绝不 panic。
+/// An out-of-bounds index returns None and never panics.
     #[test]
     fn out_of_range_index_returns_none() {
         let data = build_meta_stream(8, 2, 2, &[0, 8]);
@@ -323,7 +323,7 @@ mod tests {
         assert!(meta.get_byte_array_value(i32::MIN).is_none());
     }
 
-    /// 坏 magic 返回 Err（Java 抛 IOException）。
+/// Bad magic returns Err (Java throws IOException).
     #[test]
     fn bad_magic_returns_error() {
         let mut data = build_meta_stream(8, 1, 1, &[0]);
@@ -332,14 +332,14 @@ mod tests {
         assert!(FixedMeta::with_item_size(&data, 8).is_err());
     }
 
-    /// 空数据流（连块头都没有）返回 Err（Java 抛 EOFException）。
+/// An empty data stream (not even a block header) returns Err (Java throws EOFException).
     #[test]
     fn empty_stream_returns_error() {
         assert!(FixedMeta::with_item_size(&[], 8).is_err());
         assert!(FixedMeta::with_item_size(&[0u8; 8], 8).is_err());
     }
 
-    /// 记录大小取自 provider，且 provider 收到的是块大小与块头报告的条数。
+/// The record size comes from the provider, and the provider receives the block size and the count reported by the block header.
     #[test]
     fn uses_item_size_provider() {
         let data = build_meta_stream(8, 3, 7, &[0, 8, 16]);
@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(meta.get_adjusted_item_count(), 3);
     }
 
-    /// provider 返回 0 / 负数时不会 panic，得到空块（Java 会抛异常）。
+/// The provider returning 0 / a negative number does not panic and yields an empty block (Java would throw).
     #[test]
     fn zero_item_size_yields_empty_block() {
         let data = build_meta_stream(8, 3, 3, &[0, 8, 16]);
@@ -365,10 +365,10 @@ mod tests {
         assert!(meta.get_byte_array_value(0).is_none());
     }
 
-    /// 块大小不是记录大小的整数倍时忽略尾部残余字节。
+/// Trailing leftover bytes are ignored when the block size is not an integer multiple of the record size.
     #[test]
     fn ignores_partial_trailing_item() {
-        // 16 + 3*8 + 4 = 44 字节，44-16 = 28 => 28 / 8 = 3 条
+// 16 + 3*8 + 4 = 44 bytes, 44-16 = 28 => 28 / 8 = 3 records
         let mut data = build_meta_stream(8, 3, 3, &[0, 8, 16]);
         data.extend_from_slice(&[0xEE; 4]);
 
@@ -376,27 +376,27 @@ mod tests {
         assert_eq!(meta.get_adjusted_item_count(), 3);
     }
 
-    /// 候选记录大小与另一块的条数匹配时直接选中（Java 的第一个 break 分支）。
+/// Selects a candidate record size directly when it matches the other block's count (Java's first break branch).
     #[test]
     fn chooses_item_size_matching_other_block_count() {
-        // FixedData 数据体：3 条 8 字节记录
+// FixedData body: 3 records of 8 bytes
         let fixed_data = FixedData::with_fixed_size(8, &[0xAA; 24]);
         assert_eq!(fixed_data.get_item_count(), 3);
 
-        // available = 24 => 候选 6 与 8 都能整除，只有 8 能得到 3 条
+// available = 24 => both candidates 6 and 8 divide it evenly, but only 8 yields 3 records
         let data = build_meta_stream(8, 3, 3, &[0, 8, 16]);
         let meta = FixedMeta::with_item_sizes(&data, &fixed_data, &[6, 8]).expect("meta parsed");
 
         assert_eq!(meta.get_adjusted_item_count(), 3);
     }
 
-    /// 没有候选满足条件时退回到第一个候选（经验规则分支不满足）。
+/// Falls back to the first candidate when no candidate satisfies the conditions (the empirical rule branch is not satisfied).
     #[test]
     fn falls_back_to_first_candidate_when_none_fit() {
         let fixed_data = FixedData::with_fixed_size(8, &[0xAA; 24]);
 
-        // available = 24：候选 10 不能整除；候选 12 虽然整除但条数不匹配、
-        // 且 (itemCount * 12 - available) > 0 使经验规则也不成立 => 保持 itemSizes[0] = 10
+// available = 24: candidate 10 does not divide evenly; candidate 12 divides evenly but its count does not match,
+// and (itemCount * 12 - available) > 0 makes the empirical rule fail as well => keep itemSizes[0] = 10
         let data = build_meta_stream(12, 2, 3, &[0, 12]);
         let meta = FixedMeta::with_item_sizes(&data, &fixed_data, &[10, 12]).expect("meta parsed");
 
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(meta.get_byte_array_value(0).map(<[u8]>::len), Some(10));
     }
 
-    /// Display 输出块头信息与每条记录的十六进制转储。
+/// Display outputs the block header information and a hex dump of each record.
     #[test]
     fn display_dumps_block() {
         let data = build_meta_stream(4, 2, 2, &[0, 4]);

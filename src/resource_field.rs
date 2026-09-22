@@ -1,16 +1,16 @@
-//! 对应 Java: `org/mpxj/ResourceField.java`
+//! Corresponds to Java: `org/mpxj/ResourceField.java`
 
 use crate::data_type::DataType;
 use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 use crate::mpxj_enum::MpxjEnum;
 
-/// 表示资源（Resource）实体中的某个字段。
+/// A field on the resource (Resource) entity.
 ///
-/// 对应 Java: `public enum ResourceField implements FieldType`
+/// Corresponds to Java: `public enum ResourceField implements FieldType`
 ///
-/// 变体顺序与 Java 声明顺序一致，因此 `*self as i32` 等于 Java 的
-/// `getValue()`（Java 用静态初始化块按声明顺序赋值）。
+/// The variant order matches the Java declaration order, so `*self as i32` equals Java's
+/// `getValue()` (Java assigns values in declaration order in the static initializer block).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResourceField {
     Start,
@@ -596,9 +596,9 @@ pub enum ResourceField {
     PlannedCost,
 }
 
-/// Java `LocaleData.RESOURCE_COLUMNS_ARRAY` 的英文列名表，按 `getValue()` 下标排列。
+/// The English column name table for Java `LocaleData.RESOURCE_COLUMNS_ARRAY`, arranged by `getValue()` index.
 ///
-/// Java 侧未赋值的下标用空字符串 `""` 表示；经核对本表无空缺。
+/// Indices not assigned on the Java side are represented by the empty string `""`; this table has been verified to have no gaps.
 const RESOURCE_COLUMN_NAMES: [&str; ResourceField::MAX_VALUE] = [
     "Start",
     "Duration1 Units",
@@ -1184,12 +1184,12 @@ const RESOURCE_COLUMN_NAMES: [&str; ResourceField::MAX_VALUE] = [
 ];
 
 impl ResourceField {
-    /// 变体总数。
+    /// Total number of variants.
     ///
-    /// 对应 Java: `public static final int MAX_VALUE`
+    /// Corresponds to Java: `public static final int MAX_VALUE`
     pub const MAX_VALUE: usize = 581;
 
-    /// 全部取值，按声明顺序（即 `getValue()` 升序）排列。
+    /// All values, in declaration order (i.e. ascending `getValue()`).
     pub const ALL: [ResourceField; ResourceField::MAX_VALUE] = [
         ResourceField::Start,
         ResourceField::Duration1Units,
@@ -1774,10 +1774,10 @@ impl ResourceField {
         ResourceField::PlannedCost,
     ];
 
-    /// 根据 int 值取枚举实例，越界时返回 `None`。
+    /// Returns the enum instance for the given int value, returning `None` when out of bounds.
     ///
-    /// 对应 Java: `public static ResourceField getInstance(int type)`
-    /// （Java 越界返回 `null`）。
+    /// Corresponds to Java: `public static ResourceField getInstance(int type)`
+    /// (Java returns `null` out of bounds).
     pub fn get_instance(value: i32) -> Option<ResourceField> {
         if value >= 0 && (value as usize) < Self::MAX_VALUE {
             Some(Self::ALL[value as usize])
@@ -1788,12 +1788,12 @@ impl ResourceField {
 }
 
 impl FieldType for ResourceField {
-    /// 对应 Java: `public FieldTypeClass getFieldTypeClass()`
+    /// Corresponds to Java: `public FieldTypeClass getFieldTypeClass()`
     fn get_field_type_class(&self) -> FieldTypeClass {
         FieldTypeClass::Resource
     }
 
-    /// 对应 Java 枚举自带的 `name()`
+    /// Corresponds to the `name()` provided by the Java enum
     fn name(&self) -> &'static str {
         match self {
             ResourceField::Start => "START",
@@ -2380,12 +2380,12 @@ impl FieldType for ResourceField {
         }
     }
 
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     fn get_name(&self) -> &'static str {
         RESOURCE_COLUMN_NAMES[*self as usize]
     }
 
-    /// 对应 Java: `public DataType getDataType()`
+    /// Corresponds to Java: `public DataType getDataType()`
     fn get_data_type(&self) -> DataType {
         match self {
             ResourceField::Start
@@ -2991,7 +2991,7 @@ impl FieldType for ResourceField {
         }
     }
 
-    /// 对应 Java: `public FieldType getUnitsType()`（Java 返回 `null`）
+    /// Corresponds to Java: `public FieldType getUnitsType()` (Java returns `null`)
     fn get_units_type(&self) -> Option<Self> {
         match self {
             ResourceField::Duration1 => Some(ResourceField::Duration1Units),
@@ -3020,14 +3020,14 @@ impl FieldType for ResourceField {
 }
 
 impl MpxjEnum for ResourceField {
-    /// 对应 Java: `public int getValue()`
+    /// Corresponds to Java: `public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl std::fmt::Display for ResourceField {
-    /// 对应 Java: `public String toString()`
+    /// Corresponds to Java: `public String toString()`
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.get_name())
     }

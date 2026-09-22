@@ -1,34 +1,34 @@
-//! 对应 Java: `org/mpxj/TaskMode.java`
+//! Corresponds to Java: `org/mpxj/TaskMode.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 任务排程模式的枚举。
+/// Enum for task scheduling modes.
 ///
-/// 对应 Java: `public enum TaskMode implements MpxjEnum`
+/// Corresponds to Java: `public enum TaskMode implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`TaskMode::ALL`] 加 [`TaskMode::get_instance`] 的 `match`。
+/// In Java, `EnumHelper.createTypeArray` builds the int → enum array via reflection;
+/// the Rust side does not use reflection and instead uses [`TaskMode::ALL`] plus the `match` in [`TaskMode::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TaskMode {
-    /// 手动排程。
+    /// Manually scheduled.
     ///
-    /// 对应 Java: `MANUALLY_SCHEDULED(0)`
+    /// Corresponds to Java: `MANUALLY_SCHEDULED(0)`
     ManuallyScheduled = 0,
-    /// 自动排程。
+    /// Auto scheduled.
     ///
-    /// 对应 Java: `AUTO_SCHEDULED(1)`
+    /// Corresponds to Java: `AUTO_SCHEDULED(1)`
     AutoScheduled = 1,
 }
 
 impl TaskMode {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, sorted ascending by int value.
     ///
-    /// 对应 Java: `private static final TaskMode[] TYPE_VALUES`（不含反射部分）。
+    /// Corresponds to Java: `private static final TaskMode[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [TaskMode; 2] = [TaskMode::ManuallyScheduled, TaskMode::AutoScheduled];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `AUTO_SCHEDULED`。
+    /// Returns the enum instance for the given int value, falling back to `AUTO_SCHEDULED` when out of bounds.
     ///
-    /// 对应 Java: `public static TaskMode getInstance(int type)`
+    /// Corresponds to Java: `public static TaskMode getInstance(int type)`
     pub fn get_instance(value: i32) -> TaskMode {
         match value {
             0 => TaskMode::ManuallyScheduled,
@@ -38,18 +38,18 @@ impl TaskMode {
         }
     }
 
-    /// 对应 Java: `public static TaskMode getInstance(Number type)`
+    /// Corresponds to Java: `public static TaskMode getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `AUTO_SCHEDULED`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `AUTO_SCHEDULED`.
     pub fn get_instance_optional(value: Option<i32>) -> TaskMode {
         TaskMode::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for TaskMode {
-    /// 返回该枚举关联的 int 值。
+    /// Returns the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

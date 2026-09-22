@@ -1,42 +1,43 @@
-//! 对应 Java: `org/mpxj/SchedulingProgressedActivities.java`
+//! Corresponds to Java: `org/mpxj/SchedulingProgressedActivities.java`
 
-/// 已推进活动排程方式的枚举。
+/// Enum for how progressed activities are scheduled.
 ///
-/// 对应 Java: `public enum SchedulingProgressedActivities`
+/// Corresponds to Java: `public enum SchedulingProgressedActivities`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`；
-/// Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// The Java enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`;
+/// the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SchedulingProgressedActivities {
-    /// 保留逻辑关系。
+    /// Retain logic.
     ///
-    /// 对应 Java: `RETAINED_LOGIC`
+    /// Corresponds to Java: `RETAINED_LOGIC`
     RetainedLogic,
-    /// 进度覆盖。
+    /// Progress override.
     ///
-    /// 对应 Java: `PROGRESS_OVERRIDE`
+    /// Corresponds to Java: `PROGRESS_OVERRIDE`
     ProgressOverride,
-    /// 按实际日期。
+    /// Actual dates.
     ///
-    /// 对应 Java: `ACTUAL_DATES`
+    /// Corresponds to Java: `ACTUAL_DATES`
     ActualDates,
 }
 
 impl SchedulingProgressedActivities {
-    /// 全部取值，按 Java 声明顺序排列。
+    /// All values, in Java declaration order.
     ///
-    /// 对应 Java: `SchedulingProgressedActivities.values()`
+    /// Corresponds to Java: `SchedulingProgressedActivities.values()`
     pub const ALL: [SchedulingProgressedActivities; 3] = [
         SchedulingProgressedActivities::RetainedLogic,
         SchedulingProgressedActivities::ProgressOverride,
         SchedulingProgressedActivities::ActualDates,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+    /// Returns the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`SchedulingProgressedActivities::ALL`]
-    /// 配套查表，对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+    /// No corresponding method in Java; added on the Rust side to pair with
+    /// [`SchedulingProgressedActivities::ALL`] for lookups, corresponding to Java's
+    /// `values()[value]` pattern. Java throws `ArrayIndexOutOfBoundsException` out of bounds,
+    /// while the Rust side returns `None` per this repo's convention.
     pub fn get_instance(value: i32) -> Option<SchedulingProgressedActivities> {
         usize::try_from(value)
             .ok()

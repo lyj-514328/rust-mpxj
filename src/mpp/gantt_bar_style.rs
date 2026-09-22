@@ -1,19 +1,19 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStyle.java`
 //!
-//! 甘特图条形的**默认样式**：在何种任务上显示、由哪两个字段决定起止日期、
-//! 显示在第几行，以及从 [`GanttBarCommonStyle`] 继承来的形状 / 颜色 / 文本设置。
+//! The **default style** of a Gantt bar: which tasks it is displayed on, which two fields determine its start and end dates,
+//! which row it is displayed on, and the shape / colour / text settings inherited from [`GanttBarCommonStyle`].
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `GanttBarStyle extends GanttBarCommonStyle` | 字段 `common: GanttBarCommonStyle` + **转发方法** | Rust 无继承，改用组合：`get_xxx` / `set_xxx` 逐方法转发到 `common`，另外提供 [`GanttBarStyle::get_common`] 取内部实例 |
-//! | `Integer m_id` / `String m_name` | `Option<i32>` / `Option<String>` | Java 的 `null` 初值 |
-//! | `FieldType m_fromField` / `m_toField` | `Option<MppFieldType>` | 同上；`FieldType` 在 Rust 侧由 [`MppFieldType`] 表达 |
-//! | `Set<GanttBarShowForTasks> m_showForTasks = new TreeSet<>()` | `BTreeSet<GanttBarShowForTasks>` | Java 的 `TreeSet` 按枚举自然序（声明序）；Rust 枚举判别值与声明序一致，`BTreeSet` 的序相同 |
-//! | `toString()` | `impl Display` | 先打印自身属性，再内联父类内容，最后收尾，与 Java 输出一致 |
+//! | `GanttBarStyle extends GanttBarCommonStyle` | field `common: GanttBarCommonStyle` + **forwarding methods** | Rust has no inheritance, so composition is used instead: `get_xxx` / `set_xxx` forward method by method to `common`, and [`GanttBarStyle::get_common`] is provided to obtain the inner instance |
+//! | `Integer m_id` / `String m_name` | `Option<i32>` / `Option<String>` | Java's initial `null` value |
+//! | `FieldType m_fromField` / `m_toField` | `Option<MppFieldType>` | as above; on the Rust side `FieldType` is represented by [`MppFieldType`] |
+//! | `Set<GanttBarShowForTasks> m_showForTasks = new TreeSet<>()` | `BTreeSet<GanttBarShowForTasks>` | Java's `TreeSet` uses the enum's natural order (declaration order); Rust enum discriminant values match declaration order, so `BTreeSet` has the same order |
+//! | `toString()` | `impl Display` | prints its own properties first, then inlines the base class content, then closes, matching the Java output |
 //!
-//! 跳过的 Java 成员：无（`ByteArrayOutputStream` / `PrintWriter` 由 `Display` 取代）。
+//! Skipped Java members: none (`ByteArrayOutputStream` / `PrintWriter` are replaced by `Display`).
 
 use std::collections::BTreeSet;
 use std::fmt::{self, Display, Formatter};
@@ -27,339 +27,339 @@ use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
 use crate::mpp::mpp_utility::Color;
 
-/// 甘特图条形的默认样式。
+/// The default style of a Gantt bar.
 ///
-/// 对应 Java: `public final class GanttBarStyle extends GanttBarCommonStyle`
+/// Corresponds to Java: `public final class GanttBarStyle extends GanttBarCommonStyle`
 ///
-/// 说明：未派生 `Debug`（原因同 [`GanttBarCommonStyle`]）。
+/// Note: `Debug` is not derived (for the same reason as [`GanttBarCommonStyle`]).
 #[derive(Clone, Default)]
 pub struct GanttBarStyle {
-    /// 对应 Java: `extends GanttBarCommonStyle`（组合替代表达继承）
+/// Corresponds to Java: `extends GanttBarCommonStyle` (composition is used instead of inheritance)
     common: GanttBarCommonStyle,
-    /// 对应 Java: `private Integer m_id`
+    /// Corresponds to Java: `private Integer m_id`
     id: Option<i32>,
-    /// 对应 Java: `private String m_name`
+    /// Corresponds to Java: `private String m_name`
     name: Option<String>,
-    /// 对应 Java: `private FieldType m_fromField`
+    /// Corresponds to Java: `private FieldType m_fromField`
     from_field: Option<MppFieldType>,
-    /// 对应 Java: `private FieldType m_toField`
+    /// Corresponds to Java: `private FieldType m_toField`
     to_field: Option<MppFieldType>,
-    /// 对应 Java: `private int m_row`
+    /// Corresponds to Java: `private int m_row`
     row: i32,
-    /// 对应 Java: `private final Set<GanttBarShowForTasks> m_showForTasks = new TreeSet<>()`
+    /// Corresponds to Java: `private final Set<GanttBarShowForTasks> m_showForTasks = new TreeSet<>()`
     show_for_tasks: BTreeSet<GanttBarShowForTasks>,
 }
 
 impl GanttBarStyle {
-    /// 构造空的条形样式。
+/// Construct an empty bar style.
     ///
-    /// 对应 Java 的隐式默认构造方法 `GanttBarStyle()`
+/// Corresponds to Java's implicit default constructor `GanttBarStyle()`
     pub fn new() -> GanttBarStyle {
         GanttBarStyle::default()
     }
 
-    /// 取内部共有样式实例。
+/// Get the inner common style instance.
     ///
-    /// Rust 特有：Java 通过继承直接暴露父类成员，组合方式下需要显式取得。
+/// Rust-specific: Java exposes base class members directly through inheritance, whereas composition requires obtaining them explicitly.
     pub fn get_common(&self) -> &GanttBarCommonStyle {
         &self.common
     }
 
-    /// 取内部共有样式实例（可变）。
+/// Get the inner common style instance (mutable).
     ///
-    /// Rust 特有，同 [`GanttBarStyle::get_common`]。
+/// Rust-specific, same as [`GanttBarStyle::get_common`].
     pub fn get_common_mut(&mut self) -> &mut GanttBarCommonStyle {
         &mut self.common
     }
 
-    /// 取决定本条形起始日期的字段。
+/// Get the field that determines this bar's start date.
     ///
-    /// 对应 Java: `public FieldType getFromField()`
+    /// Corresponds to Java: `public FieldType getFromField()`
     pub fn get_from_field(&self) -> Option<MppFieldType> {
         self.from_field.clone()
     }
 
-    /// 设置决定本条形起始日期的字段。
+/// Set the field that determines this bar's start date.
     ///
-    /// 对应 Java: `public void setFromField(FieldType field)`
+    /// Corresponds to Java: `public void setFromField(FieldType field)`
     pub fn set_from_field(&mut self, field: Option<MppFieldType>) {
         self.from_field = field;
     }
 
-    /// 取本条形样式的 ID。
+/// Get the ID of this bar style.
     ///
-    /// 对应 Java: `public Integer getID()`
+    /// Corresponds to Java: `public Integer getID()`
     pub fn get_id(&self) -> Option<i32> {
         self.id
     }
 
-    /// 设置本条形样式的 ID。
+/// Set the ID of this bar style.
     ///
-    /// 对应 Java: `public void setID(Integer value)`
+    /// Corresponds to Java: `public void setID(Integer value)`
     pub fn set_id(&mut self, value: Option<i32>) {
         self.id = value;
     }
 
-    /// 取样式名称。
+/// Get the style name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    /// 设置样式名称。
+/// Set the style name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.name = name;
     }
 
-    /// 取本条形所在行号。
+/// Get the row number of this bar.
     ///
-    /// 对应 Java: `public int getRow()`
+    /// Corresponds to Java: `public int getRow()`
     pub fn get_row(&self) -> i32 {
         self.row
     }
 
-    /// 设置本条形所在行号。
+/// Set the row number of this bar.
     ///
-    /// 对应 Java: `public void setRow(int row)`
+    /// Corresponds to Java: `public void setRow(int row)`
     pub fn set_row(&mut self, row: i32) {
         self.row = row;
     }
 
-    /// 取决定本条形结束日期的字段。
+/// Get the field that determines this bar's end date.
     ///
-    /// 对应 Java: `public FieldType getToField()`
+    /// Corresponds to Java: `public FieldType getToField()`
     pub fn get_to_field(&self) -> Option<MppFieldType> {
         self.to_field.clone()
     }
 
-    /// 设置决定本条形结束日期的字段。
+/// Set the field that determines this bar's end date.
     ///
-    /// 对应 Java: `public void setToField(FieldType field)`
+    /// Corresponds to Java: `public void setToField(FieldType field)`
     pub fn set_to_field(&mut self, field: Option<MppFieldType>) {
         self.to_field = field;
     }
 
-    /// 取本样式的「显示于」判据集合。
+/// Get the "show for" criteria set of this style.
     ///
-    /// 对应 Java: `public Set<GanttBarShowForTasks> getShowForTasks()`
+    /// Corresponds to Java: `public Set<GanttBarShowForTasks> getShowForTasks()`
     pub fn get_show_for_tasks(&self) -> &BTreeSet<GanttBarShowForTasks> {
         &self.show_for_tasks
     }
 
-    /// 追加一条「显示于」判据。
+/// Append a "show for" criterion.
     ///
-    /// 对应 Java: `public void addShowForTasks(GanttBarShowForTasks tasks)`
+    /// Corresponds to Java: `public void addShowForTasks(GanttBarShowForTasks tasks)`
     pub fn add_show_for_tasks(&mut self, tasks: GanttBarShowForTasks) {
         self.show_for_tasks.insert(tasks);
     }
 
-    // ---- 以下为 `GanttBarCommonStyle`（Java 的父类）成员的转发 ----
+// ---- The following forward members of `GanttBarCommonStyle` (Java's base class) ----
 
-    /// 转发 [`GanttBarCommonStyle::get_bottom_text`]。
+/// Forward [`GanttBarCommonStyle::get_bottom_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getBottomText()`
+/// Corresponds to Java: `public FieldType getBottomText()` inherited from `GanttBarCommonStyle`
     pub fn get_bottom_text(&self) -> Option<MppFieldType> {
         self.common.get_bottom_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_bottom_text`]。
+/// Forward [`GanttBarCommonStyle::set_bottom_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setBottomText(FieldType field)`
+/// Corresponds to Java: `public void setBottomText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_bottom_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_bottom_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_color`]。
+/// Forward [`GanttBarCommonStyle::get_end_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getEndColor()`
+/// Corresponds to Java: `public Color getEndColor()` inherited from `GanttBarCommonStyle`
     pub fn get_end_color(&self) -> Option<Color> {
         self.common.get_end_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_color`]。
+/// Forward [`GanttBarCommonStyle::set_end_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndColor(Color color)`
+/// Corresponds to Java: `public void setEndColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_end_color(&mut self, color: Option<Color>) {
         self.common.set_end_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_inside_text`]。
+/// Forward [`GanttBarCommonStyle::get_inside_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getInsideText()`
+/// Corresponds to Java: `public FieldType getInsideText()` inherited from `GanttBarCommonStyle`
     pub fn get_inside_text(&self) -> Option<MppFieldType> {
         self.common.get_inside_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_inside_text`]。
+/// Forward [`GanttBarCommonStyle::set_inside_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setInsideText(FieldType field)`
+/// Corresponds to Java: `public void setInsideText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_inside_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_inside_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_left_text`]。
+/// Forward [`GanttBarCommonStyle::get_left_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getLeftText()`
+/// Corresponds to Java: `public FieldType getLeftText()` inherited from `GanttBarCommonStyle`
     pub fn get_left_text(&self) -> Option<MppFieldType> {
         self.common.get_left_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_left_text`]。
+/// Forward [`GanttBarCommonStyle::set_left_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setLeftText(FieldType field)`
+/// Corresponds to Java: `public void setLeftText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_left_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_left_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_color`]。
+/// Forward [`GanttBarCommonStyle::get_middle_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getMiddleColor()`
+/// Corresponds to Java: `public Color getMiddleColor()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_color(&self) -> Option<Color> {
         self.common.get_middle_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_color`]。
+/// Forward [`GanttBarCommonStyle::set_middle_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddleColor(Color color)`
+/// Corresponds to Java: `public void setMiddleColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_color(&mut self, color: Option<Color>) {
         self.common.set_middle_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_pattern`]。
+/// Forward [`GanttBarCommonStyle::get_middle_pattern`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public ChartPattern getMiddlePattern()`
+/// Corresponds to Java: `public ChartPattern getMiddlePattern()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_pattern(&self) -> Option<ChartPattern> {
         self.common.get_middle_pattern()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_pattern`]。
+/// Forward [`GanttBarCommonStyle::set_middle_pattern`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddlePattern(ChartPattern pattern)`
+/// Corresponds to Java: `public void setMiddlePattern(ChartPattern pattern)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_pattern(&mut self, pattern: Option<ChartPattern>) {
         self.common.set_middle_pattern(pattern);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_shape`]。
+/// Forward [`GanttBarCommonStyle::get_middle_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarMiddleShape getMiddleShape()`
+/// Corresponds to Java: `public GanttBarMiddleShape getMiddleShape()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_shape(&self) -> Option<GanttBarMiddleShape> {
         self.common.get_middle_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_shape`]。
+/// Forward [`GanttBarCommonStyle::set_middle_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddleShape(GanttBarMiddleShape shape)`
+/// Corresponds to Java: `public void setMiddleShape(GanttBarMiddleShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_shape(&mut self, shape: Option<GanttBarMiddleShape>) {
         self.common.set_middle_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_right_text`]。
+/// Forward [`GanttBarCommonStyle::get_right_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getRightText()`
+/// Corresponds to Java: `public FieldType getRightText()` inherited from `GanttBarCommonStyle`
     pub fn get_right_text(&self) -> Option<MppFieldType> {
         self.common.get_right_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_right_text`]。
+/// Forward [`GanttBarCommonStyle::set_right_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setRightText(FieldType field)`
+/// Corresponds to Java: `public void setRightText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_right_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_right_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_color`]。
+/// Forward [`GanttBarCommonStyle::get_start_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getStartColor()`
+/// Corresponds to Java: `public Color getStartColor()` inherited from `GanttBarCommonStyle`
     pub fn get_start_color(&self) -> Option<Color> {
         self.common.get_start_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_color`]。
+/// Forward [`GanttBarCommonStyle::set_start_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartColor(Color color)`
+/// Corresponds to Java: `public void setStartColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_start_color(&mut self, color: Option<Color>) {
         self.common.set_start_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_shape`]。
+/// Forward [`GanttBarCommonStyle::get_start_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndShape getStartShape()`
+/// Corresponds to Java: `public GanttBarStartEndShape getStartShape()` inherited from `GanttBarCommonStyle`
     pub fn get_start_shape(&self) -> Option<GanttBarStartEndShape> {
         self.common.get_start_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_shape`]。
+/// Forward [`GanttBarCommonStyle::set_start_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartShape(GanttBarStartEndShape shape)`
+/// Corresponds to Java: `public void setStartShape(GanttBarStartEndShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_start_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.common.set_start_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_shape`]。
+/// Forward [`GanttBarCommonStyle::get_end_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndShape getEndShape()`
+/// Corresponds to Java: `public GanttBarStartEndShape getEndShape()` inherited from `GanttBarCommonStyle`
     pub fn get_end_shape(&self) -> Option<GanttBarStartEndShape> {
         self.common.get_end_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_shape`]。
+/// Forward [`GanttBarCommonStyle::set_end_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndShape(GanttBarStartEndShape shape)`
+/// Corresponds to Java: `public void setEndShape(GanttBarStartEndShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_end_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.common.set_end_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_type`]。
+/// Forward [`GanttBarCommonStyle::get_start_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndType getStartType()`
+/// Corresponds to Java: `public GanttBarStartEndType getStartType()` inherited from `GanttBarCommonStyle`
     pub fn get_start_type(&self) -> Option<GanttBarStartEndType> {
         self.common.get_start_type()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_type`]。
+/// Forward [`GanttBarCommonStyle::set_start_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartType(GanttBarStartEndType type)`
+/// Corresponds to Java: `public void setStartType(GanttBarStartEndType type)` inherited from `GanttBarCommonStyle`
     pub fn set_start_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.common.set_start_type(r#type);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_type`]。
+/// Forward [`GanttBarCommonStyle::get_end_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndType getEndType()`
+/// Corresponds to Java: `public GanttBarStartEndType getEndType()` inherited from `GanttBarCommonStyle`
     pub fn get_end_type(&self) -> Option<GanttBarStartEndType> {
         self.common.get_end_type()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_type`]。
+/// Forward [`GanttBarCommonStyle::set_end_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndType(GanttBarStartEndType type)`
+/// Corresponds to Java: `public void setEndType(GanttBarStartEndType type)` inherited from `GanttBarCommonStyle`
     pub fn set_end_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.common.set_end_type(r#type);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_top_text`]。
+/// Forward [`GanttBarCommonStyle::get_top_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getTopText()`
+/// Corresponds to Java: `public FieldType getTopText()` inherited from `GanttBarCommonStyle`
     pub fn get_top_text(&self) -> Option<MppFieldType> {
         self.common.get_top_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_top_text`]。
+/// Forward [`GanttBarCommonStyle::set_top_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setTopText(FieldType field)`
+/// Corresponds to Java: `public void setTopText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_top_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_top_text(field);
     }
 }
 
 impl Display for GanttBarStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 输出：固定缩进的属性块，其中 `ShowForTasks` 用 `TreeSet.toString()`
-    /// （元素按声明序、以 `", "` 分隔并加方括号），随后内联父类 `toString()`。
+/// Java output: a fixed-indentation property block in which `ShowForTasks` uses `TreeSet.toString()`
+/// (elements in declaration order, separated by `", "` and wrapped in square brackets), followed by the inlined base class `toString()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "   [GanttBarStyle")?;
         writeln!(f, "      ID={}", format_option(self.id))?;
@@ -377,7 +377,7 @@ impl Display for GanttBarStyle {
     }
 }
 
-/// 打印可空的整数，`None` 对应 Java 的 `null`。
+/// Print a nullable integer; `None` corresponds to Java's `null`.
 fn format_option(value: Option<i32>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -385,7 +385,7 @@ fn format_option(value: Option<i32>) -> String {
     }
 }
 
-/// 打印可空的字符串，`None` 对应 Java 的 `null`。
+/// Print a nullable string; `None` corresponds to Java's `null`.
 fn format_option_str(value: Option<&str>) -> String {
     match value {
         Some(value) => value.to_owned(),
@@ -393,7 +393,7 @@ fn format_option_str(value: Option<&str>) -> String {
     }
 }
 
-/// 打印可空的字段类型，`None` 对应 Java 的 `null`。
+/// Print a nullable field type; `None` corresponds to Java's `null`.
 fn format_field(value: Option<&MppFieldType>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -401,7 +401,7 @@ fn format_field(value: Option<&MppFieldType>) -> String {
     }
 }
 
-/// 打印「显示于」判据集合，复刻 Java `TreeSet.toString()` 的格式。
+/// Print the "show for" criteria set, replicating the format of Java's `TreeSet.toString()`.
 fn format_show_for_tasks(tasks: &BTreeSet<GanttBarShowForTasks>) -> String {
     let mut result = String::from("[");
     for (index, task) in tasks.iter().enumerate() {
@@ -437,7 +437,7 @@ mod tests {
     fn show_for_tasks_is_a_sorted_set() {
         let mut style = GanttBarStyle::new();
 
-        // 插入顺序打乱，输出仍按 Java 枚举声明序
+// Insertion order is shuffled; output still follows the Java enum declaration order
         style.add_show_for_tasks(GanttBarShowForTasks::Normal);
         style.add_show_for_tasks(GanttBarShowForTasks::Milestone);
         style.add_show_for_tasks(GanttBarShowForTasks::Normal);

@@ -1,37 +1,37 @@
-//! 对应 Java: `org/mpxj/mpp/AbstractVarMeta.java`
+//! Corresponds to Java: `org/mpxj/mpp/AbstractVarMeta.java`
 //!
-//! 变长块体系的基类：解析 VarMeta 流后，持有「条目数、数据区大小、排序后的偏移数组」以及
-//! 核心索引 `唯一 ID → 数据类型 → 偏移`，供 [`crate::mpp::var2_data::Var2Data`] 定位变长字段。
+//! Base class of the variable-length block system: after parsing a VarMeta stream, it holds the "item count, data area size, sorted offset array" as well as
+//! the core index `unique ID → data type → offset`, used by [`crate::mpp::var2_data::Var2Data`] to locate variable-length fields.
 //!
-//! # 继承与接口的还原（组合 + 转发）
+//! # Inheritance and interface emulation (composition + forwarding)
 //!
-//! Java: `abstract class AbstractVarMeta extends MPPComponent implements VarMeta`。
+//! Java: `abstract class AbstractVarMeta extends MPPComponent implements VarMeta`.
 //!
-//! - `implements VarMeta` → `impl VarMeta for AbstractVarMeta`（本文件），同时保留同名固有方法，
-//!   使 `AbstractVarMeta` 值本身与 `dyn VarMeta` 都能直接调用；
-//! - `extends MPPComponent` → Java 的 `MPPComponent` 只提供 4 个读取助手
-//!   （`readByte` / `readShort` / `readInt` / `readByteArray`，均接收 `InputStream`），
-//!   Rust 侧已把它落地为 [`crate::mpp::mpp_component::MPPComponent`]（输入源统一为
-//!   `&[u8]`）；本文件的 [`read_byte`] / [`read_short`] / [`read_int`] 三个 crate 内可见的
-//!   自由函数**直接转发**到它，供 `VarMeta9` / `VarMeta12` / `Var2Data` 沿用既有引用路径；
-//! - `VarMeta9 / VarMeta12 extends AbstractVarMeta` → 组合 + 转发（见各自文件）。
+//! - `implements VarMeta` → `impl VarMeta for AbstractVarMeta` (this file), while also keeping inherent methods of the same name,
+//! so that an `AbstractVarMeta` value itself and a `dyn VarMeta` can both be called directly;
+//! - `extends MPPComponent` → Java's `MPPComponent` provides only 4 read helpers
+//! (`readByte` / `readShort` / `readInt` / `readByteArray`, all taking an `InputStream`),
+//! which the Rust side has realized as [`crate::mpp::mpp_component::MPPComponent`] (the input source is uniformly
+//! `&[u8]`); the three crate-visible free functions [`read_byte`] / [`read_short`] / [`read_int`] in this file
+//! **forward directly** to it, so that `VarMeta9` / `VarMeta12` / `Var2Data` can keep their existing reference paths;
+//! - `VarMeta9 / VarMeta12 extends AbstractVarMeta` → composition + forwarding (see their respective files).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `protected int m_itemCount` / `protected int m_dataSize` / `protected Map<...> m_table` | 同名的 `pub(crate)` 字段 | Java 的子类直接读写这些受保护字段，Rust 侧以同 crate 可见字段等价还原 |
-//! | `TreeMap<Integer, Map<Integer, Integer>>` | `BTreeMap<i32, BTreeMap<i32, i32>>` | `getUniqueIdentifierArray` / `getUniqueIdentifierSet` / `toString` 都依赖 `TreeMap` 的升序遍历顺序，故用有序的 `BTreeMap`（而非约定的 `HashMap`） |
-//! | `Integer` 参数（可空） | `Option<i32>` | 遵循「`null` → `Option<T>`」约定 |
-//! | `Set<Integer>` | `BTreeSet<i32>` | Rust 侧返回升序集合副本，而非 `TreeMap.keySet()` 的实时视图 |
-//! | `FieldMap` 参数 | `Option<&dyn VarDataKeyResolver>` | `FieldMap` 已落地（[`crate::mpp::field_map::FieldMap`] 并已 `impl VarDataKeyResolver`），但本文件仍以 [`VarDataKeyResolver`] 取参：Java 的 `getFieldTypeFromVarDataKey` 返回 `FieldType` 接口，而本 crate 的 `FieldType` trait 带 `Option<Self>` 返回值、不是对象安全类型，无法以 trait 对象形式返回，故只声明 `toString` 所需的最小能力（返回字段显示名） |
-//! | `toString()` | `impl Display` | Java 的 `toString()` 内部调用 `toString(null)` |
-//! | 读取越界抛 `EOFException` / `IndexOutOfBoundsException` | 返回 `None`、提前结束解析 | 遵循「库代码不 panic」约定，见 [`read_int`] |
+//! | `protected int m_itemCount` / `protected int m_dataSize` / `protected Map<...> m_table` | Fields of the same name with `pub(crate)` | Java's subclasses read and write these protected fields directly; the Rust side emulates them equivalently with same-crate-visible fields |
+//! | `TreeMap<Integer, Map<Integer, Integer>>` | `BTreeMap<i32, BTreeMap<i32, i32>>` | `getUniqueIdentifierArray` / `getUniqueIdentifierSet` / `toString` all rely on `TreeMap`'s ascending traversal order, so the ordered `BTreeMap` is used (rather than the conventional `HashMap`) |
+//! | `Integer` parameter (nullable) | `Option<i32>` | Follows the "`null` → `Option<T>`" convention |
+//! | `Set<Integer>` | `BTreeSet<i32>` | The Rust side returns an ascending-order copy of the set rather than a live view of `TreeMap.keySet()` |
+//! | `FieldMap` parameter | `Option<&dyn VarDataKeyResolver>` | `FieldMap` has been realized ([`crate::mpp::field_map::FieldMap`] and already `impl VarDataKeyResolver`), but this file still takes its parameter as [`VarDataKeyResolver`]: Java's `getFieldTypeFromVarDataKey` returns the `FieldType` interface, whereas this crate's `FieldType` trait has an `Option<Self>` return value and is not object-safe, so it cannot be returned as a trait object; therefore only the minimal capability needed by `toString` is declared (returning the field display name) |
+//! | `toString()` | `impl Display` | Java's `toString()` internally calls `toString(null)` |
+//! | Out-of-bounds read throws `EOFException` / `IndexOutOfBoundsException` | Return `None` and end parsing early | Follows the "library code must not panic" convention; see [`read_int`] |
 //!
-//! 跳过的 Java 方法：无（`MPPComponent.readByteArray` 由调用方直接切片实现，
-//! 因为 Rust 侧的 `&[u8]` 本身就是数组）。
+//! Skipped Java methods: none (`MPPComponent.readByteArray` is implemented by the caller slicing directly,
+//! because the Rust-side `&[u8]` is itself an array).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
@@ -39,69 +39,69 @@ use std::fmt::{self, Display, Formatter};
 use crate::mpp::mpp_component::MPPComponent;
 use crate::mpp::var_meta::{VarDataKeyResolver, VarMeta};
 
-/// 从字节切片中按小端读取一个 4 字节整数并前移游标。
+/// Read a 4-byte integer from a byte slice in little-endian order and advance the cursor.
 ///
-/// 对应 Java: `MPPComponent.readInt(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
+/// Corresponds to Java: `MPPComponent.readInt(InputStream)` (Rust-specific: the input source is changed from `InputStream` to `&[u8]`)
 ///
-/// 实现转发到已落地的 [`MPPComponent::read_int`]，本文件不再复刻一份字节解析逻辑；
-/// 保留本函数是为了让 `VarMeta9` / `VarMeta12` / `Var2Data` 沿用「按模块取读取助手」的
-/// 既有引用路径（`crate::mpp::abstract_var_meta::read_int`）。
+/// The implementation forwards to the already-realized [`MPPComponent::read_int`]; this file no longer duplicates the byte-parsing logic;
+/// This function is kept so that `VarMeta9` / `VarMeta12` / `Var2Data` can keep using the "get the read helper from the module"
+/// existing reference path (`crate::mpp::abstract_var_meta::read_int`).
 ///
-/// 剩余字节不足 4 个时 Java 抛 `EOFException`，Rust 侧返回 `None`（游标不动），由调用方决定
-/// 提前结束解析的方式 —— 绝不 panic。
+/// When fewer than 4 bytes remain Java throws `EOFException`; the Rust side returns `None` (the cursor does not move), leaving it to the caller to decide
+/// how to end parsing early -- never panics.
 pub(crate) fn read_int(data: &[u8], position: &mut usize) -> Option<i32> {
     MPPComponent::read_int(data, position)
 }
 
-/// 从字节切片中按小端读取一个 2 字节整数并前移游标。
+/// Read a 2-byte integer from a byte slice in little-endian order and advance the cursor.
 ///
-/// 对应 Java: `MPPComponent.readShort(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
+/// Corresponds to Java: `MPPComponent.readShort(InputStream)` (Rust-specific: the input source is changed from `InputStream` to `&[u8]`)
 ///
-/// 实现转发到 [`MPPComponent::read_short`]；返回值为 `0..=65535`，
-/// 剩余字节不足 2 个时返回 `None`（Java 抛 `EOFException`）。
+/// The implementation forwards to [`MPPComponent::read_short`]; the return value is `0..=65535`,
+/// and it returns `None` when fewer than 2 bytes remain (Java throws `EOFException`).
 pub(crate) fn read_short(data: &[u8], position: &mut usize) -> Option<i32> {
     MPPComponent::read_short(data, position)
 }
 
-/// 从字节切片中读取一个无符号字节（`0..=255`）并前移游标。
+/// Read an unsigned byte (`0..=255`) from a byte slice and advance the cursor.
 ///
-/// 对应 Java: `MPPComponent.readByte(InputStream)`（Rust 特有：输入源由 `InputStream` 改为 `&[u8]`）
+/// Corresponds to Java: `MPPComponent.readByte(InputStream)` (Rust-specific: the input source is changed from `InputStream` to `&[u8]`)
 ///
-/// 实现转发到 [`MPPComponent::read_byte`]；到达末尾时返回 `None`（Java 抛 `EOFException`）。
+/// The implementation forwards to [`MPPComponent::read_byte`]; it returns `None` at the end (Java throws `EOFException`).
 pub(crate) fn read_byte(data: &[u8], position: &mut usize) -> Option<i32> {
     MPPComponent::read_byte(data, position)
 }
 
-/// 变长数据块的元数据（`VarMeta` 的基类实现）。
+/// Metadata of a variable-length data block (the base class implementation of `VarMeta`).
 ///
-/// 对应 Java: `abstract class AbstractVarMeta extends MPPComponent implements VarMeta`
+/// Corresponds to Java: `abstract class AbstractVarMeta extends MPPComponent implements VarMeta`
 pub struct AbstractVarMeta {
-    /// 条目数。
+/// Item count.
     ///
-    /// 对应 Java 字段: `protected int m_itemCount;`
+    /// Corresponds to Java field: `protected int m_itemCount;`
     ///
-    /// `pub(crate)`：Java 的子类直接写该受保护字段（见文件头）。
+/// `pub(crate)`: Java's subclasses write this protected field directly (see the file header).
     pub(crate) item_count: i32,
 
-    /// `Var2Data` 块的数据区大小。
+/// Data area size of the `Var2Data` block.
     ///
-    /// 对应 Java 字段: `protected int m_dataSize;`
+    /// Corresponds to Java field: `protected int m_dataSize;`
     pub(crate) data_size: i32,
 
-    /// 排序后的条目偏移数组。
+/// Sorted array of item offsets.
     ///
-    /// 对应 Java 字段: `private int[] m_offsets;`
+    /// Corresponds to Java field: `private int[] m_offsets;`
     offsets: Vec<i32>,
 
-    /// 「唯一 ID → 数据类型 → 偏移」索引。
+/// The `unique ID → data type → offset` index.
     ///
-    /// 对应 Java 字段: `protected final Map<Integer, Map<Integer, Integer>> m_table = new TreeMap<>();`
+    /// Corresponds to Java field: `protected final Map<Integer, Map<Integer, Integer>> m_table = new TreeMap<>();`
     pub(crate) table: BTreeMap<i32, BTreeMap<i32, i32>>,
 }
 
 impl AbstractVarMeta {
-    /// 构造一个空元数据（Rust 特有：对应 Java 的隐式 `protected AbstractVarMeta()`，
-    /// 子类随后直接写受保护字段，见文件头）。
+/// Construct empty metadata (Rust-specific: corresponds to Java's implicit `protected AbstractVarMeta()`,
+/// after which the subclass writes the protected fields directly; see the file header).
     pub fn new() -> Self {
         Self {
             item_count: 0,
@@ -111,40 +111,40 @@ impl AbstractVarMeta {
         }
     }
 
-    /// 取条目数。
+/// Get the item count.
     ///
-    /// 对应 Java: `@Override public int getItemCount()`
+    /// Corresponds to Java: `@Override public int getItemCount()`
     pub fn get_item_count(&self) -> i32 {
         self.item_count
     }
 
-    /// 取数据区大小。
+/// Get the data area size.
     ///
-    /// 对应 Java: `@Override public int getDataSize()`
+    /// Corresponds to Java: `@Override public int getDataSize()`
     pub fn get_data_size(&self) -> i32 {
         self.data_size
     }
 
-    /// 取全部出现过数据的唯一 ID（升序，与 Java 的 `TreeMap.keySet()` 顺序一致）。
+/// Get all unique IDs for which data occurred (ascending, consistent with the order of Java's `TreeMap.keySet()`).
     ///
-    /// 对应 Java: `@Override public Integer[] getUniqueIdentifierArray()`
+    /// Corresponds to Java: `@Override public Integer[] getUniqueIdentifierArray()`
     pub fn get_unique_identifier_array(&self) -> Vec<i32> {
         self.table.keys().copied().collect()
     }
 
-    /// 取全部出现过数据的唯一 ID 集合（升序）。
+/// Get the set of all unique IDs for which data occurred (ascending).
     ///
-    /// 对应 Java: `@Override public Set<Integer> getUniqueIdentifierSet()`
+    /// Corresponds to Java: `@Override public Set<Integer> getUniqueIdentifierSet()`
     pub fn get_unique_identifier_set(&self) -> BTreeSet<i32> {
         self.table.keys().copied().collect()
     }
 
-    /// 按「唯一 ID + 数据类型」取偏移。
+/// Get the offset by `unique ID + data type`.
     ///
-    /// 对应 Java: `@Override public Integer getOffset(Integer id, Integer type)`
+    /// Corresponds to Java: `@Override public Integer getOffset(Integer id, Integer type)`
     ///
-    /// Java 对 `type == null` 返回 `null`；对 `id == null` 会因 `TreeMap.get(null)` 抛 NPE，
-    /// Rust 侧两种情形都返回 `None`。
+/// Java returns `null` for `type == null`; for `id == null` it throws an NPE because of `TreeMap.get(null)`,
+/// while the Rust side returns `None` in both cases.
     pub fn get_offset(&self, id: Option<i32>, type_: Option<i32>) -> Option<i32> {
         let id = id?;
         let type_ = type_?;
@@ -154,25 +154,25 @@ impl AbstractVarMeta {
         self.table.get(&id).and_then(|map| map.get(&type_).copied())
     }
 
-    /// 设置排序后的偏移数组（供子类解析完成后调用）。
+/// Set the sorted offset array (called by the subclass after parsing completes).
     ///
-    /// 对应 Java: `protected void setOffsets(int[] offsets)`
+    /// Corresponds to Java: `protected void setOffsets(int[] offsets)`
     pub fn set_offsets(&mut self, offsets: Vec<i32>) {
         self.offsets = offsets;
     }
 
-    /// 取排序后的偏移数组。
+/// Get the sorted offset array.
     ///
-    /// 对应 Java: `@Override public int[] getOffsets()`
+    /// Corresponds to Java: `@Override public int[] getOffsets()`
     pub fn get_offsets(&self) -> &[i32] {
         &self.offsets
     }
 
-    /// 取指定唯一 ID 下定义过的全部数据类型（升序）。
+/// Get all data types defined under the given unique ID (ascending).
     ///
-    /// 对应 Java: `@Override public Set<Integer> getTypes(Integer id)`
+    /// Corresponds to Java: `@Override public Set<Integer> getTypes(Integer id)`
     ///
-    /// 该 ID 不存在（或为 `null`）时返回空集合。
+/// Return an empty set when the ID does not exist (or is `null`).
     pub fn get_types(&self, id: Option<i32>) -> BTreeSet<i32> {
         // Java: Map<Integer, Integer> map = m_table.get(id);
         //       result = map != null ? map.keySet() : new HashSet<>();
@@ -181,18 +181,18 @@ impl AbstractVarMeta {
             .unwrap_or_default()
     }
 
-    /// 判断索引中是否存在给定唯一 ID。
+/// Determine whether the given unique ID exists in the index.
     ///
-    /// 对应 Java: `@Override public boolean containsKey(Integer key)`
+    /// Corresponds to Java: `@Override public boolean containsKey(Integer key)`
     ///
-    /// Java 对 `null` 会因 `TreeMap.containsKey(null)` 抛 NPE，Rust 侧返回 `false`。
+/// Java throws an NPE for `null` because of `TreeMap.containsKey(null)`; the Rust side returns `false`.
     pub fn contains_key(&self, key: Option<i32>) -> bool {
         key.is_some_and(|key| self.table.contains_key(&key))
     }
 
-    /// 以调试用文本导出本块内容（`field_map` 为 `None` 时不翻译字段名）。
+/// Export this block's contents as debug text (field names are not translated when `field_map` is `None`).
     ///
-    /// 对应 Java: `@Override public String toString(FieldMap fieldMap)`
+    /// Corresponds to Java: `@Override public String toString(FieldMap fieldMap)`
     pub fn to_string_with_field_map(&self, field_map: Option<&dyn VarDataKeyResolver>) -> String {
         let mut result = String::new();
 
@@ -225,74 +225,74 @@ impl AbstractVarMeta {
 }
 
 impl VarMeta for AbstractVarMeta {
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public int getItemCount()`
+    /// Corresponds to Java: `@Override public int getItemCount()`
     fn get_item_count(&self) -> i32 {
         AbstractVarMeta::get_item_count(self)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public int getDataSize()`
+    /// Corresponds to Java: `@Override public int getDataSize()`
     fn get_data_size(&self) -> i32 {
         AbstractVarMeta::get_data_size(self)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public Integer[] getUniqueIdentifierArray()`
+    /// Corresponds to Java: `@Override public Integer[] getUniqueIdentifierArray()`
     fn get_unique_identifier_array(&self) -> Vec<i32> {
         AbstractVarMeta::get_unique_identifier_array(self)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public Set<Integer> getUniqueIdentifierSet()`
+    /// Corresponds to Java: `@Override public Set<Integer> getUniqueIdentifierSet()`
     fn get_unique_identifier_set(&self) -> BTreeSet<i32> {
         AbstractVarMeta::get_unique_identifier_set(self)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public Integer getOffset(Integer id, Integer type)`
+    /// Corresponds to Java: `@Override public Integer getOffset(Integer id, Integer type)`
     fn get_offset(&self, id: Option<i32>, type_: Option<i32>) -> Option<i32> {
         AbstractVarMeta::get_offset(self, id, type_)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public int[] getOffsets()`
+    /// Corresponds to Java: `@Override public int[] getOffsets()`
     fn get_offsets(&self) -> &[i32] {
         AbstractVarMeta::get_offsets(self)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public Set<Integer> getTypes(Integer id)`
+    /// Corresponds to Java: `@Override public Set<Integer> getTypes(Integer id)`
     fn get_types(&self, id: Option<i32>) -> BTreeSet<i32> {
         AbstractVarMeta::get_types(self, id)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public boolean containsKey(Integer key)`
+    /// Corresponds to Java: `@Override public boolean containsKey(Integer key)`
     fn contains_key(&self, key: Option<i32>) -> bool {
         AbstractVarMeta::contains_key(self, key)
     }
 
-    /// 转发到固有方法。
+/// Forward to the inherent method.
     ///
-    /// 对应 Java: `@Override public String toString(FieldMap fieldMap)`
+    /// Corresponds to Java: `@Override public String toString(FieldMap fieldMap)`
     fn to_string_with_field_map(&self, field_map: Option<&dyn VarDataKeyResolver>) -> String {
         AbstractVarMeta::to_string_with_field_map(self, field_map)
     }
 }
 
 impl Display for AbstractVarMeta {
-    /// 输出与 Java 的 `toString()` 相同的文本（内部调用 `toString(null)`）。
+/// Output the same text as Java's `toString()` (internally calls `toString(null)`).
     ///
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&self.to_string_with_field_map(None))
     }
@@ -302,7 +302,7 @@ impl Display for AbstractVarMeta {
 mod tests {
     use super::*;
 
-    /// 空元数据的默认值。
+/// Default values for empty metadata.
     #[test]
     fn empty_meta_has_zeroed_defaults() {
         let meta = AbstractVarMeta::new();
@@ -317,13 +317,13 @@ mod tests {
         assert!(meta.get_types(Some(1)).is_empty());
     }
 
-    /// 索引的排序与查询语义（与 Java 的 `TreeMap` 一致）。
+/// Sorting and query semantics of the index (consistent with Java's `TreeMap`).
     #[test]
     fn table_lookup_and_ordering_match_java_treemap() {
         let mut meta = AbstractVarMeta::new();
         meta.item_count = 3;
         meta.data_size = 64;
-        // 故意乱序插入，验证输出顺序为升序
+// Insert deliberately out of order to verify that the output order is ascending
         meta.table.insert(9, BTreeMap::from([(0x12, 40)]));
         meta.table.insert(1, BTreeMap::from([(0x12, 4), (0x34, 8)]));
         meta.set_offsets(vec![4, 8, 40]);
@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(meta.get_offset(Some(1), Some(0x34)), Some(8));
         assert_eq!(meta.get_offset(Some(1), Some(0x99)), None);
         assert_eq!(meta.get_offset(Some(7), Some(0x12)), None);
-        // Java: type == null → null；id == null → NPE（Rust 侧退化为 None）
+// Java: type == null → null; id == null → NPE (the Rust side degrades gracefully to None)
         assert_eq!(meta.get_offset(Some(1), None), None);
         assert_eq!(meta.get_offset(None, Some(0x12)), None);
         assert_eq!(meta.get_types(Some(1)), BTreeSet::from([0x12, 0x34]));
@@ -348,7 +348,7 @@ mod tests {
         assert!(!meta.contains_key(None));
     }
 
-    /// `toString()` / `toString(FieldMap)` 的文本格式。
+/// Text format of `toString()` / `toString(FieldMap)`.
     #[test]
     fn to_string_matches_java_format() {
         let mut meta = AbstractVarMeta::new();
@@ -363,7 +363,7 @@ mod tests {
              Entries for Unique ID: 7\n      Type=18 Offset=4\nEND: VarMeta\n\n"
         );
 
-        // field_map 提供字段名时，类型标识被替换成字段显示名
+// When field_map provides a field name, the type identifier is replaced by the field display name
         struct Resolver;
         impl VarDataKeyResolver for Resolver {
             fn get_field_type_from_var_data_key(&self, key: i32) -> Option<String> {
@@ -380,7 +380,7 @@ mod tests {
             .contains("      Type=Notes Offset=4\n"));
     }
 
-    /// 读取助手在越界时返回 `None` 而不是 panic（Java 抛 `EOFException`）。
+/// The read helpers return `None` when out of bounds instead of panicking (Java throws `EOFException`).
     #[test]
     fn read_helpers_return_none_past_the_end() {
         let data = [0x01u8, 0x02, 0x03];
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(read_byte(&data, &mut position), Some(1));
         assert_eq!(position, 1);
 
-        // 只剩 2 字节，读 4 字节整数失败且游标不动
+// Only 2 bytes remain, so reading a 4-byte integer fails and the cursor does not move
         assert_eq!(read_int(&data, &mut position), None);
         assert_eq!(position, 1);
 
@@ -399,10 +399,10 @@ mod tests {
         assert_eq!(position, 3);
     }
 
-    /// 去重回归：本文件的读取助手与 [`MPPComponent`] 的同名方法取值、游标推进完全一致。
+/// De-duplication regression: the read helpers in this file and the same-named methods of [`MPPComponent`] return identical values and advance the cursor identically.
     ///
-    /// 这两个模块曾各存一份等价实现（另有 `props.rs` 的 `InputStreamCursor`），
-    /// 如今前者**转发**到后者；本测试把「两边行为一致」锁死。
+/// These two modules once each held an equivalent implementation (there is also `props.rs`'s `InputStreamCursor`),
+/// and now the former **forwards** to the latter; this test locks down "both sides behave identically".
     #[test]
     fn read_helpers_match_mpp_component() {
         let data = [0xFFu8, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0x01];
@@ -427,10 +427,10 @@ mod tests {
             MPPComponent::read_int(&data, &mut component_position)
         );
         assert_eq!(helper_position, component_position);
-        // 1（byte）+ 2（short）+ 4（int）= 7
+        // 1(byte)+ 2(short)+ 4(int)= 7
         assert_eq!(helper_position, 7);
 
-        // 越界：两边同样返回 None，且都不移动游标
+// Out of bounds: both sides return None likewise and neither moves the cursor
         let short = [0x01u8];
         let mut helper_position = 1usize;
         let mut component_position = 1usize;

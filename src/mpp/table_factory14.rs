@@ -1,26 +1,26 @@
-//! 对应 Java: `org/mpxj/mpp/TableFactory14.java`
+//! Corresponds to Java: `org/mpxj/mpp/TableFactory14.java`
 //!
-//! 从 MPP14 文件的 `CTable` 存储里把「表格定义」还原成模型层的 [`Table`]。
-//! 与 MPP9 / MPP12 的 [`TableFactory`] 相比：列区从偏移 12 起、每列 115 字节、列标题
-//! 直接内联在列块中（`index + 13`），对齐标志在 `index + 5` / `index + 7`。
+//! Reconstructs "table definitions" from the `CTable` storage of an MPP14 file into the model-layer [`Table`].
+//! Compared with MPP9 / MPP12's [`TableFactory`]: the column area starts at offset 12, each column is 115 bytes, and the column title is
+//! inlined directly in the column block (`index + 13`), with alignment flags at `index + 5` / `index + 7`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `TableFactory14(Integer, Integer, Integer)` | 同序构造，三个参数为 `Option<i32>` | Java 的 `Integer` 可为 `null` |
-//! | `Table createTable(ProjectFile file, byte[] data, VarMeta varMeta, Var2Data varData)` | `Rc<RefCell<Table>>`，`file` 为 `&Rc<RefCell<ProjectFile>>` | 模型层容器（`TableContainer::add`）按 `Rc<RefCell<Table>>` 存放 |
-//! | `new Column(file)` | `Column::new(Rc::downgrade(file))` | 本 crate 的 `Column` 以弱引用持有父项目（见 `crate::column`） |
-//! | `FieldTypeHelper.getInstance(file, fieldID)` | `Option<MppFieldType>` → [`Column::set_field_type`] | 本 crate 的列字段类型用 [`FieldKey`] 表达 |
-//! | `ByteArrayHelper.getShort/getInt` 越界抛 `ArrayIndexOutOfBoundsException` | [`get_short_safe`] / [`get_int_safe`] 返回 0；列数据不足一整列时结束循环 | 遵循「不 panic」约定 |
-//! | `column.setAlignTitle/AlignData` 的 `if/else` 链 | 私有函数 [`column_alignment`] | 三档取值用 `match` 等价表达 |
+//! | `TableFactory14(Integer, Integer, Integer)` | Same-order constructor, with three `Option<i32>` parameters | Java's `Integer` can be `null` |
+//! | `Table createTable(ProjectFile file, byte[] data, VarMeta varMeta, Var2Data varData)` | `Rc<RefCell<Table>>`, with `file` as `&Rc<RefCell<ProjectFile>>` | The model-layer container (`TableContainer::add`) stores entries as `Rc<RefCell<Table>>` |
+//! | `new Column(file)` | `Column::new(Rc::downgrade(file))` | This crate's `Column` holds the parent project by weak reference (see `crate::column`) |
+//! | `FieldTypeHelper.getInstance(file, fieldID)` | `Option<MppFieldType>` → [`Column::set_field_type`] | Column field types in this crate are expressed with [`FieldKey`] |
+//! | `ByteArrayHelper.getShort/getInt` throws `ArrayIndexOutOfBoundsException` when out of bounds | [`get_short_safe`] / [`get_int_safe`] return 0; the loop ends when the column data is shorter than a full column | Follows the "no panic" convention |
+//! | The `if/else` chain of `column.setAlignTitle/AlignData` | Private function [`column_alignment`] | The three possible values are expressed equivalently with `match` |
 //!
-//! 说明：本类在 Java 中**不继承** [`TableFactory`]（它是独立的 `final class`，与 9 / 12 版
-//! 各有一份实现），因此 Rust 侧同样是独立结构体，不引入继承还原。
+//! Note: this class **does not extend** [`TableFactory`] in Java (it is an independent `final class`, with a separate
+//! implementation for each of versions 9 / 12), so the Rust side is likewise an independent struct, with no inheritance to reproduce.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -34,35 +34,35 @@ use crate::mpp::var_meta::VarMeta;
 use crate::project_file::ProjectFile;
 use crate::table::Table;
 
-/// 每列定义占用的字节数（MPP14）。
+/// Number of bytes occupied by each column definition (MPP14).
 ///
-/// 对应 Java: `index += 115;`
+/// Corresponds to Java: `index += 115;`
 const COLUMN_BLOCK_SIZE: usize = 115;
 
-/// 表格定义工厂（MPP14 的列布局）。
+/// Table definition factory (MPP14 column layout).
 ///
-/// 对应 Java: `final class TableFactory14`
+/// Corresponds to Java: `final class TableFactory14`
 pub struct TableFactory14 {
-    /// 标准表列数据键。
+/// Column data key for the standard table.
     ///
-    /// 对应 Java 字段: `private final Integer m_tableColumnDataStandard;`
+    /// Corresponds to Java field: `private final Integer m_tableColumnDataStandard;`
     m_table_column_data_standard: Option<i32>,
 
-    /// 企业表列数据键。
+/// Column data key for the enterprise table.
     ///
-    /// 对应 Java 字段: `private final Integer m_tableColumnDataEnterprise;`
+    /// Corresponds to Java field: `private final Integer m_tableColumnDataEnterprise;`
     m_table_column_data_enterprise: Option<i32>,
 
-    /// 基线表列数据键。
+/// Column data key for the baseline table.
     ///
-    /// 对应 Java 字段: `private final Integer m_tableColumnDataBaseline;`
+    /// Corresponds to Java field: `private final Integer m_tableColumnDataBaseline;`
     m_table_column_data_baseline: Option<i32>,
 }
 
 impl TableFactory14 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public TableFactory14(Integer tableColumnDataStandard,
+    /// Corresponds to Java: `public TableFactory14(Integer tableColumnDataStandard,
     /// Integer tableColumnDataEnterprise, Integer tableColumnDataBaseline)`
     pub fn new(
         table_column_data_standard: Option<i32>,
@@ -76,9 +76,9 @@ impl TableFactory14 {
         }
     }
 
-    /// 由定长数据（表格属性）与变长数据（列定义）构造一个 [`Table`]。
+/// Build a [`Table`] from fixed data (table properties) and variable data (column definitions).
     ///
-    /// 对应 Java: `public Table createTable(ProjectFile file, byte[] data, VarMeta varMeta, Var2Data varData)`
+    /// Corresponds to Java: `public Table createTable(ProjectFile file, byte[] data, VarMeta varMeta, Var2Data varData)`
     pub fn create_table(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -109,7 +109,7 @@ impl TableFactory14 {
             var_data,
         );
 
-        // Java: if (columnData == null) { 企业表；仍为 null 时取标准表 }
+// Java: if (columnData == null) { enterprise table; if still null, use the standard table }
         if column_data.is_none() {
             column_data = self.lookup_column_data(
                 table_id,
@@ -134,9 +134,9 @@ impl TableFactory14 {
         Rc::new(RefCell::new(table))
     }
 
-    /// 按数据类型键取出列数据；键为 `None` 或数据缺失时返回 `None`。
+/// Retrieve column data by data type key; returns `None` when the key is `None` or the data is missing.
     ///
-    /// 对应 Java: `varData.getByteArray(varMeta.getOffset(tableID, type))`
+    /// Corresponds to Java: `varData.getByteArray(varMeta.getOffset(tableID, type))`
     fn lookup_column_data(
         &self,
         table_id: i32,
@@ -148,9 +148,9 @@ impl TableFactory14 {
         var_data.get_byte_array_at_offset(var_meta.get_offset(Some(table_id), Some(type_)))
     }
 
-    /// 把列定义加入表格。
+/// Add the column definitions to the table.
     ///
-    /// 对应 Java: `private void processColumnData(ProjectFile file, Table table, byte[] data)`
+    /// Corresponds to Java: `private void processColumnData(ProjectFile file, Table table, byte[] data)`
     fn process_column_data(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -173,8 +173,8 @@ impl TableFactory14 {
 
         // Java: for (int loop = 0; loop < columnCount; loop++)
         for _ in 0..column_count {
-            // Java 在数据不足时抛 `ArrayIndexOutOfBoundsException`（整次读取失败）；
-            // Rust 侧结束循环（不 panic），见文件头差异表
+// Java throws `ArrayIndexOutOfBoundsException` when there is insufficient data (the whole read fails);
+// the Rust side ends the loop (without panicking), see the file header differences table
             if index.saturating_add(COLUMN_BLOCK_SIZE) > data.len() {
                 break;
             }
@@ -211,10 +211,10 @@ impl TableFactory14 {
     }
 }
 
-/// 把文件里的对齐编码映射为 [`Column`] 的常量。
+/// Map the alignment codes in the file to [`Column`] constants.
 ///
-/// 对应 Java: `processColumnData` 中的两段
-/// `if ((alignment & 0x0F) == 0x00) { ... ALIGN_LEFT } else if (... == 0x01) { ... ALIGN_CENTER } else { ... ALIGN_RIGHT }`。
+/// Corresponds to Java: the two sections in `processColumnData`
+/// `if ((alignment & 0x0F) == 0x00) { ... ALIGN_LEFT } else if (... == 0x01) { ... ALIGN_CENTER } else { ... ALIGN_RIGHT }`.
 fn column_alignment(alignment: i32) -> i32 {
     match alignment & 0x0F {
         0x00 => Column::ALIGN_LEFT,
@@ -232,12 +232,12 @@ mod tests {
     use crate::mpp::custom_field_value_reader::test_support::{fixed_data, var_data_with_meta};
     use crate::task_field::TaskField;
 
-    /// 字段号。
+/// Field ID.
     fn field_id(field: TaskField) -> i32 {
         FieldTypeHelper::get_field_id(Some(&MppFieldType::Builtin(FieldKey::Task(field))))
     }
 
-    /// 表格定长记录：ID / 名称 / 资源表标志（偏移 108）。
+/// Fixed-length table record: ID / name / resource table flag (offset 108).
     fn table_record(id: i32, name: &str, resource: bool) -> Vec<u8> {
         let mut record = vec![0u8; 116];
         record[0..4].copy_from_slice(&id.to_le_bytes());
@@ -251,9 +251,9 @@ mod tests {
         record
     }
 
-    /// 列数据：`[4..6)` = 列数 - 1，之后每列 115 字节（字段号 / 宽度 / 标题 / 对齐）。
+/// Column data: `[4..6)` = column count - 1, followed by 115 bytes per column (field ID / width / title / alignment).
     ///
-    /// 参数为 `(字段号, 宽度, 标题对齐, 数据对齐, 标题)`。
+/// The parameters are `(field ID, width, title alignment, data alignment, title)`.
     fn column_data(columns: &[(i32, i32, i32, i32, &str)]) -> Vec<u8> {
         let mut data = vec![0u8; 12 + columns.len() * COLUMN_BLOCK_SIZE];
         data[4..6].copy_from_slice(&((columns.len() - 1) as u16).to_le_bytes());
@@ -265,7 +265,7 @@ mod tests {
             data[offset + 5] = *align_title as u8;
             data[offset + 7] = *align_data as u8;
 
-            // 标题内联在列块内（index + 13）
+// The title is inlined in the column block (index + 13)
             let mut title_offset = offset + 13;
             for unit in title.encode_utf16() {
                 data[title_offset..title_offset + 2].copy_from_slice(&unit.to_le_bytes());
@@ -276,7 +276,7 @@ mod tests {
         data
     }
 
-    /// 表格属性与 115 字节列块被完整读出。
+/// Table properties and the 115-byte column block are read out completely.
     #[test]
     fn create_table_reads_properties_and_columns() {
         let data = column_data(&[
@@ -291,7 +291,7 @@ mod tests {
         let factory = TableFactory14::new(Some(6), Some(7), Some(8));
         let table = factory.create_table(
             &file,
-            fixed.get_byte_array_value(0).expect("有数据"),
+            fixed.get_byte_array_value(0).expect("has data"),
             &*var_meta,
             &var_data,
         );
@@ -316,32 +316,32 @@ mod tests {
         );
         assert_eq!(columns[1].get_width(), 12);
         assert_eq!(columns[1].get_align_title(), Column::ALIGN_RIGHT);
-        // 标题为空 ⇒ 与 Java 一致地**不**调用 setTitle，回落到字段的默认显示名
+// Empty title ⇒ consistently with Java, **do not** call setTitle, falling back to the field's default display name
         assert_eq!(
             columns[1].get_title(),
             Some(FieldKey::Task(TaskField::Duration).get_name().to_owned())
         );
     }
 
-    /// 列数据缺失 / 截断时不 panic。
+/// Does not panic when the column data is missing / truncated.
     #[test]
     fn malformed_data_is_tolerated() {
         let file = ProjectFile::new();
         let factory = TableFactory14::new(Some(6), Some(7), Some(8));
         let fixed = fixed_data(&[table_record(1, "T", false)]);
-        let record = fixed.get_byte_array_value(0).expect("有数据");
+        let record = fixed.get_byte_array_value(0).expect("has data");
 
-        // 变长数据里没有列数据
+// There is no column data in the variable data
         let (var_meta, var_data) = var_data_with_meta(&[]);
         let table = factory.create_table(&file, record, &*var_meta, &var_data);
         assert!(table.borrow().get_columns().is_empty());
 
-        // 列数据只有 4 字节（length <= 6）
+// The column data is only 4 bytes (length <= 6)
         let (var_meta, var_data) = var_data_with_meta(&[(1, 8, vec![0u8; 4])]);
         let table = factory.create_table(&file, record, &*var_meta, &var_data);
         assert!(table.borrow().get_columns().is_empty());
 
-        // 声明 2 列但只有 1 列的数据
+// Declares 2 columns but has data for only 1 column
         let mut truncated = column_data(&[(field_id(TaskField::Name), 1, 0, 0, "A")]);
         truncated[4..6].copy_from_slice(&1u16.to_le_bytes());
         let (var_meta, var_data) = var_data_with_meta(&[(1, 8, truncated)]);
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(table.get_columns()[0].get_title(), Some("A".to_owned()));
     }
 
-    /// 对齐编码映射（Java 的 if/else 链）。
+/// Alignment code mapping (Java's if/else chain).
     #[test]
     fn alignment_mapping_matches_java() {
         assert_eq!(column_alignment(0x00), Column::ALIGN_LEFT);

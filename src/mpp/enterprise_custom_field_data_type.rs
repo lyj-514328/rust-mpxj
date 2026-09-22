@@ -1,45 +1,45 @@
-//! 对应 Java: `org/mpxj/mpp/EnterpriseCustomFieldDataType.java`
+//! Corresponds to Java: `org/mpxj/mpp/EnterpriseCustomFieldDataType.java`
 //!
-//! 企业自定义字段（Enterprise Custom Field）的「整数类型 ID ↔ [`DataType`]」查找表。
-//! ID 的含义取自 Microsoft Project 的 XML 数据交换格式
-//! （`https://docs.microsoft.com/en-us/office-project/xml-data-interchange/cftype-element`，
-//! 见 Java 源码中的注释）。
+//! Lookup table for "integer type ID ↔ [`DataType`]" of enterprise custom fields.
+//! The meaning of the IDs is taken from Microsoft Project's XML data exchange format
+//! (`https://docs.microsoft.com/en-us/office-project/xml-data-interchange/cftype-element`,
+//! (see the comments in the Java source).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public final class EnterpriseCustomFieldDataType` + 两个静态 `HashMap` | 单位结构体 [`EnterpriseCustomFieldDataType`] + 两个 `match` | Java 的 `DATA_TYPE_MAP` / `ID_MAP` 只是静态查找表，Rust 侧直接以 `match` 表达同样的映射（本 crate 的惯用做法，见 `crate::data_type::DataType::get_instance`），无需引入 `OnceLock` 等额外机制 |
-//! | `Integer getIDFromDataType(DataType type)`（可能返回 `null`） | `Option<i32>` | 「`null` → `Option<T>`」约定 |
-//! | `DATA_TYPE_MAP.getOrDefault(value, DataType.CUSTOM)` | `match` 的 `_` 分支回落 `DataType::Custom` | 越界 ID 一律回落 CUSTOM |
-//! | `ID_MAP.get(type)`（`type` 为 `null` 时返回 `null`） | 形参是 `DataType`（值类型），无 `null` 情形 | `DataType` 在 Rust 侧是 `Copy` 枚举 |
+//! | `public final class EnterpriseCustomFieldDataType` + two static `HashMap`s | Unit struct [`EnterpriseCustomFieldDataType`] + two `match` expressions | Java's `DATA_TYPE_MAP` / `ID_MAP` are just static lookup tables; the Rust side expresses the same mappings directly with `match` (this crate's customary approach, see `crate::data_type::DataType::get_instance`), with no need to introduce extra mechanisms such as `OnceLock` |
+//! | `Integer getIDFromDataType(DataType type)` (may return `null`) | `Option<i32>` | The "`null` → `Option<T>`" convention |
+//! | `DATA_TYPE_MAP.getOrDefault(value, DataType.CUSTOM)` | The `_` branch of the `match` falls back to `DataType::Custom` | Out-of-range IDs always fall back to CUSTOM |
+//! | `ID_MAP.get(type)` (returns `null` when `type` is `null`) | The parameter is `DataType` (a value type), with no `null` case | `DataType` is a `Copy` enum on the Rust side |
 //!
-//! 跳过的 Java 方法：无（本类只有上述两个静态方法）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java methods: none (this class only has the two static methods above).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use crate::data_type::DataType;
 
-/// 企业自定义字段数据类型的查找表。
+/// Lookup table for enterprise custom field data types.
 ///
-/// 对应 Java: `public final class EnterpriseCustomFieldDataType`
+/// Corresponds to Java: `public final class EnterpriseCustomFieldDataType`
 pub struct EnterpriseCustomFieldDataType;
 
 impl EnterpriseCustomFieldDataType {
-    /// 按整数类型 ID 取企业自定义字段的数据类型。
+/// Get the data type of an enterprise custom field by integer type ID.
     ///
-    /// 对应 Java: `public static DataType getDataTypeFromID(int value)`
+    /// Corresponds to Java: `public static DataType getDataTypeFromID(int value)`
     ///
-    /// 与 Java 一致：无法识别的 ID 回落 [`DataType::Custom`]。
+/// Consistent with Java: an unrecognized ID falls back to [`DataType::Custom`].
     pub fn get_data_type_from_id(value: i32) -> DataType {
         match value {
             0 => DataType::Currency,
             1 => DataType::Date,
             2 => DataType::Duration,
-            // Java 注释：3 = Finish
+// Java comment: 3 = Finish
             3 => DataType::Date,
             4 => DataType::Boolean,
             5 => DataType::Numeric,
-            // Java 注释：6 = Start
+// Java comment: 6 = Start
             6 => DataType::Date,
             7 => DataType::String,
             // Java: DATA_TYPE_MAP.getOrDefault(Integer.valueOf(value), DataType.CUSTOM)
@@ -47,12 +47,12 @@ impl EnterpriseCustomFieldDataType {
         }
     }
 
-    /// 按数据类型取企业自定义字段的整数类型 ID。
+/// Get the integer type ID of an enterprise custom field by data type.
     ///
-    /// 对应 Java: `public static Integer getIDFromDataType(DataType type)`
+    /// Corresponds to Java: `public static Integer getIDFromDataType(DataType type)`
     ///
-    /// 与 Java 一致：表中没有的类型返回 `None`（Java 返回 `null`）。注意该映射不是
-    /// 双向的——`DATE` 的 ID 为 1，而 `3` / `6`（Finish / Start）在反向表中没有对应项。
+/// Consistent with Java: a type not in the table returns `None` (Java returns `null`). Note that this mapping is not
+/// bidirectional — `DATE` has ID 1, while `3` / `6` (Finish / Start) have no corresponding entry in the reverse table.
     pub fn get_id_from_data_type(type_: DataType) -> Option<i32> {
         match type_ {
             DataType::Currency => Some(0),
@@ -70,7 +70,7 @@ impl EnterpriseCustomFieldDataType {
 mod tests {
     use super::*;
 
-    /// 正向表：8 个 ID 的映射与 Java 的 `DATA_TYPE_MAP` 一致。
+/// Forward table: the mapping of the 8 IDs is consistent with Java's `DATA_TYPE_MAP`.
     #[test]
     fn known_ids_map_to_the_java_data_types() {
         let cases = [
@@ -91,7 +91,7 @@ mod tests {
         }
     }
 
-    /// 越界 / 无法识别的 ID 回落 `CUSTOM`。
+/// Out-of-range / unrecognized IDs fall back to `CUSTOM`.
     #[test]
     fn unknown_ids_fall_back_to_custom() {
         for id in [-1, 8, 100, i32::MIN, i32::MAX] {
@@ -102,7 +102,7 @@ mod tests {
         }
     }
 
-    /// 反向表：6 个可反向的类型与 Java 的 `ID_MAP` 一致。
+/// Reverse table: the 6 reversible types are consistent with Java's `ID_MAP`.
     #[test]
     fn reverse_lookup_matches_the_java_id_map() {
         let cases = [
@@ -122,7 +122,7 @@ mod tests {
         }
     }
 
-    /// 表中没有的类型返回 `None`（Java 返回 `null`）。
+/// A type not in the table returns `None` (Java returns `null`).
     #[test]
     fn reverse_lookup_returns_none_for_unmapped_types() {
         for data_type in [
@@ -141,7 +141,7 @@ mod tests {
         }
     }
 
-    /// 两张表不是严格互逆的：Finish（3）/ Start（6）都归一到 `DATE`，反向只得 ID 1。
+/// The two tables are not strictly inverse: Finish (3) / Start (6) both normalize to `DATE`, and the reverse yields only ID 1.
     #[test]
     fn forward_and_reverse_are_not_exact_inverses() {
         for id in [1, 3, 6] {

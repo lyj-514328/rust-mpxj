@@ -1,39 +1,39 @@
-//! 对应 Java: `org/mpxj/SkillLevel.java`
+//! Corresponds to Java: `org/mpxj/SkillLevel.java`
 
-/// 资源被分配到角色时的技能等级枚举。
+/// Enum for the skill level of a resource assigned to a role.
 ///
-/// 对应 Java: `public enum SkillLevel`
+/// Corresponds to Java: `public enum SkillLevel`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`；
-/// Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// The Java enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`;
+/// the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SkillLevel {
-    /// 专家（大师）级。
+    /// Master level.
     ///
-    /// 对应 Java: `MASTER`
+    /// Corresponds to Java: `MASTER`
     Master,
-    /// 熟练级。
+    /// Expert level.
     ///
-    /// 对应 Java: `EXPERT`
+    /// Corresponds to Java: `EXPERT`
     Expert,
-    /// 有技能级。
+    /// Skilled level.
     ///
-    /// 对应 Java: `SKILLED`
+    /// Corresponds to Java: `SKILLED`
     Skilled,
-    /// 精通级。
+    /// Proficient level.
     ///
-    /// 对应 Java: `PROFICIENT`
+    /// Corresponds to Java: `PROFICIENT`
     Proficient,
-    /// 无经验级。
+    /// Inexperienced level.
     ///
-    /// 对应 Java: `INEXPERIENCED`
+    /// Corresponds to Java: `INEXPERIENCED`
     Inexperienced,
 }
 
 impl SkillLevel {
-    /// 全部取值，按 Java 声明顺序排列。
+    /// All values, in Java declaration order.
     ///
-    /// 对应 Java: `SkillLevel.values()`
+    /// Corresponds to Java: `SkillLevel.values()`
     pub const ALL: [SkillLevel; 5] = [
         SkillLevel::Master,
         SkillLevel::Expert,
@@ -42,11 +42,11 @@ impl SkillLevel {
         SkillLevel::Inexperienced,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+    /// Returns the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`SkillLevel::ALL`] 配套查表，
-    /// 对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+    /// No corresponding method in Java; added on the Rust side to pair with [`SkillLevel::ALL`]
+    /// for lookups, corresponding to Java's `values()[value]` pattern. Java throws
+    /// `ArrayIndexOutOfBoundsException` out of bounds, while the Rust side returns `None` per this repo's convention.
     pub fn get_instance(value: i32) -> Option<SkillLevel> {
         usize::try_from(value)
             .ok()

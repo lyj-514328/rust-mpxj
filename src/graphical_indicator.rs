@@ -1,12 +1,12 @@
-//! 对应 Java: `org/mpxj/GraphicalIndicator.java`
+//! Corresponds to Java: `org/mpxj/GraphicalIndicator.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped / unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `GraphicalIndicator(FieldType fieldType)` | [`GraphicalIndicator::new`]（Java 侧为包内可见，Rust 侧必须公开才可构造，见下） |
-//! | `public int evaluate(FieldContainer container)` | [`GraphicalIndicator::evaluate`]（改为泛型 + `Any` 向下转型，见下） |
-//! | `public FieldType getFieldType()` | [`GraphicalIndicator::get_field_type`]（`FieldType` → [`FieldKey`]） |
+//! | `GraphicalIndicator(FieldType fieldType)` | [`GraphicalIndicator::new`] (package-visible on the Java side; must be public on the Rust side to be constructible, see below) |
+//! | `public int evaluate(FieldContainer container)` | [`GraphicalIndicator::evaluate`] (changed to generics + `Any` downcasting, see below) |
+//! | `public FieldType getFieldType()` | [`GraphicalIndicator::get_field_type`](`FieldType` → [`FieldKey`]) |
 //! | `public boolean getDisplayGraphicalIndicators()` / `public void setDisplayGraphicalIndicators(boolean)` | [`GraphicalIndicator::get_display_graphical_indicators`] / [`GraphicalIndicator::set_display_graphical_indicators`] |
 //! | `public List<GraphicalIndicatorCriteria> getNonSummaryRowCriteria()` | [`GraphicalIndicator::get_non_summary_row_criteria`] |
 //! | `public List<GraphicalIndicatorCriteria> getProjectSummaryCriteria()` | [`GraphicalIndicator::get_project_summary_criteria`] |
@@ -19,28 +19,28 @@
 //! | `public void addProjectSummaryCriteria(GraphicalIndicatorCriteria)` | [`GraphicalIndicator::add_project_summary_criteria`] |
 //! | `@Override public String toString()` | [`Display`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
-//! 另外 Java 侧使用的 `NumberHelper.getInt` 在 Rust 侧直接以
-//! [`Option::unwrap_or`] 表达（`null` → 0），行为一致。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
+//! Also, the `NumberHelper.getInt` used on the Java side is expressed directly on the Rust side as
+//! [`Option::unwrap_or`] (`null` → 0), with identical behavior.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 1. **`instanceof Task` → `Any` 向下转型**：Java 的 `evaluate` 用
-//!    `container instanceof Task` 决定取哪一组条件（项目摘要行 / 摘要行 / 非摘要行），
-//!    并用 `Task.getUniqueID()` / `Task.getSummary()` 判定行类型。Rust 的 trait 对象无法
-//!    直接向下转型，因此 [`GraphicalIndicator::evaluate`] 改为**泛型** receive
-//!    `&C`（`C: FieldContainer + 'static`），内部先转成 `&dyn Any` 再
-//!    `downcast_ref::<Task>()`，语义与 Java 完全一致；非 `Task` 容器一律使用非摘要行条件
-//!    （与 Java 的 `else` 分支一致）。
-//! 2. **构造方法可见性**：Java 的构造方法是包内可见（实际只由 `CustomField` 调用）；本 crate
-//!    的 [`crate::custom_field::CustomField`] 位于 `crate::custom_field` 模块，而本类型位于
-//!    `crate::graphical_indicator`，`pub(crate)` / 私有无法表达「仅包内可构造」这一可见性，
-//!    因此 Rust 侧把构造方法设为 `pub`（[`crate::custom_field::CustomField::new`] 同样以
-//!    它创建 `m_indicator`）。
-//! 3. **条件的持有方式**：Java 的三个 `List` 分别是字段；Rust 侧同样是 `Vec`，并按本 crate
-//!    的约定拆成只读切片访问器（[`GraphicalIndicator::get_non_summary_row_criteria`] 等）
-//!    与 `add_*` 追加方法。Java 的 `getNonSummaryRowCriteria()` 直接返回可变列表，
-//!    Rust 侧不额外提供 `_mut`（MPXJ 只用 `add_*` 追加）。
+//! 1. **`instanceof Task` → `Any` downcasting**: Java's `evaluate` uses
+//! `container instanceof Task` to decide which set of criteria to use (project summary row / summary row / non-summary row),
+//! and uses `Task.getUniqueID()` / `Task.getSummary()` to determine the row type. Rust trait objects cannot
+//! be downcast directly, so [`GraphicalIndicator::evaluate`] is changed to a **generic** that receives
+//! `&C` (`C: FieldContainer + 'static`), internally converting to `&dyn Any` first and then
+//! `downcast_ref::<Task>()`, with semantics identical to Java; non-`Task` containers always use the non-summary row criteria
+//! (matching Java's `else` branch).
+//! 2. **Constructor visibility**: Java's constructor is package-visible (in practice only called by `CustomField`); this crate's
+//! [`crate::custom_field::CustomField`] is in the `crate::custom_field` module, while this type is in
+//! `crate::graphical_indicator`; `pub(crate)` / private cannot express the "constructible only within the package" visibility,
+//! so the Rust side makes the constructor `pub` ([`crate::custom_field::CustomField::new`] also uses
+//! it to create `m_indicator`).
+//! 3. **How the criteria are held**: Java's three `List`s are separate fields; the Rust side likewise uses `Vec`s, and following this crate's
+//! convention splits them into read-only slice accessors ([`GraphicalIndicator::get_non_summary_row_criteria`] etc.)
+//! and `add_*` append methods. Java's `getNonSummaryRowCriteria()` returns the mutable list directly;
+//! the Rust side does not provide an extra `_mut` (MPXJ only appends with `add_*`).
 
 use std::any::Any;
 use std::fmt::{self, Display, Formatter};
@@ -50,57 +50,57 @@ use crate::field_key::FieldKey;
 use crate::graphical_indicator_criteria::GraphicalIndicatorCriteria;
 use crate::task::Task;
 
-/// 单个表格列的图形化指标（graphical indicator）定义。
+/// Definition of the graphical indicator for a single table column.
 ///
-/// 对应 Java: `public class GraphicalIndicator`
+/// Corresponds to Java: `public class GraphicalIndicator`
 pub struct GraphicalIndicator {
-    /// 本指标适用的字段。
+/// The field this indicator applies to.
     ///
-    /// 对应 Java: `private final FieldType m_fieldType;`
+    /// Corresponds to Java: `private final FieldType m_fieldType;`
     m_field_type: FieldKey,
 
-    /// 是否以图形化指标替代实际取值显示。
+/// Whether to display the graphical indicator instead of the actual value.
     ///
-    /// 对应 Java: `private boolean m_displayGraphicalIndicators;`
+    /// Corresponds to Java: `private boolean m_displayGraphicalIndicators;`
     m_display_graphical_indicators: bool,
 
-    /// 摘要行是否继承非摘要行的条件。
+/// Whether summary rows inherit the non-summary row criteria.
     ///
-    /// 对应 Java: `private boolean m_summaryRowsInheritFromNonSummaryRows;`
+    /// Corresponds to Java: `private boolean m_summaryRowsInheritFromNonSummaryRows;`
     m_summary_rows_inherit_from_non_summary_rows: bool,
 
-    /// 项目摘要行是否继承摘要行的条件。
+/// Whether project summary rows inherit the summary row criteria.
     ///
-    /// 对应 Java: `private boolean m_projectSummaryInheritsFromSummaryRows;`
+    /// Corresponds to Java: `private boolean m_projectSummaryInheritsFromSummaryRows;`
     m_project_summary_inherits_from_summary_rows: bool,
 
-    /// 是否把数据值显示为工具提示。
+/// Whether to display the data value as a tooltip.
     ///
-    /// 对应 Java: `private boolean m_showDataValuesInToolTips;`
+    /// Corresponds to Java: `private boolean m_showDataValuesInToolTips;`
     m_show_data_values_in_tool_tips: bool,
 
-    /// 非摘要行的条件。
+/// Non-summary row criteria.
     ///
-    /// 对应 Java: `private final List<GraphicalIndicatorCriteria> m_nonSummaryRowCriteria = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<GraphicalIndicatorCriteria> m_nonSummaryRowCriteria = new ArrayList<>();`
     m_non_summary_row_criteria: Vec<GraphicalIndicatorCriteria>,
 
-    /// 摘要行的条件。
+/// Summary row criteria.
     ///
-    /// 对应 Java: `private final List<GraphicalIndicatorCriteria> m_summaryRowCriteria = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<GraphicalIndicatorCriteria> m_summaryRowCriteria = new ArrayList<>();`
     m_summary_row_criteria: Vec<GraphicalIndicatorCriteria>,
 
-    /// 项目摘要行的条件。
+/// Project summary row criteria.
     ///
-    /// 对应 Java: `private final List<GraphicalIndicatorCriteria> m_projectSummaryCriteria = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<GraphicalIndicatorCriteria> m_projectSummaryCriteria = new ArrayList<>();`
     m_project_summary_criteria: Vec<GraphicalIndicatorCriteria>,
 }
 
 impl GraphicalIndicator {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `GraphicalIndicator(FieldType fieldType)`
+    /// Corresponds to Java: `GraphicalIndicator(FieldType fieldType)`
     ///
-    /// Java 侧为包内可见；Rust 侧见文件头说明（改为 `pub`）。
+/// Package-visible on the Java side; see the file header note for the Rust side (changed to `pub`).
     pub fn new(field_type: FieldKey) -> Self {
         Self {
             m_field_type: field_type,
@@ -114,17 +114,17 @@ impl GraphicalIndicator {
         }
     }
 
-    /// 判断是否应显示图形化指标，返回 `-1` 表示不显示任何指标。
+/// Determine whether a graphical indicator should be displayed; returning `-1` means no indicator is displayed.
     ///
-    /// 对应 Java: `public int evaluate(FieldContainer container)`
+    /// Corresponds to Java: `public int evaluate(FieldContainer container)`
     ///
-    /// 未命中任何条件时返回默认值 `0`。
+/// Return the default value `0` when no criteria match.
     pub fn evaluate<C>(&self, container: &C) -> i32
     where
         C: FieldContainer + 'static,
     {
         //
-        // 第一步：确定本次应使用的条件集合
+// Step one: determine which criteria set to use this time
         //
         let any: &dyn Any = container;
         let criteria: &[GraphicalIndicatorCriteria] = match any.downcast_ref::<Task>() {
@@ -147,12 +147,12 @@ impl GraphicalIndicator {
                     &self.m_non_summary_row_criteria
                 }
             }
-            // 资源摘要行也可能存在，但目前无法判定，与 Java 一致地使用非摘要行条件
+// Resource summary rows may also exist, but cannot be determined here, so use the non-summary row criteria as Java does
             None => &self.m_non_summary_row_criteria,
         };
 
         //
-        // 第二步：逐个求值，取第一个命中的结果
+// Step two: evaluate one by one, taking the result of the first match
         //
         let mut result = -1;
         for item in criteria {
@@ -163,7 +163,7 @@ impl GraphicalIndicator {
         }
 
         //
-        // 第三步：仍未命中时返回默认值 0
+// Step three: if still no match, return the default value 0
         //
         if result == -1 {
             result = 0;
@@ -172,58 +172,58 @@ impl GraphicalIndicator {
         result
     }
 
-    /// 取本指标适用的字段。
+/// Get the field this indicator applies to.
     ///
-    /// 对应 Java: `public FieldType getFieldType()`
+    /// Corresponds to Java: `public FieldType getFieldType()`
     pub fn get_field_type(&self) -> FieldKey {
         self.m_field_type
     }
 
-    /// 取「是否显示图形化指标」标志。
+/// Get the "display graphical indicator" flag.
     ///
-    /// 对应 Java: `public boolean getDisplayGraphicalIndicators()`
+    /// Corresponds to Java: `public boolean getDisplayGraphicalIndicators()`
     pub fn get_display_graphical_indicators(&self) -> bool {
         self.m_display_graphical_indicators
     }
 
-    /// 设置「是否显示图形化指标」标志。
+/// Set the "display graphical indicator" flag.
     ///
-    /// 对应 Java: `public void setDisplayGraphicalIndicators(boolean displayGraphicalIndicators)`
+    /// Corresponds to Java: `public void setDisplayGraphicalIndicators(boolean displayGraphicalIndicators)`
     pub fn set_display_graphical_indicators(&mut self, display_graphical_indicators: bool) {
         self.m_display_graphical_indicators = display_graphical_indicators;
     }
 
-    /// 取非摘要行的条件。
+/// Get the non-summary row criteria.
     ///
-    /// 对应 Java: `public List<GraphicalIndicatorCriteria> getNonSummaryRowCriteria()`
+    /// Corresponds to Java: `public List<GraphicalIndicatorCriteria> getNonSummaryRowCriteria()`
     pub fn get_non_summary_row_criteria(&self) -> &[GraphicalIndicatorCriteria] {
         &self.m_non_summary_row_criteria
     }
 
-    /// 取项目摘要行的条件。
+/// Get the project summary row criteria.
     ///
-    /// 对应 Java: `public List<GraphicalIndicatorCriteria> getProjectSummaryCriteria()`
+    /// Corresponds to Java: `public List<GraphicalIndicatorCriteria> getProjectSummaryCriteria()`
     pub fn get_project_summary_criteria(&self) -> &[GraphicalIndicatorCriteria] {
         &self.m_project_summary_criteria
     }
 
-    /// 取摘要行的条件。
+/// Get the summary row criteria.
     ///
-    /// 对应 Java: `public List<GraphicalIndicatorCriteria> getSummaryRowCriteria()`
+    /// Corresponds to Java: `public List<GraphicalIndicatorCriteria> getSummaryRowCriteria()`
     pub fn get_summary_row_criteria(&self) -> &[GraphicalIndicatorCriteria] {
         &self.m_summary_row_criteria
     }
 
-    /// 取「项目摘要行是否继承摘要行条件」标志。
+/// Get the "project summary rows inherit summary row criteria" flag.
     ///
-    /// 对应 Java: `public boolean getProjectSummaryInheritsFromSummaryRows()`
+    /// Corresponds to Java: `public boolean getProjectSummaryInheritsFromSummaryRows()`
     pub fn get_project_summary_inherits_from_summary_rows(&self) -> bool {
         self.m_project_summary_inherits_from_summary_rows
     }
 
-    /// 设置「项目摘要行是否继承摘要行条件」标志。
+/// Set the "project summary rows inherit summary row criteria" flag.
     ///
-    /// 对应 Java: `public void setProjectSummaryInheritsFromSummaryRows(boolean projectSummaryInheritsFromSummaryRows)`
+    /// Corresponds to Java: `public void setProjectSummaryInheritsFromSummaryRows(boolean projectSummaryInheritsFromSummaryRows)`
     pub fn set_project_summary_inherits_from_summary_rows(
         &mut self,
         project_summary_inherits_from_summary_rows: bool,
@@ -232,16 +232,16 @@ impl GraphicalIndicator {
             project_summary_inherits_from_summary_rows;
     }
 
-    /// 取「摘要行是否继承非摘要行条件」标志。
+/// Get the "summary rows inherit non-summary row criteria" flag.
     ///
-    /// 对应 Java: `public boolean getSummaryRowsInheritFromNonSummaryRows()`
+    /// Corresponds to Java: `public boolean getSummaryRowsInheritFromNonSummaryRows()`
     pub fn get_summary_rows_inherit_from_non_summary_rows(&self) -> bool {
         self.m_summary_rows_inherit_from_non_summary_rows
     }
 
-    /// 设置「摘要行是否继承非摘要行条件」标志。
+/// Set the "summary rows inherit non-summary row criteria" flag.
     ///
-    /// 对应 Java: `public void setSummaryRowsInheritFromNonSummaryRows(boolean summaryRowsInheritFromNonSummaryRows)`
+    /// Corresponds to Java: `public void setSummaryRowsInheritFromNonSummaryRows(boolean summaryRowsInheritFromNonSummaryRows)`
     pub fn set_summary_rows_inherit_from_non_summary_rows(
         &mut self,
         summary_rows_inherit_from_non_summary_rows: bool,
@@ -250,46 +250,46 @@ impl GraphicalIndicator {
             summary_rows_inherit_from_non_summary_rows;
     }
 
-    /// 取「是否把数据值显示为工具提示」标志。
+/// Get the "display data value as tooltip" flag.
     ///
-    /// 对应 Java: `public boolean getShowDataValuesInToolTips()`
+    /// Corresponds to Java: `public boolean getShowDataValuesInToolTips()`
     pub fn get_show_data_values_in_tool_tips(&self) -> bool {
         self.m_show_data_values_in_tool_tips
     }
 
-    /// 设置「是否把数据值显示为工具提示」标志。
+/// Set the "display data value as tooltip" flag.
     ///
-    /// 对应 Java: `public void setShowDataValuesInToolTips(boolean showDataValuesInToolTips)`
+    /// Corresponds to Java: `public void setShowDataValuesInToolTips(boolean showDataValuesInToolTips)`
     pub fn set_show_data_values_in_tool_tips(&mut self, show_data_values_in_tool_tips: bool) {
         self.m_show_data_values_in_tool_tips = show_data_values_in_tool_tips;
     }
 
-    /// 追加非摘要行的条件。
+/// Append non-summary row criteria.
     ///
-    /// 对应 Java: `public void addNonSummaryRowCriteria(GraphicalIndicatorCriteria criteria)`
+    /// Corresponds to Java: `public void addNonSummaryRowCriteria(GraphicalIndicatorCriteria criteria)`
     pub fn add_non_summary_row_criteria(&mut self, criteria: GraphicalIndicatorCriteria) {
         self.m_non_summary_row_criteria.push(criteria);
     }
 
-    /// 追加摘要行的条件。
+/// Append summary row criteria.
     ///
-    /// 对应 Java: `public void addSummaryRowCriteria(GraphicalIndicatorCriteria criteria)`
+    /// Corresponds to Java: `public void addSummaryRowCriteria(GraphicalIndicatorCriteria criteria)`
     pub fn add_summary_row_criteria(&mut self, criteria: GraphicalIndicatorCriteria) {
         self.m_summary_row_criteria.push(criteria);
     }
 
-    /// 追加项目摘要行的条件。
+/// Append project summary row criteria.
     ///
-    /// 对应 Java: `public void addProjectSummaryCriteria(GraphicalIndicatorCriteria criteria)`
+    /// Corresponds to Java: `public void addProjectSummaryCriteria(GraphicalIndicatorCriteria criteria)`
     pub fn add_project_summary_criteria(&mut self, criteria: GraphicalIndicatorCriteria) {
         self.m_project_summary_criteria.push(criteria);
     }
 }
 
 impl Display for GraphicalIndicator {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 与 Java 一致地逐行输出（Java 用 `pw.println`，故输出含尾随换行）。
+/// Output line by line as Java does (Java uses `pw.println`, so the output includes a trailing newline).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut result = String::new();
 
@@ -333,7 +333,7 @@ impl Display for GraphicalIndicator {
 }
 
 impl fmt::Debug for GraphicalIndicator {
-    /// Java 未覆写调试输出；Rust 侧提供 `Debug`（复用 [`Display`]）。
+/// Java does not override debug output; the Rust side provides `Debug` (reusing [`Display`]).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
@@ -350,7 +350,7 @@ mod tests {
     use std::collections::HashMap;
     use std::rc::Rc;
 
-    /// 测试用的字段容器（非 `Task`，对应 Java 中 `instanceof Task` 为假的路径）。
+/// Field container for tests (not a `Task`, corresponding to the path where `instanceof Task` is false in Java).
     #[derive(Default)]
     struct MockContainer {
         values: HashMap<FieldKey, FieldValue>,
@@ -377,7 +377,7 @@ mod tests {
         fn clear_field_listeners(&mut self) {}
     }
 
-    /// 构造一条「Name 等于 value 时显示 indicator 号指标」的条件。
+/// Construct a criterion "display indicator number N when Name equals value".
     fn criteria(indicator: i32, value: &str) -> GraphicalIndicatorCriteria {
         let mut criteria = GraphicalIndicatorCriteria::new(std::rc::Weak::new());
         criteria.set_indicator(indicator);
@@ -443,7 +443,7 @@ mod tests {
             Some(FieldValue::String("B".to_owned())),
         );
 
-        // Java: 全部未命中时 result = 0
+// Java: result = 0 when nothing matches
         assert_eq!(indicator.evaluate(&container), 0);
     }
 
@@ -465,18 +465,18 @@ mod tests {
         let task = Rc::new(RefCell::new(Task::new()));
         task.borrow_mut().set_name(Some("A".to_owned()));
 
-        // unique ID 为 0（未设置）⇒ 项目摘要行
+// unique ID is 0 (unset) ⇒ project summary row
         assert_eq!(indicator.evaluate(&*task.borrow()), 3);
 
-        // 普通行 ⇒ 非摘要行条件
+// ordinary row ⇒ non-summary row criteria
         task.borrow_mut().set_unique_id(Some(1));
         assert_eq!(indicator.evaluate(&*task.borrow()), 1);
 
-        // 摘要行 ⇒ 摘要行条件（默认不继承非摘要行条件）
+// summary row ⇒ summary row criteria (does not inherit non-summary row criteria by default)
         task.borrow_mut().set_summary(true);
         assert_eq!(indicator.evaluate(&*task.borrow()), 2);
 
-        // 开启继承后摘要行改用非摘要行条件
+// after enabling inheritance, the summary row uses the non-summary row criteria
         indicator.set_summary_rows_inherit_from_non_summary_rows(true);
         assert_eq!(indicator.evaluate(&*task.borrow()), 1);
     }
@@ -491,11 +491,11 @@ mod tests {
         let task = Rc::new(RefCell::new(Task::new()));
         task.borrow_mut().set_name(Some("A".to_owned()));
 
-        // 项目摘要行继承摘要行（而摘要行不继承非摘要行）⇒ 摘要行条件
+// project summary row inherits the summary row (and the summary row does not inherit the non-summary row) ⇒ summary row criteria
         indicator.set_project_summary_inherits_from_summary_rows(true);
         assert_eq!(indicator.evaluate(&*task.borrow()), 2);
 
-        // 两级继承都开启 ⇒ 非摘要行条件
+// both levels of inheritance enabled ⇒ non-summary row criteria
         indicator.set_summary_rows_inherit_from_non_summary_rows(true);
         assert_eq!(indicator.evaluate(&*task.borrow()), 1);
     }

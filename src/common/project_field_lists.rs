@@ -1,20 +1,20 @@
-//! 对应 Java: `org/mpxj/common/ProjectFieldLists.java`
+//! Corresponds to Java: `org/mpxj/common/ProjectFieldLists.java`
 
 use crate::project_field::ProjectField;
 
-/// Project 字段按逻辑分组后的集合。
+/// Collections of Project fields grouped logically.
 ///
-/// 对应 Java: `public final class ProjectFieldLists`
+/// Corresponds to Java: `public final class ProjectFieldLists`
 ///
-/// 移植说明：
-/// - Java 的 `ProjectField[]` 静态数组落地为定长数组常量 `[ProjectField; N]`，元素与顺序与 Java 完全一致。
-/// - 本类只有静态常量、没有实例成员，Rust 侧用零字段结构体承载这些关联常量。
+/// Porting notes:
+/// - Each Java `ProjectField[]` static array is ported as a fixed-size array constant `[ProjectField; N]`, with elements and order exactly matching Java.
+/// - This class has only static constants and no instance members; the Rust side uses a zero-field struct to carry these associated constants.
 ///
-/// 未移植的成员：无。
+/// Skipped Java members: none.
 pub struct ProjectFieldLists;
 
 impl ProjectFieldLists {
-    /// 对应 Java: `public static final ProjectField[] BASELINE_DATES`
+    /// Corresponds to Java: `public static final ProjectField[] BASELINE_DATES`
     pub const BASELINE_DATES: [ProjectField; 10] = [
         ProjectField::Baseline1Date,
         ProjectField::Baseline2Date,

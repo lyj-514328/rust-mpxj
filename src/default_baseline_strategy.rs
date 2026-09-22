@@ -1,20 +1,20 @@
-//! 对应 Java: `org/mpxj/DefaultBaselineStrategy.java`
+//! Corresponds to Java: `org/mpxj/DefaultBaselineStrategy.java`
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **继承**：Java 的 `DefaultBaselineStrategy extends AbstractBaselineStrategy`，
-//!   而 Java 的 `AbstractBaselineStrategy` 未单独成模块。Rust 无继承，
-//!   故把基类的实现（`clearBaseline` / `populateBaseline` / `getKeyForTask` /
-//!   `getBaselineFields` / `getSourceFields`）原样并入本类型。
-//! - **`TaskFieldLists`**：Java 从 `org.mpxj.common.TaskFieldLists` 取 baseline 字段数组；
-//!   Rust 侧引用同一份已落地的常量（[`crate::common::task_field_lists::TaskFieldLists`]），
-//!   不在本文件内另定义一份，避免两边取值漂移。
-//! - **单例 `INSTANCE`**：Java 的 `public static final DefaultBaselineStrategy INSTANCE`
-//!   在 Rust 侧用同名常量 [`DefaultBaselineStrategy::INSTANCE`] 表达。本类型无可变字段，
-//!   可以直接 `const` 构造，因此无需 `OnceLock` / `instance()` 函数
-//!   （`crate::project_config::ProjectConfig` 也按 `DefaultBaselineStrategy::INSTANCE` 使用）。
+//! - **Inheritance**: Java's `DefaultBaselineStrategy extends AbstractBaselineStrategy`,
+//! while Java's `AbstractBaselineStrategy` is not a separate module. Rust has no inheritance,
+//! so the base class implementation (`clearBaseline` / `populateBaseline` / `getKeyForTask` /
+//! `getBaselineFields` / `getSourceFields`) is merged into this type as is.
+//! - **`TaskFieldLists`**: Java takes the baseline field arrays from `org.mpxj.common.TaskFieldLists`;
+//! Rust references the same already-ported constants ([`crate::common::task_field_lists::TaskFieldLists`]),
+//! rather than defining another copy in this file, to avoid the two sides drifting apart.
+//! - **Singleton `INSTANCE`**: Java's `public static final DefaultBaselineStrategy INSTANCE`
+//! is expressed on the Rust side as the same-named constant [`DefaultBaselineStrategy::INSTANCE`]. This type has no mutable fields,
+//! so it can be constructed directly as a `const`, and no `OnceLock` / `instance()` function is needed
+//! (`crate::project_config::ProjectConfig` also uses it as `DefaultBaselineStrategy::INSTANCE`).
 //!
-//! # 用到的 `ProjectFile` / `Task` 接口
+//! # `ProjectFile` / `Task` interfaces used
 //!
 //! ```text
 //! ProjectFile::new() -> ProjectFile
@@ -27,8 +27,8 @@
 //! Task::set(&mut self, field: FieldKey, value: Option<FieldValue>)      // Java: void set(FieldType, Object)
 //! ```
 //!
-//! Java 的 `Map<Task, Task>`（baselineTaskMap）在 Rust 侧改用任务的唯一 ID 作为键，
-//! 语义等价（唯一 ID 在同一个 schedule 内唯一）。
+//! Java's `Map<Task, Task>` (baselineTaskMap) uses the task's unique ID as the key on the Rust side,
+//! which is semantically equivalent (a unique ID is unique within a single schedule).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -41,41 +41,41 @@ use crate::project_file::ProjectFile;
 use crate::task::Task;
 use crate::task_field::TaskField;
 
-/// 用一份 project 的值填充另一份 project 的 baseline 字段。
+/// Populate the baseline fields of one project with the values of another project.
 ///
-/// 对应 Java: `public final class DefaultBaselineStrategy extends AbstractBaselineStrategy`
+/// Corresponds to Java: `public final class DefaultBaselineStrategy extends AbstractBaselineStrategy`
 ///
-/// 该类无可变状态，故实现为无字段（unit）结构体；Java 的私有构造方法无需显式表达。
+/// This class has no mutable state, so it is implemented as a fieldless (unit) struct; Java's private constructor needs no explicit representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DefaultBaselineStrategy;
 
 impl DefaultBaselineStrategy {
-    /// Java 的单例常量 `INSTANCE`。
+/// Java's singleton constant `INSTANCE`.
     ///
-    /// 对应 Java: `public static final DefaultBaselineStrategy INSTANCE`
+    /// Corresponds to Java: `public static final DefaultBaselineStrategy INSTANCE`
     pub const INSTANCE: DefaultBaselineStrategy = DefaultBaselineStrategy;
 
-    /// 生成用于在当前 schedule 与 baseline schedule 之间匹配任务的键。
+/// Generate the key used to match tasks between the current schedule and the baseline schedule.
     ///
-    /// 对应 Java: `protected Object getKeyForTask(Task task)`
+    /// Corresponds to Java: `protected Object getKeyForTask(Task task)`
     ///
-    /// Java 返回 `task.getGUID()`；返回 `null` 的任务不参与匹配。
+/// Java returns `task.getGUID()`; tasks returning `null` do not participate in matching.
     pub fn get_key_for_task(&self, task: &Task) -> Option<String> {
         task.get_guid().map(|guid| guid.to_string())
     }
 
-    /// 确定要填充的 baseline 字段集合。
+/// Determine the set of baseline fields to populate.
     ///
-    /// 对应 Java: `protected TaskField[] getBaselineFields(int index)`
+    /// Corresponds to Java: `protected TaskField[] getBaselineFields(int index)`
     ///
-    /// `index` 为 `0` 时返回主 baseline 字段，否则返回 baseline 1-10 的字段。
-    /// Java 对越界下标会抛 `ArrayIndexOutOfBoundsException`；Rust 侧不 panic，返回空集合。
+/// Returns the main baseline fields when `index` is `0`, otherwise the baseline 1-10 fields.
+/// Java throws `ArrayIndexOutOfBoundsException` for an out-of-bounds index; Rust does not panic and returns an empty set.
     pub fn get_baseline_fields(&self, index: i32) -> Vec<TaskField> {
         if index == 0 {
             return BASELINE0_FIELDS.to_vec();
         }
 
-        // Java: `--index;` 后按 0-based 下标取 baseline 1-10 的字段
+// Java: after `--index;`, take the baseline 1-10 fields using a 0-based index
         let Some(offset) = usize::try_from(index - 1).ok() else {
             return Vec::new();
         };
@@ -93,16 +93,16 @@ impl DefaultBaselineStrategy {
         fields.into_iter().flatten().copied().collect()
     }
 
-    /// 从 baseline schedule 中取值的源字段。
+/// Source fields whose values are taken from the baseline schedule.
     ///
-    /// 对应 Java: `protected TaskField[] getSourceFields()`
+    /// Corresponds to Java: `protected TaskField[] getSourceFields()`
     pub fn get_source_fields(&self) -> Vec<TaskField> {
         SOURCE_FIELDS.to_vec()
     }
 
-    /// 用一个任务（或 `None`）的值填充另一个任务的 baseline 字段。
+/// Populate another task's baseline fields with the values of one task (or `None`).
     ///
-    /// 对应 Java: `private void populateBaseline(Task task, Task baseline, TaskField[] baselineFields)`
+    /// Corresponds to Java: `private void populateBaseline(Task task, Task baseline, TaskField[] baselineFields)`
     fn populate_baseline_for_task(
         &self,
         task: &mut Task,
@@ -127,9 +127,9 @@ impl DefaultBaselineStrategy {
 }
 
 impl BaselineStrategy for DefaultBaselineStrategy {
-    /// 清空指定 project 中指定序号的 baseline。
+/// Clear the baseline with the given number in the given project.
     ///
-    /// 对应 Java: `@Override public void clearBaseline(ProjectFile project, int index)`
+    /// Corresponds to Java: `@Override public void clearBaseline(ProjectFile project, int index)`
     fn clear_baseline(&self, project: &mut ProjectFile, index: i32) {
         let baseline_fields = self.get_baseline_fields(index);
 
@@ -138,15 +138,15 @@ impl BaselineStrategy for DefaultBaselineStrategy {
         }
     }
 
-    /// 用 `baseline` project 的值填充 `project` 中指定序号的 baseline。
+/// Populate the baseline with the given number in `project` with the values of the `baseline` project.
     ///
-    /// 对应 Java: `@Override public void populateBaseline(ProjectFile project, ProjectFile baseline, int index)`
+    /// Corresponds to Java: `@Override public void populateBaseline(ProjectFile project, ProjectFile baseline, int index)`
     fn populate_baseline(&self, project: &mut ProjectFile, baseline: &ProjectFile, index: i32) {
         let baseline_fields = self.get_baseline_fields(index);
 
-        // 建立「baseline 任务键 → baseline 任务」的映射。
-        // Java 用 `Collectors.toMap(..., (u, v) -> null)`：键冲突时该键的值为 null，
-        // 后续按 `map.get(key) != null` 过滤，因此重复键的任务不会被匹配。
+// Build the "baseline task key -> baseline task" mapping.
+// Java uses `Collectors.toMap(..., (u, v) -> null)`: on a key collision the key's value is null,
+// and later filtering by `map.get(key) != null` means tasks with duplicate keys are not matched.
         let mut baseline_by_key: HashMap<String, Option<Rc<RefCell<Task>>>> = HashMap::new();
         for task in baseline.get_tasks() {
             let Some(key) = self.get_key_for_task(&task.borrow()) else {
@@ -159,7 +159,7 @@ impl BaselineStrategy for DefaultBaselineStrategy {
                 .or_insert_with(|| Some(task.clone()));
         }
 
-        // 建立「当前 project 任务唯一 ID → baseline 任务」的映射（对应 Java 的 Map<Task, Task>）。
+// Build the "current project task unique ID -> baseline task" mapping (corresponds to Java's Map<Task, Task>).
         let mut baseline_task_map: HashMap<i32, Rc<RefCell<Task>>> = HashMap::new();
         for task in project.get_tasks() {
             let key = self.get_key_for_task(&task.borrow());
@@ -175,11 +175,11 @@ impl BaselineStrategy for DefaultBaselineStrategy {
             baseline_task_map.insert(unique_id, baseline_task);
         }
 
-        // 缓存该映射，供 Task.getBaselineTask() 使用。
+// Cache this mapping for use by Task.getBaselineTask().
         project.set_baseline_task_map(index, baseline_task_map.clone());
 
-        // 遍历**全部**任务（而不是映射本身），确保没有 baseline 的任务其
-        // baseline 字段被置为 null。
+// Iterate over **all** tasks (not the mapping itself) to ensure that tasks without a baseline have their
+// baseline fields set to null.
         for task in project.get_tasks() {
             let unique_id = task.borrow().get_unique_id();
             let baseline_task = unique_id.and_then(|unique_id| baseline_task_map.get(&unique_id));
@@ -194,9 +194,9 @@ impl BaselineStrategy for DefaultBaselineStrategy {
     }
 }
 
-/// baseline schedule 中取值的源字段。
+/// Source fields whose values are taken from the baseline schedule.
 ///
-/// 对应 Java: `private static final TaskField[] SOURCE_FIELDS`
+/// Corresponds to Java: `private static final TaskField[] SOURCE_FIELDS`
 const SOURCE_FIELDS: [TaskField; 7] = [
     TaskField::Cost,
     TaskField::Duration,
@@ -207,9 +207,9 @@ const SOURCE_FIELDS: [TaskField; 7] = [
     TaskField::Work,
 ];
 
-/// 主 baseline（index 0）字段。
+/// Main baseline (index 0) fields.
 ///
-/// 对应 Java: `private static final TaskField[] BASELINE0_FIELDS`
+/// Corresponds to Java: `private static final TaskField[] BASELINE0_FIELDS`
 const BASELINE0_FIELDS: [TaskField; 7] = [
     TaskField::BaselineCost,
     TaskField::BaselineDuration,
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn instance_constant_is_usable_as_a_value() {
-        // Java 的 `INSTANCE` 是无状态单例；Rust 侧为可直接拷贝的常量值。
+// Java's `INSTANCE` is a stateless singleton; on the Rust side it is a directly copyable constant value.
         let strategy = DefaultBaselineStrategy::INSTANCE;
         assert_eq!(strategy, DefaultBaselineStrategy::INSTANCE);
         assert_eq!(strategy.get_source_fields().len(), 7);
@@ -302,10 +302,10 @@ mod tests {
         assert!(strategy.get_baseline_fields(11).is_empty());
     }
 
-    /// 去重回归：baseline 1-10 的字段必须与 [`TaskFieldLists`] 的 7 个常量**同源**。
+/// Deduplication regression: the baseline 1-10 fields must be **from the same source** as the 7 constants in [`TaskFieldLists`].
     ///
-    /// 本文件曾自备一份 `BASELINE_*` 常量数组，与 `TaskFieldLists` 的取值各自演化；
-    /// 本测试把「两边取值一致」锁死。
+/// This file once kept its own `BASELINE_*` constant arrays that evolved separately from the values in `TaskFieldLists`;
+/// this test locks down "the two sides have identical values".
     #[test]
     fn numbered_baseline_fields_track_task_field_lists() {
         let strategy = DefaultBaselineStrategy::INSTANCE;
@@ -323,7 +323,7 @@ mod tests {
                     TaskFieldLists::BASELINE_STARTS[offset],
                     TaskFieldLists::BASELINE_WORKS[offset],
                 ],
-                "baseline {index} 的字段应与 TaskFieldLists 的同名常量一致"
+                "baseline {index} fields should match the same-named constants in TaskFieldLists"
             );
         }
     }

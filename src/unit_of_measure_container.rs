@@ -1,94 +1,97 @@
-//! 对应 Java: `org/mpxj/UnitOfMeasureContainer.java`
+//! Corresponds to Java: `org/mpxj/UnitOfMeasureContainer.java`
 
 use crate::unit_of_measure::{Builder, UnitOfMeasure};
 
-/// 当前项目可用的计量单位集合。
+/// The collection of units of measure available to the current project.
 ///
-/// 对应 Java: `public class UnitOfMeasureContainer extends ProjectEntityContainer<UnitOfMeasure>`
+/// Corresponds to Java: `public class UnitOfMeasureContainer extends ProjectEntityContainer<UnitOfMeasure>`
 ///
-/// 移植说明：
-/// - Java 里它继承自 `ProjectEntityContainer<UnitOfMeasure>`（其上层是
-///   `ProjectEntityWithIDContainer` / `ListWithCallbacks` 体系）；本仓**未组合**这些基类
-///   （它们均已落地，属待接线项，见 `TECH_DEBT.md` 六），Rust 侧**先按独立的简单容器实现**：
-///   内部 `Vec<UnitOfMeasure>` + 按 id/uniqueId 查找；待接线后再对齐继承关系
-///   （含回调、unique ID 冲突处理等行为）。
-/// - Java 构造方法接收 `UniqueIdObjectSequenceProvider` 用于分配 unique ID；该类型已落地，
-///   Rust 侧构造方法无参数，unique ID 在
-///   [`UnitOfMeasureContainer::build_unit_of_measure`] 内按「当前最大 unique ID + 1」近似
-///   分配（Java 侧由 `ObjectSequence` 从 1 起递增分配）。
+/// Porting notes:
+/// - In Java it extends `ProjectEntityContainer<UnitOfMeasure>` (above which sit the
+///   `ProjectEntityWithIDContainer` / `ListWithCallbacks` hierarchy); this repository does
+///   **not compose** these base classes (they have all landed but are pending wiring, see
+///   `TECH_DEBT.md` section 6), so the Rust side **is first implemented as a standalone simple
+///   container**: an internal `Vec<UnitOfMeasure>` plus lookup by id/uniqueId; the inheritance
+///   relationship will be aligned once wired (including callbacks, unique ID clash handling,
+///   etc.).
+/// - Java's constructor takes a `UniqueIdObjectSequenceProvider` used to allocate unique IDs;
+///   that type has landed, but the Rust constructor takes no arguments, and the unique ID is
+///   approximated inside [`UnitOfMeasureContainer::build_unit_of_measure`] as "current maximum
+///   unique ID + 1" (on the Java side `ObjectSequence` allocates incrementally from 1).
 ///
-/// 被跳过的 Java 代码：`ProjectEntityContainer` 继承而来的方法（`getByUniqueID` 已映射为
-/// [`UnitOfMeasureContainer::get_by_unique_id`]；`updateUniqueID`、`fixUniqueIdClashes`、
-/// `getSequenceProvider`、`ListWithCallbacks` 的回调等），原因是本仓未组合这些基类
-/// （见 `TECH_DEBT.md` 六）。
+/// Skipped Java code: methods inherited from `ProjectEntityContainer` (`getByUniqueID` is
+/// mapped to [`UnitOfMeasureContainer::get_by_unique_id`]; `updateUniqueID`,
+/// `fixUniqueIdClashes`, `getSequenceProvider`, the `ListWithCallbacks` callbacks, etc.),
+/// because this repository does not compose these base classes (see `TECH_DEBT.md` section 6).
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 #[derive(Debug, Clone, Default)]
 pub struct UnitOfMeasureContainer {
-    /// 容器内的计量单位。
+    /// Units of measure in the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 内部的列表存储。
+    /// Corresponds to Java: the list storage inside `ProjectEntityContainer`.
     items: Vec<UnitOfMeasure>,
 }
 
 impl UnitOfMeasureContainer {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public UnitOfMeasureContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public UnitOfMeasureContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的 `sequenceProvider` 参数用于经基类分配 unique ID（本仓未组合基类且尚未接线，
-    /// `UniqueIdObjectSequenceProvider` 已落地），Rust 侧构造方法无参数。
+    /// Java's `sequenceProvider` parameter is used to allocate unique IDs via the base class
+    /// (this repository does not compose the base class and it is not yet wired;
+    /// `UniqueIdObjectSequenceProvider` has landed), and the Rust constructor takes no arguments.
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
 
-    /// 追加一个计量单位。
+    /// Append a unit of measure.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `add(E element)`。
+    /// Corresponds to Java: `add(E element)` inherited by `ProjectEntityContainer` from `ArrayList`.
     pub fn add(&mut self, item: UnitOfMeasure) {
         self.items.push(item);
     }
 
-    /// 按下标取计量单位；越界返回 `None`。
+    /// Return the unit of measure at the given index; returns `None` when out of bounds.
     ///
-    /// 对应 Java: `ArrayList.get(int index)`。
+    /// Corresponds to Java: `ArrayList.get(int index)`.
     pub fn get(&self, index: usize) -> Option<&UnitOfMeasure> {
         self.items.get(index)
     }
 
-    /// 计量单位个数。
+    /// Number of units of measure.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `size()`。
+    /// Corresponds to Java: `size()` inherited by `ProjectEntityContainer` from `ArrayList`.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 容器是否为空。
+    /// Whether the container is empty.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `isEmpty()`。
+    /// Corresponds to Java: `isEmpty()` inherited by `ProjectEntityContainer` from `ArrayList`.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代容器内的计量单位。
+    /// Iterate over the units of measure in the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `iterator()`。
+    /// Corresponds to Java: `iterator()` inherited by `ProjectEntityContainer` from `ArrayList`.
     pub fn iter(&self) -> std::slice::Iter<'_, UnitOfMeasure> {
         self.items.iter()
     }
 
-    /// 以切片形式访问容器内的计量单位。
+    /// Access the units of measure in the container as a slice.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 的列表视图。
+    /// Corresponds to Java: `ProjectEntityContainer`'s list view.
     pub fn as_slice(&self) -> &[UnitOfMeasure] {
         self.items.as_slice()
     }
 
-    /// 按 unique ID 查找计量单位，找不到时返回 `None`。
+    /// Find a unit of measure by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     ///
-    /// Java 侧以 `HashMap` 映射 `null` 键查不到任何值；Rust 侧 `None` 同样返回 `None`。
+    /// On the Java side a `HashMap` with a `null` key finds nothing; the Rust side likewise returns `None` for `None`.
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<&UnitOfMeasure> {
         let id = id?;
         self.items
@@ -96,11 +99,11 @@ impl UnitOfMeasureContainer {
             .find(|item| item.get_unique_id() == Some(id))
     }
 
-    /// 按缩写查找计量单位，找不到则新建一个。
+    /// Find a unit of measure by abbreviation, creating one if not found.
     ///
-    /// 对应 Java: `public UnitOfMeasure getOrCreateByAbbreviation(String abbreviation)`
+    /// Corresponds to Java: `public UnitOfMeasure getOrCreateByAbbreviation(String abbreviation)`
     ///
-    /// 缩写为 `null` 或空串时返回 `None`（对应 Java 的 `null`）。
+    /// Returns `None` when the abbreviation is `null` or an empty string (corresponding to Java's `null`).
     pub fn get_or_create_by_abbreviation(
         &mut self,
         abbreviation: Option<&str>,
@@ -123,14 +126,14 @@ impl UnitOfMeasureContainer {
         self.items.get(index)
     }
 
-    /// 由名称创建计量单位并加入容器，返回新元素在容器中的下标。
+    /// Create a unit of measure from a name, add it to the container, and return the new element's index in the container.
     ///
-    /// 对应 Java: `private UnitOfMeasure buildUnitOfMeasure(String name)`
+    /// Corresponds to Java: `private UnitOfMeasure buildUnitOfMeasure(String name)`
     ///
-    /// Java 侧返回新建的 `UnitOfMeasure` 实例；Rust 侧为避免在库代码中 panic，改为返回
-    /// 下标，由调用方通过 `get` 借用。
+    /// The Java side returns the newly created `UnitOfMeasure` instance; to avoid panicking in
+    /// library code, the Rust side returns an index instead, which the caller borrows via `get`.
     fn build_unit_of_measure(&mut self, name: &str) -> usize {
-        // Java: UniqueIdObjectSequenceProvider 分配 unique ID（本仓未接线，此处近似实现）
+        // Java: UniqueIdObjectSequenceProvider allocates the unique ID (not wired in this repository; approximated here)
         let unique_id = self
             .items
             .iter()
@@ -209,7 +212,7 @@ mod tests {
     fn get_or_create_creates_and_reuses_entries() {
         let mut container = UnitOfMeasureContainer::new();
 
-        // 首次调用创建新元素：名称与缩写都取缩写，序号与 unique ID 从 1 开始
+        // First call creates a new element: name and abbreviation both take the abbreviation, and the sequence number and unique ID start from 1
         {
             let created = container.get_or_create_by_abbreviation(Some("days"));
             assert_eq!(created.and_then(|item| item.get_name()), Some("days"));
@@ -221,14 +224,14 @@ mod tests {
         }
         assert_eq!(container.len(), 1);
 
-        // 再次调用复用已有元素，不新增
+        // Subsequent call reuses the existing element without adding a new one
         {
             let existing = container.get_or_create_by_abbreviation(Some("days"));
             assert_eq!(existing.and_then(|item| item.get_unique_id()), Some(1));
         }
         assert_eq!(container.len(), 1);
 
-        // 新缩写创建第二个元素，序号与 unique ID 递增
+        // A new abbreviation creates a second element, with the sequence number and unique ID incremented
         {
             let second = container.get_or_create_by_abbreviation(Some("hours"));
             assert_eq!(second.and_then(|item| item.get_sequence_number()), Some(2));

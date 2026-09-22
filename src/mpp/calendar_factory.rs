@@ -1,22 +1,22 @@
-//! 对应 Java: `org/mpxj/mpp/CalendarFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/CalendarFactory.java`
 //!
-//! 「从 MPP 文件读取日历数据」这一过程的统一入口：Java 里是 `interface CalendarFactory`，
-//! 只有一个方法 `processCalendarData`。
+//! Unified entry point for the process of "reading calendar data from an MPP file": in Java this is `interface CalendarFactory`,
+//! with only one method, `processCalendarData`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `interface CalendarFactory` | `pub trait CalendarFactory` | 接口 → trait |
-//! | `DirectoryEntry projectDir` | `&DirectoryEntry` | Rust 侧 [`crate::mpp::ole`] 的存储句柄 |
-//! | `HashMap<Integer, ProjectCalendar> resourceMap` | `&mut HashMap<i32, Rc<RefCell<ProjectCalendar>>>` | `ProjectCalendar` 以 `Rc<RefCell<..>>` 共享；`HashMap` 需要可变引用才能 `put` |
-//! | `throws IOException` | `-> MpxjResult<()>` | 统一异常类型；目录/流缺失返回 `Err` |
+//! | `interface CalendarFactory` | `pub trait CalendarFactory` | interface → trait |
+//! | `DirectoryEntry projectDir` | `&DirectoryEntry` | The storage handle of [`crate::mpp::ole`] on the Rust side |
+//! | `HashMap<Integer, ProjectCalendar> resourceMap` | `&mut HashMap<i32, Rc<RefCell<ProjectCalendar>>>` | `ProjectCalendar` is shared via `Rc<RefCell<..>>`; the `HashMap` needs a mutable reference in order to `put` |
+//! | `throws IOException` | `-> MpxjResult<()>` | Unified error type; a missing directory/stream returns `Err` |
 //!
-//! Java 的 `int` → Rust 的 `i32`，`Integer` → `i32`（这里用作 map 键，Java 侧也必然非空）。
+//! Java's `int` → Rust's `i32`, `Integer` → `i32` (used here as a map key, which is also necessarily non-null in Java).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本接口未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this interface does not use them.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -28,24 +28,24 @@ use crate::mpp::props::Props;
 use crate::mpxj_exception::MpxjResult;
 use crate::project_calendar::ProjectCalendar;
 
-/// 读取 MPP 文件中的日历数据。
+/// Read calendar data from an MPP file.
 ///
-/// 对应 Java: `interface CalendarFactory`
+/// Corresponds to Java: `interface CalendarFactory`
 ///
-/// Java 侧只有一个实现链（`AbstractCalendarFactory` → `AbstractCalendarAndExceptionFactory`
-/// → `MPP9/12/14CalendarFactory`），本 trait 的三个实现见
-/// [`crate::mpp::mpp9_calendar_factory::MPP9CalendarFactory`]、
-/// [`crate::mpp::mpp12_calendar_factory::MPP12CalendarFactory`]、
-/// [`crate::mpp::mpp14_calendar_factory::MPP14CalendarFactory`]。
+/// Java has only one implementation chain (`AbstractCalendarFactory` → `AbstractCalendarAndExceptionFactory`
+/// → `MPP9/12/14CalendarFactory`); the three implementations of this trait are described in
+/// [`crate::mpp::mpp9_calendar_factory::MPP9CalendarFactory`],
+/// [`crate::mpp::mpp12_calendar_factory::MPP12CalendarFactory`],
+/// [`crate::mpp::mpp14_calendar_factory::MPP14CalendarFactory`].
 pub trait CalendarFactory {
-    /// 解析 `TBkndCal` 存储，把日历填入 `ProjectFile` 并更新 `resource_map`。
+/// Parse the `TBkndCal` storage, populate the calendars into `ProjectFile`, and update `resource_map`.
     ///
-    /// 对应 Java: `void processCalendarData(DirectoryEntry projectDir, Props projectProps,
+    /// Corresponds to Java: `void processCalendarData(DirectoryEntry projectDir, Props projectProps,
     /// DocumentInputStreamFactory inputStreamFactory, HashMap<Integer, ProjectCalendar> resourceMap)
     /// throws IOException`
     ///
-    /// `project_dir` 是 MPP 文件中的项目级存储（例如 `"   114"`），
-    /// `resource_map` 是「资源 ID → 日历经」的映射（由调用方持有并按引用更新）。
+/// `project_dir` is the project-level storage in the MPP file (for example `"   114"`),
+/// and `resource_map` is the mapping "resource ID → calendar handle" (held by the caller and updated by reference).
     fn process_calendar_data(
         &self,
         project_dir: &DirectoryEntry,

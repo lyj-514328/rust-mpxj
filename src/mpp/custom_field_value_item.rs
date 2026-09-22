@@ -1,25 +1,25 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldValueItem.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldValueItem.java`
 //!
-//! 自定义字段「取值列表」中的一项：unique ID、GUID、取值、描述、未知数据块、父级 ID、
-//! 取值类型（`CustomFieldValueDataType`）与折叠标志。
+//! One entry in a custom field "value list": unique ID, GUID, value, description, unknown data block, parent ID,
+//! value type (`CustomFieldValueDataType`), and collapsed flag.
 //!
-//! # 与 Java 的差异（结构取舍）
+//! # Differences from Java (structural trade-offs)
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `private final Integer m_uniqueID` 等 8 个字段 | **不另存一份**，状态放在共享的 [`StoredValueItem`]（即 `crate::custom_field_lookup_table::CustomFieldValueItem`）中 | 该类型是本类的既有 Rust 实现（字段与 Java 一一对应）：`CustomFieldContainer::register_value`、`CustomFieldLookupTable::add` 以及 `VarDataFieldReader` 全都以它为元素类型。若本类再存一份字段，则「容器里的取值项」与「查找表里的取值项」将成为同一逻辑项的两份副本，取值列表查询（按 unique ID / GUID）也会查不到本类设置的值。故本类改为**共享句柄**：内部持 `Rc<RefCell<StoredValueItem>>`，全部访问器转发到该存储 |
-//! | `CustomFieldValueItem(Integer uniqueID)` | [`CustomFieldValueItem::new`]，参数为 `i32` | Java 的 `Integer` 由调用方保证非空（调用点都是 `Integer.valueOf(...)`） |
-//! | `Object getValue()` | `Option<FieldValue>`（克隆一份返回） | `RefCell` 无法把内部取值以引用借出；本 crate 统一用 [`FieldValue`] 承载 Java 的 `Object` 字段值 |
-//! | `byte[] getUnknown()` | `Option<Vec<u8>>` | 「`null` → `Option<T>`」+「`byte[]` → `Vec<u8>`」（Java 返回内部数组引用，Rust 返回副本） |
-//! | `String getDescription()` | `Option<String>` | 同上 |
-//! | `UUID` / `Integer` / 枚举字段 | `Option<_>` | 「`null` → `Option<T>`」约定 |
-//! | `equals` / `hashCode` | **不实现** | Java 未覆写（按引用比较同一性），Rust 侧同样不提供 `PartialEq`；需要判断「是否同一取值项」时用 [`CustomFieldValueItem::stored_item`] 配合 `Rc::ptr_eq` |
-//! | `toString()` | [`Display`] | 输出格式由 [`StoredValueItem`] 的同名实现提供（与 Java `String.format` 的格式一致） |
-//! | — | [`CustomFieldValueItem::stored_item`] / [`CustomFieldValueItem::to_stored_item`] | Rust 特有：把「共享句柄」/「值副本」交给容器与查找表 |
+//! | 8 fields such as `private final Integer m_uniqueID` | **not stored again**; state lives in the shared [`StoredValueItem`] (i.e. `crate::custom_field_lookup_table::CustomFieldValueItem`) | That type is this class's existing Rust implementation (its fields map one-to-one to Java): `CustomFieldContainer::register_value`, `CustomFieldLookupTable::add`, and `VarDataFieldReader` all use it as their element type. If this class stored another copy of the fields, then "the value item in the container" and "the value item in the lookup table" would become two copies of the same logical item, and value list lookups (by unique ID / GUID) would fail to find values set through this class. So this class becomes a **shared handle**: it internally holds `Rc<RefCell<StoredValueItem>>`, and all accessors forward to that storage |
+//! | `CustomFieldValueItem(Integer uniqueID)` | [`CustomFieldValueItem::new`], parameter is `i32` | Java's `Integer` is guaranteed non-null by the caller (all call sites use `Integer.valueOf(...)`) |
+//! | `Object getValue()` | `Option<FieldValue>` (returns a clone) | `RefCell` cannot lend out the internal value by reference; this crate uniformly uses [`FieldValue`] to carry Java's `Object` field values |
+//! | `byte[] getUnknown()` | `Option<Vec<u8>>` | "`null` → `Option<T>`" plus "`byte[]` → `Vec<u8>`" (Java returns an internal array reference; Rust returns a copy) |
+//! | `String getDescription()` | `Option<String>` | same as above |
+//! | `UUID` / `Integer` / enum fields | `Option<_>` | the "`null` → `Option<T>`" convention |
+//! | `equals` / `hashCode` | **not implemented** | Java does not override them (identity is compared by reference); Rust likewise provides no `PartialEq`; to test "is this the same value item", use [`CustomFieldValueItem::stored_item`] with `Rc::ptr_eq` |
+//! | `toString()` | [`Display`] | The output format is provided by [`StoredValueItem`]'s implementation of the same name (consistent with Java's `String.format` format) |
+//! | — | [`CustomFieldValueItem::stored_item`] / [`CustomFieldValueItem::to_stored_item`] | Rust-specific: hand the "shared handle" / "value copy" to the container and lookup table |
 //!
-//! 跳过的 Java 方法：无（Java 侧共 1 个构造方法、12 个访问器与 `toString()`，均已翻译）。
+//! Skipped Java methods: none (Java has 1 constructor, 12 accessors, and `toString()`, all translated).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms.
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -31,156 +31,156 @@ use crate::custom_field_lookup_table::CustomFieldValueItem as StoredValueItem;
 use crate::custom_field_value_data_type::CustomFieldValueDataType;
 use crate::field_value::FieldValue;
 
-/// 取值列表中的一项。
+/// An entry in a value list.
 ///
-/// 对应 Java: `public final class CustomFieldValueItem`
+/// Corresponds to Java: `public final class CustomFieldValueItem`
 ///
-/// `Clone` 是 Rust 特有的：克隆的是**共享句柄**（`Rc`），两份句柄看到的是同一项数据。
+/// `Clone` is Rust-specific: it clones the **shared handle** (`Rc`), so both handles see the same item.
 #[derive(Clone)]
 pub struct CustomFieldValueItem {
-    /// 取值项存储。
+/// Value item storage.
     ///
-    /// 对应 Java 的 8 个字段（`m_uniqueID` / `m_guid` / `m_value` / `m_description` /
-    /// `m_unknown` / `m_parentUniqueID` / `m_type` / `m_collapsed`），见文件头说明。
+/// Corresponds to the 8 Java fields (`m_uniqueID` / `m_guid` / `m_value` / `m_description` /
+/// `m_unknown` / `m_parentUniqueID` / `m_type` / `m_collapsed`); see the file header.
     stored: Rc<RefCell<StoredValueItem>>,
 }
 
 impl CustomFieldValueItem {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldValueItem(Integer uniqueID)`
+    /// Corresponds to Java: `public CustomFieldValueItem(Integer uniqueID)`
     pub fn new(unique_id: i32) -> Self {
         Self {
             stored: Rc::new(RefCell::new(StoredValueItem::new(unique_id))),
         }
     }
 
-    /// 取 unique ID。
+/// Get the unique ID.
     ///
-    /// 对应 Java: `public Integer getUniqueID()`
+    /// Corresponds to Java: `public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> i32 {
         self.stored.borrow().get_unique_id()
     }
 
-    /// 设置取值。
+/// Set the value.
     ///
-    /// 对应 Java: `public void setValue(Object value)`
+    /// Corresponds to Java: `public void setValue(Object value)`
     pub fn set_value(&self, value: Option<FieldValue>) {
         self.stored.borrow_mut().set_value(value);
     }
 
-    /// 取取值。
+/// Get the value.
     ///
-    /// 对应 Java: `public Object getValue()`
+    /// Corresponds to Java: `public Object getValue()`
     ///
-    /// Java 返回内部引用；Rust 侧 `RefCell` 无法外借，故返回副本。
+/// Java returns an internal reference; on the Rust side `RefCell` cannot lend it out, so a copy is returned.
     pub fn get_value(&self) -> Option<FieldValue> {
         self.stored.borrow().get_value().cloned()
     }
 
-    /// 设置描述。
+/// Set the description.
     ///
-    /// 对应 Java: `public void setDescription(String description)`
+    /// Corresponds to Java: `public void setDescription(String description)`
     pub fn set_description(&self, description: Option<String>) {
         self.stored.borrow_mut().set_description(description);
     }
 
-    /// 取描述。
+/// Get the description.
     ///
-    /// 对应 Java: `public String getDescription()`
+    /// Corresponds to Java: `public String getDescription()`
     pub fn get_description(&self) -> Option<String> {
         self.stored.borrow().get_description().map(str::to_owned)
     }
 
-    /// 设置未知数据块。
+/// Set the unknown data block.
     ///
-    /// 对应 Java: `public void setUnknown(byte[] unknown)`
+    /// Corresponds to Java: `public void setUnknown(byte[] unknown)`
     pub fn set_unknown(&self, unknown: Option<Vec<u8>>) {
         self.stored.borrow_mut().set_unknown(unknown);
     }
 
-    /// 取未知数据块。
+/// Get the unknown data block.
     ///
-    /// 对应 Java: `public byte[] getUnknown()`
+    /// Corresponds to Java: `public byte[] getUnknown()`
     pub fn get_unknown(&self) -> Option<Vec<u8>> {
         self.stored.borrow().get_unknown().map(<[u8]>::to_vec)
     }
 
-    /// 设置父级 unique ID。
+/// Set the parent unique ID.
     ///
-    /// 对应 Java: `public void setParentUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setParentUniqueID(Integer id)`
     pub fn set_parent_unique_id(&self, id: Option<i32>) {
         self.stored.borrow_mut().set_parent_unique_id(id);
     }
 
-    /// 取父级 unique ID。
+/// Get the parent unique ID.
     ///
-    /// 对应 Java: `public Integer getParentUniqueID()`
+    /// Corresponds to Java: `public Integer getParentUniqueID()`
     pub fn get_parent_unique_id(&self) -> Option<i32> {
         self.stored.borrow().get_parent_unique_id()
     }
 
-    /// 取 GUID。
+/// Get the GUID.
     ///
-    /// 对应 Java: `public UUID getGUID()`
+    /// Corresponds to Java: `public UUID getGUID()`
     pub fn get_guid(&self) -> Option<Uuid> {
         self.stored.borrow().get_guid()
     }
 
-    /// 设置 GUID。
+/// Set the GUID.
     ///
-    /// 对应 Java: `public void setGUID(UUID guid)`
+    /// Corresponds to Java: `public void setGUID(UUID guid)`
     pub fn set_guid(&self, guid: Option<Uuid>) {
         self.stored.borrow_mut().set_guid(guid);
     }
 
-    /// 取取值类型。
+/// Get the value type.
     ///
-    /// 对应 Java: `public CustomFieldValueDataType getType()`
+    /// Corresponds to Java: `public CustomFieldValueDataType getType()`
     pub fn get_type(&self) -> Option<CustomFieldValueDataType> {
         self.stored.borrow().get_type()
     }
 
-    /// 设置取值类型。
+/// Set the value type.
     ///
-    /// 对应 Java: `public void setType(CustomFieldValueDataType type)`
+    /// Corresponds to Java: `public void setType(CustomFieldValueDataType type)`
     pub fn set_type(&self, type_: Option<CustomFieldValueDataType>) {
         self.stored.borrow_mut().set_type(type_);
     }
 
-    /// 取折叠标志。
+/// Get the collapsed flag.
     ///
-    /// 对应 Java: `public boolean getCollapsed()`
+    /// Corresponds to Java: `public boolean getCollapsed()`
     pub fn get_collapsed(&self) -> bool {
         self.stored.borrow().get_collapsed()
     }
 
-    /// 设置折叠标志。
+/// Set the collapsed flag.
     ///
-    /// 对应 Java: `public void setCollapsed(boolean collapsed)`
+    /// Corresponds to Java: `public void setCollapsed(boolean collapsed)`
     pub fn set_collapsed(&self, collapsed: bool) {
         self.stored.borrow_mut().set_collapsed(collapsed);
     }
 
-    /// 取共享存储句柄（Rust 特有）。
+/// Get the shared storage handle (Rust-specific).
     ///
-    /// 供 `CustomFieldContainer::register_value` 使用：登记进容器后，容器按 unique ID / GUID
-    /// 查到的就是本项（对应 Java 中「同一个 `CustomFieldValueItem` 实例既进容器又进查找表」）。
+/// Used by `CustomFieldContainer::register_value`: after registering into the container, a container lookup by unique ID / GUID
+/// finds this item (corresponding to Java's "the same `CustomFieldValueItem` instance goes into both the container and the lookup table").
     pub fn stored_item(&self) -> Rc<RefCell<StoredValueItem>> {
         Rc::clone(&self.stored)
     }
 
-    /// 取共享存储的值副本（Rust 特有）。
+/// Get a value copy of the shared storage (Rust-specific).
     ///
-    /// 供 `CustomFieldLookupTable::add` / `set` 使用：查找表按值存放元素（Java 侧存放的是
-    /// 实例引用），故这里克隆一份内容相同的存储值。
+/// Used by `CustomFieldLookupTable::add` / `set`: the lookup table stores elements by value (Java stores
+/// an instance reference), so a storage value with identical content is cloned here.
     pub fn to_stored_item(&self) -> StoredValueItem {
         self.stored.borrow().clone()
     }
 }
 
 impl Display for CustomFieldValueItem {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // Java: String.format("[CustomFieldValueItem uniqueID=%d guid=%s parentId=%d value=%s description=%s]", ...)
         Display::fmt(&*self.stored.borrow(), f)
@@ -191,13 +191,13 @@ impl Display for CustomFieldValueItem {
 mod tests {
     use super::*;
 
-    /// 12 个访问器与 Java 字段一一对应，且可往返。
+/// The 12 accessors map one-to-one to the Java fields and round-trip.
     #[test]
     fn accessors_round_trip() {
         let item = CustomFieldValueItem::new(4);
         let guid = Uuid::from_u128(42);
 
-        // Java 的初始值：除 uniqueID 外全部为 null / false
+// Java initial values: all are null / false except uniqueID
         assert_eq!(item.get_unique_id(), 4);
         assert_eq!(item.get_guid(), None);
         assert_eq!(item.get_value(), None);
@@ -224,7 +224,7 @@ mod tests {
         assert!(item.get_collapsed());
     }
 
-    /// 克隆得到的是同一项数据的另一个句柄（对应 Java 的引用语义）。
+/// The clone is another handle to the same item (corresponding to Java's reference semantics).
     #[test]
     fn clone_shares_the_same_item() {
         let item = CustomFieldValueItem::new(7);
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(item.get_description(), Some("shared".to_owned()));
     }
 
-    /// `to_stored_item` 取到内容相同的值副本（与共享句柄脱钩）。
+/// `to_stored_item` yields a value copy with identical content (decoupled from the shared handle).
     #[test]
     fn to_stored_item_copies_the_value() {
         let item = CustomFieldValueItem::new(9);
@@ -247,11 +247,11 @@ mod tests {
         assert_eq!(stored.get_value(), Some(&FieldValue::Double(1.5)));
 
         item.set_value(None);
-        // 副本不受影响
+// the copy is unaffected
         assert_eq!(stored.get_value(), Some(&FieldValue::Double(1.5)));
     }
 
-    /// `toString` 与 Java 的格式一致。
+/// `toString` matches the Java format.
     #[test]
     fn display_matches_java_format() {
         let item = CustomFieldValueItem::new(4);

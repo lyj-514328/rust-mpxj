@@ -1,19 +1,19 @@
-//! 对应 Java: `org/mpxj/common/PopulatedFields.java`
+//! Corresponds to Java: `org/mpxj/common/PopulatedFields.java`
 //!
-//! 扫描一组字段容器，返回至少有一个非默认值的字段。Java 版本使用
-//! `Object`、`EnumSet` 和运行时类型判断；Rust 侧使用 [`FieldKey`] 与
-//! [`FieldValue`] 的显式变体表达同一套规则。
+//! Scans a set of field containers and returns the fields that have at least one non-default
+//! value. The Java version uses `Object`, `EnumSet` and runtime type checks; the Rust side uses
+//! explicit variants of [`FieldKey`] and [`FieldValue`] to express the same rules.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `Collection<T>` | `&[Rc<RefCell<T>>]` 或单个 `&T` | 共享实体采用仓库统一的 Rust 引用模型 |
-//! | `Object` 的运行时类型判断 | `FieldValue` 变体匹配 | Rust 没有 Java 的 `Object` 类型擦除 |
+//! | `Collection<T>` | `&[Rc<RefCell<T>>]` or a single `&T` | Shared entities use the repository-wide Rust reference model |
+//! | Runtime type checks on `Object` | `FieldValue` variant matching | Rust has no Java `Object` type erasure |
 //!
-//! # 跳过的 Java 成员 + 原因
+//! # Skipped Java members + reason
 //!
-//! 无；Java 构造函数、`getPopulatedFields` 和默认值判断均已覆盖。
+//! None; the Java constructor, `getPopulatedFields` and the default-value checks are all covered.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -33,23 +33,23 @@ use crate::task_mode::TaskMode;
 use crate::task_type::TaskType;
 use crate::time_unit::TimeUnit;
 
-/// Java `PopulatedFields` 使用的项目级默认值。
+/// Project-level defaults used by Java `PopulatedFields`.
 #[derive(Clone, Copy)]
 pub struct Defaults {
-    /// Java `ProjectProperties.getDefaultDurationUnits()`。
+    /// Java `ProjectProperties.getDefaultDurationUnits()`.
     pub duration_units: Option<TimeUnit>,
-    /// Java `ProjectProperties.getDefaultTaskType()`。
+    /// Java `ProjectProperties.getDefaultTaskType()`.
     pub task_type: Option<TaskType>,
-    /// Java `ProjectProperties.getDefaultTaskEarnedValueMethod()`。
+    /// Java `ProjectProperties.getDefaultTaskEarnedValueMethod()`.
     pub earned_value_method: Option<EarnedValueMethod>,
-    /// Java `ProjectProperties.getDefaultFixedCostAccrual()`。
+    /// Java `ProjectProperties.getDefaultFixedCostAccrual()`.
     pub fixed_cost_accrual: Option<AccrueType>,
 }
 
 impl Defaults {
-    /// 从项目属性读取 Java `PopulatedFields` 所需的默认值。
+    /// Reads from the project properties the defaults required by Java `PopulatedFields`.
     ///
-    /// 对应 Java: `ProjectProperties.getDefaultDurationUnits()` 等四个调用。
+    /// Corresponds to Java: `ProjectProperties.getDefaultDurationUnits()` and three other calls.
     pub fn from_project_properties(properties: &ProjectProperties) -> Self {
         Self {
             duration_units: Some(properties.get_default_duration_units()),
@@ -59,9 +59,9 @@ impl Defaults {
         }
     }
 
-    /// 构造资源容器使用的“无项目默认值”扫描参数。
+    /// Builds the "no project defaults" scan parameters used for resource containers.
     ///
-    /// 对应 Java: `new PopulatedFields<>(null, ...)`。
+    /// Corresponds to Java: `new PopulatedFields<>(null, ...)`
     pub const fn without_project() -> Self {
         Self {
             duration_units: None,
@@ -72,9 +72,9 @@ impl Defaults {
     }
 }
 
-/// 扫描字段容器并返回已填充字段。
+/// Scans the field containers and returns the populated fields.
 ///
-/// 对应 Java: `PopulatedFields.getPopulatedFields()`。
+/// Corresponds to Java: `PopulatedFields.getPopulatedFields()`
 pub fn get_populated_fields<I, T>(
     fields: impl IntoIterator<Item = FieldKey>,
     items: I,
@@ -110,15 +110,15 @@ where
     populated
 }
 
-/// 扫描单个字段容器。
+/// Scans a single field container.
 ///
-/// 对应 Java: `fieldIsPopulated`。
+/// Corresponds to Java: `fieldIsPopulated`
 pub fn is_populated(item: &dyn FieldContainer, field: FieldKey, defaults: Defaults) -> bool {
     item.get_cached_value(field)
         .is_some_and(|value| is_non_default(value, field, defaults))
 }
 
-/// 对应 Java: `private boolean fieldIsNotDefaultValue(Object value, FieldType type)`。
+/// Corresponds to Java: `private boolean fieldIsNotDefaultValue(Object value, FieldType type)`
 fn is_non_default(value: &FieldValue, field: FieldKey, defaults: Defaults) -> bool {
     match value {
         FieldValue::String(value) => !value.is_empty(),
@@ -161,14 +161,14 @@ fn is_non_default(value: &FieldValue, field: FieldKey, defaults: Defaults) -> bo
         FieldValue::TimephasedCost(value) => !value.is_empty(),
         FieldValue::TimeRanges(value) => !value.is_empty(),
         FieldValue::TimeUnit(value) => defaults.duration_units != Some(*value),
-        // Java 的 default 分支认为其它非 null 对象已填充。
+        // Java's default branch considers other non-null objects to be populated.
         _ => true,
     }
 }
 
-/// 把枚举字段和用户自定义字段合并成统一键集合。
+/// Merges the enum fields and user-defined fields into a unified key set.
 ///
-/// 对应 Java: `EnumSet.allOf(fieldEnumType)` + `m_fields.addAll(userDefinedFields)`。
+/// Corresponds to Java: `EnumSet.allOf(fieldEnumType)` + `m_fields.addAll(userDefinedFields)`
 pub fn merge_fields(
     builtin: impl IntoIterator<Item = FieldKey>,
     custom: impl IntoIterator<Item = FieldKey>,

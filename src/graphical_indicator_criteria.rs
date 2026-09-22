@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/GraphicalIndicatorCriteria.java`
+//! Corresponds to Java: `org/mpxj/GraphicalIndicatorCriteria.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `public GraphicalIndicatorCriteria(ProjectProperties properties)` | [`GraphicalIndicatorCriteria::new`]（Rust 侧接收 `Weak<RefCell<ProjectFile>>`，见下） |
+//! | `public GraphicalIndicatorCriteria(ProjectProperties properties)` | [`GraphicalIndicatorCriteria::new`] (the Rust side accepts `Weak<RefCell<ProjectFile>>`, see below) |
 //! | `public int getIndicator()` / `public void setIndicator(int indicator)` | [`GraphicalIndicatorCriteria::get_indicator`] / [`GraphicalIndicatorCriteria::set_indicator`] |
-//! | `public int evaluate(FieldContainer container)` | [`GraphicalIndicatorCriteria::evaluate_indicator`]（Rust 无重载，加后缀以区别于继承来的 2 参数 `evaluate`） |
+//! | `public int evaluate(FieldContainer container)` | [`GraphicalIndicatorCriteria::evaluate_indicator`] (Rust has no overloading; a suffix is added to distinguish it from the inherited 2-parameter `evaluate`) |
 //! | `@Override public String toString()` | [`Display`] |
-//! | 继承自 `GenericCriteria` 的 `setLeftValue` / `getLeftValue` / `getOperator` / `setOperator` / `setRightValue` / `getValue` / `evaluate(FieldContainer, Map)` / `getCriteriaList` / `addCriteria` | [`GraphicalIndicatorCriteria::set_left_value`] / [`GraphicalIndicatorCriteria::get_left_value`] / [`GraphicalIndicatorCriteria::get_operator`] / [`GraphicalIndicatorCriteria::set_operator`] / [`GraphicalIndicatorCriteria::set_right_value`] / [`GraphicalIndicatorCriteria::get_value`] / [`GraphicalIndicatorCriteria::evaluate`] / [`GraphicalIndicatorCriteria::get_criteria_list`] / [`GraphicalIndicatorCriteria::get_criteria_list_mut`] / [`GraphicalIndicatorCriteria::add_criteria`] |
+//! | `setLeftValue` / `getLeftValue` / `getOperator` / `setOperator` / `setRightValue` / `getValue` / `evaluate(FieldContainer, Map)` / `getCriteriaList` / `addCriteria` inherited from `GenericCriteria` | [`GraphicalIndicatorCriteria::set_left_value`] / [`GraphicalIndicatorCriteria::get_left_value`] / [`GraphicalIndicatorCriteria::get_operator`] / [`GraphicalIndicatorCriteria::set_operator`] / [`GraphicalIndicatorCriteria::set_right_value`] / [`GraphicalIndicatorCriteria::get_value`] / [`GraphicalIndicatorCriteria::evaluate`] / [`GraphicalIndicatorCriteria::get_criteria_list`] / [`GraphicalIndicatorCriteria::get_criteria_list_mut`] / [`GraphicalIndicatorCriteria::add_criteria`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 继承关系的还原方式：组合 + 转发
+//! # How the inheritance relationship is reproduced: composition + forwarding
 //!
-//! Java 的 `GraphicalIndicatorCriteria extends GenericCriteria`。Rust 没有继承，本类改为
-//! **组合**一个 [`GenericCriteria`]（字段 `criteria`）并把基类的公开方法逐一转发，
-//! 额外的 `m_indicator` 作为本类自己的字段。因此本类**不是** `GenericCriteria`，
-//! 不能作为子条件加入其它 `GenericCriteria` 的 `criteriaList`（MPXJ 自身的
-//! `CriteriaReader` 只加入普通 `GenericCriteria`，不受影响）。
+//! Java's `GraphicalIndicatorCriteria extends GenericCriteria`. Rust has no inheritance, so this class instead
+//! **composes** a [`GenericCriteria`] (field `criteria`) and forwards the base class's public methods one by one,
+//! while the additional `m_indicator` is a field of this class itself. Therefore this class is **not** a `GenericCriteria`
+//! and cannot be added as a sub-criterion to another `GenericCriteria`'s `criteriaList` (MPXJ's own
+//! `CriteriaReader` only adds ordinary `GenericCriteria`, so it is unaffected).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **构造方法参数**：Java 取 `ProjectProperties`，Rust 侧取父项目弱引用（与
-//!   [`GenericCriteria::new`] 一致，见该类型的文件头说明）。
-//! - **`evaluate(FieldContainer)` 传 `null` 提示应答**：Java 显式传 `null`；Rust 侧
-//!   传空表（等价于「查不到任何提示应答」，见 [`GenericCriteria::evaluate`] 的说明）。
+//! - **Constructor parameter**: Java takes `ProjectProperties`; the Rust side takes a weak reference to the parent project (consistent with
+//! [`GenericCriteria::new`]; see that type's file header).
+//! - **`evaluate(FieldContainer)` passing a `null` prompt response**: Java passes `null` explicitly; the Rust side
+//! passes an empty map (equivalent to "no prompt response can be found"; see the note on [`GenericCriteria::evaluate`]).
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -37,23 +37,23 @@ use crate::generic_criteria::{GenericCriteria, PromptValues};
 use crate::project_file::ProjectFile;
 use crate::test_operator::{Operand, TestOperator};
 
-/// 决定是否以图形化指标替代字段值显示的判定条件。
+/// A criterion that determines whether to display a graphical indicator instead of the field value.
 ///
-/// 对应 Java: `public final class GraphicalIndicatorCriteria extends GenericCriteria`
+/// Corresponds to Java: `public final class GraphicalIndicatorCriteria extends GenericCriteria`
 pub struct GraphicalIndicatorCriteria {
-    /// 组合的基类实例（对应 Java 的 `extends GenericCriteria`）。
+/// The composed base class instance (corresponds to Java's `extends GenericCriteria`).
     criteria: GenericCriteria,
 
-    /// 满足条件时显示的指标编号。
+/// The indicator number to display when the criterion is met.
     ///
-    /// 对应 Java: `private int m_indicator;`
+    /// Corresponds to Java: `private int m_indicator;`
     m_indicator: i32,
 }
 
 impl GraphicalIndicatorCriteria {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public GraphicalIndicatorCriteria(ProjectProperties properties)`
+    /// Corresponds to Java: `public GraphicalIndicatorCriteria(ProjectProperties properties)`
     pub fn new(project: Weak<RefCell<ProjectFile>>) -> Self {
         Self {
             criteria: GenericCriteria::new(project),
@@ -61,26 +61,26 @@ impl GraphicalIndicatorCriteria {
         }
     }
 
-    /// 取指标编号。
+/// Get the indicator number.
     ///
-    /// 对应 Java: `public int getIndicator()`
+    /// Corresponds to Java: `public int getIndicator()`
     pub fn get_indicator(&self) -> i32 {
         self.m_indicator
     }
 
-    /// 设置指标编号。
+/// Set the indicator number.
     ///
-    /// 对应 Java: `public void setIndicator(int indicator)`
+    /// Corresponds to Java: `public void setIndicator(int indicator)`
     pub fn set_indicator(&mut self, indicator: i32) {
         self.m_indicator = indicator;
     }
 
-    /// 求值：满足条件时返回指标编号，否则返回 `-1`。
+/// Evaluate: returns the indicator number when the criterion is met, otherwise returns `-1`.
     ///
-    /// 对应 Java: `public int evaluate(FieldContainer container)`
+    /// Corresponds to Java: `public int evaluate(FieldContainer container)`
     ///
-    /// Rust 无重载，故加 `_indicator` 后缀以区别于继承来的
-    /// `evaluate(FieldContainer, promptValues)`。
+/// Rust has no overloading, so the `_indicator` suffix is added to distinguish it from the inherited
+    /// `evaluate(FieldContainer, promptValues)`.
     pub fn evaluate_indicator(&self, container: &dyn FieldContainer) -> i32 {
         // Java: return (evaluate(container, null) ? m_indicator : -1);
         if self.criteria.evaluate(container, &PromptValues::new()) {
@@ -90,51 +90,51 @@ impl GraphicalIndicatorCriteria {
         }
     }
 
-    /// 设置表达式左侧（字段）。
+/// Set the left-hand side of the expression (a field).
     ///
-    /// 对应 Java: `GenericCriteria.setLeftValue(FieldType value)`
+    /// Corresponds to Java: `GenericCriteria.setLeftValue(FieldType value)`
     pub fn set_left_value(&mut self, value: Option<FieldKey>) {
         self.criteria.set_left_value(value);
     }
 
-    /// 取表达式左侧（字段）。
+/// Get the left-hand side of the expression (a field).
     ///
-    /// 对应 Java: `GenericCriteria.getLeftValue()`
+    /// Corresponds to Java: `GenericCriteria.getLeftValue()`
     pub fn get_left_value(&self) -> Option<FieldKey> {
         self.criteria.get_left_value()
     }
 
-    /// 取测试运算符。
+/// Get the test operator.
     ///
-    /// 对应 Java: `GenericCriteria.getOperator()`
+    /// Corresponds to Java: `GenericCriteria.getOperator()`
     pub fn get_operator(&self) -> Option<TestOperator> {
         self.criteria.get_operator()
     }
 
-    /// 设置测试运算符。
+/// Set the test operator.
     ///
-    /// 对应 Java: `GenericCriteria.setOperator(TestOperator operator)`
+    /// Corresponds to Java: `GenericCriteria.setOperator(TestOperator operator)`
     pub fn set_operator(&mut self, operator: Option<TestOperator>) {
         self.criteria.set_operator(operator);
     }
 
-    /// 设置指定下标的右值。
+/// Set the right-hand value at the specified index.
     ///
-    /// 对应 Java: `GenericCriteria.setRightValue(int index, Object value)`
+    /// Corresponds to Java: `GenericCriteria.setRightValue(int index, Object value)`
     pub fn set_right_value(&mut self, index: usize, value: Option<Operand>) {
         self.criteria.set_right_value(index, value);
     }
 
-    /// 取指定下标的右值原值。
+/// Get the raw right-hand value at the specified index.
     ///
-    /// 对应 Java: `GenericCriteria.getValue(int index)`
+    /// Corresponds to Java: `GenericCriteria.getValue(int index)`
     pub fn get_value(&self, index: usize) -> Option<&Operand> {
         self.criteria.get_value(index)
     }
 
-    /// 求值并返回布尔结果（继承自 `GenericCriteria`）。
+/// Evaluate and return a boolean result (inherited from `GenericCriteria`).
     ///
-    /// 对应 Java: `GenericCriteria.evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)`
+    /// Corresponds to Java: `GenericCriteria.evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)`
     pub fn evaluate(
         &self,
         container: &dyn FieldContainer,
@@ -143,30 +143,30 @@ impl GraphicalIndicatorCriteria {
         self.criteria.evaluate(container, prompt_values)
     }
 
-    /// 取子条件列表。
+/// Get the list of sub-criteria.
     ///
-    /// 对应 Java: `GenericCriteria.getCriteriaList()`
+    /// Corresponds to Java: `GenericCriteria.getCriteriaList()`
     pub fn get_criteria_list(&self) -> &[GenericCriteria] {
         self.criteria.get_criteria_list()
     }
 
-    /// 以可变方式取子条件列表。
+/// Get the list of sub-criteria mutably.
     ///
-    /// 对应 Java: `GenericCriteria.getCriteriaList()`
+    /// Corresponds to Java: `GenericCriteria.getCriteriaList()`
     pub fn get_criteria_list_mut(&mut self) -> &mut Vec<GenericCriteria> {
         self.criteria.get_criteria_list_mut()
     }
 
-    /// 追加一个子条件。
+/// Append a sub-criterion.
     ///
-    /// 对应 Java: `GenericCriteria.addCriteria(GenericCriteria criteria)`
+    /// Corresponds to Java: `GenericCriteria.addCriteria(GenericCriteria criteria)`
     pub fn add_criteria(&mut self, criteria: GenericCriteria) {
         self.criteria.add_criteria(criteria);
     }
 }
 
 impl Display for GraphicalIndicatorCriteria {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
     /// Java: `"[GraphicalIndicatorCriteria indicator=" + m_indicator + " criteria=" + super.toString() + "]"`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -179,7 +179,7 @@ impl Display for GraphicalIndicatorCriteria {
 }
 
 impl fmt::Debug for GraphicalIndicatorCriteria {
-    /// Java 未覆写调试输出；Rust 侧提供 `Debug`（复用 [`Display`]）。
+/// Java does not override the debug output; the Rust side provides `Debug` (reusing [`Display`]).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
@@ -194,7 +194,7 @@ mod tests {
     use crate::task_field::TaskField;
     use std::collections::HashMap;
 
-    /// 测试用的字段容器：只保存 `getCachedValue` 可见的字段。
+/// Field container for tests: stores only the fields visible to `getCachedValue`.
     #[derive(Default)]
     struct MockContainer {
         values: HashMap<FieldKey, FieldValue>,
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn prompt_responses_are_absent_in_indicator_evaluation() {
-        // evaluate(FieldContainer) 传 null 提示应答 ⇒ 只含提示的 RHS 解析为 null
+// evaluate(FieldContainer) passes a null prompt response ⇒ an RHS containing only prompts resolves to null
         let prompt = GenericCriteriaPrompt::new(crate::data_type::DataType::String, None);
         let mut criteria = GraphicalIndicatorCriteria::new(Weak::new());
         criteria.set_indicator(5);

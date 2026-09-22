@@ -1,24 +1,24 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarCommonStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarCommonStyle.java`
 //!
-//! 甘特图条形样式（普通样式与单任务例外样式）**共有**的那部分属性：
-//! 起点 / 中段 / 终点三段的形状、样式、颜色与图案，以及左上右下与条内文本字段。
+//! The attributes **shared** by Gantt bar styles (normal styles and single-task exception styles):
+//! the shape, style, color and pattern of the start / middle / end segments, as well as the left, top, right, bottom and in-bar text fields.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `java.awt.Color` | [`crate::mpp::mpp_utility::Color`] | `java.awt.Color` 属 GUI 类型（跳过项），本工程已在 `MPPUtility` 内定义等价的最小颜色类型 |
-//! | `FieldType`（接口，可为 null） | `Option<MppFieldType>` | `FieldType` 在 Rust 侧用 [`MppFieldType`] 表达（内置字段 / 自定义字段两种情形），Java 的 `null` 对应 `None` |
-//! | 字段 `private X m_xxx;`（默认 null） | 字段 `Option<X>` | 同上，Java 的 0 / null 初值在 Rust 侧为 `None` |
-//! | `getXxx()` 返回 `FieldType` 引用 | `get_xxx(&self) -> Option<MppFieldType>` | Rust 侧返回克隆值（[`MppFieldType`] 内部持有 `Rc`，克隆代价低），避免把借用绑在 `&self` 上 |
-//! | `toString()` 里的 `PrintWriter` / `ByteArrayOutputStream` | `impl Display` | 输出内容逐行保持一致 |
-//! | `java.awt.Color.toString()` 的 `java.awt.Color[r=..,g=..,b=..]` | 私有函数 `format_color` | 复刻 Java 的打印格式，使 `Display` 输出与原版一致 |
+//! | `java.awt.Color` | [`crate::mpp::mpp_utility::Color`] | `java.awt.Color` is a GUI type (a skipped item), and this project has already defined an equivalent minimal color type inside `MPPUtility` |
+//! | `FieldType` (interface, may be null) | `Option<MppFieldType>` | `FieldType` is expressed on the Rust side as [`MppFieldType`] (two cases: built-in field / user-defined field); Java's `null` corresponds to `None` |
+//! | Field `private X m_xxx;` (default null) | Field `Option<X>` | As above, Java's 0 / null initial value is `None` on the Rust side |
+//! | `getXxx()` returns a `FieldType` reference | `get_xxx(&self) -> Option<MppFieldType>` | The Rust side returns a clone ([`MppFieldType`] holds an `Rc` internally, so cloning is cheap), avoiding tying the borrow to `&self` |
+//! | `PrintWriter` / `ByteArrayOutputStream` in `toString()` | `impl Display` | The output content is kept line-by-line consistent |
+//! | `java.awt.Color.toString()`'s `java.awt.Color[r=..,g=..,b=..]` | Private function `format_color` | Replicates Java's print format so that `Display` output matches the original |
 //!
-//! 继承关系：Java 的 `GanttBarStyle` / `GanttBarStyleException` 均 `extends GanttBarCommonStyle`；
-//! Rust 无继承，两个子类以**组合 + 转发**的方式持有本类型（见各自模块的文件头）。
+//! Inheritance: Java's `GanttBarStyle` / `GanttBarStyleException` both `extends GanttBarCommonStyle`;
+//! Rust has no inheritance, so the two subclasses hold this type via **composition + forwarding** (see the file headers of their respective modules).
 //!
-//! 跳过的 Java 成员：无（`java.io.PrintWriter` / `ByteArrayOutputStream` 属纯粹的输出管道，
-//! 由 `Display` 取代）。
+//! Skipped Java members: none (`java.io.PrintWriter` / `ByteArrayOutputStream` are pure output plumbing,
+//! replaced by `Display`).
 
 use std::fmt::{self, Display, Formatter};
 
@@ -29,259 +29,259 @@ use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
 use crate::mpp::mpp_utility::{format_color, format_optional_display, Color};
 
-/// 甘特图条形样式（普通 / 例外）的共有部分。
+/// The shared portion of Gantt bar styles (normal / exception).
 ///
-/// 对应 Java: `public class GanttBarCommonStyle`
+/// Corresponds to Java: `public class GanttBarCommonStyle`
 ///
-/// 说明：未派生 `Debug` —— 文本字段的类型 [`MppFieldType`] 未实现 `Debug`
-/// （`Rc<RefCell<UserDefinedField>>` 一类内部结构），Java 侧该类也没有调试输出。
+/// Note: `Debug` is not derived -- the text field type [`MppFieldType`] does not implement `Debug`
+/// (an internal structure like `Rc<RefCell<UserDefinedField>>`), and the Java class also has no debug output.
 #[derive(Clone, Default)]
 pub struct GanttBarCommonStyle {
-    /// 对应 Java: `private GanttBarStartEndShape m_startShape`
+    /// Corresponds to Java: `private GanttBarStartEndShape m_startShape`
     start_shape: Option<GanttBarStartEndShape>,
-    /// 对应 Java: `private GanttBarStartEndType m_startType`
+    /// Corresponds to Java: `private GanttBarStartEndType m_startType`
     start_type: Option<GanttBarStartEndType>,
-    /// 对应 Java: `private Color m_startColor`
+    /// Corresponds to Java: `private Color m_startColor`
     start_color: Option<Color>,
 
-    /// 对应 Java: `private GanttBarMiddleShape m_middleShape`
+    /// Corresponds to Java: `private GanttBarMiddleShape m_middleShape`
     middle_shape: Option<GanttBarMiddleShape>,
-    /// 对应 Java: `private ChartPattern m_middlePattern`
+    /// Corresponds to Java: `private ChartPattern m_middlePattern`
     middle_pattern: Option<ChartPattern>,
-    /// 对应 Java: `private Color m_middleColor`
+    /// Corresponds to Java: `private Color m_middleColor`
     middle_color: Option<Color>,
 
-    /// 对应 Java: `private GanttBarStartEndShape m_endShape`
+    /// Corresponds to Java: `private GanttBarStartEndShape m_endShape`
     end_shape: Option<GanttBarStartEndShape>,
-    /// 对应 Java: `private GanttBarStartEndType m_endType`
+    /// Corresponds to Java: `private GanttBarStartEndType m_endType`
     end_type: Option<GanttBarStartEndType>,
-    /// 对应 Java: `private Color m_endColor`
+    /// Corresponds to Java: `private Color m_endColor`
     end_color: Option<Color>,
 
-    /// 对应 Java: `private FieldType m_leftText`
+    /// Corresponds to Java: `private FieldType m_leftText`
     left_text: Option<MppFieldType>,
-    /// 对应 Java: `private FieldType m_rightText`
+    /// Corresponds to Java: `private FieldType m_rightText`
     right_text: Option<MppFieldType>,
-    /// 对应 Java: `private FieldType m_topText`
+    /// Corresponds to Java: `private FieldType m_topText`
     top_text: Option<MppFieldType>,
-    /// 对应 Java: `private FieldType m_bottomText`
+    /// Corresponds to Java: `private FieldType m_bottomText`
     bottom_text: Option<MppFieldType>,
-    /// 对应 Java: `private FieldType m_insideText`
+    /// Corresponds to Java: `private FieldType m_insideText`
     inside_text: Option<MppFieldType>,
 }
 
 impl GanttBarCommonStyle {
-    /// 构造空的共有样式。
+/// Construct an empty shared style.
     ///
-    /// 对应 Java 的隐式默认构造方法 `GanttBarCommonStyle()`
+/// Corresponds to Java's implicit default constructor `GanttBarCommonStyle()`
     pub fn new() -> GanttBarCommonStyle {
         GanttBarCommonStyle::default()
     }
 
-    /// 取条形底部显示的文本字段。
+/// Get the text field displayed at the bottom of the bar.
     ///
-    /// 对应 Java: `public FieldType getBottomText()`
+    /// Corresponds to Java: `public FieldType getBottomText()`
     pub fn get_bottom_text(&self) -> Option<MppFieldType> {
         self.bottom_text.clone()
     }
 
-    /// 设置条形底部显示的文本字段。
+/// Set the text field displayed at the bottom of the bar.
     ///
-    /// 对应 Java: `public void setBottomText(FieldType field)`
+    /// Corresponds to Java: `public void setBottomText(FieldType field)`
     pub fn set_bottom_text(&mut self, field: Option<MppFieldType>) {
         self.bottom_text = field;
     }
 
-    /// 取条形终点区域的颜色。
+/// Get the color of the bar's end area.
     ///
-    /// 对应 Java: `public Color getEndColor()`
+    /// Corresponds to Java: `public Color getEndColor()`
     pub fn get_end_color(&self) -> Option<Color> {
         self.end_color
     }
 
-    /// 设置条形终点区域的颜色。
+/// Set the color of the bar's end area.
     ///
-    /// 对应 Java: `public void setEndColor(Color color)`
+    /// Corresponds to Java: `public void setEndColor(Color color)`
     pub fn set_end_color(&mut self, color: Option<Color>) {
         self.end_color = color;
     }
 
-    /// 取条形内部显示的文本字段。
+/// Get the text field displayed inside the bar.
     ///
-    /// 对应 Java: `public FieldType getInsideText()`
+    /// Corresponds to Java: `public FieldType getInsideText()`
     pub fn get_inside_text(&self) -> Option<MppFieldType> {
         self.inside_text.clone()
     }
 
-    /// 设置条形内部显示的文本字段。
+/// Set the text field displayed inside the bar.
     ///
-    /// 对应 Java: `public void setInsideText(FieldType field)`
+    /// Corresponds to Java: `public void setInsideText(FieldType field)`
     pub fn set_inside_text(&mut self, field: Option<MppFieldType>) {
         self.inside_text = field;
     }
 
-    /// 取条形左侧显示的文本字段。
+/// Get the text field displayed to the left of the bar.
     ///
-    /// 对应 Java: `public FieldType getLeftText()`
+    /// Corresponds to Java: `public FieldType getLeftText()`
     pub fn get_left_text(&self) -> Option<MppFieldType> {
         self.left_text.clone()
     }
 
-    /// 设置条形左侧显示的文本字段。
+/// Set the text field displayed to the left of the bar.
     ///
-    /// 对应 Java: `public void setLeftText(FieldType field)`
+    /// Corresponds to Java: `public void setLeftText(FieldType field)`
     pub fn set_left_text(&mut self, field: Option<MppFieldType>) {
         self.left_text = field;
     }
 
-    /// 取条形中段的颜色。
+/// Get the color of the bar's middle segment.
     ///
-    /// 对应 Java: `public Color getMiddleColor()`
+    /// Corresponds to Java: `public Color getMiddleColor()`
     pub fn get_middle_color(&self) -> Option<Color> {
         self.middle_color
     }
 
-    /// 设置条形中段的颜色。
+/// Set the color of the bar's middle segment.
     ///
-    /// 对应 Java: `public void setMiddleColor(Color color)`
+    /// Corresponds to Java: `public void setMiddleColor(Color color)`
     pub fn set_middle_color(&mut self, color: Option<Color>) {
         self.middle_color = color;
     }
 
-    /// 取条形中段的填充图案。
+/// Get the fill pattern of the bar's middle segment.
     ///
-    /// 对应 Java: `public ChartPattern getMiddlePattern()`
+    /// Corresponds to Java: `public ChartPattern getMiddlePattern()`
     pub fn get_middle_pattern(&self) -> Option<ChartPattern> {
         self.middle_pattern
     }
 
-    /// 设置条形中段的填充图案。
+/// Set the fill pattern of the bar's middle segment.
     ///
-    /// 对应 Java: `public void setMiddlePattern(ChartPattern pattern)`
+    /// Corresponds to Java: `public void setMiddlePattern(ChartPattern pattern)`
     pub fn set_middle_pattern(&mut self, pattern: Option<ChartPattern>) {
         self.middle_pattern = pattern;
     }
 
-    /// 取条形中段的形状。
+/// Get the shape of the bar's middle segment.
     ///
-    /// 对应 Java: `public GanttBarMiddleShape getMiddleShape()`
+    /// Corresponds to Java: `public GanttBarMiddleShape getMiddleShape()`
     pub fn get_middle_shape(&self) -> Option<GanttBarMiddleShape> {
         self.middle_shape
     }
 
-    /// 设置条形中段的形状。
+/// Set the shape of the bar's middle segment.
     ///
-    /// 对应 Java: `public void setMiddleShape(GanttBarMiddleShape shape)`
+    /// Corresponds to Java: `public void setMiddleShape(GanttBarMiddleShape shape)`
     pub fn set_middle_shape(&mut self, shape: Option<GanttBarMiddleShape>) {
         self.middle_shape = shape;
     }
 
-    /// 取条形右侧显示的文本字段。
+/// Get the text field displayed to the right of the bar.
     ///
-    /// 对应 Java: `public FieldType getRightText()`
+    /// Corresponds to Java: `public FieldType getRightText()`
     pub fn get_right_text(&self) -> Option<MppFieldType> {
         self.right_text.clone()
     }
 
-    /// 设置条形右侧显示的文本字段。
+/// Set the text field displayed to the right of the bar.
     ///
-    /// 对应 Java: `public void setRightText(FieldType field)`
+    /// Corresponds to Java: `public void setRightText(FieldType field)`
     pub fn set_right_text(&mut self, field: Option<MppFieldType>) {
         self.right_text = field;
     }
 
-    /// 取条形起点区域的颜色。
+/// Get the color of the bar's start area.
     ///
-    /// 对应 Java: `public Color getStartColor()`
+    /// Corresponds to Java: `public Color getStartColor()`
     pub fn get_start_color(&self) -> Option<Color> {
         self.start_color
     }
 
-    /// 设置条形起点区域的颜色。
+/// Set the color of the bar's start area.
     ///
-    /// 对应 Java: `public void setStartColor(Color color)`
+    /// Corresponds to Java: `public void setStartColor(Color color)`
     pub fn set_start_color(&mut self, color: Option<Color>) {
         self.start_color = color;
     }
 
-    /// 取条形起点的形状。
+/// Get the shape of the bar's start.
     ///
-    /// 对应 Java: `public GanttBarStartEndShape getStartShape()`
+    /// Corresponds to Java: `public GanttBarStartEndShape getStartShape()`
     pub fn get_start_shape(&self) -> Option<GanttBarStartEndShape> {
         self.start_shape
     }
 
-    /// 设置条形起点的形状。
+/// Set the shape of the bar's start.
     ///
-    /// 对应 Java: `public void setStartShape(GanttBarStartEndShape shape)`
+    /// Corresponds to Java: `public void setStartShape(GanttBarStartEndShape shape)`
     pub fn set_start_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.start_shape = shape;
     }
 
-    /// 取条形终点的形状。
+/// Get the shape of the bar's end.
     ///
-    /// 对应 Java: `public GanttBarStartEndShape getEndShape()`
+    /// Corresponds to Java: `public GanttBarStartEndShape getEndShape()`
     pub fn get_end_shape(&self) -> Option<GanttBarStartEndShape> {
         self.end_shape
     }
 
-    /// 设置条形终点的形状。
+/// Set the shape of the bar's end.
     ///
-    /// 对应 Java: `public void setEndShape(GanttBarStartEndShape shape)`
+    /// Corresponds to Java: `public void setEndShape(GanttBarStartEndShape shape)`
     pub fn set_end_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.end_shape = shape;
     }
 
-    /// 取条形起点的样式。
+/// Get the style of the bar's start.
     ///
-    /// 对应 Java: `public GanttBarStartEndType getStartType()`
+    /// Corresponds to Java: `public GanttBarStartEndType getStartType()`
     pub fn get_start_type(&self) -> Option<GanttBarStartEndType> {
         self.start_type
     }
 
-    /// 设置条形起点的样式。
+/// Set the style of the bar's start.
     ///
-    /// 对应 Java: `public void setStartType(GanttBarStartEndType type)`
+    /// Corresponds to Java: `public void setStartType(GanttBarStartEndType type)`
     pub fn set_start_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.start_type = r#type;
     }
 
-    /// 取条形终点的样式。
+/// Get the style of the bar's end.
     ///
-    /// 对应 Java: `public GanttBarStartEndType getEndType()`
+    /// Corresponds to Java: `public GanttBarStartEndType getEndType()`
     pub fn get_end_type(&self) -> Option<GanttBarStartEndType> {
         self.end_type
     }
 
-    /// 设置条形终点的样式。
+/// Set the style of the bar's end.
     ///
-    /// 对应 Java: `public void setEndType(GanttBarStartEndType type)`
+    /// Corresponds to Java: `public void setEndType(GanttBarStartEndType type)`
     pub fn set_end_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.end_type = r#type;
     }
 
-    /// 取条形上方显示的文本字段。
+/// Get the text field displayed above the bar.
     ///
-    /// 对应 Java: `public FieldType getTopText()`
+    /// Corresponds to Java: `public FieldType getTopText()`
     pub fn get_top_text(&self) -> Option<MppFieldType> {
         self.top_text.clone()
     }
 
-    /// 设置条形上方显示的文本字段。
+/// Set the text field displayed above the bar.
     ///
-    /// 对应 Java: `public void setTopText(FieldType field)`
+    /// Corresponds to Java: `public void setTopText(FieldType field)`
     pub fn set_top_text(&mut self, field: Option<MppFieldType>) {
         self.top_text = field;
     }
 }
 
 impl Display for GanttBarCommonStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 逐行输出各属性，格式与 Java 的 `PrintWriter.println` 完全一致（含结尾换行）。
+/// Output each attribute line by line, in a format exactly matching Java's `PrintWriter.println` (including the trailing newline).
     ///
-    /// 说明：文本字段（`leftText` 等）Java 打印的是枚举常量的 `name()`（如 `START`），
-    /// Rust 的 [`MppFieldType`] 以 [`Display`] 暴露显示名（如 `Start`），两者大小写风格不同。
+/// Note: for text fields (`leftText` etc.) Java prints the enum constant's `name()` (such as `START`),
+/// while Rust's [`MppFieldType`] exposes the display name via [`Display`] (such as `Start`); the two differ in case style.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "      StartShape={}", format_optional_display(self.start_shape.as_ref()))?;
         writeln!(f, "      StartType={}", format_optional_display(self.start_type.as_ref()))?;

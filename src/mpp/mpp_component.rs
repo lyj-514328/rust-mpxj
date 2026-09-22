@@ -1,56 +1,56 @@
-//! 对应 Java: `org/mpxj/mpp/MPPComponent.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPPComponent.java`
 //!
-//! MPP 文件各 section 读取类的**公共基类**，只提供 4 个「从流里顺序读取基本类型」的方法：
-//! `readByte` / `readShort` / `readInt` / `readByteArray`。
+//! The **common base class** for the classes that read each section of an MPP file; it provides only 4 methods that sequentially read primitive types from a stream:
+//! `readByte` / `readShort` / `readInt` / `readByteArray`.
 //!
-//! # Java 的继承关系在 Rust 侧的处理
+//! # How Java's inheritance relationship is handled on the Rust side
 //!
-//! Java: `class MPPComponent`，`Props` / `AbstractVarMeta` / `FixDeferFix` / `CompObj` 等
-//! 都 `extends MPPComponent`。Rust 没有继承，本模块把它退化为一个**独立的工具类型**：
-//! Java 的 `readXxx(InputStream)` 改为 [`MPPComponent::read_byte`] /
+//! Java: `class MPPComponent`, which `Props` / `AbstractVarMeta` / `FixDeferFix` / `CompObj` etc.
+//! all `extends MPPComponent`. Rust has no inheritance, so this module degrades it to a **standalone utility type**:
+//! Java's `readXxx(InputStream)` becomes [`MPPComponent::read_byte`] /
 //! [`MPPComponent::read_short`] / [`MPPComponent::read_int`] /
-//! [`MPPComponent::read_byte_array`]，输入源换成字节切片，游标（读取位置）由调用方持有并前移，
-//! 逐个方法的语义与 Java 完全一致。
+//! [`MPPComponent::read_byte_array`]; the input source becomes a byte slice, and the cursor (read position) is held and advanced by the caller;
+//! the semantics of each method are exactly the same as in Java.
 //!
-//! 既有子类的读取助手已改为**转发**到本模块，不再各自复刻一份等价实现：
+//! The read helpers of existing subclasses have been changed to **forward** to this module instead of each duplicating an equivalent implementation:
 //!
-//! | 已落地模块 | 转发方式 |
+//! | Module already in place | Forwarding method |
 //! |---|---|
-//! | `props.rs` | `InputStreamCursor` 的 `read_int` / `read_short` / `read` 转发到本模块；其 `available` / `skip` 对应的是 `InputStream.available()` / `InputStreamHelper.skip`（本模块没有等价成员），仍留在该文件 |
-//! | `abstract_var_meta.rs` | crate 内自由函数 `read_byte` / `read_int` / `read_short` 转发到本模块 |
+//! | `props.rs` | `InputStreamCursor`'s `read_int` / `read_short` / `read` forward to this module; its `available` / `skip` correspond to `InputStream.available()` / `InputStreamHelper.skip` (this module has no equivalent members) and remain in that file |
+//! | `abstract_var_meta.rs` | the crate-internal free functions `read_byte` / `read_int` / `read_short` forward to this module |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `readByte(InputStream)` 返回 `int` | `Option<i32>` | 取值 `0..=255`；读不到字节时 Java 抛 `EOFException`，Rust 返回 `None` |
-//! | `readShort(InputStream)` 返回 `int` | `Option<i32>` | 取值 `0..=65535`；同上 |
-//! | `readInt(InputStream)` 返回 `int` | `Option<i32>` | 可为负（最高字节构成符号位）；同上 |
-//! | `readByteArray(InputStream, int)` 返回 `byte[]` | `Option<&[u8]>` | 借用输入切片的子区间，不复制；同上 |
-//! | `protected MPPComponent()` | 无字段单元结构体 | Java 的 protected 构造方法只为禁止外部实例化，Rust 侧同 `MPPUtility` 的做法 |
+//! | `readByte(InputStream)` returns `int` | `Option<i32>` | value `0..=255`; when no byte can be read Java throws `EOFException`, Rust returns `None` |
+//! | `readShort(InputStream)` returns `int` | `Option<i32>` | value `0..=65535`; same as above |
+//! | `readInt(InputStream)` returns `int` | `Option<i32>` | may be negative (the highest byte forms the sign bit); same as above |
+//! | `readByteArray(InputStream, int)` returns `byte[]` | `Option<&[u8]>` | borrows a sub-range of the input slice without copying; same as above |
+//! | `protected MPPComponent()` | a fieldless unit struct | Java's protected constructor only exists to prevent external instantiation; the Rust side follows the same approach as `MPPUtility` |
 //!
-//! 读不满所需字节时 Rust 一律返回 `None` **且不移动游标**，绝不 panic；调用方自行决定是
-//! 返回 `Err` 还是中断解析。
+//! When fewer than the required bytes can be read, Rust always returns `None` **without moving the cursor** and never panics; the caller decides whether to
+//! return `Err` or abort parsing.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用（Java 仅
-//! `import java.io.IOException` / `java.io.InputStream`）。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class (Java only
+//! `import java.io.IOException` / `java.io.InputStream`).
 //!
-//! 跳过的 Java 成员：无（4 个方法逐一对应，protected 构造方法见上表）。
+//! Skipped Java members: none (the 4 methods correspond one by one; see the table above for the protected constructor).
 
 use crate::common::byte_array_helper::ByteArrayHelper;
 
-/// MPP 各 section 共用的小端读取工具。
+/// A little-endian read utility shared by the MPP sections.
 ///
-/// 对应 Java: `class MPPComponent`（Java 侧作为基类被继承；Rust 侧退化为独立工具类型）
+/// Corresponds to Java: `class MPPComponent` (on the Java side it is inherited as a base class; on the Rust side it degrades to a standalone utility type)
 pub struct MPPComponent;
 
 impl MPPComponent {
-    /// 读取一个字节。
+/// Read a single byte.
     ///
-    /// 对应 Java: `protected int readByte(InputStream is)`
+    /// Corresponds to Java: `protected int readByte(InputStream is)`
     ///
-    /// Java 实现为 `MPPUtility.getByte(InputStreamHelper.read(is, 1), 0)`，返回 `0..=255`
-    /// 的正整数；剩余字节不足 1 个时 Java 抛 `EOFException`，Rust 返回 `None`（游标不动）。
+/// Java implements this as `MPPUtility.getByte(InputStreamHelper.read(is, 1), 0)`, returning `0..=255`
+/// as a positive integer; when fewer than 1 byte remains Java throws `EOFException`, Rust returns `None` (the cursor does not move).
     pub fn read_byte(data: &[u8], position: &mut usize) -> Option<i32> {
         let value = data.get(*position)?;
         let result = i32::from(*value);
@@ -58,11 +58,11 @@ impl MPPComponent {
         Some(result)
     }
 
-    /// 读取一个两字节小端整数。
+/// Read a two-byte little-endian integer.
     ///
-    /// 对应 Java: `protected int readShort(InputStream is)`
+    /// Corresponds to Java: `protected int readShort(InputStream is)`
     ///
-    /// 返回 `0..=65535`；剩余字节不足 2 个时 Java 抛 `EOFException`，Rust 返回 `None`。
+/// Returns `0..=65535`; when fewer than 2 bytes remain Java throws `EOFException`, Rust returns `None`.
     pub fn read_short(data: &[u8], position: &mut usize) -> Option<i32> {
         let end = position.checked_add(2)?;
         if end > data.len() {
@@ -74,12 +74,12 @@ impl MPPComponent {
         Some(result)
     }
 
-    /// 读取一个四字节小端整数。
+/// Read a four-byte little-endian integer.
     ///
-    /// 对应 Java: `protected int readInt(InputStream is)`
+    /// Corresponds to Java: `protected int readInt(InputStream is)`
     ///
-    /// 最高字节构成符号位，因此结果可为负（与 Java 一致）；剩余字节不足 4 个时 Java 抛
-    /// `EOFException`，Rust 返回 `None`（游标不动）。
+/// The highest byte forms the sign bit, so the result may be negative (matching Java); when fewer than 4 bytes remain Java throws
+/// `EOFException`; Rust returns `None` (the cursor does not move).
     pub fn read_int(data: &[u8], position: &mut usize) -> Option<i32> {
         let end = position.checked_add(4)?;
         if end > data.len() {
@@ -91,12 +91,12 @@ impl MPPComponent {
         Some(result)
     }
 
-    /// 读取指定长度的字节数组。
+/// Read a byte array of the specified length.
     ///
-    /// 对应 Java: `protected byte[] readByteArray(InputStream is, int size)`
+    /// Corresponds to Java: `protected byte[] readByteArray(InputStream is, int size)`
     ///
-    /// Java 实现为 `InputStreamHelper.read(is, size)`（读不满即抛异常），Rust 侧返回输入
-    /// 切片的子区间借用，读不满时返回 `None`（游标不动）。
+/// Java implements this as `InputStreamHelper.read(is, size)` (it throws if it cannot read enough); the Rust side returns
+/// a borrowed sub-range of the input slice, and returns `None` when it cannot read enough (the cursor does not move).
     pub fn read_byte_array<'a>(
         data: &'a [u8],
         position: &mut usize,
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn int_keeps_the_java_sign_semantics() {
-        // 最高字节 0xFF => 负值（Java 的 int 同样是负数）
+// highest byte 0xFF => negative value (Java's int is likewise negative)
         let data = [0x00u8, 0x00, 0x00, 0xFF];
         let mut position = 0usize;
 
@@ -157,13 +157,13 @@ mod tests {
         let data = [0x01u8, 0x02, 0x03];
         let mut position = 2usize;
 
-        // Java 在这些情况下抛 EOFException
+// Java throws EOFException in these cases
         assert_eq!(MPPComponent::read_byte(&data, &mut position), Some(0x03));
         assert_eq!(MPPComponent::read_byte(&data, &mut position), None);
         assert_eq!(MPPComponent::read_short(&data, &mut position), None);
         assert_eq!(MPPComponent::read_int(&data, &mut position), None);
         assert_eq!(MPPComponent::read_byte_array(&data, &mut position, 1), None);
-        assert_eq!(position, 3, "读取失败不得移动游标");
+        assert_eq!(position, 3, "failed read must not move the cursor");
     }
 
     #[test]
@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(MPPComponent::read_byte(&[], &mut position), None);
         assert_eq!(MPPComponent::read_short(&[], &mut position), None);
         assert_eq!(MPPComponent::read_int(&[], &mut position), None);
-        // Java: InputStreamHelper.read(is, 0) 返回空数组（不抛异常）
+// Java: InputStreamHelper.read(is, 0) returns an empty array (does not throw)
         assert_eq!(MPPComponent::read_byte_array(&[], &mut position, 0), Some(&[][..]));
         assert_eq!(MPPComponent::read_byte_array(&[], &mut position, 1), None);
     }

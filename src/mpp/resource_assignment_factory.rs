@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/mpp/ResourceAssignmentFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/ResourceAssignmentFactory.java`
 //!
-//! 从 MPP9 / MPP12 / MPP14 文件的定长 / 变长 / 元数据块中读出资源分配（ResourceAssignment）：
-//! 字段值、位标志（meta 块中的布尔标志）、超链接、创建日期、以及全部时间分段（timephased）
-//! 工时与成本，最后触发资源分配读取事件。
+//! Read resource assignments (ResourceAssignment) from fixed-length / variable-length / metadata blocks of MPP9 / MPP12 / MPP14 files:
+//! field values, bit flags (boolean flags in the meta block), hyperlinks, creation date, and all timephased
+//! work and cost, finally firing the resource assignment read event.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `class ResourceAssignmentFactory` | `pub struct ResourceAssignmentFactory` + 关联函数 | Java 的方法不依赖实例状态，Rust 侧用无字段结构体承载 |
-//! | `byte[][] fixedDataArray = new byte[][] {data, data2}` | `[Option<&[u8]>; 2]` | 与 [`FieldMap::populate_container`] 的约定一致 |
-//! | `FieldMap` / `FixedData` 可为 `null` | `Option<&FieldMap>` / `Option<&FixedData>` | 「`null` → `Option<T>`」约定 |
-//! | `assignment.disableEvents()` / `enableEvents()` | 同名方法（`FieldContainer` 提供） | 与 Java 一样在批量填字段前后调用，抑制每个 `set()` 触发的依赖字段清理与事件 |
-//! | `getRawTimephasedXxx()` 返回内部列表并 `addAll(...)` | 先读出既有内容、`extend` 后再用 Rust 特有的 `set_raw_timephased_xxx` 写回 | `ResourceAssignment` 的原始 timephased 字段只提供「取切片」与「整体替换」两个入口 |
-//! | `new MppBitFlag(AssignmentField.WORK_CONTOUR, …)` | 从位标志表中移除该项，改为按同样的位判定直接调用 `set_work_contour` | [`FieldValue`] 没有 `WorkContour` 变体，无法用 [`MppBitFlag`] 表达；且 `ResourceAssignment::get_work_contour` 读的是**专用字段**而不是字段表，故必须走专用 setter |
-//! | `MppBitFlag[]` 静态数组 | [`assignment_meta_data_bit_flags`] 等函数返回 `Vec<MppBitFlag>` | `MppBitFlag::new` 不是 `const fn`，无法定义静态数组 |
-//! | `WorkContour.FLAT` 的对象同一性比较 | 按 unique ID 比较（[`is_flat`]） | Rust 的 `WorkContour` 是值类型，没有全局单例（见 [`crate::mpp::work_contour_helper`]） |
-//! | `ByteArrayHelper.getShort/getInt` 越界 | 先判长度 | Java 抛 `ArrayIndexOutOfBoundsException` |
-//! | `MicrosoftProjectConstants.ASSIGNMENT_NULL_RESOURCE_ID` | 本文件常量 [`ASSIGNMENT_NULL_RESOURCE_ID`] | 该常量类未移植 |
-//! | `assignment.getRemainingWork().getDuration()` 等可能为 `null` | 用 `Option` 处理 | Java 会抛 `NullPointerException` |
-//! | `HyperlinkReader.read(assignment, byte[] data)` 的 `data == null` | `var_data_bytes` 返回 `None` 时不调用 reader | 保留 Java 的「缺失数据不写入超链接字段」语义，不能用空字节串替代 `null` |
+//! | `class ResourceAssignmentFactory` | `pub struct ResourceAssignmentFactory` + associated functions | Java's methods do not depend on instance state, so the Rust side carries them with a field-less struct |
+//! | `byte[][] fixedDataArray = new byte[][] {data, data2}` | `[Option<&[u8]>; 2]` | Consistent with the convention of [`FieldMap::populate_container`] |
+//! | `FieldMap` / `FixedData` may be `null` | `Option<&FieldMap>` / `Option<&FixedData>` | The "`null` → `Option<T>`" convention |
+//! | `assignment.disableEvents()` / `enableEvents()` | Methods of the same name (provided by `FieldContainer`) | Called before and after batch field population, as in Java, to suppress the dependent-field cleanup and events triggered by each `set()` |
+//! | `getRawTimephasedXxx()` returns the internal list and calls `addAll(...)` | Read the existing contents first, `extend`, then write back with the Rust-specific `set_raw_timephased_xxx` | `ResourceAssignment`'s raw timephased fields provide only two entry points: "get slice" and "replace whole" |
+//! | `new MppBitFlag(AssignmentField.WORK_CONTOUR, …)` | Remove this entry from the bit flag table and instead call `set_work_contour` directly based on the same bit test | [`FieldValue`] has no `WorkContour` variant, so it cannot be expressed with [`MppBitFlag`]; moreover `ResourceAssignment::get_work_contour` reads a **dedicated field** rather than the field table, so the dedicated setter must be used |
+//! | `MppBitFlag[]` static array | Functions such as [`assignment_meta_data_bit_flags`] return `Vec<MppBitFlag>` | `MppBitFlag::new` is not a `const fn`, so a static array cannot be defined |
+//! | Object identity comparison for `WorkContour.FLAT` | Compare by unique ID ([`is_flat`]) | Rust's `WorkContour` is a value type with no global singleton (see [`crate::mpp::work_contour_helper`]) |
+//! | `ByteArrayHelper.getShort/getInt` out of bounds | Check the length first | Java throws `ArrayIndexOutOfBoundsException` |
+//! | `MicrosoftProjectConstants.ASSIGNMENT_NULL_RESOURCE_ID` | The constant [`ASSIGNMENT_NULL_RESOURCE_ID`] in this file | That constants class has not been ported |
+//! | `assignment.getRemainingWork().getDuration()` etc. may be `null` | Handle with `Option` | Java throws `NullPointerException` |
+//! | `data == null` in `HyperlinkReader.read(assignment, byte[] data)` | Do not call the reader when `var_data_bytes` returns `None` | Preserve Java's "missing data does not write the hyperlink fields" semantics; an empty byte string cannot substitute for `null` |
 //!
-//! 跳过的 Java 成员：
+//! Skipped Java members:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 被注释掉的 `System.out.println(...)` 调试输出 | Java 源码中即为注释 |
+//! | Commented-out `System.out.println(...)` debug output | Commented out in the Java source as well |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -64,50 +64,50 @@ use crate::timephased_cost::TimephasedCost;
 use crate::timephased_work::TimephasedWork;
 use crate::work_contour::WorkContour;
 
-/// MPP9 文件中「创建日期」数据的变长数据键。
+/// Variable-length data key for the "creation date" data in MPP9 files.
 ///
-/// 对应 Java: `private static final Integer MPP9_CREATION_DATA = Integer.valueOf(138)`
+/// Corresponds to Java: `private static final Integer MPP9_CREATION_DATA = Integer.valueOf(138)`
 const MPP9_CREATION_DATA: i32 = 138;
 
-/// 资源分配的「空资源 unique ID」。
+/// The "null resource unique ID" for resource assignments.
 ///
-/// 对应 Java: `MicrosoftProjectConstants.ASSIGNMENT_NULL_RESOURCE_ID`
+/// Corresponds to Java: `MicrosoftProjectConstants.ASSIGNMENT_NULL_RESOURCE_ID`
 const ASSIGNMENT_NULL_RESOURCE_ID: i32 = -65535;
 
-/// `AssignmentField.WORK_CONTOUR` 位标志在「元数据块」中的偏移（非 2013 布局）。
+/// Offset of the `AssignmentField.WORK_CONTOUR` bit flag in the "metadata block" (non-2013 layout).
 ///
-/// 对应 Java: `new MppBitFlag(AssignmentField.WORK_CONTOUR, 8, 0x00000010, WorkContour.FLAT, WorkContour.CONTOURED)`
+/// Corresponds to Java: `new MppBitFlag(AssignmentField.WORK_CONTOUR, 8, 0x00000010, WorkContour.FLAT, WorkContour.CONTOURED)`
 const WORK_CONTOUR_OFFSET: usize = 8;
 
-/// `AssignmentField.WORK_CONTOUR` 位标志的掩码（非 2013 布局）。
+/// Mask of the `AssignmentField.WORK_CONTOUR` bit flag (non-2013 layout).
 const WORK_CONTOUR_MASK: i32 = 0x0000_0010;
 
-/// `AssignmentField.WORK_CONTOUR` 位标志的偏移（2013 及以后布局）。
+/// Offset of the `AssignmentField.WORK_CONTOUR` bit flag (2013 and later layouts).
 ///
-/// 对应 Java: `new MppBitFlag(AssignmentField.WORK_CONTOUR, 8, 0x00040000, WorkContour.FLAT, WorkContour.CONTOURED)`
+/// Corresponds to Java: `new MppBitFlag(AssignmentField.WORK_CONTOUR, 8, 0x00040000, WorkContour.FLAT, WorkContour.CONTOURED)`
 const WORK_CONTOUR_OFFSET_2013: usize = 8;
 
-/// `AssignmentField.WORK_CONTOUR` 位标志的掩码（2013 及以后布局）。
+/// Mask of the `AssignmentField.WORK_CONTOUR` bit flag (2013 and later layouts).
 const WORK_CONTOUR_MASK_2013: i32 = 0x0004_0000;
 
-/// `WorkContourHelper` 中 `FLAT` 的 Microsoft Project ID。
+/// Microsoft Project ID of `FLAT` in `WorkContourHelper`.
 const WORK_CONTOUR_FLAT_ID: i32 = 0;
 
-/// `WorkContourHelper` 中 `CONTOURED` 的 Microsoft Project ID。
+/// Microsoft Project ID of `CONTOURED` in `WorkContourHelper`.
 const WORK_CONTOUR_CONTOURED_ID: i32 = 8;
 
-/// 资源分配数据读取。
+/// Resource assignment data reading.
 ///
-/// 对应 Java: `class ResourceAssignmentFactory`
+/// Corresponds to Java: `class ResourceAssignmentFactory`
 pub struct ResourceAssignmentFactory;
 
 impl ResourceAssignmentFactory {
-    /// 处理资源分配数据的主入口。
+/// Main entry point for processing resource assignment data.
     ///
-    /// 对应 Java: `public void process(ProjectFile file, FieldMap fieldMap, FieldMap enterpriseCustomFieldMap, FieldMap alternateVarDataMap, boolean useRawTimephasedData, VarMeta assnVarMeta, Var2Data assnVarData, FixedMeta assnFixedMeta, FixedData assnFixedData, FixedData assnFixedData2, int count)`
+    /// Corresponds to Java: `public void process(ProjectFile file, FieldMap fieldMap, FieldMap enterpriseCustomFieldMap, FieldMap alternateVarDataMap, boolean useRawTimephasedData, VarMeta assnVarMeta, Var2Data assnVarData, FixedMeta assnFixedMeta, FixedData assnFixedData, FixedData assnFixedData2, int count)`
     ///
-    /// `use_raw_timephased_data` 在 Java 的实现体中并未被使用（只是签名的一部分），
-    /// Rust 侧保留该参数并显式忽略，以保持与 Java 调用点一致。
+/// `use_raw_timephased_data` is not used in the Java implementation (it is only part of the signature);
+/// the Rust side keeps the parameter and explicitly ignores it to stay consistent with the Java call site.
     #[allow(clippy::too_many_arguments)]
     pub fn process(
         &self,
@@ -190,7 +190,7 @@ impl ResourceAssignmentFactory {
                 continue;
             };
 
-            // Java: if (data.length < fieldMap.getMaxFixedDataSize(0)) { …补齐到最大长度… }
+// Java: if (data.length < fieldMap.getMaxFixedDataSize(0)) { ...pad to the maximum length... }
             let max_fixed_data_size = field_map.get_max_fixed_data_size(0).unwrap_or(0);
             let data = if (data.len() as i32) < max_fixed_data_size {
                 let mut padded = vec![0u8; max_fixed_data_size.max(0) as usize];
@@ -307,7 +307,7 @@ impl ResourceAssignmentFactory {
                 }
 
                 // Java: new MppBitFlag(AssignmentField.WORK_CONTOUR, offset, mask, WorkContour.FLAT, WorkContour.CONTOURED)
-                // `FieldValue` 无 WorkContour 变体，故按同一位判定直接写专用字段（见文件头差异表）。
+// `FieldValue` has no WorkContour variant, so write the dedicated field directly based on the same bit test (see the file header differences table).
                 let position = read_int(meta, work_contour_offset as i32).unwrap_or(0);
                 let work_contour_id = if (position & work_contour_mask) == 0 {
                     WORK_CONTOUR_FLAT_ID
@@ -339,7 +339,7 @@ impl ResourceAssignmentFactory {
             }
 
             //
-            // 后处理
+// Post-processing
             //
             // Java: if (NumberHelper.getInt(file.getProjectProperties().getMppFileType()) == 9 && assignment.getCreateDate() == null)
             //       { byte[] creationData = assnVarData.getByteArray(varDataId, MPP9_CREATION_DATA);
@@ -367,7 +367,7 @@ impl ResourceAssignmentFactory {
             // {
             //    List<TimephasedWork> baselineWork = timephasedFactory.getBaselineWork(baselineCalendar, assnVarData.getByteArray(varDataId, fieldMap.getVarDataKey(AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_WORKS[index])));
             //    assignment.getRawTimephasedBaselineWork(index).addAll(baselineWork);
-            //    …基准成本 / 基准预算工时 / 基准预算成本同理
+// ...same for baseline cost / baseline budget work / baseline budget cost
             // }
             for index in 0..AssignmentFieldLists::RAW_TIMEPHASED_BASELINE_WORKS.len() {
                 let baseline_work = timephased_factory.get_baseline_work(
@@ -420,7 +420,7 @@ impl ResourceAssignmentFactory {
                     .set_raw_timephased_baseline_budget_cost(index, baseline_budget_cost);
             }
 
-            // Java: byte[] timephasedActualRegularWorkData = assnVarData.getByteArray(varDataId, fieldMap.getVarDataKey(AssignmentField.RAW_TIMEPHASED_ACTUAL_REGULAR_WORK)); …（共 6 个数据块）
+// Java: byte[] timephasedActualRegularWorkData = assnVarData.getByteArray(varDataId, fieldMap.getVarDataKey(AssignmentField.RAW_TIMEPHASED_ACTUAL_REGULAR_WORK)); ... (6 data blocks in total)
             let timephased_actual_regular_work_data = var_data_bytes(
                 assn_var_data,
                 var_data_id,
@@ -653,9 +653,9 @@ impl ResourceAssignmentFactory {
         }
     }
 
-    /// 创建缺失的时间分段数据。
+/// Create the missing timephased data.
     ///
-    /// 对应 Java: `private void createTimephasedData(ProjectFile file, ResourceAssignment assignment, List<TimephasedWork> timephasedPlanned, List<TimephasedWork> timephasedComplete)`
+    /// Corresponds to Java: `private void createTimephasedData(ProjectFile file, ResourceAssignment assignment, List<TimephasedWork> timephasedPlanned, List<TimephasedWork> timephasedComplete)`
     fn create_timephased_data(
         file: &Rc<RefCell<ProjectFile>>,
         assignment: &ResourceAssignment,
@@ -716,7 +716,7 @@ impl ResourceAssignmentFactory {
                 (Some(calendar), Some(start), Some(finish)) => {
                     calendar_work_hours(Some(&calendar), start, finish).unwrap_or(0.0)
                 }
-                // Java 在日历 / 日期为 null 时会抛 NPE
+// Java throws an NPE when the calendar / date is null
                 _ => 0.0,
             };
             let units = assignment.get_units().unwrap_or(0.0);
@@ -757,9 +757,9 @@ impl ResourceAssignmentFactory {
         timephased_planned.push(tra);
     }
 
-    /// 取时间分段预算成本；数据缺失时按预算总额与项目工期生成一条记录。
+/// Get the timephased budget cost; when data is missing, generate one record from the total budget and the project duration.
     ///
-    /// 对应 Java: `private List<TimephasedCost> getOrDefaultBudgetCost(ResourceAssignment assignment, Supplier<List<TimephasedCost>> supplier)`
+    /// Corresponds to Java: `private List<TimephasedCost> getOrDefaultBudgetCost(ResourceAssignment assignment, Supplier<List<TimephasedCost>> supplier)`
     fn get_or_default_budget_cost(
         assignment: &ResourceAssignment,
         supplier: impl FnOnce() -> Vec<TimephasedCost>,
@@ -828,9 +828,9 @@ impl ResourceAssignmentFactory {
         vec![cost]
     }
 
-    /// 取时间分段预算工时；数据缺失时按预算工时与项目工期生成一条记录。
+/// Get the timephased budget work; when data is missing, generate one record from the budget work and the project duration.
     ///
-    /// 对应 Java: `private List<TimephasedWork> getOrDefaultBudgetWork(ResourceAssignment assignment, Supplier<List<TimephasedWork>> supplier)`
+    /// Corresponds to Java: `private List<TimephasedWork> getOrDefaultBudgetWork(ResourceAssignment assignment, Supplier<List<TimephasedWork>> supplier)`
     fn get_or_default_budget_work(
         assignment: &ResourceAssignment,
         supplier: impl FnOnce() -> Vec<TimephasedWork>,
@@ -901,14 +901,14 @@ impl ResourceAssignmentFactory {
     }
 }
 
-/// 构造内置的分配字段类型。
+/// Build the built-in assignment field types.
 fn builtin(field: AssignmentField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Assignment(field))
 }
 
-/// 取变长数据块中某个分配字段的原始字节。
+/// Get the raw bytes of an assignment field from the variable-length data block.
 ///
-/// 对应 Java: `assnVarData.getByteArray(varDataId, fieldMap.getVarDataKey(field))`
+/// Corresponds to Java: `assnVarData.getByteArray(varDataId, fieldMap.getVarDataKey(field))`
 fn var_data_bytes(
     var_data: &Var2Data,
     var_data_id: i32,
@@ -918,9 +918,9 @@ fn var_data_bytes(
     var_data.get_byte_array(Some(var_data_id), field_map.get_var_data_key(&builtin(field)))
 }
 
-/// 读四字节整数；数据不足时返回 `None`。
+/// Read a four-byte integer; return `None` when there are not enough bytes.
 ///
-/// 对应 Java: `ByteArrayHelper.getInt(data, offset)`（越界抛 `ArrayIndexOutOfBoundsException`）
+/// Corresponds to Java: `ByteArrayHelper.getInt(data, offset)` (throws `ArrayIndexOutOfBoundsException` when out of bounds)
 fn read_int(data: &[u8], offset: i32) -> Option<i32> {
     let offset = usize::try_from(offset).ok()?;
     if offset.checked_add(4)? > data.len() {
@@ -930,7 +930,7 @@ fn read_int(data: &[u8], offset: i32) -> Option<i32> {
     Some(ByteArrayHelper::get_int(data, offset))
 }
 
-/// 读两字节短整数；数据不足时返回 `None`。
+/// Read a two-byte short integer; return `None` when there are not enough bytes.
 fn read_short(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(2)? > data.len() {
         return None;
@@ -939,9 +939,9 @@ fn read_short(data: &[u8], offset: usize) -> Option<i32> {
     Some(ByteArrayHelper::get_short(data, offset))
 }
 
-/// 字段是否具有「空值或默认值」。
+/// Whether the field has a "null or default value".
 ///
-/// 对应 Java: `private boolean isDefaultValue(ResourceAssignment assignment, FieldType type)`
+/// Corresponds to Java: `private boolean isDefaultValue(ResourceAssignment assignment, FieldType type)`
 fn is_default_value(assignment: &ResourceAssignment, field_type: &MppFieldType) -> bool {
     // Java: Object value = assignment.get(type);
     let value = assignment.get_field(field_type.to_field_key());
@@ -958,32 +958,32 @@ fn is_default_value(assignment: &ResourceAssignment, field_type: &MppFieldType) 
     value.is_none()
 }
 
-/// 取任务的工期（读取失败时按 `None` 处理）。
+/// Get the task's duration (treated as `None` when reading fails).
 fn read_task_duration(task: &Rc<RefCell<Task>>) -> Option<Duration> {
     task.try_borrow().ok().and_then(|task| task.get_duration())
 }
 
-/// 取任务的实际开始时间。
+/// Get the task's actual start time.
 fn read_task_actual_start(task: &Rc<RefCell<Task>>) -> Option<NaiveDateTime> {
     task.try_borrow().ok().and_then(|task| task.get_actual_start())
 }
 
-/// 取任务的实际结束时间。
+/// Get the task's actual finish time.
 fn read_task_actual_finish(task: &Rc<RefCell<Task>>) -> Option<NaiveDateTime> {
     task.try_borrow().ok().and_then(|task| task.get_actual_finish())
 }
 
-/// 工时分布是否为 `FLAT`。
+/// Whether the work contour is `FLAT`.
 ///
-/// 对应 Java: `assignment.getWorkContour() == WorkContour.FLAT`
-///（Java 用对象同一性比较；Rust 的 `WorkContour` 是值类型，故按 unique ID 比较。）
+/// Corresponds to Java: `assignment.getWorkContour() == WorkContour.FLAT`
+/// (Java compares object identity; Rust's `WorkContour` is a value type, so it compares by unique ID.)
 fn is_flat(contour: &Option<WorkContour>) -> bool {
     contour.as_ref().and_then(WorkContour::get_unique_id) == Some(1)
 }
 
-/// 取两个时间点之间在本日历下的工时（小时）；日历缺失或借用失败时返回 `None`。
+/// Get the work (in hours) between two points under this calendar; return `None` when the calendar is missing or borrowing fails.
 ///
-/// 对应 Java: `calendar.getWork(startDate, endDate, TimeUnit.HOURS).getDuration()`
+/// Corresponds to Java: `calendar.getWork(startDate, endDate, TimeUnit.HOURS).getDuration()`
 fn calendar_work_hours(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     start_date: NaiveDateTime,
@@ -998,10 +998,10 @@ fn calendar_work_hours(
     )
 }
 
-/// 资源分配「元数据块」中的位标志（MPP9 / MPP12 布局）。
+/// Bit flags in the resource assignment "metadata block" (MPP9 / MPP12 layout).
 ///
-/// 对应 Java: `private static final MppBitFlag[] ASSIGNMENT_META_DATA_BIT_FLAGS`
-///（`AssignmentField.WORK_CONTOUR` 一项被移出，见文件头差异表）
+/// Corresponds to Java: `private static final MppBitFlag[] ASSIGNMENT_META_DATA_BIT_FLAGS`
+/// (The `AssignmentField.WORK_CONTOUR` entry has been removed; see the file header differences table)
 fn assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     vec![
         flag(AssignmentField::Flag1, 28, 0x0000_0080),
@@ -1031,9 +1031,9 @@ fn assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     ]
 }
 
-/// 资源分配「元数据块」中的位标志（Project 2010 布局）。
+/// Bit flags in the resource assignment "metadata block" (Project 2010 layout).
 ///
-/// 对应 Java: `private static final MppBitFlag[] PROJECT_2010_ASSIGNMENT_META_DATA_BIT_FLAGS`
+/// Corresponds to Java: `private static final MppBitFlag[] PROJECT_2010_ASSIGNMENT_META_DATA_BIT_FLAGS`
 fn project_2010_assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     vec![
         flag(AssignmentField::Flag10, 28, 0x0000_0002),
@@ -1063,9 +1063,9 @@ fn project_2010_assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     ]
 }
 
-/// 资源分配「元数据块」中的位标志（Project 2013 及以后布局）。
+/// Bit flags in the resource assignment "metadata block" (Project 2013 and later layouts).
 ///
-/// 对应 Java: `private static final MppBitFlag[] PROJECT_2013_ASSIGNMENT_META_DATA_BIT_FLAGS`
+/// Corresponds to Java: `private static final MppBitFlag[] PROJECT_2013_ASSIGNMENT_META_DATA_BIT_FLAGS`
 fn project_2013_assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     vec![
         flag(AssignmentField::Flag1, 20, 0x0000_0002),
@@ -1095,9 +1095,9 @@ fn project_2013_assignment_meta_data_bit_flags() -> Vec<MppBitFlag> {
     ]
 }
 
-/// 构造「置位为 `true`、清零为 `false`」的位标志。
+/// Build a bit flag where "set means `true`, clear means `false`".
 ///
-/// 对应 Java: `new MppBitFlag(field, offset, mask, Boolean.FALSE, Boolean.TRUE)`
+/// Corresponds to Java: `new MppBitFlag(field, offset, mask, Boolean.FALSE, Boolean.TRUE)`
 fn flag(field: AssignmentField, offset: usize, mask: i32) -> MppBitFlag {
     MppBitFlag::new(
         FieldKey::Assignment(field),
@@ -1118,10 +1118,10 @@ mod tests {
     use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID;
     use crate::project_file::ProjectFile;
 
-    /// 固定大小资源分配数据块的长度（覆盖到位标志使用的偏移 28）。
+/// Length of the fixed-size resource assignment data block (covering up to offset 28 used by the bit flags).
     const FIXED_DATA_SIZE: i32 = 32;
 
-    /// 构造 VarMeta9 块（结构与 `crate::mpp::var2_data` 的测试一致）。
+/// Build a VarMeta9 block (structure consistent with the tests in `crate::mpp::var2_data`).
     fn var_meta9_bytes(entries: &[(i32, i32, usize)], offsets: &[i32], data_size: i32) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
@@ -1140,14 +1140,14 @@ mod tests {
         data
     }
 
-    /// 取分配字段在 MPP 文件中的字段号（`MPPAssignmentField.ID_ARRAY` 给出的下标）。
+/// Get the field number of an assignment field in the MPP file (the index given by `MPPAssignmentField.ID_ARRAY`).
     fn field_number(field: AssignmentField) -> i32 {
         MPPAssignmentField::get_id(&builtin(field))
     }
 
-    /// 构造「字段布局表」：UNIQUE_ID / TASK_UNIQUE_ID / RESOURCE_UNIQUE_ID 三个 4 字节字段。
+/// Build the "field layout table": three 4-byte fields UNIQUE_ID / TASK_UNIQUE_ID / RESOURCE_UNIQUE_ID.
     fn assignment_field_map(file: &Rc<RefCell<ProjectFile>>) -> FieldMap {
-        // 记录格式见 `crate::mpp::field_map`：偏移 4 为数据块偏移、12 为字段号、20 为类别
+// For the record format see `crate::mpp::field_map`: offset 4 is the data block offset, 12 is the field number, 20 is the category
         let mut bytes = Vec::new();
         for (offset, field) in [
             (0i32, AssignmentField::UniqueId),
@@ -1156,7 +1156,7 @@ mod tests {
         ] {
             let mut record = vec![0u8; 28];
             record[4..6].copy_from_slice(&(offset as u16).to_le_bytes());
-            // 字段号 = 分配字段号基数 | FIELD_ARRAY 下标（见 `FieldTypeHelper::get_instance`）
+// Field number = assignment field number base | FIELD_ARRAY index (see `FieldTypeHelper::get_instance`)
             record[12..16].copy_from_slice(
                 &(MPPAssignmentField::ASSIGNMENT_FIELD_BASE | field_number(field)).to_le_bytes(),
             );
@@ -1172,7 +1172,7 @@ mod tests {
         field_map
     }
 
-    /// 构造一个含任务与资源的项目文件。
+/// Build a project file containing a task and a resource.
     fn project() -> Rc<RefCell<ProjectFile>> {
         let file = ProjectFile::new();
 
@@ -1187,16 +1187,16 @@ mod tests {
         file
     }
 
-    /// 构造定长数据块（UNIQUE_ID / TASK_UNIQUE_ID / RESOURCE_UNIQUE_ID）。
+/// Build the fixed-length data block (UNIQUE_ID / TASK_UNIQUE_ID / RESOURCE_UNIQUE_ID).
     fn fixed_data() -> FixedData {
         let mut data = vec![0u8; FIXED_DATA_SIZE as usize];
         data[0..4].copy_from_slice(&100i32.to_le_bytes()); // UNIQUE_ID
-        data[4..8].copy_from_slice(&1i32.to_le_bytes()); // 任务
-        data[8..12].copy_from_slice(&10i32.to_le_bytes()); // 资源
+        data[4..8].copy_from_slice(&1i32.to_le_bytes()); // task
+        data[8..12].copy_from_slice(&10i32.to_le_bytes()); // resource
         FixedData::with_fixed_size(FIXED_DATA_SIZE, &data)
     }
 
-    /// 用一条给定记录构造 FixedMeta（该记录同时承载位标志）。
+/// Build FixedMeta from a given record (the record also carries the bit flags).
     fn fixed_meta_with_record(record: &[u8]) -> FixedMeta {
         let mut meta_bytes = Vec::new();
         meta_bytes.extend_from_slice(&0xFADFADBAu32.to_le_bytes());
@@ -1205,17 +1205,17 @@ mod tests {
         meta_bytes.extend_from_slice(&0i32.to_le_bytes());
         meta_bytes.extend_from_slice(record);
 
-        FixedMeta::with_item_size(&meta_bytes, record.len() as i32).expect("元数据合法")
+        FixedMeta::with_item_size(&meta_bytes, record.len() as i32).expect("valid metadata")
     }
 
-    /// 构造 FixedMeta：一条记录指向偏移 0。
+/// Build FixedMeta: one record pointing to offset 0.
     fn fixed_meta() -> FixedMeta {
         let mut item = vec![0u8; 10];
         item[4..8].copy_from_slice(&0i32.to_le_bytes());
         fixed_meta_with_record(&item)
     }
 
-    /// 构造变长数据块（只含一条被忽略的数据项，用于让 unique ID 出现在集合中）。
+/// Build the variable-length data block (containing only one ignored data item, used to make the unique ID appear in the set).
     fn var_data(file: &Rc<RefCell<ProjectFile>>) -> Var2Data {
         let payload = vec![0u8; 4];
         let mut data = Vec::new();
@@ -1223,12 +1223,12 @@ mod tests {
         data.extend_from_slice(&payload);
 
         let meta_bytes = var_meta9_bytes(&[(100, 0x12, 0)], &[0], data.len() as i32);
-        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("元数据合法"));
+        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("valid metadata"));
 
         Var2Data::new(file, meta, &data)
     }
 
-    /// 读取一条资源分配：字段值、任务 / 资源引用都正确。
+/// Read one resource assignment: the field values and task / resource references are all correct.
     #[test]
     fn reads_a_resource_assignment() {
         let file = project();
@@ -1262,10 +1262,10 @@ mod tests {
         assert!(assignment.get_resource().is_some());
     }
 
-    /// 位标志：meta 记录中的位被写入分配对象。
+/// Bit flags: the bits in the meta record are written to the assignment object.
     #[test]
     fn applies_meta_data_bit_flags() {
-        // 未置位：所有布尔标志为 false（Java 的 zeroValue），工时分布写入 FLAT
+// Not set: all boolean flags are false (Java's zeroValue) and the work contour is written as FLAT
         let file = project();
         let field_map = assignment_field_map(&file);
         let fixed_data_1 = fixed_data();
@@ -1291,11 +1291,11 @@ mod tests {
         assert_eq!(assignments.len(), 1);
         {
             let assignment = assignments[0].borrow();
-            assert!(!assignment.get_flag(1), "FLAG1 未置位时应为 false");
+            assert!(!assignment.get_flag(1), "should be false when FLAG1 is not set");
             assert!(is_flat(&assignment.get_work_contour()));
         }
 
-        // 置位 FLAG1（偏移 28、掩码 0x80）与工时分布标志（偏移 8、掩码 0x10）
+// Set FLAG1 (offset 28, mask 0x80) and the work contour flag (offset 8, mask 0x10)
         let file2 = project();
         let field_map2 = assignment_field_map(&file2);
         let fixed_data2 = fixed_data();
@@ -1327,8 +1327,8 @@ mod tests {
             .to_vec();
         assert_eq!(assignments.len(), 1);
         let assignment = assignments[0].borrow();
-        assert!(assignment.get_flag(1), "FLAG1 置位时应为 true");
-        // 工时分布标志置位时写入 CONTOURED
+        assert!(assignment.get_flag(1), "should be true when FLAG1 is set");
+// The work contour flag, when set, writes CONTOURED
         assert_eq!(
             assignment
                 .get_work_contour()
@@ -1337,7 +1337,7 @@ mod tests {
         );
     }
 
-    /// 变长数据块中没有该 unique ID 时跳过（不创建分配）。
+/// Skip when the unique ID is absent from the variable-length data block (no assignment is created).
     #[test]
     fn skips_assignments_missing_from_var_data() {
         let file = project();
@@ -1345,13 +1345,13 @@ mod tests {
         let fixed_meta = fixed_meta();
         let fixed_data = fixed_data();
 
-        // 只声明 unique ID 999 的数据项
+// Declare only the data item with unique ID 999
         let payload = vec![0u8; 4];
         let mut data = Vec::new();
         data.extend_from_slice(&(payload.len() as i32).to_le_bytes());
         data.extend_from_slice(&payload);
         let meta_bytes = var_meta9_bytes(&[(999, 0x12, 0)], &[0], data.len() as i32);
-        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("元数据合法"));
+        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("valid metadata"));
         let var_data = Var2Data::new(&file, meta, &data);
 
         ResourceAssignmentFactory.process(
@@ -1371,14 +1371,14 @@ mod tests {
         assert!(file.borrow().get_resource_assignments().is_empty());
     }
 
-    /// 删除标记（meta 首字节非 0）与未知任务都会跳过。
+/// The deleted flag (non-zero first byte of meta) and unknown tasks are both skipped.
     #[test]
     fn skips_deleted_records_and_unknown_tasks() {
         let file = project();
         let field_map = assignment_field_map(&file);
         let var_data = var_data(&file);
 
-        // 删除标记置位
+// The deleted flag is set
         let mut item = vec![0u8; 10];
         item[0] = 1;
         let deleted_meta = fixed_meta_with_record(&item);
@@ -1398,7 +1398,7 @@ mod tests {
         );
         assert!(file.borrow().get_resource_assignments().is_empty());
 
-        // 任务 unique ID 不存在
+// The task unique ID does not exist
         let mut data = vec![0u8; FIXED_DATA_SIZE as usize];
         data[0..4].copy_from_slice(&100i32.to_le_bytes());
         data[4..8].copy_from_slice(&999i32.to_le_bytes());
@@ -1420,7 +1420,7 @@ mod tests {
         assert!(file.borrow().get_resource_assignments().is_empty());
     }
 
-    /// 「空资源 ID」会被归一化为 `None`。
+/// The "null resource ID" is normalized to `None`.
     #[test]
     fn normalises_the_null_resource_id() {
         let file = project();
@@ -1452,7 +1452,7 @@ mod tests {
         assert_eq!(assignments[0].borrow().get_resource_unique_id(), None);
     }
 
-    /// `count` 为 0、元数据指向越界偏移时都不 panic，也不创建分配。
+/// When `count` is 0 or the metadata points to an out-of-bounds offset, neither panics nor creates an assignment.
     #[test]
     fn zero_count_and_out_of_range_records_do_not_panic() {
         let file = project();
@@ -1474,7 +1474,7 @@ mod tests {
         );
         assert!(file.borrow().get_resource_assignments().is_empty());
 
-        // meta 记录指向越界偏移
+// The meta record points to an out-of-bounds offset
         let mut item = vec![0u8; 10];
         item[4..8].copy_from_slice(&1000i32.to_le_bytes());
         let empty_fixed_meta = fixed_meta_with_record(&item);
@@ -1495,7 +1495,7 @@ mod tests {
         assert!(file.borrow().get_resource_assignments().is_empty());
     }
 
-    /// 位标志表的内容与 Java 一致（Java 的表各有 25 项，其中 1 项是 WORK_CONTOUR）。
+/// The contents of the bit flag tables match Java (the Java tables each have 25 entries, one of which is WORK_CONTOUR).
     #[test]
     fn bit_flag_tables_match_java() {
         assert_eq!(assignment_meta_data_bit_flags().len(), 24);
@@ -1503,7 +1503,7 @@ mod tests {
         assert_eq!(project_2013_assignment_meta_data_bit_flags().len(), 24);
     }
 
-    /// `is_flat` 判定：`None` 视为非 FLAT。
+/// `is_flat` decision: `None` is treated as not FLAT.
     #[test]
     fn is_flat_only_matches_the_flat_contour() {
         assert!(is_flat(&Some(WorkContour::flat())));

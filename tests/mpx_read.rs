@@ -1,7 +1,7 @@
-//! MPX 读取链路的端到端冒烟测试：用仓库内的真实样本文件跑通 [`MPXReader`]。
+//! End-to-end smoke tests for the MPX read path: exercise [`MPXReader`] against the repository's real sample files.
 //!
-//! 样本来自 MPXJ 自带测试数据：`mpxj/junit/data/legacy/sample.mpx`（其余同类样本见同目录）。
-//! 期望值直接从该文件的文本内容与 MPX 记录格式推出（见各断言下方的注释）。
+//! The sample comes from MPXJ's own test data: `mpxj/junit/data/legacy/sample.mpx` (see the same directory for other similar samples).
+//! The expected values are derived directly from that file's text content and the MPX record format (see the comments below each assertion).
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,18 +17,18 @@ use mpxj::reader::project_reader::ProjectReader;
 use mpxj::resource_assignment_workgroup_fields::ResourceAssignmentWorkgroupFields;
 use mpxj::{CalendarType, Duration, RelationType, TimeUnit};
 
-/// MPX 读取后的默认日历容器状态应与 Java 的 getDefault() 一致。
+/// The default calendar container state after an MPX read must match Java's getDefault().
 #[test]
 fn mpx_default_calendar_marks_calendar_as_default() {
     let file = read_sample("sample.mpx");
     let file_ref = file.borrow();
     let default_id = file_ref.get_project_properties().get_default_calendar_unique_id();
     assert_eq!(default_id, Some(1));
-    let calendar = file_ref.get_calendar_by_unique_id(default_id).expect("默认日历应存在");
+    let calendar = file_ref.get_calendar_by_unique_id(default_id).expect("default calendar should exist");
     assert!(calendar.borrow().get_default());
 }
 
-/// 取 `mpxj/junit/data/legacy/` 下的样本文件路径。
+/// Return the path of a sample file under `mpxj/junit/data/legacy/`.
 fn sample(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("mpxj")
@@ -38,7 +38,7 @@ fn sample(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// 取 `mpxj/junit/data/` 下的样本文件路径。
+/// Return the path of a sample file under `mpxj/junit/data/`.
 fn data_sample(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("mpxj")
@@ -47,25 +47,25 @@ fn data_sample(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// 读取样本文件。
+/// Read a sample file.
 fn read_sample(name: &str) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
     read_file_at(sample(name))
 }
 
-/// 读取 `mpxj/junit/data/` 下的 MPX 样本。
+/// Read an MPX sample under `mpxj/junit/data/`.
 fn read_data_sample(relative: &str) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
     read_file_at(data_sample(relative))
 }
 
-/// 对应 Java: `MPXReader.read(File)`；测试工具负责报告具体失败路径。
+/// Corresponds to Java: `MPXReader.read(File)`; the test helper is responsible for reporting the concrete failure path.
 fn read_file_at(path: PathBuf) -> Rc<std::cell::RefCell<mpxj::ProjectFile>> {
     let mut reader = MPXReader::new();
     reader
         .read_file(&path)
-        .unwrap_or_else(|error| panic!("读取 {} 失败：{}", path.display(), error.message()))
+        .unwrap_or_else(|error| panic!("failed to read {}: {}", path.display(), error.message()))
 }
 
-/// 对应 Java: `MPXReader.validateCalendars`；空文件需创建带 ID 的默认日历。
+/// Corresponds to Java: `MPXReader.validateCalendars`; an empty file requires creating a default calendar with an ID.
 #[test]
 fn empty_mpx_creates_standard_calendar_with_id() {
     let file = read_data_sample("empty.mpx");
@@ -82,11 +82,11 @@ fn empty_mpx_creates_standard_calendar_with_id() {
     );
     let standard = file_ref
         .get_calendar_by_name(Some("Standard"))
-        .expect("自动创建的默认日历");
+        .expect("automatically created default calendar");
     assert_eq!(standard.borrow().get_unique_id(), Some(1));
 }
 
-/// 对应 Java: `MPXReader.populateCalendar`；生成样本包含三个基准和两个资源日历。
+/// Corresponds to Java: `MPXReader.populateCalendar`; the generated sample contains three base calendars and two resource calendars.
 #[test]
 fn generated_calendar_sample_keeps_ids_parents_and_resource_links() {
     let file = read_data_sample("generated/calendar-calendars/calendar-calendars-project98.mpx");
@@ -102,17 +102,17 @@ fn generated_calendar_sample_keeps_ids_parents_and_resource_links() {
     ] {
         let calendar = file_ref
             .get_calendar_by_name(Some(name))
-            .expect("生成样本日历存在");
+            .expect("generated sample calendar exists");
         let calendar = calendar.borrow();
-        assert_eq!(calendar.get_unique_id(), Some(id), "{name} 的 ID");
+        assert_eq!(calendar.get_unique_id(), Some(id), "{name} ID");
         assert_eq!(
             calendar
                 .get_parent()
                 .and_then(|parent| parent.borrow().get_unique_id()),
             parent_id,
-            "{name} 的父日历"
+            "{name} parent calendar"
         );
-        assert_eq!(calendar.get_type(), calendar_type, "{name} 的类型");
+        assert_eq!(calendar.get_type(), calendar_type, "{name} type");
     }
 
     assert_eq!(
@@ -122,14 +122,14 @@ fn generated_calendar_sample_keeps_ids_parents_and_resource_links() {
         Some(1)
     );
     for (id, name, calendar_id) in [(1, "Resource One", 4), (2, "Resource Two", 5)] {
-        let resource = file_ref.get_resource_by_id(Some(id)).expect("生成样本资源存在");
+        let resource = file_ref.get_resource_by_id(Some(id)).expect("generated sample resource exists");
         let resource = resource.borrow();
         assert_eq!(resource.get_name().as_deref(), Some(name));
         assert_eq!(resource.get_calendar_unique_id(), Some(calendar_id));
     }
 }
 
-/// 对应 Java: `MPXReader.populateCalendar` / `validateCalendars` 与 `Resource.addCalendar`。
+/// Corresponds to Java: `MPXReader.populateCalendar` / `validateCalendars` and `Resource.addCalendar`.
 #[test]
 fn sample_calendar_ids_parents_and_resource_links_match_java() {
     let file = read_sample("sample.mpx");
@@ -142,17 +142,17 @@ fn sample_calendar_ids_parents_and_resource_links_match_java() {
         ("First Resource", 3, Some(1), CalendarType::Resource),
         ("Second Resource", 4, Some(2), CalendarType::Resource),
     ] {
-        let calendar = calendars.get_by_name(Some(name)).expect("样本日历存在");
+        let calendar = calendars.get_by_name(Some(name)).expect("sample calendar exists");
         let calendar = calendar.borrow();
-        assert_eq!(calendar.get_unique_id(), Some(id), "{name} 的 ID");
+        assert_eq!(calendar.get_unique_id(), Some(id), "{name} ID");
         assert_eq!(
             calendar
                 .get_parent()
                 .and_then(|parent| parent.borrow().get_unique_id()),
             parent_id,
-            "{name} 的父日历",
+            "{name} parent calendar",
         );
-        assert_eq!(calendar.get_type(), calendar_type, "{name} 的类型");
+        assert_eq!(calendar.get_type(), calendar_type, "{name} type");
     }
 
     assert_eq!(
@@ -166,64 +166,64 @@ fn sample_calendar_ids_parents_and_resource_links_match_java() {
         let resource = resources
             .iter()
             .find(|resource| resource.borrow().get_name().as_deref() == Some(name))
-            .expect("样本资源存在");
+            .expect("sample resource exists");
         assert_eq!(
             resource.borrow().get_calendar_unique_id(),
             Some(id),
-            "{name} 的日历"
+            "{name} calendar"
         );
     }
 }
 
-/// `Tue 07/01/03`（文件中的日期文本，日期顺序为 DMY）对应的 `LocalDateTime`。
+/// The `LocalDateTime` for `Tue 07/01/03` (the date text in the file, with day order DMY).
 fn date(year: i32, month: u32, day: u32) -> chrono::NaiveDateTime {
     NaiveDate::from_ymd_opt(year, month, day)
-        .expect("合法日期")
+        .expect("valid date")
         .and_hms_opt(0, 0, 0)
-        .expect("合法时间")
+        .expect("valid time")
 }
 
-/// 端到端冒烟：解析 `sample.mpx` 并核对任务 / 资源 / 日历 / 分配 / 关系的数量与抽样字段。
+/// End-to-end smoke test: parse `sample.mpx` and check the counts and sampled fields of tasks / resources / calendars / assignments / relations.
 #[test]
 fn reads_sample_mpx_end_to_end() {
     let file = read_sample("sample.mpx");
     let file_ref = file.borrow();
 
-    // ---- 数量 ----------------------------------------------------------------
-    // 文件中 `70,` 记录 20 条、`50,` 记录 2 条、`20,` 记录 2 条（基准日历）
-    // + `55,` 记录 2 条（资源日历）、`75,` 记录 2 条。
+    // ---- Counts --------------------------------------------------------------
+    // In the file there are 20 `70,` records, 2 `50,` records, 2 `20,` records (base calendars)
+    // + 2 `55,` records (resource calendars), and 2 `75,` records.
     let tasks: Vec<Rc<std::cell::RefCell<mpxj::Task>>> =
         file_ref.get_tasks().iter().cloned().collect();
     let resources: Vec<Rc<std::cell::RefCell<mpxj::Resource>>> =
         file_ref.get_resources().iter().cloned().collect();
 
-    println!("任务数 = {}", tasks.len());
-    println!("资源数 = {}", resources.len());
-    println!("日历数 = {}", file_ref.get_calendars().len());
+    println!("task count = {}", tasks.len());
+    println!("resource count = {}", resources.len());
+    println!("calendar count = {}", file_ref.get_calendars().len());
     println!(
-        "资源分配数 = {}",
+        "assignment count = {}",
         file_ref.get_resource_assignments().len()
     );
-    println!("关系数 = {}", file_ref.get_relations().len());
+    println!("relation count = {}", file_ref.get_relations().len());
 
-    assert_eq!(tasks.len(), 20, "sample.mpx 中 `70,` 记录共 20 条");
-    assert_eq!(resources.len(), 2, "sample.mpx 中 `50,` 记录共 2 条");
+    assert_eq!(tasks.len(), 20, "sample.mpx contains 20 `70,` records");
+    assert_eq!(resources.len(), 2, "sample.mpx contains 2 `50,` records");
     assert_eq!(
         file_ref.get_calendars().len(),
         4,
-        "2 条基准日历记录 + 2 条资源日历记录"
+        "2 base calendar records + 2 resource calendar records"
     );
     assert_eq!(
         file_ref.get_resource_assignments().len(),
         2,
-        "sample.mpx 中 `75,` 记录共 2 条"
+        "sample.mpx contains 2 `75,` records"
     );
 
-    // ---- 任务抽样（第一条 `70,` 记录：sample,0,0,500h,£3526.25,...,50d,0%,Tue 07/01/03,...）----
-    let first = tasks.first().expect("至少有一个任务").borrow();
+    // ---- Task sample (first `70,` record: sample,0,0,500h,£3526.25,...,50d,0%,Tue 07/01/03,...) ----
+    let first = tasks.first().expect("at least one task").borrow();
 
     println!(
-        "任务[0]: name={:?} id={:?} unique_id={:?} duration={:?} start={:?} finish={:?}",
+        "Task[0]: name={:?} id={:?} unique_id={:?} duration={:?} start={:?} finish={:?}",
         first.get_name(),
         first.get_id(),
         first.get_unique_id(),
@@ -242,11 +242,11 @@ fn reads_sample_mpx_end_to_end() {
     assert_eq!(first.get_cost(), Some(3526.25));
     assert_eq!(first.get_percentage_complete(), Some(0.0));
 
-    // 第二条 `70,` 记录：First Task,1,1,500h,...,50d,0%,Tue 07/01/03,...,1,...
-    let second = tasks.get(1).expect("第二个任务").borrow();
+    // Second `70,` record: First Task,1,1,500h,...,50d,0%,Tue 07/01/03,...,1,...
+    let second = tasks.get(1).expect("second task").borrow();
 
     println!(
-        "任务[1]: name={:?} id={:?} wbs={:?} outline_level={:?} milestone={:?} type={:?}",
+        "Task[1]: name={:?} id={:?} wbs={:?} outline_level={:?} milestone={:?} type={:?}",
         second.get_name(),
         second.get_id(),
         second.get_wbs(),
@@ -261,14 +261,14 @@ fn reads_sample_mpx_end_to_end() {
     assert_eq!(second.get_wbs().as_deref(), Some("1"));
     assert_eq!(second.get_outline_level(), Some(1));
     assert_eq!(second.get_start(), Some(date(2003, 1, 7)));
-    // 备注记录（`71,Test Task Notes`）落在第二个任务上
+    // The notes record (`71,Test Task Notes`) lands on the second task
     assert_eq!(second.get_notes(), "Test Task Notes");
 
-    // ---- 资源抽样（`50,First Resource,FR,200h,£2015.00,1,1,£10.00/h,£20.00/h,£30.00,Prorated,1`）----
-    let first_resource = resources.first().expect("至少有一个资源").borrow();
+    // ---- Resource sample (`50,First Resource,FR,200h,£2015.00,1,1,£10.00/h,£20.00/h,£30.00,Prorated,1`) ----
+    let first_resource = resources.first().expect("at least one resource").borrow();
 
     println!(
-        "资源[0]: name={:?} initials={:?} id={:?} unique_id={:?} work={:?} cost={:?} \
+        "Resource[0]: name={:?} initials={:?} id={:?} unique_id={:?} work={:?} cost={:?} \
          standard_rate={:?} overtime_rate={:?} cost_per_use={:?} accrue_at={:?}",
         first_resource.get_name(),
         first_resource.get_initials(),
@@ -292,10 +292,10 @@ fn reads_sample_mpx_end_to_end() {
     );
     assert_eq!(first_resource.get_cost(), Some(2015.0));
 
-    let second_resource = resources.get(1).expect("第二个资源").borrow();
+    let second_resource = resources.get(1).expect("second resource").borrow();
 
     println!(
-        "资源[1]: name={:?} work={:?} cost={:?} notes={:?}",
+        "Resource[1]: name={:?} work={:?} cost={:?} notes={:?}",
         second_resource.get_name(),
         second_resource.get_work(),
         second_resource.get_cost(),
@@ -308,26 +308,26 @@ fn reads_sample_mpx_end_to_end() {
         second_resource.get_work(),
         Some(Duration::get_instance(300.0, TimeUnit::Hours))
     );
-    // 备注记录（`51,Test Resource Notes`）落在第二个资源上
+    // The notes record (`51,Test Resource Notes`) lands on the second resource
     assert_eq!(second_resource.get_notes(), "Test Resource Notes");
 
-    // Java: `ResourceField.MAX_UNITS` 写进资源的可用性表
-    // （`resource.getAvailability().add(new Availability(START_DATE_NA, END_DATE_NA, units))`），
-    // `get_max_units()` 由 `calculateMaxUnits()` 从「当前」可用性表行算出
-    // （`50,First Resource,FR,200h,...,1,...` → 1 × 100 = 100）。
+    // Java: `ResourceField.MAX_UNITS` is written into the resource's availability table
+    // (`resource.getAvailability().add(new Availability(START_DATE_NA, END_DATE_NA, units))`),
+    // `get_max_units()` is calculated by `calculateMaxUnits()` from the "current" availability table row
+    // (`50,First Resource,FR,200h,...,1,...` → 1 × 100 = 100).
     println!(
-        "资源[0] MaxUnits: availability={} max_units={:?}",
+        "Resource[0] MaxUnits: availability={} max_units={:?}",
         first_resource.get_availability().len(),
         first_resource.get_max_units()
     );
     assert_eq!(
         first_resource.get_availability().len(),
         1,
-        "sample.mpx 的 `50,` 记录写了一个 MaxUnits 行"
+        "sample.mpx `50,` record has one MaxUnits row"
     );
     assert_eq!(first_resource.get_max_units(), Some(100.0));
 
-    // ---- 日历抽样（`20,Standard,...` 与 `20,Night Shift,...`，另有 2 个资源日历）----
+    // ---- Calendar sample (`20,Standard,...` and `20,Night Shift,...`, plus 2 resource calendars) ----
     let calendars: Vec<Rc<std::cell::RefCell<mpxj::ProjectCalendar>>> =
         file_ref.get_calendars().iter().cloned().collect();
 
@@ -336,33 +336,33 @@ fn reads_sample_mpx_end_to_end() {
         .map(|calendar| calendar.borrow().get_name().unwrap_or("").to_owned())
         .collect();
 
-    println!("日历名称 = {names:?}");
+    println!("calendar names = {names:?}");
 
     assert!(names.contains(&"Standard".to_owned()));
     assert!(names.contains(&"Night Shift".to_owned()));
 
-    // `25,2,08:00,12:00,13:00,17:00` —— 基准日历 “Standard” 周一的工作时段
+    // `25,2,08:00,12:00,13:00,17:00` — the Monday working hours of the base calendar "Standard"
     let standard = calendars
         .iter()
         .find(|calendar| calendar.borrow().get_name() == Some("Standard"))
-        .expect("存在 Standard 日历");
+        .expect("Standard calendar exists");
     let standard_ref = standard.borrow();
 
     let monday = standard_ref
         .get_calendar_hours_for_day(chrono::Weekday::Mon)
-        .expect("周一有工作时段")
+        .expect("Monday has work hours")
         .get(0);
 
-    println!("Standard 日历周一第一个时段 = {:?}", monday);
+    println!("Standard calendar Monday first hours = {:?}", monday);
 
     assert_eq!(monday.get_start(), NaiveTime::from_hms_opt(8, 0, 0));
     assert_eq!(monday.get_end(), NaiveTime::from_hms_opt(12, 0, 0));
 
-    // ---- 项目属性 -------------------------------------------------------------
+    // ---- Project properties ---------------------------------------------------
     let properties = file_ref.get_project_properties();
 
     println!(
-        "项目属性: file_application={:?} file_type={:?} mpx_program_name={:?} \
+        "project properties: file_application={:?} file_type={:?} mpx_program_name={:?} \
          code_page={:?} delimiter={:?} default_duration_units={:?}",
         properties.get_file_application(),
         properties.get_file_type(),
@@ -380,7 +380,7 @@ fn reads_sample_mpx_end_to_end() {
     );
     assert_eq!(properties.get_mpx_code_page(), mpxj::CodePage::Ansi);
     assert_eq!(properties.get_mpx_delimiter(), ',');
-    // 项目头记录（`30,sample,,,Standard,...`）中的默认日历名
+    // The default calendar name in the project header record (`30,sample,,,Standard,...`)
     assert_eq!(
         properties
             .get_default_calendar()
@@ -388,14 +388,14 @@ fn reads_sample_mpx_end_to_end() {
         Some("Standard".to_owned())
     );
 
-    // ---- 资源分配 -------------------------------------------------------------
+    // ---- Resource assignments -------------------------------------------------
     let assignments: Vec<Rc<std::cell::RefCell<mpxj::ResourceAssignment>>> =
         file_ref.get_resource_assignments().iter().cloned().collect();
 
     for assignment in &assignments {
         let assignment_ref = assignment.borrow();
         println!(
-            "分配: task={:?} resource={:?} units={:?} work={:?} start={:?} finish={:?}",
+            "Assignment: task={:?} resource={:?} units={:?} work={:?} start={:?} finish={:?}",
             assignment_ref
                 .get_task()
                 .and_then(|task| task.borrow().get_name()),
@@ -409,8 +409,8 @@ fn reads_sample_mpx_end_to_end() {
         );
     }
 
-    // `75,1,0.5,200h,...` 紧跟在 `70,Second Task,...` 之后，资源为第一个资源
-    let first_assignment = assignments.first().expect("至少一个分配").borrow();
+    // `75,1,0.5,200h,...` immediately follows `70,Second Task,...`, and the resource is the first resource
+    let first_assignment = assignments.first().expect("at least one assignment").borrow();
 
     assert_eq!(
         first_assignment
@@ -424,25 +424,25 @@ fn reads_sample_mpx_end_to_end() {
             .and_then(|resource| resource.borrow().get_name()),
         Some("First Resource".to_owned())
     );
-    // Java: `getUnits` 解析结果乘以 100
+    // Java: the parsed `getUnits` result is multiplied by 100
     assert_eq!(first_assignment.get_units(), Some(50.0));
     assert_eq!(
         first_assignment.get_work(),
         Some(Duration::get_instance(200.0, TimeUnit::Hours))
     );
 
-    // ---- 层级结构（读取时按大纲级别挂接 + `updateStructure()` 重建）------------
+    // ---- Hierarchy (attached by outline level during reading + rebuilt by `updateStructure()`) ----
     let top_level = file_ref.get_child_tasks();
 
     println!(
-        "顶层任务 = {:?}",
+        "top-level tasks = {:?}",
         top_level
             .iter()
             .map(|task| task.borrow().get_name())
             .collect::<Vec<_>>()
     );
 
-    // 文件中只有第一条任务记录的大纲级别是 0（隐含的项目汇总任务 sample）
+    // Only the first task record in the file has outline level 0 (the implicit project summary task sample)
     assert_eq!(top_level.len(), 1);
     assert_eq!(top_level[0].borrow().get_name().as_deref(), Some("sample"));
 
@@ -454,9 +454,9 @@ fn reads_sample_mpx_end_to_end() {
             .collect()
     };
 
-    println!("sample 的子任务 = {:?}", child_names(&top_level[0]));
+    println!("sample child tasks = {:?}", child_names(&top_level[0]));
 
-    // 大纲级别 1 的任务：First Task(1.1 之前)、Recurring Task(1.3)、Task Relationships(3)
+    // Outline level 1 tasks: First Task (before 1.1), Recurring Task (1.3), Task Relationships (3)
     assert_eq!(
         child_names(&top_level[0]),
         vec![
@@ -466,9 +466,9 @@ fn reads_sample_mpx_end_to_end() {
         ]
     );
 
-    let first_task = file_ref.get_task_by_id(Some(1)).expect("ID 为 1 的任务");
+    let first_task = file_ref.get_task_by_id(Some(1)).expect("task with ID 1");
 
-    // 大纲级别 2 的任务挂在最近的、级别为 1 的任务下
+    // Outline level 2 tasks hang under the nearest level 1 task
     assert_eq!(
         child_names(&first_task),
         vec!["Second Task".to_owned(), "Third task".to_owned()]
@@ -476,13 +476,13 @@ fn reads_sample_mpx_end_to_end() {
 
     let task_relationships = file_ref
         .get_task_by_id(Some(7))
-        .expect("ID 为 7 的任务");
+        .expect("task with ID 7");
 
-    // 文件中的 `3.1` … `3.12` 共 12 个任务
+    // The file has 12 tasks in total, `3.1` … `3.12`
     assert_eq!(child_names(&task_relationships).len(), 12);
 }
 
-/// 关系（前置任务）由延迟处理机制建立：`sample.mpx` 中有 7 处前置关系引用。
+/// Relations (predecessors) are established by the deferred processing mechanism: `sample.mpx` has 7 predecessor references.
 #[test]
 fn sample_mpx_relations_are_resolved() {
     let file = read_sample("sample.mpx");
@@ -491,12 +491,12 @@ fn sample_mpx_relations_are_resolved() {
     let relations: Vec<Rc<std::cell::RefCell<mpxj::Relation>>> =
         file_ref.get_relations().iter().cloned().collect();
 
-    println!("关系数 = {}", relations.len());
+    println!("relation count = {}", relations.len());
 
     for relation in &relations {
         let relation_ref = relation.borrow();
         println!(
-            "关系: {:?} -> {:?} type={:?} lag={:?}",
+            "Relation: {:?} -> {:?} type={:?} lag={:?}",
             relation_ref
                 .get_predecessor_task()
                 .and_then(|task| task.borrow().get_name()),
@@ -508,14 +508,14 @@ fn sample_mpx_relations_are_resolved() {
         );
     }
 
-    // 记录中的前置关系：`8`、`10FS+1d,9`、`12FS-1d`、`14SS`、`16FF`、`18SF`
+    // Predecessors in the records: `8`, `10FS+1d,9`, `12FS-1d`, `14SS`, `16FF`, `18SF`
     // → 1 + 2 + 1 + 1 + 1 + 1 = 7
     assert_eq!(relations.len(), 7);
 
-    // `3.2`（Related Task 1b，ID 9）的前置任务是 ID 8（Related Task 1a），默认 FS、0 天延隔
+    // `3.2` (Related Task 1b, ID 9) has predecessor ID 8 (Related Task 1a), default FS with 0 days lag
     let related_1b = file_ref
         .get_task_by_id(Some(9))
-        .expect("存在 ID 为 9 的任务");
+        .expect("task with ID 9 exists");
     let related_1b = related_1b.borrow();
     assert_eq!(related_1b.get_name().as_deref(), Some("Related Task 1b"));
 
@@ -534,10 +534,10 @@ fn sample_mpx_relations_are_resolved() {
         mpxj::RelationType::FinishStart
     );
 
-    // `3.4`（Related Task 2b，ID 11）写的是 `10FS+1d,9`：一条 FS +1 天，一条指向 ID 9 的默认 FS
+    // `3.4` (Related Task 2b, ID 11) records `10FS+1d,9`: one FS +1 day and one default FS pointing to ID 9
     let related_2b = file_ref
         .get_task_by_id(Some(11))
-        .expect("存在 ID 为 11 的任务");
+        .expect("task with ID 11 exists");
     let related_2b = related_2b.borrow();
     let predecessors = related_2b.get_predecessors();
 
@@ -546,7 +546,7 @@ fn sample_mpx_relations_are_resolved() {
     let with_lag = predecessors
         .iter()
         .find(|relation| relation.borrow().get_lag() != Some(Duration::get_instance(0.0, TimeUnit::Days)))
-        .expect("存在带延隔时间的关系");
+        .expect("relation with lag exists");
 
     assert_eq!(
         with_lag
@@ -558,47 +558,48 @@ fn sample_mpx_relations_are_resolved() {
     assert_eq!(with_lag.borrow().get_lag(), Some(Duration::get_instance(1.0, TimeUnit::Days)));
 }
 
-/// 德语区样本 `sample.de.mpx`：MPX 的文本内容随微软项目的语言版本本地化，
-/// 因此必须按 MPXJ 的用法**显式指定德语区域设置**（对应 Java `LocaleTest.testReadGerman`
-/// 里的 `reader.setLocale(Locale.GERMAN)`）。
+/// German-locale sample `sample.de.mpx`: MPX text content is localized to the language version of
+/// Microsoft Project, so the German locale must be **specified explicitly** as MPXJ does (corresponding
+/// to `reader.setLocale(Locale.GERMAN)` in Java `LocaleTest.testReadGerman`).
 ///
-/// 修复点：`RelationTypeUtility` / `TimeUnitUtility` / `ConstraintTypeUtility` 等工具
-/// 此前忽略 `locale` 参数、一律使用英文名表，`LocaleData_de`（德语名表）虽已移植却从未被
-/// 使用 —— 于是关系串 `10EA+1t`（`EA` = 德语「Ende-Anfang」，`t` = Tage）无法识别，
-/// 整个文件报 `Invalid format '10EA+1t'`。按 Java 走本地化名表后，德语样本读出的数据
-/// 与英文区样本 `legacy/sample.mpx` 等价。
+/// Fix point: utilities such as `RelationTypeUtility` / `TimeUnitUtility` / `ConstraintTypeUtility`
+/// previously ignored the `locale` argument and always used the English name tables, and `LocaleData_de`
+/// (the German name table) was ported but never used — so the relation string `10EA+1t`
+/// (`EA` = German "Ende-Anfang", `t` = Tage) could not be recognized and the whole file reported
+/// `Invalid format '10EA+1t'`. After following Java's localized name tables, the data read from the
+/// German sample is equivalent to the English-locale sample `legacy/sample.mpx`.
 #[test]
 fn reads_german_sample_with_german_locale() {
     let path = data_sample("sample.de.mpx");
 
-    // 用默认（英文）区域设置读取同一份文件必然失败：`EA` / `t` 都不在英文名表里
+    // Reading the same file with the default (English) locale must fail: neither `EA` nor `t` is in the English name table
     let mut english = MPXReader::new();
     assert!(
         english.read_file(&path).is_err(),
-        "英文区域设置不应能读出德语样本（Java 同样需要 setLocale）"
+        "English locale should not be able to read the German sample (Java also requires setLocale)"
     );
 
     let mut reader = MPXReader::new();
     reader.set_locale(MpxLocale::De);
     let file = reader
         .read_file(&path)
-        .unwrap_or_else(|error| panic!("读取 {} 失败：{}", path.display(), error.message()));
+        .unwrap_or_else(|error| panic!("failed to read {}: {}", path.display(), error.message()));
     let file_ref = file.borrow();
 
-    // ---- 数量：与 `legacy/sample.mpx` 一致 -------------------------------------
-    assert_eq!(file_ref.get_tasks().len(), 20, "`70;` 记录共 20 条");
-    assert_eq!(file_ref.get_resources().len(), 2, "`50;` 记录共 2 条");
+    // ---- Counts: same as `legacy/sample.mpx` ----------------------------------
+    assert_eq!(file_ref.get_tasks().len(), 20, "contains 20 `70;` records");
+    assert_eq!(file_ref.get_resources().len(), 2, "contains 2 `50;` records");
     assert_eq!(file_ref.get_calendars().len(), 4);
-    assert_eq!(file_ref.get_resource_assignments().len(), 2, "`75;` 记录共 2 条");
-    // 德语样本里的前置关系字段：`8`、`10EA+1t`、`12EA-1t`、`14AA`、`16EE`、`18AE` 共 6 处
+    assert_eq!(file_ref.get_resource_assignments().len(), 2, "contains 2 `75;` records");
+    // Predecessor fields in the German sample: `8`, `10EA+1t`, `12EA-1t`, `14AA`, `16EE`, `18AE` — 6 in total
     assert_eq!(file_ref.get_relations().len(), 6);
 
-    // ---- 任务抽样（`70;0;0;sample;50t;Nein;0;50t;...`）--------------------------
-    let first = file_ref.get_task_by_id(Some(0)).expect("ID 为 0 的任务");
+    // ---- Task sample (`70;0;0;sample;50t;Nein;0;50t;...`) ----------------------
+    let first = file_ref.get_task_by_id(Some(0)).expect("task with ID 0");
     let first = first.borrow();
 
     assert_eq!(first.get_name().as_deref(), Some("sample"));
-    // 工期单位 `t` = Tage（德语名表），英文区域设置下无法识别
+    // Duration unit `t` = Tage (German name table), not recognized under the English locale
     assert_eq!(
         first.get_duration(),
         Some(Duration::get_instance(50.0, TimeUnit::Days))
@@ -611,15 +612,15 @@ fn reads_german_sample_with_german_locale() {
     );
     assert_eq!(first.get_cost(), Some(3526.25));
 
-    // ---- 约束类型（`Anfang nicht früher als` = Start No Earlier Than）-----------
-    let last = file_ref.get_task_by_id(Some(19)).expect("ID 为 19 的任务");
+    // ---- Constraint type (`Anfang nicht früher als` = Start No Earlier Than) ---
+    let last = file_ref.get_task_by_id(Some(19)).expect("task with ID 19");
     assert_eq!(last.borrow().get_name().as_deref(), Some("Related Task 6b"));
     assert_eq!(
         last.borrow().get_constraint_type(),
         Some(mpxj::ConstraintType::StartNoEarlierThan)
     );
 
-    // ---- 关系类型（德语缩写：EA/AA/EE/AE）--------------------------------------
+    // ---- Relation types (German abbreviations: EA/AA/EE/AE) -------------------
     let relations: Vec<Rc<std::cell::RefCell<mpxj::Relation>>> =
         file_ref.get_relations().iter().cloned().collect();
 
@@ -634,10 +635,10 @@ fn reads_german_sample_with_german_locale() {
                     == Some(successor_id)
             })
             .cloned()
-            .unwrap_or_else(|| panic!("ID 为 {successor_id} 的任务应有前置关系"))
+            .unwrap_or_else(|| panic!("task with ID {successor_id} should have a predecessor relation"))
     };
 
-    // `10EA+1t`：EA = Ende-Anfang（Finish-Start），延隔 +1 Tage
+    // `10EA+1t`: EA = Ende-Anfang (Finish-Start), lag +1 Tage
     let relation = relation_to(11);
     let relation = relation.borrow();
     assert_eq!(
@@ -653,8 +654,8 @@ fn reads_german_sample_with_german_locale() {
     );
     drop(relation);
 
-    // `14AA` = Anfang-Anfang（Start-Start）、`16EE` = Ende-Ende（Finish-Finish）、
-    // `18AE` = Anfang-Ende（Start-Finish）
+    // `14AA` = Anfang-Anfang (Start-Start), `16EE` = Ende-Ende (Finish-Finish),
+    // `18AE` = Anfang-Ende (Start-Finish)
     for (successor_id, expected) in [
         (15, RelationType::StartStart),
         (17, RelationType::FinishFinish),
@@ -665,19 +666,20 @@ fn reads_german_sample_with_german_locale() {
     }
 }
 
-/// 记录 72（`RECURRING_TASK`）的明细字段必须落到任务上。
+/// The detail fields of record 72 (`RECURRING_TASK`) must land on the task.
 ///
-/// `sample.mpx` 中有三条该记录：`72,1,Tue 07/01/03,Tue 18/03/03,480,0,2,8,0,1,0,0000000,...`
-/// 挂在 `Recurring Task`（ID 4）上，另两条只有 `72,1` 两列（挂在 ID 5 / 6 上）。
+/// `sample.mpx` has three such records: `72,1,Tue 07/01/03,Tue 18/03/03,480,0,2,8,0,1,0,0000000,...`
+/// hangs on `Recurring Task` (ID 4), and the other two have only the two columns `72,1` (hanging on ID 5 / 6).
 ///
-/// 修复前只做了 `Task::set_recurring(true)`，起止日期、工期、出现次数、重现类型等全部丢失。
+/// Before the fix only `Task::set_recurring(true)` was done, so the start/finish dates, duration, occurrences,
+/// recurrence type, and so on were all lost.
 #[test]
 fn recurring_task_record_details_are_read() {
     let file = read_sample("sample.mpx");
     let file_ref = file.borrow();
 
-    // `70,Recurring Task,1.3,1,...,Yes,...` 后面紧跟 `72,1,Tue 07/01/03,...`
-    let recurring = file_ref.get_task_by_id(Some(4)).expect("ID 为 4 的任务");
+    // `70,Recurring Task,1.3,1,...,Yes,...` is immediately followed by `72,1,Tue 07/01/03,...`
+    let recurring = file_ref.get_task_by_id(Some(4)).expect("task with ID 4");
     let recurring = recurring.borrow();
 
     assert_eq!(recurring.get_name().as_deref(), Some("Recurring Task"));
@@ -685,34 +687,34 @@ fn recurring_task_record_details_are_read() {
 
     let record = recurring
         .get_recurring_task()
-        .expect("应存在周期性任务记录");
+        .expect("recurring task record should exist");
 
-    println!("记录 72: {record}");
+    println!("record 72: {record}");
 
     // Java: task.setStartDate(LocalDateHelper.getLocalDate(record.getDateTime(1)))
     assert_eq!(
         record.get_start_date(),
         NaiveDate::from_ymd_opt(2003, 1, 7),
-        "起始日期取自记录第 2 列"
+        "start date is taken from record column 2"
     );
     assert_eq!(
         record.get_finish_date(),
         NaiveDate::from_ymd_opt(2003, 3, 18)
     );
-    // 工期 480 分钟 + 单位 0（天）→ 1 天（项目默认 480 分钟 / 天）
+    // Duration 480 minutes + unit 0 (days) → 1 day (project default 480 minutes / day)
     assert_eq!(
         record.get_duration(),
         Some(Duration::get_instance(1.0, TimeUnit::Days))
     );
     assert_eq!(record.get_occurrences(), Some(2));
-    // 记录第 7 列 8 → MONTHLY
+    // Record column 7 is 8 → MONTHLY
     assert_eq!(
         record.get_recurrence_type(),
         Some(mpxj::RecurrenceType::Monthly)
     );
     assert!(record.get_use_end_date());
     assert!(!record.get_working_days_only());
-    // `0000000` 位图 → 一周七天都不选
+    // The `0000000` bitmap → none of the seven days of the week is selected
     for day in [
         chrono::Weekday::Sun,
         chrono::Weekday::Mon,
@@ -722,33 +724,34 @@ fn recurring_task_record_details_are_read() {
         chrono::Weekday::Fri,
         chrono::Weekday::Sat,
     ] {
-        assert!(!record.get_weekly_day(day), "{day:?} 不应被选中");
+        assert!(!record.get_weekly_day(day), "{day:?} should not be selected");
     }
-    // 按月重复、非「相对」方式：频率取第 20 列（1）、日取第 19 列（1）
+    // Monthly recurrence, non-"relative" mode: frequency comes from column 20 (1), day from column 19 (1)
     assert!(!record.get_relative());
     assert_eq!(record.get_frequency(), Some(1));
     assert_eq!(record.get_day_number(), Some(1));
 
-    // 只有 `72,1` 两条列的两条记录：周期性任务记录已创建，但明细全部为空
+    // The two records with only the two columns `72,1`: the recurring task record is created, but all details are empty
     for task_id in [5, 6] {
         let task = file_ref
             .get_task_by_id(Some(task_id))
-            .unwrap_or_else(|| panic!("ID 为 {task_id} 的任务"));
+            .unwrap_or_else(|| panic!("task with ID {task_id}"));
         let task = task.borrow();
 
         assert!(task.get_recurring());
-        let record = task.get_recurring_task().expect("应存在周期性任务记录");
+        let record = task.get_recurring_task().expect("recurring task record should exist");
         assert_eq!(record.get_start_date(), None);
         assert_eq!(record.get_recurrence_type(), None);
     }
 }
 
-/// 记录 76（`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`）的字段解析。
+/// Field parsing for record 76 (`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`).
 ///
-/// `sample.mpx` 的第 36 / 38 行即该记录（`76,0,0,0,NA,NA`，各自紧跟一条 `75,` 记录）。
-/// Java 把它落到 `m_lastResourceAssignment.addWorkgroupAssignment()` 上，本仓的
-/// [`mpxj::ResourceAssignment`] 尚未提供该入口（见 `mpx/mpx_reader.rs` 文件头与任务汇报），
-/// 故这里直接验证按 Java 逐字段实现的 `MPXReader::populate_resource_assignment_workgroup_fields`。
+/// Lines 36 / 38 of `sample.mpx` are that record (`76,0,0,0,NA,NA`, each immediately followed by a
+/// `75,` record). Java attaches it to `m_lastResourceAssignment.addWorkgroupAssignment()`; this
+/// repository's [`mpxj::ResourceAssignment`] does not yet provide that entry point (see the
+/// `mpx/mpx_reader.rs` file header and the task report), so here we directly verify
+/// `MPXReader::populate_resource_assignment_workgroup_fields`, implemented field by field as in Java.
 #[test]
 fn workgroup_fields_record_is_parsed() {
     let file = mpxj::ProjectFile::new();
@@ -758,7 +761,7 @@ fn workgroup_fields_record_is_parsed() {
     );
     let formats = MPXJFormats::new(MpxLocale::En, "NA", Rc::downgrade(&file));
 
-    // ---- 真实样本行 `76,0,0,0,NA,NA`（记录号在构造 `Record` 时被弹出）----
+    // ---- Real sample line `76,0,0,0,NA,NA` (the record number is popped when constructing `Record`) ----
     let record = Record::from_fields(
         MpxLocale::En,
         &formats,
@@ -775,20 +778,20 @@ fn workgroup_fields_record_is_parsed() {
     let mut workgroup = ResourceAssignmentWorkgroupFields::new();
     MPXReader::populate_resource_assignment_workgroup_fields(&record, &mut workgroup);
 
-    println!("记录 76（样本行）: {workgroup:?}");
+    println!("record 76 (sample row): {workgroup:?}");
 
     assert_eq!(workgroup.get_message_unique_id(), Some("0"));
-    // 第 2 列是 0 → 两个布尔标志都为 false（Java 的两行读的是同一列）
+    // Column 2 is 0 → both boolean flags are false (Java's two lines read the same column)
     assert!(!workgroup.get_confirmed());
     assert!(!workgroup.get_response_pending());
     assert_eq!(workgroup.get_update_start(), None);
     assert_eq!(workgroup.get_update_finish(), None);
-    // 样本行没有第 6 列
+    // The sample line has no column 6
     assert_eq!(workgroup.get_schedule_id(), None);
 
-    // ---- 各列都有值的记录，覆盖非空分支 ----
-    // 日期用 4 位年份：无需依赖文件里的 `DATE_TIME_SETTINGS` 记录即可按英文默认
-    // 日期格式（`dd/MM/yyyy`）解析。
+    // ---- Record with values in every column, covering the non-empty branches ----
+    // Dates use a 4-digit year: they can be parsed with the English default date format
+    // (`dd/MM/yyyy`) without relying on the file's `DATE_TIME_SETTINGS` record.
     let record = Record::from_fields(
         MpxLocale::En,
         &formats,
@@ -814,7 +817,7 @@ fn workgroup_fields_record_is_parsed() {
     assert_eq!(workgroup.get_schedule_id(), Some("SCHED-9"));
 }
 
-/// 其余样本文件也应能被读取（仅校验不报错与基本结构）。
+/// The remaining sample files should also be readable (only checking for no errors and basic structure).
 #[test]
 fn reads_other_legacy_samples() {
     for name in [
@@ -826,17 +829,17 @@ fn reads_other_legacy_samples() {
     ] {
         let path = sample(name);
 
-        assert!(path.exists(), "样本文件缺失：{}", path.display());
+        assert!(path.exists(), "sample file missing: {}", path.display());
 
         let mut reader = MPXReader::new();
         let file = match reader.read_file(&path) {
             Ok(file) => file,
-            Err(error) => panic!("读取 {name} 失败：{}", error.message()),
+            Err(error) => panic!("failed to read {name}: {}", error.message()),
         };
 
         let file_ref = file.borrow();
         println!(
-            "{name}: 任务 {} / 资源 {} / 日历 {} / 分配 {} / 关系 {}",
+            "{name}: tasks {} / resources {} / calendars {} / assignments {} / relations {}",
             file_ref.get_tasks().len(),
             file_ref.get_resources().len(),
             file_ref.get_calendars().len(),
@@ -844,10 +847,10 @@ fn reads_other_legacy_samples() {
             file_ref.get_relations().len()
         );
 
-        // 每个文件都应有自己的默认日历（Java: validateCalendars 保证）
+        // Every file should have its own default calendar (Java: guaranteed by validateCalendars)
         assert!(
             file_ref.get_project_properties().get_default_calendar().is_some(),
-            "{name} 缺少默认日历"
+            "{name} is missing default calendar"
         );
     }
 }

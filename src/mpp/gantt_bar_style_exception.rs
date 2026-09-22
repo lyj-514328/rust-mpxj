@@ -1,20 +1,20 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStyleException.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStyleException.java`
 //!
-//! 甘特图条形的**单任务例外样式**：某条任务不使用默认条形样式，而是改用指定 ID 的样式。
+//! A **per-task exception style** for Gantt bar styles: a task does not use the default bar style but instead uses the style with the specified ID.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `GanttBarStyleException extends GanttBarCommonStyle` | 字段 `common: GanttBarCommonStyle` + **转发方法** | Rust 无继承，改用组合（同 `GanttBarStyle`） |
-//! | `Integer m_ganttBarStyleID` | `Option<i32>` | Java 的 `null` 初值 |
-//! | `int m_taskUniqueID` / `int m_barStyleIndex` | `i32` | Java 的 0 初值 |
-//! | `toString()` | `impl Display` | 输出格式与 Java 一致 |
+//! | `GanttBarStyleException extends GanttBarCommonStyle` | field `common: GanttBarCommonStyle` + **forwarding methods** | Rust has no inheritance, so composition is used instead (same as `GanttBarStyle`) |
+//! | `Integer m_ganttBarStyleID` | `Option<i32>` | Java's initial value of `null` |
+//! | `int m_taskUniqueID` / `int m_barStyleIndex` | `i32` | Java's initial value of 0 |
+//! | `toString()` | `impl Display` | the output format matches Java |
 //!
-//! **Java 只提供了 `setBarStyleIndex`，没有对应的 getter**（上游 MPXJ 如此），
-//! Rust 侧 1:1 保留，未额外补充 `get_bar_style_index`（字段可通过 `Display` 观察）。
+//! **Java only provides `setBarStyleIndex`, with no corresponding getter** (this is how upstream MPXJ is),
+//! and the Rust side preserves this 1:1, without adding a `get_bar_style_index` (the field can be observed through `Display`).
 //!
-//! 跳过的 Java 成员：无（`ByteArrayOutputStream` / `PrintWriter` 由 `Display` 取代）。
+//! Skipped Java members: none (`ByteArrayOutputStream` / `PrintWriter` are replaced by `Display`).
 
 use std::fmt::{self, Display, Formatter};
 
@@ -26,283 +26,283 @@ use crate::mpp::gantt_bar_start_end_shape::GanttBarStartEndShape;
 use crate::mpp::gantt_bar_start_end_type::GanttBarStartEndType;
 use crate::mpp::mpp_utility::Color;
 
-/// 甘特图条形的单任务例外样式。
+/// A per-task exception style for Gantt bar styles.
 ///
-/// 对应 Java: `public final class GanttBarStyleException extends GanttBarCommonStyle`
+/// Corresponds to Java: `public final class GanttBarStyleException extends GanttBarCommonStyle`
 ///
-/// 说明：未派生 `Debug`（原因同 [`GanttBarCommonStyle`]）。
+/// Note: `Debug` is not derived (for the same reason as [`GanttBarCommonStyle`]).
 #[derive(Clone, Default)]
 pub struct GanttBarStyleException {
-    /// 对应 Java: `extends GanttBarCommonStyle`（组合替代表达继承）
+    /// Corresponds to Java: `extends GanttBarCommonStyle` (composition expresses the inheritance)
     common: GanttBarCommonStyle,
-    /// 对应 Java: `private int m_taskUniqueID`
+    /// Corresponds to Java: `private int m_taskUniqueID`
     task_unique_id: i32,
-    /// 对应 Java: `private int m_barStyleIndex`
+    /// Corresponds to Java: `private int m_barStyleIndex`
     bar_style_index: i32,
-    /// 对应 Java: `private Integer m_ganttBarStyleID`
+    /// Corresponds to Java: `private Integer m_ganttBarStyleID`
     gantt_bar_style_id: Option<i32>,
 }
 
 impl GanttBarStyleException {
-    /// 构造空的例外样式。
+    /// Constructs an empty exception style.
     ///
-    /// 对应 Java 的隐式默认构造方法 `GanttBarStyleException()`
+    /// Corresponds to Java's implicit default constructor `GanttBarStyleException()`
     pub fn new() -> GanttBarStyleException {
         GanttBarStyleException::default()
     }
 
-    /// 取内部共有样式实例。
+    /// Gets the inner common style instance.
     ///
-    /// Rust 特有：Java 通过继承直接暴露父类成员，组合方式下需要显式取得。
+    /// Rust-specific: Java exposes the base class members directly through inheritance, whereas composition requires obtaining them explicitly.
     pub fn get_common(&self) -> &GanttBarCommonStyle {
         &self.common
     }
 
-    /// 取内部共有样式实例（可变）。
+    /// Gets the inner common style instance (mutable).
     ///
-    /// Rust 特有，同 [`GanttBarStyleException::get_common`]。
+    /// Rust-specific, same as [`GanttBarStyleException::get_common`].
     pub fn get_common_mut(&mut self) -> &mut GanttBarCommonStyle {
         &mut self.common
     }
 
-    /// 取本例外样式适用的任务唯一 ID。
+    /// Gets the task unique ID to which this exception style applies.
     ///
-    /// 对应 Java: `public int getTaskUniqueID()`
+    /// Corresponds to Java: `public int getTaskUniqueID()`
     pub fn get_task_unique_id(&self) -> i32 {
         self.task_unique_id
     }
 
-    /// 设置任务唯一 ID。
+    /// Sets the task unique ID.
     ///
-    /// 对应 Java: `public void setTaskUniqueID(int id)`
+    /// Corresponds to Java: `public void setTaskUniqueID(int id)`
     pub fn set_task_unique_id(&mut self, id: i32) {
         self.task_unique_id = id;
     }
 
-    /// 取本例外样式所引用的甘特图条形样式 ID。
+    /// Gets the Gantt bar style ID referenced by this exception style.
     ///
-    /// 对应 Java: `public Integer getGanttBarStyleID()`
+    /// Corresponds to Java: `public Integer getGanttBarStyleID()`
     pub fn get_gantt_bar_style_id(&self) -> Option<i32> {
         self.gantt_bar_style_id
     }
 
-    /// 设置所引用的甘特图条形样式 ID。
+    /// Sets the referenced Gantt bar style ID.
     ///
-    /// 对应 Java: `public void setGanttBarStyleID(Integer value)`
+    /// Corresponds to Java: `public void setGanttBarStyleID(Integer value)`
     pub fn set_gantt_bar_style_id(&mut self, value: Option<i32>) {
         self.gantt_bar_style_id = value;
     }
 
-    /// 设置条形样式下标。
+    /// Sets the bar style index.
     ///
-    /// 对应 Java: `public void setBarStyleIndex(int index)`
+    /// Corresponds to Java: `public void setBarStyleIndex(int index)`
     pub fn set_bar_style_index(&mut self, index: i32) {
         self.bar_style_index = index;
     }
 
-    // ---- 以下为 `GanttBarCommonStyle`（Java 的父类）成员的转发 ----
+    // ---- Below are forwarding methods for the members of `GanttBarCommonStyle` (Java's base class) ----
 
-    /// 转发 [`GanttBarCommonStyle::get_bottom_text`]。
+    /// Forwards [`GanttBarCommonStyle::get_bottom_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getBottomText()`
+    /// Corresponds to Java: the `public FieldType getBottomText()` inherited from `GanttBarCommonStyle`
     pub fn get_bottom_text(&self) -> Option<MppFieldType> {
         self.common.get_bottom_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_bottom_text`]。
+    /// Forwards [`GanttBarCommonStyle::set_bottom_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setBottomText(FieldType field)`
+    /// Corresponds to Java: the `public void setBottomText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_bottom_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_bottom_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_color`]。
+    /// Forwards [`GanttBarCommonStyle::get_end_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getEndColor()`
+    /// Corresponds to Java: the `public Color getEndColor()` inherited from `GanttBarCommonStyle`
     pub fn get_end_color(&self) -> Option<Color> {
         self.common.get_end_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_color`]。
+    /// Forwards [`GanttBarCommonStyle::set_end_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndColor(Color color)`
+    /// Corresponds to Java: the `public void setEndColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_end_color(&mut self, color: Option<Color>) {
         self.common.set_end_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_inside_text`]。
+    /// Forwards [`GanttBarCommonStyle::get_inside_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getInsideText()`
+    /// Corresponds to Java: the `public FieldType getInsideText()` inherited from `GanttBarCommonStyle`
     pub fn get_inside_text(&self) -> Option<MppFieldType> {
         self.common.get_inside_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_inside_text`]。
+    /// Forwards [`GanttBarCommonStyle::set_inside_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setInsideText(FieldType field)`
+    /// Corresponds to Java: the `public void setInsideText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_inside_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_inside_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_left_text`]。
+    /// Forwards [`GanttBarCommonStyle::get_left_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getLeftText()`
+    /// Corresponds to Java: the `public FieldType getLeftText()` inherited from `GanttBarCommonStyle`
     pub fn get_left_text(&self) -> Option<MppFieldType> {
         self.common.get_left_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_left_text`]。
+    /// Forwards [`GanttBarCommonStyle::set_left_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setLeftText(FieldType field)`
+    /// Corresponds to Java: the `public void setLeftText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_left_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_left_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_color`]。
+    /// Forwards [`GanttBarCommonStyle::get_middle_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getMiddleColor()`
+    /// Corresponds to Java: the `public Color getMiddleColor()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_color(&self) -> Option<Color> {
         self.common.get_middle_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_color`]。
+    /// Forwards [`GanttBarCommonStyle::set_middle_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddleColor(Color color)`
+    /// Corresponds to Java: the `public void setMiddleColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_color(&mut self, color: Option<Color>) {
         self.common.set_middle_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_pattern`]。
+    /// Forwards [`GanttBarCommonStyle::get_middle_pattern`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public ChartPattern getMiddlePattern()`
+    /// Corresponds to Java: the `public ChartPattern getMiddlePattern()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_pattern(&self) -> Option<ChartPattern> {
         self.common.get_middle_pattern()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_pattern`]。
+    /// Forwards [`GanttBarCommonStyle::set_middle_pattern`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddlePattern(ChartPattern pattern)`
+    /// Corresponds to Java: the `public void setMiddlePattern(ChartPattern pattern)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_pattern(&mut self, pattern: Option<ChartPattern>) {
         self.common.set_middle_pattern(pattern);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_middle_shape`]。
+    /// Forwards [`GanttBarCommonStyle::get_middle_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarMiddleShape getMiddleShape()`
+    /// Corresponds to Java: the `public GanttBarMiddleShape getMiddleShape()` inherited from `GanttBarCommonStyle`
     pub fn get_middle_shape(&self) -> Option<GanttBarMiddleShape> {
         self.common.get_middle_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_middle_shape`]。
+    /// Forwards [`GanttBarCommonStyle::set_middle_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setMiddleShape(GanttBarMiddleShape shape)`
+    /// Corresponds to Java: the `public void setMiddleShape(GanttBarMiddleShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_middle_shape(&mut self, shape: Option<GanttBarMiddleShape>) {
         self.common.set_middle_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_right_text`]。
+    /// Forwards [`GanttBarCommonStyle::get_right_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getRightText()`
+    /// Corresponds to Java: the `public FieldType getRightText()` inherited from `GanttBarCommonStyle`
     pub fn get_right_text(&self) -> Option<MppFieldType> {
         self.common.get_right_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_right_text`]。
+    /// Forwards [`GanttBarCommonStyle::set_right_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setRightText(FieldType field)`
+    /// Corresponds to Java: the `public void setRightText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_right_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_right_text(field);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_color`]。
+    /// Forwards [`GanttBarCommonStyle::get_start_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public Color getStartColor()`
+    /// Corresponds to Java: the `public Color getStartColor()` inherited from `GanttBarCommonStyle`
     pub fn get_start_color(&self) -> Option<Color> {
         self.common.get_start_color()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_color`]。
+    /// Forwards [`GanttBarCommonStyle::set_start_color`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartColor(Color color)`
+    /// Corresponds to Java: the `public void setStartColor(Color color)` inherited from `GanttBarCommonStyle`
     pub fn set_start_color(&mut self, color: Option<Color>) {
         self.common.set_start_color(color);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_shape`]。
+    /// Forwards [`GanttBarCommonStyle::get_start_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndShape getStartShape()`
+    /// Corresponds to Java: the `public GanttBarStartEndShape getStartShape()` inherited from `GanttBarCommonStyle`
     pub fn get_start_shape(&self) -> Option<GanttBarStartEndShape> {
         self.common.get_start_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_shape`]。
+    /// Forwards [`GanttBarCommonStyle::set_start_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartShape(GanttBarStartEndShape shape)`
+    /// Corresponds to Java: the `public void setStartShape(GanttBarStartEndShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_start_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.common.set_start_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_shape`]。
+    /// Forwards [`GanttBarCommonStyle::get_end_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndShape getEndShape()`
+    /// Corresponds to Java: the `public GanttBarStartEndShape getEndShape()` inherited from `GanttBarCommonStyle`
     pub fn get_end_shape(&self) -> Option<GanttBarStartEndShape> {
         self.common.get_end_shape()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_shape`]。
+    /// Forwards [`GanttBarCommonStyle::set_end_shape`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndShape(GanttBarStartEndShape shape)`
+    /// Corresponds to Java: the `public void setEndShape(GanttBarStartEndShape shape)` inherited from `GanttBarCommonStyle`
     pub fn set_end_shape(&mut self, shape: Option<GanttBarStartEndShape>) {
         self.common.set_end_shape(shape);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_start_type`]。
+    /// Forwards [`GanttBarCommonStyle::get_start_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndType getStartType()`
+    /// Corresponds to Java: the `public GanttBarStartEndType getStartType()` inherited from `GanttBarCommonStyle`
     pub fn get_start_type(&self) -> Option<GanttBarStartEndType> {
         self.common.get_start_type()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_start_type`]。
+    /// Forwards [`GanttBarCommonStyle::set_start_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setStartType(GanttBarStartEndType type)`
+    /// Corresponds to Java: the `public void setStartType(GanttBarStartEndType type)` inherited from `GanttBarCommonStyle`
     pub fn set_start_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.common.set_start_type(r#type);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_end_type`]。
+    /// Forwards [`GanttBarCommonStyle::get_end_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public GanttBarStartEndType getEndType()`
+    /// Corresponds to Java: the `public GanttBarStartEndType getEndType()` inherited from `GanttBarCommonStyle`
     pub fn get_end_type(&self) -> Option<GanttBarStartEndType> {
         self.common.get_end_type()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_end_type`]。
+    /// Forwards [`GanttBarCommonStyle::set_end_type`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setEndType(GanttBarStartEndType type)`
+    /// Corresponds to Java: the `public void setEndType(GanttBarStartEndType type)` inherited from `GanttBarCommonStyle`
     pub fn set_end_type(&mut self, r#type: Option<GanttBarStartEndType>) {
         self.common.set_end_type(r#type);
     }
 
-    /// 转发 [`GanttBarCommonStyle::get_top_text`]。
+    /// Forwards [`GanttBarCommonStyle::get_top_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public FieldType getTopText()`
+    /// Corresponds to Java: the `public FieldType getTopText()` inherited from `GanttBarCommonStyle`
     pub fn get_top_text(&self) -> Option<MppFieldType> {
         self.common.get_top_text()
     }
 
-    /// 转发 [`GanttBarCommonStyle::set_top_text`]。
+    /// Forwards [`GanttBarCommonStyle::set_top_text`].
     ///
-    /// 对应 Java: 继承自 `GanttBarCommonStyle` 的 `public void setTopText(FieldType field)`
+    /// Corresponds to Java: the `public void setTopText(FieldType field)` inherited from `GanttBarCommonStyle`
     pub fn set_top_text(&mut self, field: Option<MppFieldType>) {
         self.common.set_top_text(field);
     }
 }
 
 impl Display for GanttBarStyleException {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 输出：固定缩进的属性块，随后内联父类 `toString()`。
+    /// Java output: a fixed-indentation property block, followed by the inlined base class `toString()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "   [GanttBarStyleException")?;
         writeln!(f, "      TaskID={}", self.task_unique_id)?;

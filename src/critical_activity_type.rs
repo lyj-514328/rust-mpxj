@@ -1,32 +1,32 @@
-//! 对应 Java: `org/mpxj/CriticalActivityType.java`
+//! Corresponds to Java: `org/mpxj/CriticalActivityType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 决定任务的关键路径标记如何判定。
+/// Determines how a task's critical path flag is evaluated.
 ///
-/// 对应 Java: `public enum CriticalActivityType`
+/// Corresponds to Java: `public enum CriticalActivityType`
 ///
-/// Java 侧该枚举不实现 `MpxjEnum`，也没有 `getInstance`；Rust 侧按声明顺序提供
-/// [`CriticalActivityType::ALL`]，并用「序号（`ordinal()`）」实现 [`MpxjEnum::value`]，
-/// 使 int 与枚举可以互转（`get_instance` 在 Java 侧无对应方法）。
+/// The Java enum does not implement `MpxjEnum` and has no `getInstance`; the Rust side provides
+/// [`CriticalActivityType::ALL`] in declaration order and implements [`MpxjEnum::value`] using the ordinal (`ordinal()`),
+/// so int and enum can be converted both ways (`get_instance` has no corresponding method in Java).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CriticalActivityType {
-    /// 对应 Java: `TOTAL_FLOAT`
+    /// Corresponds to Java: `TOTAL_FLOAT`
     TotalFloat,
-    /// 对应 Java: `LONGEST_PATH`
+    /// Corresponds to Java: `LONGEST_PATH`
     LongestPath,
 }
 
 impl CriticalActivityType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     pub const ALL: [CriticalActivityType; 2] = [
         CriticalActivityType::TotalFloat,
         CriticalActivityType::LongestPath,
     ];
 
-    /// 按序号（Java 的 `ordinal()`）取枚举实例，越界返回 `None`。
+    /// Returns the enum instance by ordinal (Java's `ordinal()`), returning `None` when out of bounds.
     ///
-    /// Java 侧无对应方法（Java 直接使用枚举常量或 `values()[n]`）。
+    /// No corresponding method in Java (Java uses enum constants or `values()[n]` directly).
     pub fn get_instance(value: i32) -> Option<CriticalActivityType> {
         match value {
             0 => Some(CriticalActivityType::TotalFloat),
@@ -37,9 +37,9 @@ impl CriticalActivityType {
 }
 
 impl MpxjEnum for CriticalActivityType {
-    /// 返回声明顺序对应的序号。
+    /// Returns the ordinal corresponding to the declaration order.
     ///
-    /// Java 侧无 `getValue()`，此处对应 `Enum.ordinal()`。
+    /// Java has no `getValue()`; this corresponds to `Enum.ordinal()`.
     fn value(&self) -> i32 {
         *self as i32
     }

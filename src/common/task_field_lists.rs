@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/common/TaskFieldLists.java`
+//! Corresponds to Java: `org/mpxj/common/TaskFieldLists.java`
 
 use crate::task_field::TaskField;
 
-/// Task 字段按逻辑分组后的集合。
+/// Collections of Task fields grouped logically.
 ///
-/// 对应 Java: `public final class TaskFieldLists`
+/// Corresponds to Java: `public final class TaskFieldLists`
 ///
-/// 移植说明：
-/// - Java 的 `TaskField[]` 静态数组逐个落地为定长数组常量 `[TaskField; N]`，元素与顺序与 Java 完全一致。
-/// - Java 的 `CUSTOM_FIELDS` 由静态初始化块把 15 个数组依次 `addAll` 成 `ArrayList<TaskField>`；Rust 侧展开为 `&'static [TaskField]` 常量，顺序与 Java 的 `addAll` 调用顺序一致。
-/// - 本类只有静态常量、没有实例成员，Rust 侧用零字段结构体承载这些关联常量。
+/// Porting notes:
+/// - Each Java `TaskField[]` static array is ported as a fixed-size array constant `[TaskField; N]`, with elements and order exactly matching Java.
+/// - Java's `CUSTOM_FIELDS` is built by a static initializer that `addAll`s 15 arrays in turn into an `ArrayList<TaskField>`; the Rust side expands it into a `&'static [TaskField]` constant in the same order as the Java `addAll` calls.
+/// - This class has only static constants and no instance members; the Rust side uses a zero-field struct to carry these associated constants.
 ///
-/// 未移植的成员：无。
+/// Skipped Java members: none.
 pub struct TaskFieldLists;
 
 impl TaskFieldLists {
-    /// 对应 Java: `public static final TaskField[] CUSTOM_COST`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_COST`
     pub const CUSTOM_COST: [TaskField; 10] = [
         TaskField::Cost1,
         TaskField::Cost2,
@@ -29,7 +29,7 @@ impl TaskFieldLists {
         TaskField::Cost10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_DATE`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_DATE`
     pub const CUSTOM_DATE: [TaskField; 10] = [
         TaskField::Date1,
         TaskField::Date2,
@@ -43,7 +43,7 @@ impl TaskFieldLists {
         TaskField::Date10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_DURATION`
     pub const CUSTOM_DURATION: [TaskField; 10] = [
         TaskField::Duration1,
         TaskField::Duration2,
@@ -57,7 +57,7 @@ impl TaskFieldLists {
         TaskField::Duration10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_DURATION_UNITS`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_DURATION_UNITS`
     pub const CUSTOM_DURATION_UNITS: [TaskField; 10] = [
         TaskField::Duration1Units,
         TaskField::Duration2Units,
@@ -71,7 +71,7 @@ impl TaskFieldLists {
         TaskField::Duration10Units,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_FLAG`
     pub const CUSTOM_FLAG: [TaskField; 20] = [
         TaskField::Flag1,
         TaskField::Flag2,
@@ -95,7 +95,7 @@ impl TaskFieldLists {
         TaskField::Flag20,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_FINISH`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_FINISH`
     pub const CUSTOM_FINISH: [TaskField; 10] = [
         TaskField::Finish1,
         TaskField::Finish2,
@@ -109,7 +109,7 @@ impl TaskFieldLists {
         TaskField::Finish10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_NUMBER`
     pub const CUSTOM_NUMBER: [TaskField; 20] = [
         TaskField::Number1,
         TaskField::Number2,
@@ -133,7 +133,7 @@ impl TaskFieldLists {
         TaskField::Number20,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_START`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_START`
     pub const CUSTOM_START: [TaskField; 10] = [
         TaskField::Start1,
         TaskField::Start2,
@@ -147,7 +147,7 @@ impl TaskFieldLists {
         TaskField::Start10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_TEXT`
     pub const CUSTOM_TEXT: [TaskField; 30] = [
         TaskField::Text1,
         TaskField::Text2,
@@ -181,7 +181,7 @@ impl TaskFieldLists {
         TaskField::Text30,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_OUTLINE_CODE`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_OUTLINE_CODE`
     pub const CUSTOM_OUTLINE_CODE: [TaskField; 10] = [
         TaskField::OutlineCode1,
         TaskField::OutlineCode2,
@@ -195,7 +195,7 @@ impl TaskFieldLists {
         TaskField::OutlineCode10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] CUSTOM_OUTLINE_CODE_INDEX`
+    /// Corresponds to Java: `public static final TaskField[] CUSTOM_OUTLINE_CODE_INDEX`
     pub const CUSTOM_OUTLINE_CODE_INDEX: [TaskField; 10] = [
         TaskField::OutlineCode1Index,
         TaskField::OutlineCode2Index,
@@ -209,7 +209,7 @@ impl TaskFieldLists {
         TaskField::OutlineCode10Index,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_COST`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_COST`
     pub const ENTERPRISE_CUSTOM_COST: [TaskField; 10] = [
         TaskField::EnterpriseCost1,
         TaskField::EnterpriseCost2,
@@ -223,7 +223,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseCost10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_DATE`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_DATE`
     pub const ENTERPRISE_CUSTOM_DATE: [TaskField; 30] = [
         TaskField::EnterpriseDate1,
         TaskField::EnterpriseDate2,
@@ -257,7 +257,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseDate30,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_DURATION`
     pub const ENTERPRISE_CUSTOM_DURATION: [TaskField; 10] = [
         TaskField::EnterpriseDuration1,
         TaskField::EnterpriseDuration2,
@@ -271,7 +271,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseDuration10,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_FLAG`
     pub const ENTERPRISE_CUSTOM_FLAG: [TaskField; 20] = [
         TaskField::EnterpriseFlag1,
         TaskField::EnterpriseFlag2,
@@ -295,7 +295,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseFlag20,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_NUMBER`
     pub const ENTERPRISE_CUSTOM_NUMBER: [TaskField; 40] = [
         TaskField::EnterpriseNumber1,
         TaskField::EnterpriseNumber2,
@@ -339,7 +339,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseNumber40,
     ];
 
-    /// 对应 Java: `public static final TaskField[] ENTERPRISE_CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final TaskField[] ENTERPRISE_CUSTOM_TEXT`
     pub const ENTERPRISE_CUSTOM_TEXT: [TaskField; 40] = [
         TaskField::EnterpriseText1,
         TaskField::EnterpriseText2,
@@ -383,7 +383,7 @@ impl TaskFieldLists {
         TaskField::EnterpriseText40,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_COSTS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_COSTS`
     pub const BASELINE_COSTS: [TaskField; 10] = [
         TaskField::Baseline1Cost,
         TaskField::Baseline2Cost,
@@ -397,7 +397,7 @@ impl TaskFieldLists {
         TaskField::Baseline10Cost,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_DURATIONS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_DURATIONS`
     pub const BASELINE_DURATIONS: [TaskField; 10] = [
         TaskField::Baseline1Duration,
         TaskField::Baseline2Duration,
@@ -411,7 +411,7 @@ impl TaskFieldLists {
         TaskField::Baseline10Duration,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_ESTIMATED_DURATIONS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_ESTIMATED_DURATIONS`
     pub const BASELINE_ESTIMATED_DURATIONS: [TaskField; 10] = [
         TaskField::Baseline1EstimatedDuration,
         TaskField::Baseline2EstimatedDuration,
@@ -425,7 +425,7 @@ impl TaskFieldLists {
         TaskField::Baseline10EstimatedDuration,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_STARTS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_STARTS`
     pub const BASELINE_STARTS: [TaskField; 10] = [
         TaskField::Baseline1Start,
         TaskField::Baseline2Start,
@@ -439,7 +439,7 @@ impl TaskFieldLists {
         TaskField::Baseline10Start,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_ESTIMATED_STARTS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_ESTIMATED_STARTS`
     pub const BASELINE_ESTIMATED_STARTS: [TaskField; 10] = [
         TaskField::Baseline1EstimatedStart,
         TaskField::Baseline2EstimatedStart,
@@ -453,7 +453,7 @@ impl TaskFieldLists {
         TaskField::Baseline10EstimatedStart,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_FINISHES`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_FINISHES`
     pub const BASELINE_FINISHES: [TaskField; 10] = [
         TaskField::Baseline1Finish,
         TaskField::Baseline2Finish,
@@ -467,7 +467,7 @@ impl TaskFieldLists {
         TaskField::Baseline10Finish,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_ESTIMATED_FINISHES`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_ESTIMATED_FINISHES`
     pub const BASELINE_ESTIMATED_FINISHES: [TaskField; 10] = [
         TaskField::Baseline1EstimatedFinish,
         TaskField::Baseline2EstimatedFinish,
@@ -481,7 +481,7 @@ impl TaskFieldLists {
         TaskField::Baseline10EstimatedFinish,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_WORKS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_WORKS`
     pub const BASELINE_WORKS: [TaskField; 10] = [
         TaskField::Baseline1Work,
         TaskField::Baseline2Work,
@@ -495,7 +495,7 @@ impl TaskFieldLists {
         TaskField::Baseline10Work,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_FIXED_COSTS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_FIXED_COSTS`
     pub const BASELINE_FIXED_COSTS: [TaskField; 10] = [
         TaskField::Baseline1FixedCost,
         TaskField::Baseline2FixedCost,
@@ -509,7 +509,7 @@ impl TaskFieldLists {
         TaskField::Baseline10FixedCost,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_FIXED_COST_ACCRUALS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_FIXED_COST_ACCRUALS`
     pub const BASELINE_FIXED_COST_ACCRUALS: [TaskField; 10] = [
         TaskField::Baseline1FixedCostAccrual,
         TaskField::Baseline2FixedCostAccrual,
@@ -523,7 +523,7 @@ impl TaskFieldLists {
         TaskField::Baseline10FixedCostAccrual,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_BUDGET_COSTS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_BUDGET_COSTS`
     pub const BASELINE_BUDGET_COSTS: [TaskField; 10] = [
         TaskField::Baseline1BudgetCost,
         TaskField::Baseline2BudgetCost,
@@ -537,7 +537,7 @@ impl TaskFieldLists {
         TaskField::Baseline10BudgetCost,
     ];
 
-    /// 对应 Java: `public static final TaskField[] BASELINE_BUDGET_WORKS`
+    /// Corresponds to Java: `public static final TaskField[] BASELINE_BUDGET_WORKS`
     pub const BASELINE_BUDGET_WORKS: [TaskField; 10] = [
         TaskField::Baseline1BudgetWork,
         TaskField::Baseline2BudgetWork,
@@ -551,9 +551,9 @@ impl TaskFieldLists {
         TaskField::Baseline10BudgetWork,
     ];
 
-    /// 对应 Java: `public static final List<TaskField> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<TaskField> CUSTOM_FIELDS`
     ///
-    /// Java 在静态初始化块中按 `CUSTOM_TEXT`、`CUSTOM_DATE`、`CUSTOM_START`、`CUSTOM_FINISH`、`CUSTOM_COST`、`CUSTOM_FLAG`、`CUSTOM_NUMBER`、`CUSTOM_DURATION`、`CUSTOM_OUTLINE_CODE`、`ENTERPRISE_CUSTOM_TEXT`、`ENTERPRISE_CUSTOM_DATE`、`ENTERPRISE_CUSTOM_COST`、`ENTERPRISE_CUSTOM_FLAG`、`ENTERPRISE_CUSTOM_NUMBER`、`ENTERPRISE_CUSTOM_DURATION` 的顺序 `addAll` 拼接；此处保持同一顺序。
+    /// Java concatenates via `addAll` in the static initializer in the order `CUSTOM_TEXT`, `CUSTOM_DATE`, `CUSTOM_START`, `CUSTOM_FINISH`, `CUSTOM_COST`, `CUSTOM_FLAG`, `CUSTOM_NUMBER`, `CUSTOM_DURATION`, `CUSTOM_OUTLINE_CODE`, `ENTERPRISE_CUSTOM_TEXT`, `ENTERPRISE_CUSTOM_DATE`, `ENTERPRISE_CUSTOM_COST`, `ENTERPRISE_CUSTOM_FLAG`, `ENTERPRISE_CUSTOM_NUMBER`, `ENTERPRISE_CUSTOM_DURATION`; the same order is kept here.
     pub const CUSTOM_FIELDS: &'static [TaskField] = &[
         TaskField::Text1,
         TaskField::Text2,

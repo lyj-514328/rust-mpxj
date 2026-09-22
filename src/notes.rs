@@ -1,96 +1,104 @@
-//! 对应 Java: `org/mpxj/Notes.java`
+//! Corresponds to Java: `org/mpxj/Notes.java`
 
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
-/// 纯文本笔记的公共特征，调用 `Display`（等价于 Java 的 `toString()`）会得到
-/// 该笔记的纯文本表示。
+/// Common trait for plain-text notes; calling `Display` (equivalent to Java's
+/// `toString()`) yields the plain-text representation of the note.
 ///
-/// 对应 Java: `public class Notes`
+/// Corresponds to Java: `public class Notes`
 ///
-/// # 继承关系如何还原
+/// # How the Inheritance Relationship Is Reproduced
 ///
-/// Java 里 `Notes` 是一个可实例化的基类，`ParentNotes` / `StructuredNotes` /
-/// `RtfNotes` / `HtmlNotes` 都 `extends Notes`。Rust 没有继承，本移植把基类
-/// `Notes` 还原为 `pub trait Notes`：各子类分别是独立 struct 并各自实现本 trait；
-/// Java 中由基类字段承载的状态（`m_text`）直接放进各 struct。
+/// In Java `Notes` is an instantiable base class, and `ParentNotes` / `StructuredNotes` /
+/// `RtfNotes` / `HtmlNotes` all `extends Notes`. Rust has no inheritance, so this port
+/// reproduces the base class `Notes` as `pub trait Notes`: each subclass is a separate
+/// struct that implements this trait; state carried by the base-class field in Java
+/// (`m_text`) is placed directly into each struct.
 ///
-/// Java 中 `new Notes(text)` 直接实例化基类表示纯文本笔记；基类被还原为 trait 后，
-/// 该形态由 [`PlainNotes`] 承载，语义与 Java 的 `Notes` 完全一致。
+/// In Java `new Notes(text)` instantiates the base class directly to represent plain-text
+/// notes; once the base class is reproduced as a trait, that form is carried by
+/// [`PlainNotes`], with semantics identical to Java's `Notes`.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 的字段表按引用共享 `Notes` 对象（`Task.setNotesObject(Notes)` 直接存入同一个
-/// 实例），没有「复制」这一步。Rust 侧 [`crate::field_value::FieldValue::Notes`] 需要持有
-/// `Rc<dyn Notes>`，而既有调用点交出的是 `&dyn Notes`（如 `mpp8_reader` 的
-/// `task.set_notes_object(Some(&rtf_notes))`），故由各子类型实现 [`Notes::to_box`]
-/// 提供一次**子类型保真**的浅拷贝（[`Notes::to_rc`] 基于它给出共享句柄）。
+/// Java's field table shares `Notes` objects by reference (`Task.setNotesObject(Notes)`
+/// stores the same instance directly), with no "copy" step. On the Rust side
+/// [`crate::field_value::FieldValue::Notes`] needs to hold `Rc<dyn Notes>`, while existing
+/// call sites hand out `&dyn Notes` (e.g. `task.set_notes_object(Some(&rtf_notes))` in
+/// `mpp8_reader`), so each subtype implements [`Notes::to_box`] to provide a
+/// **subtype-preserving** shallow copy ([`Notes::to_rc`] derives a shared handle from it).
 pub trait Notes: Display {
-    /// 判断笔记文本是否为空。
+    /// Determine whether the note text is empty.
     ///
-    /// 对应 Java: `public boolean isEmpty()`
+    /// Corresponds to Java: `public boolean isEmpty()`
     ///
-    /// Java 的实现是 `String text = toString(); return text == null || text.isEmpty();`。
-    /// Rust 的 `Display` 不可能返回 `null`，因此只按「输出是否为空字符串」判断。
+    /// Java's implementation is `String text = toString(); return text == null || text.isEmpty();`.
+    /// Rust's `Display` can never return `null`, so this only checks whether the output is an
+    /// empty string.
     fn is_empty(&self) -> bool {
         self.to_string().is_empty()
     }
 
-    /// 复制为新的 `Box<dyn Notes>`（Rust 特有方法）。
+    /// Copy into a new `Box<dyn Notes>` (Rust-specific method).
     ///
-    /// 对应 Java: 无（见 trait 文档的「与 Java 的差异」）。
+    /// Corresponds to Java: none (see "Differences from Java" in the trait docs).
     ///
-    /// 各子类型需保证返回的对象与自身**具体子类型一致**，而不是退化后的纯文本，
-    /// 否则 `RtfNotes` / `HtmlNotes` / `StructuredNotes` 的子类型信息会丢失。
+    /// Each subtype must ensure the returned object has the **same concrete subtype** as
+    /// itself rather than a degraded plain-text form; otherwise the subtype information of
+    /// `RtfNotes` / `HtmlNotes` / `StructuredNotes` would be lost.
     fn to_box(&self) -> Box<dyn Notes>;
 
-    /// 复制为共享句柄 `Rc<dyn Notes>`（Rust 特有方法）。
+    /// Copy into a shared handle `Rc<dyn Notes>` (Rust-specific method).
     ///
-    /// 对应 Java: 无（见 trait 文档的「与 Java 的差异」）。
+    /// Corresponds to Java: none (see "Differences from Java" in the trait docs).
     ///
-    /// 默认实现基于 [`Notes::to_box`]，子类无需重复实现。
+    /// The default implementation is based on [`Notes::to_box`], so subclasses need not
+    /// reimplement it.
     fn to_rc(&self) -> Rc<dyn Notes> {
         Rc::from(self.to_box())
     }
 }
 
-/// 纯文本笔记。
+/// Plain-text note.
 ///
-/// 对应 Java: `public class Notes`（基类被直接实例化时的具体形态）
+/// Corresponds to Java: `public class Notes` (the concrete form when the base class is
+/// instantiated directly)
 ///
-/// 说明：Java 的基类 `Notes` 本身既可被当作基类，也可通过 `new Notes(text)` 直接
-/// 使用。Rust 侧 trait 无法被实例化，故用本类型承载「纯文本笔记」这一具体形态。
+/// Note: Java's base class `Notes` can both serve as a base class and be used directly via
+/// `new Notes(text)`. A Rust trait cannot be instantiated, so this type carries the
+/// concrete "plain-text note" form.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PlainNotes {
-    /// 笔记文本。
+    /// Note text.
     ///
-    /// 对应 Java: `private final String m_text;`
+    /// Corresponds to Java: `private final String m_text;`
     m_text: Option<String>,
 }
 
 impl PlainNotes {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public Notes(String text)`
+    /// Corresponds to Java: `public Notes(String text)`
     ///
-    /// Java 允许传入 `null`（`ParentNotes` / `StructuredNotes` 就通过 `super(null)`
-    /// 传入），故此处用 `Option` 表示。
+    /// Java allows passing `null` (`ParentNotes` / `StructuredNotes` do so via `super(null)`),
+    /// hence `Option` is used here.
     pub fn new(text: Option<String>) -> PlainNotes {
         PlainNotes { m_text: text }
     }
 }
 
 impl Display for PlainNotes {
-    /// 返回纯文本内容。
+    /// Return the plain-text content.
     ///
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 在 `m_text` 为 `null` 时返回 `null`；Rust 的 `Display` 无法表达 `null`，
-    /// 此处在 `None` 时输出空字符串。
+    /// Java returns `null` when `m_text` is `null`; Rust's `Display` cannot express `null`, so
+    /// here an empty string is written when it is `None`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.m_text {
             Some(text) => f.write_str(text),
@@ -100,7 +108,7 @@ impl Display for PlainNotes {
 }
 
 impl Notes for PlainNotes {
-    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+    /// Corresponds to Java: none (Rust-specific subtype-preserving copy, see [`Notes::to_box`])
     fn to_box(&self) -> Box<dyn Notes> {
         Box::new(PlainNotes::new(self.m_text.clone()))
     }

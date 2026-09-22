@@ -1,17 +1,17 @@
-//! 对应 Java: `org/mpxj/ProjectCalendarDays.java`
+//! Corresponds to Java: `org/mpxj/ProjectCalendarDays.java`
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 与 Java 的差异（结构性，非方法裁剪）：
-//! - Java 的 `ProjectCalendarDays` 是抽象类，由 `ProjectCalendar`、`ProjectCalendarWeek`
-//!   继承。Rust 无继承，[`ProjectCalendarDays`] 是普通结构体，由这些类型以字段
-//!   组合（composition）方式持有，并由它们把本文件的方法逐个转发出去。
-//! - Java 的 `DEFAULT_WORKING_MORNING` / `DEFAULT_WORKING_AFTERNOON` 是 `static final`
-//!   常量。Rust 侧 [`LocalTimeRange::new`] 不是 `const fn`，无法定义为常量，
-//!   因此改为关联方法 [`ProjectCalendarDays::default_working_morning`] /
-//!   [`ProjectCalendarDays::default_working_afternoon`]，取值与 Java 完全一致。
-//! - Java 通过对象引用就地修改数组元素（`hours.clear()`），Rust 侧除只读访问器外，
-//!   额外提供 [`ProjectCalendarDays::get_calendar_hours_for_day_mut`] 供同样的调用模式使用。
+//! Differences from Java (structural, not method trimming):
+//! - Java's `ProjectCalendarDays` is an abstract class, inherited by `ProjectCalendar` and `ProjectCalendarWeek`
+//!   Rust has no inheritance, so [`ProjectCalendarDays`] is a plain struct held by those types via field
+//!   composition, and they forward this file's methods one by one.
+//! - Java's `DEFAULT_WORKING_MORNING` / `DEFAULT_WORKING_AFTERNOON` are `static final`
+//!   constants. On the Rust side [`LocalTimeRange::new`] is not a `const fn`, so it cannot be defined as a constant;
+//!   instead it is changed to the associated methods [`ProjectCalendarDays::default_working_morning`] /
+//!   [`ProjectCalendarDays::default_working_afternoon`], with values exactly matching Java.
+//! - Java modifies array elements in place through an object reference (`hours.clear()`); besides the read-only accessor, the Rust side
+//!   additionally provides [`ProjectCalendarDays::get_calendar_hours_for_day_mut`] for the same call pattern.
 
 use chrono::{NaiveTime, Weekday};
 
@@ -20,10 +20,10 @@ use crate::day_type::DayType;
 use crate::local_time_range::LocalTimeRange;
 use crate::project_calendar_hours::ProjectCalendarHours;
 
-/// `java.time.DayOfWeek.values()` 的顺序（周一 → 周日）。
+/// The order of `java.time.DayOfWeek.values()` (Monday → Sunday).
 ///
-/// 对应 Java: `for (DayOfWeek day : DayOfWeek.values())`。
-/// 注意这与 `DayOfWeekHelper.ORDERED_DAYS`（周日在前，用于按 int 值取下标）不同。
+/// Corresponds to Java: `for (DayOfWeek day : DayOfWeek.values())`.
+/// Note this differs from `DayOfWeekHelper.ORDERED_DAYS` (Sunday first, used for indexing by int value).
 pub(crate) const JAVA_DAY_OF_WEEK_ORDER: [Weekday; 7] = [
     Weekday::Mon,
     Weekday::Tue,
@@ -34,28 +34,28 @@ pub(crate) const JAVA_DAY_OF_WEEK_ORDER: [Weekday; 7] = [
     Weekday::Sun,
 ];
 
-/// 一周 7 天的工作时段与工作日标志，不含例外日期。
+/// Working hours and working-day flags for the 7 days of a week, excluding exception dates.
 ///
-/// 对应 Java: `public abstract class ProjectCalendarDays`
+/// Corresponds to Java: `public abstract class ProjectCalendarDays`
 #[derive(Debug, Clone)]
 pub struct ProjectCalendarDays {
-    /// 对应 Java 字段 `private String m_name`
+    /// Corresponds to Java field `private String m_name`
     name: Option<String>,
-    /// 对应 Java 字段 `private final ProjectCalendarHours[] m_hours = new ProjectCalendarHours[7]`
+    /// Corresponds to Java field `private final ProjectCalendarHours[] m_hours = new ProjectCalendarHours[7]`
     ///
-    /// Java 侧数组元素允许为 `null`（表示该天没有工作时段定义），Rust 侧用 [`Option`] 表达；
-    /// 下标 0 为周日，下标 6 为周六（见 [`DayOfWeekHelper::get_value`]）。
+    /// On the Java side array elements may be `null` (meaning no working hours are defined for that day); the Rust side expresses this with [`Option`];
+    /// index 0 is Sunday and index 6 is Saturday (see [`DayOfWeekHelper::get_value`]).
     hours: [Option<ProjectCalendarHours>; 7],
-    /// 对应 Java 字段 `private final DayType[] m_days = new DayType[7]`
+    /// Corresponds to Java field `private final DayType[] m_days = new DayType[7]`
     ///
-    /// Java 侧未设置时元素为 `null`，Rust 侧用 [`Option`] 表达。
+    /// On the Java side the element is `null` when unset; the Rust side expresses this with [`Option`].
     days: [Option<DayType>; 7],
 }
 
 impl ProjectCalendarDays {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: 隐式无参构造方法 `ProjectCalendarDays()`
+    /// Corresponds to Java: implicit no-argument constructor `ProjectCalendarDays()`
     pub fn new() -> Self {
         Self {
             name: None,
@@ -64,40 +64,40 @@ impl ProjectCalendarDays {
         }
     }
 
-    /// 设置日历名称。
+    /// Set the calendar name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.name = name;
     }
 
-    /// 取日历名称。
+    /// Get the calendar name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    /// 取一周 7 天的工作时段数组（下标 0 为周日）。
+    /// Get the working-hours array for the 7 days of a week (index 0 is Sunday).
     ///
-    /// 对应 Java: `public ProjectCalendarHours[] getCalendarHours()`
+    /// Corresponds to Java: `public ProjectCalendarHours[] getCalendarHours()`
     pub fn get_calendar_hours(&self) -> &[Option<ProjectCalendarHours>; 7] {
         &self.hours
     }
 
-    /// 取指定星期的工作时段（不涉及基日历，与 Java 注释一致）。
+    /// Get the working hours for the specified weekday (does not involve the base calendar, consistent with Java's comment).
     ///
-    /// 对应 Java: `public ProjectCalendarHours getCalendarHours(DayOfWeek day)`
+    /// Corresponds to Java: `public ProjectCalendarHours getCalendarHours(DayOfWeek day)`
     ///
-    /// Java 可能返回 `null`，Rust 侧返回 [`Option`]。
+    /// Java may return `null`; the Rust side returns [`Option`].
     pub fn get_calendar_hours_for_day(&self, day: Weekday) -> Option<&ProjectCalendarHours> {
         self.hours[day_index(day)].as_ref()
     }
 
-    /// 取指定星期的工作时段（可变），用于替换 Java 中「拿到引用后就地修改」的写法。
+    /// Get the working hours for the specified weekday (mutable), used to replace Java's "obtain a reference then modify in place" pattern.
     ///
-    /// 对应 Java: `public ProjectCalendarHours getCalendarHours(DayOfWeek day)` 的可变版本
-    /// （Rust 侧补充，Java 无此重载）。
+    /// Corresponds to Java: the mutable version of `public ProjectCalendarHours getCalendarHours(DayOfWeek day)`
+    /// (added on the Rust side; Java has no such overload).
     pub fn get_calendar_hours_for_day_mut(
         &mut self,
         day: Weekday,
@@ -105,18 +105,18 @@ impl ProjectCalendarDays {
         self.hours[day_index(day)].as_mut()
     }
 
-    /// 为 7 天都添加默认工作时段。
+    /// Add default working hours for all 7 days.
     ///
-    /// 对应 Java: `public void addDefaultCalendarHours()`
+    /// Corresponds to Java: `public void addDefaultCalendarHours()`
     pub fn add_default_calendar_hours(&mut self) {
         for day in JAVA_DAY_OF_WEEK_ORDER {
             self.add_default_calendar_hours_for_day(day);
         }
     }
 
-    /// 设置标准工作周（周一到周五工作，周六周日非工作日）。
+    /// Set the standard working week (Monday to Friday working; Saturday and Sunday non-working).
     ///
-    /// 对应 Java: `public void addDefaultCalendarDays()`
+    /// Corresponds to Java: `public void addDefaultCalendarDays()`
     pub fn add_default_calendar_days(&mut self) {
         self.set_working_day(Weekday::Sun, false);
         self.set_working_day(Weekday::Mon, true);
@@ -127,9 +127,9 @@ impl ProjectCalendarDays {
         self.set_working_day(Weekday::Sat, false);
     }
 
-    /// 为指定星期添加默认工作时段（工作日为上午 + 下午，周末为空）。
+    /// Add default working hours for the specified weekday (morning + afternoon on working days; empty on weekends).
     ///
-    /// 对应 Java: `public void addDefaultCalendarHours(DayOfWeek day)`
+    /// Corresponds to Java: `public void addDefaultCalendarHours(DayOfWeek day)`
     pub fn add_default_calendar_hours_for_day(&mut self, day: Weekday) {
         let hours = self.add_calendar_hours(day);
 
@@ -139,38 +139,38 @@ impl ProjectCalendarDays {
         }
     }
 
-    /// 为指定星期添加（替换为）一个新的空工作时段集合，并返回它的可变引用。
+    /// Add (replace with) a new empty working-hours collection for the specified weekday and return a mutable reference to it.
     ///
-    /// 对应 Java: `public ProjectCalendarHours addCalendarHours(DayOfWeek day)`
-    /// （Java 每次都会新建 `ProjectCalendarHours` 覆盖原有对象，Rust 侧行为一致）。
+    /// Corresponds to Java: `public ProjectCalendarHours addCalendarHours(DayOfWeek day)`
+    /// (Java always creates a new `ProjectCalendarHours` to overwrite the existing object; the Rust side behaves identically).
     pub fn add_calendar_hours(&mut self, day: Weekday) -> &mut ProjectCalendarHours {
         self.hours[day_index(day)].insert(ProjectCalendarHours::new())
     }
 
-    /// 移除指定星期的工作时段（置为 `null`）。
+    /// Remove the working hours for the specified weekday (set to `null`).
     ///
-    /// 对应 Java: `public void removeCalendarHours(DayOfWeek day)`
+    /// Corresponds to Java: `public void removeCalendarHours(DayOfWeek day)`
     pub fn remove_calendar_hours(&mut self, day: Weekday) {
         self.hours[day_index(day)] = None;
     }
 
-    /// 取一周 7 天的工作日标志数组（下标 0 为周日）。
+    /// Get the working-day flag array for the 7 days of a week (index 0 is Sunday).
     ///
-    /// 对应 Java: `public DayType[] getCalendarDayTypes()`
+    /// Corresponds to Java: `public DayType[] getCalendarDayTypes()`
     pub fn get_calendar_day_types(&self) -> &[Option<DayType>; 7] {
         &self.days
     }
 
-    /// 取指定星期的原始工作日标志（`DEFAULT` / `WORKING` / `NON_WORKING`，未设置时为 `null`）。
+    /// Get the raw working-day flag for the specified weekday (`DEFAULT` / `WORKING` / `NON_WORKING`; `null` when unset).
     ///
-    /// 对应 Java: `public DayType getCalendarDayType(DayOfWeek day)`
+    /// Corresponds to Java: `public DayType getCalendarDayType(DayOfWeek day)`
     pub fn get_calendar_day_type(&self, day: Weekday) -> Option<DayType> {
         self.days[day_index(day)].clone()
     }
 
-    /// 用布尔值设置某天是否为工作日。
+    /// Set whether a day is a working day using a boolean.
     ///
-    /// 对应 Java: `public void setWorkingDay(DayOfWeek day, boolean working)`
+    /// Corresponds to Java: `public void setWorkingDay(DayOfWeek day, boolean working)`
     pub fn set_working_day(&mut self, day: Weekday, working: bool) {
         self.set_calendar_day_type(
             day,
@@ -182,13 +182,13 @@ impl ProjectCalendarDays {
         );
     }
 
-    /// 设置某天的工作日标志，并按 Java 逻辑同步工作时段。
+    /// Set the working-day flag for a day and synchronize the working hours according to Java's logic.
     ///
-    /// 对应 Java: `public void setCalendarDayType(DayOfWeek day, DayType type)`
+    /// Corresponds to Java: `public void setCalendarDayType(DayOfWeek day, DayType type)`
     ///
-    /// - `DEFAULT`：移除工作时段（默认日不应有工作时段）；
-    /// - `NON_WORKING`：保证工作时段对象存在且为空列表；
-    /// - `WORKING`：Java 侧实现被注释掉（原文件中的 TODO），此处保持同样的「不做处理」。
+    /// - `DEFAULT`: remove the working hours (a default day should not have working hours);
+    /// - `NON_WORKING`: ensure the working-hours object exists and is an empty list;
+    /// - `WORKING`: the Java implementation is commented out (a TODO in the original file); the same "do nothing" is kept here.
     pub fn set_calendar_day_type(&mut self, day: Weekday, r#type: DayType) {
         let index = day_index(day);
         self.days[index] = Some(r#type);
@@ -207,14 +207,14 @@ impl ProjectCalendarDays {
                 }
             }
             DayType::Working => {
-                // Java 侧实现为注释掉的 TODO（“Update implementation to derive DayType from hours”）
+                // The Java implementation is a commented-out TODO ("Update implementation to derive DayType from hours")
             }
         }
     }
 
-    /// 默认上午工作时段：08:00 - 12:00。
+    /// Default morning working hours: 08:00 - 12:00.
     ///
-    /// 对应 Java: `public static final LocalTimeRange DEFAULT_WORKING_MORNING`
+    /// Corresponds to Java: `public static final LocalTimeRange DEFAULT_WORKING_MORNING`
     pub fn default_working_morning() -> LocalTimeRange {
         LocalTimeRange::new(
             NaiveTime::from_hms_opt(8, 0, 0),
@@ -222,9 +222,9 @@ impl ProjectCalendarDays {
         )
     }
 
-    /// 默认下午工作时段：13:00 - 17:00。
+    /// Default afternoon working hours: 13:00 - 17:00.
     ///
-    /// 对应 Java: `public static final LocalTimeRange DEFAULT_WORKING_AFTERNOON`
+    /// Corresponds to Java: `public static final LocalTimeRange DEFAULT_WORKING_AFTERNOON`
     pub fn default_working_afternoon() -> LocalTimeRange {
         LocalTimeRange::new(
             NaiveTime::from_hms_opt(13, 0, 0),
@@ -239,7 +239,7 @@ impl Default for ProjectCalendarDays {
     }
 }
 
-/// 把星期换算为数组下标：对应 Java 的 `DayOfWeekHelper.getValue(day) - 1`。
+/// Convert a weekday to an array index: corresponds to Java's `DayOfWeekHelper.getValue(day) - 1`.
 fn day_index(day: Weekday) -> usize {
     (DayOfWeekHelper::get_value(day) - 1) as usize
 }
@@ -264,8 +264,8 @@ mod tests {
     #[test]
     fn name_is_stored() {
         let mut days = ProjectCalendarDays::new();
-        days.set_name(Some("标准".to_string()));
-        assert_eq!(days.get_name(), Some("标准"));
+        days.set_name(Some("Standard".to_string()));
+        assert_eq!(days.get_name(), Some("Standard"));
         days.set_name(None);
         assert_eq!(days.get_name(), None);
     }
@@ -275,7 +275,7 @@ mod tests {
         let mut days = ProjectCalendarDays::new();
         days.add_calendar_hours(Weekday::Sun).add(LocalTimeRange::EMPTY_RANGE);
 
-        // 下标 0 是周日
+        // Index 0 is Sunday
         assert!(days.get_calendar_hours()[0].is_some());
         assert!(days.get_calendar_hours()[1].is_none());
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Sun).map(ProjectCalendarHours::size), Some(1));
@@ -286,7 +286,7 @@ mod tests {
     fn add_calendar_hours_replaces_existing_instance() {
         let mut days = ProjectCalendarDays::new();
         days.add_calendar_hours(Weekday::Mon).add(ProjectCalendarDays::default_working_morning());
-        // Java: addCalendarHours 总是新建对象并覆盖
+        // Java: addCalendarHours always creates a new object and overwrites
         days.add_calendar_hours(Weekday::Mon);
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Mon).map(ProjectCalendarHours::size), Some(0));
     }
@@ -320,7 +320,7 @@ mod tests {
         days.add_default_calendar_hours();
 
         for day in JAVA_DAY_OF_WEEK_ORDER {
-            let hours = days.get_calendar_hours_for_day(day).expect("每天都应有工作时段对象");
+            let hours = days.get_calendar_hours_for_day(day).expect("every day should have a working hours object");
             if day == Weekday::Sat || day == Weekday::Sun {
                 assert_eq!(hours.size(), 0);
             } else {
@@ -361,20 +361,20 @@ mod tests {
     fn set_calendar_day_type_syncs_hours() {
         let mut days = ProjectCalendarDays::new();
 
-        // NON_WORKING：没有工作时段对象时创建一个空对象
+        // NON_WORKING: create an empty object when there is no working-hours object
         days.set_calendar_day_type(Weekday::Mon, DayType::NonWorking);
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Mon).map(ProjectCalendarHours::size), Some(0));
 
-        // NON_WORKING：已有工作时段对象时清空
+        // NON_WORKING: clear when a working-hours object already exists
         days.add_calendar_hours(Weekday::Tue).add(ProjectCalendarDays::default_working_morning());
         days.set_calendar_day_type(Weekday::Tue, DayType::NonWorking);
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Tue).map(ProjectCalendarHours::size), Some(0));
 
-        // DEFAULT：移除工作时段
+        // DEFAULT: remove the working hours
         days.set_calendar_day_type(Weekday::Tue, DayType::Default);
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Tue), None);
 
-        // WORKING：Java 侧不处理工作时段
+        // WORKING: the Java side does not touch the working hours
         days.set_calendar_day_type(Weekday::Wed, DayType::Working);
         assert_eq!(days.get_calendar_hours_for_day(Weekday::Wed), None);
         assert_eq!(days.get_calendar_day_type(Weekday::Wed), Some(DayType::Working));

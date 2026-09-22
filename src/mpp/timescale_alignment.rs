@@ -1,51 +1,51 @@
-//! 对应 Java: `org/mpxj/mpp/TimescaleAlignment.java`
+//! Corresponds to Java: `org/mpxj/mpp/TimescaleAlignment.java`
 //!
-//! 甘特图时间刻度标签的对齐方式。
+//! The alignment of Gantt chart timescale labels.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum TimescaleAlignment implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final TimescaleAlignment[] TYPE_VALUES = EnumHelper.createTypeArray(TimescaleAlignment.class)` | [`TimescaleAlignment::get_instance`] 的 `match` + [`TimescaleAlignment::ALL`] | 表长 3（偏移 0），取值 0..2 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getInstance(Number type)` | [`TimescaleAlignment::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀 |
-//! | `getName()` / `toString()` | [`TimescaleAlignment::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum TimescaleAlignment implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final TimescaleAlignment[] TYPE_VALUES = EnumHelper.createTypeArray(TimescaleAlignment.class)` | the `match` in [`TimescaleAlignment::get_instance`] + [`TimescaleAlignment::ALL`] | The table length is 3 (offset 0); values 0..2 are all filled, so Java's `getInstance` never returns `null` |
+//! | `getInstance(Number type)` | [`TimescaleAlignment::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added |
+//! | `getName()` / `toString()` | [`TimescaleAlignment::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 时间刻度标签的对齐方式。
+/// The alignment of timescale labels.
 ///
-/// 对应 Java: `public enum TimescaleAlignment`
+/// Corresponds to Java: `public enum TimescaleAlignment`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TimescaleAlignment {
-    /// 对应 Java: `LEFT(0, "Left")`
+    /// Corresponds to Java: `LEFT(0, "Left")`
     Left = 0,
-    /// 对应 Java: `CENTER(1, "Center")`
+    /// Corresponds to Java: `CENTER(1, "Center")`
     Center = 1,
-    /// 对应 Java: `RIGHT(2, "Right")`
+    /// Corresponds to Java: `RIGHT(2, "Right")`
     Right = 2,
 }
 
 impl TimescaleAlignment {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final TimescaleAlignment[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final TimescaleAlignment[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [TimescaleAlignment; 3] = [
         TimescaleAlignment::Left,
         TimescaleAlignment::Center,
         TimescaleAlignment::Right,
     ];
 
-    /// 按 int 值取枚举实例。
+/// Get the enum instance by int value.
     ///
-    /// 对应 Java: `public static TimescaleAlignment getInstance(int type)`
+    /// Corresponds to Java: `public static TimescaleAlignment getInstance(int type)`
     ///
-    /// 越界时 Java 先回落到 `CENTER.getValue()`（1）再取表，故不会返回 `null`。
+/// On out of bounds, Java first falls back to `CENTER.getValue()` (1) before indexing the table, so it never returns `null`.
     pub fn get_instance(value: i32) -> TimescaleAlignment {
         match value {
             0 => TimescaleAlignment::Left,
@@ -56,16 +56,16 @@ impl TimescaleAlignment {
         }
     }
 
-    /// 对应 Java: `public static TimescaleAlignment getInstance(Number type)`
+    /// Corresponds to Java: `public static TimescaleAlignment getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `CENTER`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `CENTER`.
     pub fn get_instance_optional(value: Option<i32>) -> TimescaleAlignment {
         TimescaleAlignment::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取名称（未做本地化）。
+/// Get the name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             TimescaleAlignment::Left => "Left",
@@ -74,30 +74,30 @@ impl TimescaleAlignment {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for TimescaleAlignment {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for TimescaleAlignment {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<TimescaleAlignment> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`TimescaleAlignment::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`TimescaleAlignment::get_value`].
     fn from(value: TimescaleAlignment) -> i32 {
         value.get_value()
     }
@@ -107,7 +107,7 @@ impl From<TimescaleAlignment> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in TimescaleAlignment::ALL.iter().enumerate() {
@@ -117,7 +117,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 CENTER（Java 不会返回 null）。
+/// Out of bounds falls back to CENTER (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_center() {
         for value in [-1, -100, 3, 4, 1000, i32::MAX, i32::MIN] {
@@ -136,7 +136,7 @@ mod tests {
         );
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(TimescaleAlignment::Left.get_name(), "Left");

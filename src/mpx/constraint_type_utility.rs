@@ -1,21 +1,22 @@
-//! 对应 Java: `org/mpxj/mpx/ConstraintTypeUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/ConstraintTypeUtility.java`
 //!
-//! # 区域设置名表
+//! # Locale name tables
 //!
-//! Java 用 `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)` 从 `ResourceBundle`
-//! 取本地化的约束类型名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份数据
-//! 由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的
-//! 方式**按区域设置取名表**。
+//! Java uses `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)` to obtain from
+//! `ResourceBundle` the localised constraint type name table (non-English languages are overridden
+//! by resource bundles such as `LocaleData_de`); on the Rust side the same data is held by
+//! [`LocaleData`] (localised overrides come from the `locale_data_XX` modules in the same package),
+//! so this module obtains the name table **per locale** the same way Java does.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::constraint_type::ConstraintType;
 use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 
-/// 英文（默认）约束类型名表。
+/// English (default) constraint type name table.
 ///
-/// 对应 Java: `LocaleData.CONSTRAINT_TYPES_DATA`（顺序即 `ConstraintType` 的 int 值 0..7）。
+/// Corresponds to Java: `LocaleData.CONSTRAINT_TYPES_DATA` (the order is the `ConstraintType` int value 0..7).
 const CONSTRAINT_TYPES: [Option<&str>; 8] = [
     Some("As Soon As Possible"),
     Some("As Late As Possible"),
@@ -27,23 +28,23 @@ const CONSTRAINT_TYPES: [Option<&str>; 8] = [
     Some("Finish No Later Than"),
 ];
 
-/// 管理 MPX 文件中 `ConstraintType` 实例的工具方法。
+/// Utility methods for managing `ConstraintType` instances in MPX files.
 ///
-/// 对应 Java: `final class ConstraintTypeUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class ConstraintTypeUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct ConstraintTypeUtility;
 
 impl ConstraintTypeUtility {
-    /// 把约束类型的文本形式转换成对应的枚举实例，无法识别的值按「越早越好」处理。
+    /// Convert the text form of a constraint type into the corresponding enum instance; unrecognised values are treated as "as soon as possible".
     ///
-    /// 对应 Java: `public static ConstraintType getInstance(Locale locale, String type)`
+    /// Corresponds to Java: `public static ConstraintType getInstance(Locale locale, String type)`
     ///
-    /// Java 的 `type` 为 `String`（可能为 `null`，`equalsIgnoreCase(null)` 恒为 `false`），
-    /// Rust 侧用 `Option<&str>` 承载，`None` 与「无法识别」等效。
+    /// Java's `type` is a `String` (it may be `null`, and `equalsIgnoreCase(null)` is always `false`);
+    /// the Rust side uses `Option<&str>`, where `None` is equivalent to "unrecognised".
     pub fn get_instance(locale: MpxLocale, r#type: Option<&str>) -> ConstraintType {
         let mut index = 0;
 
         for (loop_index, name) in constraint_types(locale).iter().enumerate() {
-            // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+            // Java's name table elements are never null; the Rust side skips `None` elements directly.
             if let Some(name) = name {
                 if equals_ignore_case(name, r#type) {
                     index = loop_index;
@@ -52,16 +53,17 @@ impl ConstraintTypeUtility {
             }
         }
 
-        // Java: ConstraintType.getInstance(index)，index 越界时回落 AS_SOON_AS_POSSIBLE
+        // Java: ConstraintType.getInstance(index); when index is out of bounds it falls back to AS_SOON_AS_POSSIBLE
         ConstraintType::get_instance(index as i32)
     }
 }
 
-/// 取对应区域设置的约束类型名表。
+/// Obtain the constraint type name table for the given locale.
 ///
-/// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)`
+/// Corresponds to Java: `LocaleData.getStringArray(locale, LocaleData.CONSTRAINT_TYPES)`
 ///
-/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+/// When the key is missing it falls back to the English default name table (Java's `ResourceBundle`
+/// likewise falls back to the base class resource).
 fn constraint_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
     LocaleData::get_string_array(locale, LocaleData::CONSTRAINT_TYPES).unwrap_or(&CONSTRAINT_TYPES)
 }
@@ -74,9 +76,9 @@ mod tests {
     #[test]
     fn constraint_type_round_trips_through_mpx_name() {
         for name in CONSTRAINT_TYPES {
-            let name = name.expect("英文名表没有空元素");
+            let name = name.expect("English name table has no null elements");
             let value = ConstraintTypeUtility::get_instance(MpxLocale::En, Some(name));
-            // 名表下标即 ConstraintType 的 int 值，转换回来应与名表一一对应。
+            // The name table index is the ConstraintType int value; converting back should correspond one-to-one with the name table.
             assert_eq!(CONSTRAINT_TYPES[value.value() as usize], Some(name));
             assert_eq!(
                 ConstraintTypeUtility::get_instance(MpxLocale::En, Some(name)),
@@ -95,7 +97,7 @@ mod tests {
             ConstraintTypeUtility::get_instance(MpxLocale::En, Some("MUST START ON")),
             ConstraintType::MustStartOn
         );
-        // Java: 无法识别的值与 null 都回落到「越早越好」
+        // Java: unrecognised values and null both fall back to "as soon as possible"
         assert_eq!(
             ConstraintTypeUtility::get_instance(MpxLocale::En, Some("Unknown")),
             ConstraintType::AsSoonAsPossible
@@ -112,7 +114,7 @@ mod tests {
 
     #[test]
     fn constraint_type_without_english_name_falls_back() {
-        // StartOn(8) / FinishOn(9) 在英文名表中没有对应项（名表只有 8 项）。
+        // StartOn(8) / FinishOn(9) have no corresponding entry in the English name table (the table has only 8 entries).
         assert_eq!(
             ConstraintTypeUtility::get_instance(MpxLocale::En, Some("Start On")),
             ConstraintType::AsSoonAsPossible
@@ -130,7 +132,7 @@ mod tests {
             ConstraintTypeUtility::get_instance(MpxLocale::De, Some("So früh wie möglich")),
             ConstraintType::AsSoonAsPossible
         );
-        // 英文名表里的值在德语名表中不存在，回落「越早越好」
+        // The values in the English name table do not exist in the German name table, so it falls back to "as soon as possible"
         assert_eq!(
             ConstraintTypeUtility::get_instance(MpxLocale::De, Some("Must Start On")),
             ConstraintType::AsSoonAsPossible

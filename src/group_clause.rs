@@ -1,6 +1,6 @@
-//! 对应 Java: `org/mpxj/GroupClause.java`
+//! Corresponds to Java: `org/mpxj/GroupClause.java`
 //!
-//! # Java 的三处 import 与其对应关系
+//! # Java's Three Imports and Their Correspondences
 //!
 //! ```java
 //! import java.awt.Color;
@@ -9,43 +9,44 @@
 //! import org.mpxj.mpp.FontStyle;
 //! ```
 //!
-//! 也就是说，本类虽然位于模型层（`org.mpxj`），其字体 / 颜色 / 图案三个成员却来自
-//! **MPP 读取层**（`org.mpxj.mpp`）与 `java.awt`。Rust 侧照搬这一依赖方向（模型层依赖
-//! `crate::mpp`），对应关系如下：
+//! That is, although this class lives in the model layer (`org.mpxj`), its font / color /
+//! pattern members come from the **MPP read layer** (`org.mpxj.mpp`) and `java.awt`. The Rust
+//! side copies this dependency direction (the model layer depends on `crate::mpp`); the
+//! correspondences are as follows:
 //!
 //! | Java import | Rust |
 //! |---|---|
-//! | `java.awt.Color` | [`crate::mpp::mpp_utility::Color`]（`java.awt.*` 属跳过项，本 crate 复用 `MPPUtility.get_color` 的返回值类型，见该模块说明） |
+//! | `java.awt.Color` | [`crate::mpp::mpp_utility::Color`] (`java.awt.*` is a skipped item; this crate reuses the return type of `MPPUtility.get_color`, see that module's docs) |
 //! | `org.mpxj.mpp.FontStyle` | [`crate::mpp::font_style::FontStyle`] |
 //! | `org.mpxj.mpp.BackgroundPattern` | [`crate::mpp::background_pattern::BackgroundPattern`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `private FieldType m_field` | [`GroupClause::get_field`] / [`GroupClause::set_field`]（`FieldType` → [`FieldKey`]） | 本 crate 对 `FieldType` 接口的运行时擦除 |
-//! | `private FontStyle m_font` | `Option<FontStyle>` | Java 侧初始为 `null`，只有 MPP 读取器填过才有值 |
-//! | `private Color m_cellBackgroundColor` | `Option<Color>` | 同上；`ColorType.AUTOMATIC` 的颜色在 Java 里也是 `null` |
-//! | `private BackgroundPattern m_pattern` | `Option<BackgroundPattern>` | 同上 |
-//! | `public Object getGroupInterval()` / `setGroupInterval(Object)` | [`GroupClause::get_group_interval`] / [`GroupClause::set_group_interval`]（`Object` → `Option<FieldValue>`，见下） | 实际取值为数值 / 字符串 / 工期等标量 |
-//! | `@Override public String toString()` | [`Display`] | 八段格式与 Java 完全一致（含 Java 侧**漏写**结尾 `]` 的原样行为） |
+//! | `private FieldType m_field` | [`GroupClause::get_field`] / [`GroupClause::set_field`] (`FieldType` → [`FieldKey`]) | This crate's runtime erasure of the `FieldType` interface |
+//! | `private FontStyle m_font` | `Option<FontStyle>` | Initially `null` on the Java side; only has a value once an MPP reader has populated it |
+//! | `private Color m_cellBackgroundColor` | `Option<Color>` | Same as above; the color for `ColorType.AUTOMATIC` is also `null` in Java |
+//! | `private BackgroundPattern m_pattern` | `Option<BackgroundPattern>` | Same as above |
+//! | `public Object getGroupInterval()` / `setGroupInterval(Object)` | [`GroupClause::get_group_interval`] / [`GroupClause::set_group_interval`] (`Object` → `Option<FieldValue>`, see below) | The actual values are scalars such as numbers / strings / durations |
+//! | `@Override public String toString()` | [`Display`] | The eight-segment format is exactly consistent with Java (including Java's **omission** of the trailing `]`, preserved as-is) |
 //!
-//! 未移植 / 跳过的 Java 成员：无（三个样式成员已随 `FontStyle` / `BackgroundPattern` /
-//! `Color` 落地而补齐）。
+//! Unported / skipped Java members: none (the three style members were completed along with
+//! `FontStyle` / `BackgroundPattern` / `Color`).
 //!
-//! 反射 / JDBC / XML(JAXB) / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / `javax.*` / `Serializable`: this class does not use these mechanisms.
 //!
-//! 其余两点：
+//! Two further points:
 //!
-//! - **`Object` 取值**：`m_startAt` / `m_groupInterval` 在 Java 中是 `Object`（实际取值为
-//!   数值 / 字符串 / 工期等标量）。Rust 侧用本 crate 的标量 `Object` 载体
-//!   [`FieldValue`] 表达。
-//! - **`toString()` 的格式**：Java 输出 `field` / `ascending` / `font` / `color` /
-//!   `pattern` / `groupOn` / `startAt` / `groupInterval` 各段（且**漏写**了结尾的 `]`，
-//!   属 Java 侧原样保留的行为）。Rust 侧逐段照搬，其中 `color` 段按
-//!   `java.awt.Color.toString()` 的形式渲染（见 [`format_color`]）。
-//! - **`equals` / `hashCode`**：Java 未覆写（对象同一性）；Rust 侧不实现
-//!   `PartialEq` / `Eq` / `Hash`。
+//! - **`Object` values**: `m_startAt` / `m_groupInterval` are `Object` in Java (the actual
+//!   values are scalars such as numbers / strings / durations). The Rust side expresses them
+//!   with this crate's scalar `Object` carrier [`FieldValue`].
+//! - **`toString()` format**: Java outputs the `field` / `ascending` / `font` / `color` /
+//!   `pattern` / `groupOn` / `startAt` / `groupInterval` segments (and **omits** the trailing
+//!   `]`, a Java behavior preserved as-is). The Rust side copies each segment, rendering the
+//!   `color` segment in the form of `java.awt.Color.toString()` (see [`format_color`]).
+//! - **`equals` / `hashCode`**: not overridden in Java (object identity); the Rust side does
+//!   not implement `PartialEq` / `Eq` / `Hash`.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -56,55 +57,55 @@ use crate::mpp::font_style::FontStyle;
 use crate::mpp::mpp_utility::{format_color, Color};
 use crate::test_operator::Operand;
 
-/// 分组定义中的一条子句。
+/// A single clause in a group definition.
 ///
-/// 对应 Java: `public final class GroupClause`
+/// Corresponds to Java: `public final class GroupClause`
 pub struct GroupClause {
-    /// 分组字段。
+    /// Group field.
     ///
-    /// 对应 Java: `private FieldType m_field;`
+    /// Corresponds to Java: `private FieldType m_field;`
     m_field: Option<FieldKey>,
 
-    /// 是否升序分组。
+    /// Whether grouping is ascending.
     ///
-    /// 对应 Java: `private boolean m_ascending;`
+    /// Corresponds to Java: `private boolean m_ascending;`
     m_ascending: bool,
 
-    /// 字体样式。
+    /// Font style.
     ///
-    /// 对应 Java: `private FontStyle m_font;`
+    /// Corresponds to Java: `private FontStyle m_font;`
     m_font: Option<FontStyle>,
 
-    /// 单元格背景色。
+    /// Cell background color.
     ///
-    /// 对应 Java: `private Color m_cellBackgroundColor;`
+    /// Corresponds to Java: `private Color m_cellBackgroundColor;`
     m_cell_background_color: Option<Color>,
 
-    /// 背景图案。
+    /// Background pattern.
     ///
-    /// 对应 Java: `private BackgroundPattern m_pattern;`
+    /// Corresponds to Java: `private BackgroundPattern m_pattern;`
     m_pattern: Option<BackgroundPattern>,
 
-    /// 分组方式。
+    /// Group-on mode.
     ///
-    /// 对应 Java: `private int m_groupOn;`
+    /// Corresponds to Java: `private int m_groupOn;`
     m_group_on: i32,
 
-    /// 「起始于」取值。
+    /// "Start at" value.
     ///
-    /// 对应 Java: `private Object m_startAt;`
+    /// Corresponds to Java: `private Object m_startAt;`
     m_start_at: Option<FieldValue>,
 
-    /// 分组间隔。
+    /// Group interval.
     ///
-    /// 对应 Java: `private Object m_groupInterval;`
+    /// Corresponds to Java: `private Object m_groupInterval;`
     m_group_interval: Option<FieldValue>,
 }
 
 impl GroupClause {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+    /// Corresponds to Java: implicit default constructor (Java declares no explicit constructor).
     pub fn new() -> Self {
         Self {
             m_field: None,
@@ -118,136 +119,136 @@ impl GroupClause {
         }
     }
 
-    /// 取「是否升序分组」标志。
+    /// Return the "whether grouping is ascending" flag.
     ///
-    /// 对应 Java: `public boolean getAscending()`
+    /// Corresponds to Java: `public boolean getAscending()`
     pub fn get_ascending(&self) -> bool {
         self.m_ascending
     }
 
-    /// 设置「是否升序分组」标志。
+    /// Set the "whether grouping is ascending" flag.
     ///
-    /// 对应 Java: `public void setAscending(boolean ascending)`
+    /// Corresponds to Java: `public void setAscending(boolean ascending)`
     pub fn set_ascending(&mut self, ascending: bool) {
         self.m_ascending = ascending;
     }
 
-    /// 取单元格背景色。
+    /// Return the cell background color.
     ///
-    /// 对应 Java: `public Color getCellBackgroundColor()`
+    /// Corresponds to Java: `public Color getCellBackgroundColor()`
     pub fn get_cell_background_color(&self) -> Option<Color> {
         self.m_cell_background_color
     }
 
-    /// 设置单元格背景色。
+    /// Set the cell background color.
     ///
-    /// 对应 Java: `public void setCellBackgroundColor(Color color)`
+    /// Corresponds to Java: `public void setCellBackgroundColor(Color color)`
     pub fn set_cell_background_color(&mut self, color: Option<Color>) {
         self.m_cell_background_color = color;
     }
 
-    /// 取分组字段。
+    /// Return the group field.
     ///
-    /// 对应 Java: `public FieldType getField()`
+    /// Corresponds to Java: `public FieldType getField()`
     pub fn get_field(&self) -> Option<FieldKey> {
         self.m_field
     }
 
-    /// 设置分组字段。
+    /// Set the group field.
     ///
-    /// 对应 Java: `public void setField(FieldType field)`
+    /// Corresponds to Java: `public void setField(FieldType field)`
     pub fn set_field(&mut self, field: Option<FieldKey>) {
         self.m_field = field;
     }
 
-    /// 取字体样式。
+    /// Return the font style.
     ///
-    /// 对应 Java: `public FontStyle getFont()`
+    /// Corresponds to Java: `public FontStyle getFont()`
     pub fn get_font(&self) -> Option<&FontStyle> {
         self.m_font.as_ref()
     }
 
-    /// 设置字体样式。
+    /// Set the font style.
     ///
-    /// 对应 Java: `public void setFont(FontStyle font)`
+    /// Corresponds to Java: `public void setFont(FontStyle font)`
     pub fn set_font(&mut self, font: Option<FontStyle>) {
         self.m_font = font;
     }
 
-    /// 取分组间隔。
+    /// Return the group interval.
     ///
-    /// 对应 Java: `public Object getGroupInterval()`
+    /// Corresponds to Java: `public Object getGroupInterval()`
     pub fn get_group_interval(&self) -> Option<&FieldValue> {
         self.m_group_interval.as_ref()
     }
 
-    /// 设置分组间隔。
+    /// Set the group interval.
     ///
-    /// 对应 Java: `public void setGroupInterval(Object groupInterval)`
+    /// Corresponds to Java: `public void setGroupInterval(Object groupInterval)`
     pub fn set_group_interval(&mut self, group_interval: Option<FieldValue>) {
         self.m_group_interval = group_interval;
     }
 
-    /// 取分组方式。
+    /// Return the group-on mode.
     ///
-    /// 对应 Java: `public int getGroupOn()`
+    /// Corresponds to Java: `public int getGroupOn()`
     pub fn get_group_on(&self) -> i32 {
         self.m_group_on
     }
 
-    /// 设置分组方式。
+    /// Set the group-on mode.
     ///
-    /// 对应 Java: `public void setGroupOn(int groupOn)`
+    /// Corresponds to Java: `public void setGroupOn(int groupOn)`
     pub fn set_group_on(&mut self, group_on: i32) {
         self.m_group_on = group_on;
     }
 
-    /// 取背景图案。
+    /// Return the background pattern.
     ///
-    /// 对应 Java: `public BackgroundPattern getPattern()`
+    /// Corresponds to Java: `public BackgroundPattern getPattern()`
     pub fn get_pattern(&self) -> Option<BackgroundPattern> {
         self.m_pattern
     }
 
-    /// 设置背景图案。
+    /// Set the background pattern.
     ///
-    /// 对应 Java: `public void setPattern(BackgroundPattern pattern)`
+    /// Corresponds to Java: `public void setPattern(BackgroundPattern pattern)`
     pub fn set_pattern(&mut self, pattern: Option<BackgroundPattern>) {
         self.m_pattern = pattern;
     }
 
-    /// 取「起始于」取值。
+    /// Return the "start at" value.
     ///
-    /// 对应 Java: `public Object getStartAt()`
+    /// Corresponds to Java: `public Object getStartAt()`
     pub fn get_start_at(&self) -> Option<&FieldValue> {
         self.m_start_at.as_ref()
     }
 
-    /// 设置「起始于」取值。
+    /// Set the "start at" value.
     ///
-    /// 对应 Java: `public void setStartAt(Object startAt)`
+    /// Corresponds to Java: `public void setStartAt(Object startAt)`
     pub fn set_start_at(&mut self, start_at: Option<FieldValue>) {
         self.m_start_at = start_at;
     }
 }
 
 impl Default for GroupClause {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`GroupClause::new`]。
+    /// Corresponds to Java: implicit default constructor, equivalent to [`GroupClause::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 按 Java 的 `String.valueOf` 风格渲染取值（`None` → `"null"`）。
+/// Render the value in Java's `String.valueOf` style (`None` → `"null"`).
 fn render_value(value: Option<&FieldValue>) -> String {
-    // 复用 [`Operand`] 的 Java 风格渲染，避免同一套渲染逻辑出现多份实现。
+    // Reuse [`Operand`]'s Java-style rendering to avoid multiple implementations of the same rendering logic.
     match value {
         Some(value) => Operand::from(value.clone()).to_string(),
         None => "null".to_owned(),
     }
 }
 
-/// 把可选对象按 Java 的字符串拼接语义渲染（`None` → `"null"`）。
+/// Render an optional object with Java's string-concatenation semantics (`None` → `"null"`).
 fn render_optional<T: Display>(value: Option<&T>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -256,9 +257,9 @@ fn render_optional<T: Display>(value: Option<&T>) -> String {
 }
 
 impl Display for GroupClause {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 与 Java 一致地**不含**结尾的 `]`。
+    /// Consistent with Java, **does not** include the trailing `]`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let field = match self.m_field {
             Some(field) => field.to_string(),
@@ -281,7 +282,7 @@ impl Display for GroupClause {
 }
 
 impl fmt::Debug for GroupClause {
-    /// Java 未覆写调试输出；Rust 侧提供 `Debug`（复用 [`Display`]）。
+    /// Java does not override debug output; the Rust side provides `Debug` (reusing [`Display`]).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
@@ -335,7 +336,7 @@ mod tests {
             clause.get_group_interval(),
             Some(&FieldValue::Integer(3))
         );
-        // Java 的 `setFont` / `setCellBackgroundColor` / `setPattern` 往返一致
+        // Java's `setFont` / `setCellBackgroundColor` / `setPattern` round-trip consistently
         assert_eq!(clause.get_font(), Some(&font));
         assert_eq!(
             clause.get_cell_background_color(),
@@ -344,7 +345,7 @@ mod tests {
         assert_eq!(clause.get_pattern(), Some(BackgroundPattern::Dotted));
     }
 
-    /// 三个样式成员可以被重新置空（Java 侧同样允许传 `null`）。
+    /// The three style members can be cleared again (Java likewise allows passing `null`).
     #[test]
     fn style_members_can_be_cleared() {
         let mut clause = GroupClause::new();
@@ -397,7 +398,7 @@ mod tests {
         );
     }
 
-    /// `font` / `color` / `pattern` 三段与 Java 的 `toString()` 逐字一致。
+    /// The `font` / `color` / `pattern` segments match Java's `toString()` verbatim.
     #[test]
     fn display_renders_font_color_and_pattern() {
         let mut clause = GroupClause::new();

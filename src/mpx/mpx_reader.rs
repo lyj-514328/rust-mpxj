@@ -1,194 +1,218 @@
-//! 对应 Java: `org/mpxj/mpx/MPXReader.java`
+//! Corresponds to Java: `org/mpxj/mpx/MPXReader.java`
 //!
-//! 通过读取 MPX 文件构造 [`ProjectFile`] 的 reader —— MPX 读取链路的收口类。
+//! The reader that constructs a [`ProjectFile`] by reading an MPX file — the closing class of the
+//! MPX read chain.
 //!
-//! # 接线方式（Java 继承链 → Rust trait）
+//! # Wiring (Java inheritance chain → Rust traits)
 //!
-//! Java 是 `public final class MPXReader extends AbstractProjectStreamReader`。
-//! Rust 没有继承，按 [`crate::reader::abstract_project_reader`] 文件头的约定接线：
+//! Java is `public final class MPXReader extends AbstractProjectStreamReader`. Rust has no
+//! inheritance, so it is wired per the conventions in the header of
+//! [`crate::reader::abstract_project_reader`]:
 //!
-//! - `impl ProjectReader for MPXReader`：接口方法逐个给出。其中
-//!   `add_project_listener` 转调 [`AbstractProjectReader::add_project_listener_default`]，
-//!   `read_file` / `read_all_file` / `read_all_reader` 转调
-//!   [`AbstractProjectStreamReader`] 的 `*_default`（本层仍为「抽象」的
-//!   `read_reader` 即 Java 的 `read(InputStream)`，由本类自己实现）；
-//! - `impl AbstractProjectReader for MPXReader`：提供监听器存储
-//!   （[`MPXReader::project_listeners`] / [`MPXReader::project_listeners_mut`]）；
-//! - `impl AbstractProjectStreamReader for MPXReader {}`：本层已无待实现方法。
+//! - `impl ProjectReader for MPXReader`: each interface method is given individually. Among them,
+//!   `add_project_listener` forwards to [`AbstractProjectReader::add_project_listener_default`], and
+//!   `read_file` / `read_all_file` / `read_all_reader` forward to
+//!   [`AbstractProjectStreamReader`]'s `*_default` (the still-"abstract" `read_reader` at this level,
+//!   i.e. Java's `read(InputStream)`, is implemented by this class itself);
+//! - `impl AbstractProjectReader for MPXReader`: provides listener storage
+//!   ([`MPXReader::project_listeners`] / [`MPXReader::project_listeners_mut`]);
+//! - `impl AbstractProjectStreamReader for MPXReader {}`: this level has no methods left to implement.
 //!
-//! 入口 [`MPXReader::read`] 与 Java 的 `read(InputStream)` 一一对应；`read_reader`
-//! 只做转调（Java 中 `read(InputStream)` 本身就是该类的实现，Rust 侧为了保持
-//! 「入口方法名与 Java 一致」而单独留出 [`MPXReader::read`]）。
+//! The entry point [`MPXReader::read`] corresponds one-to-one to Java's `read(InputStream)`;
+//! `read_reader` only forwards (in Java `read(InputStream)` is itself this class's implementation;
+//! on the Rust side [`MPXReader::read`] is kept separate to keep "the entry method name consistent
+//! with Java").
 //!
-//! # 文件头探测 → 字节 / 字符切换（Java 的 `BufferedInputStream` + `mark` / `reset`）
+//! # File-header probe → byte / character switch (Java's `BufferedInputStream` + `mark` / `reset`)
 //!
-//! Java 的流程是：
+//! Java's flow is:
 //!
-//! 1. 用 `BufferedInputStream` 按**字节**读前 4 个字节，校验 `MPX` 前缀，
-//!    第 4 个字节即字段分隔符；
-//! 2. `bis.mark(1024)` 是在读完**第 1 个字节之后**设置的，因此 `bis.reset()` 只能回到
-//!    偏移 1（Java 注释明说：首条记录的首字段会得到 `PX` 而不是 `MPX`）；
-//! 3. 用 `InputStreamTokenizer`（按字节、不预读）读「文件创建记录」，从里面取出代码页；
-//! 4. 用 `new InputStreamReader(bis, codePage.getCharset())` + `ReaderTokenizer`
-//!    按**字符**读剩余记录。
+//! 1. Read the first 4 bytes with `BufferedInputStream` as **bytes** and validate the `MPX` prefix;
+//!    the 4th byte is the field delimiter;
+//! 2. `bis.mark(1024)` is set **after reading the 1st byte**, so `bis.reset()` can only return to
+//!    offset 1 (the Java comment states plainly: the first field of the first record yields `PX`
+//!    rather than `MPX`);
+//! 3. Read the "file creation record" with `InputStreamTokenizer` (byte-wise, no lookahead) and take
+//!    the code page from it;
+//! 4. Read the remaining records as **characters** with
+//!    `new InputStreamReader(bis, codePage.getCharset())` + `ReaderTokenizer`.
 //!
-//! Rust 的 [`std::io::Read`] 没有 `mark` / `reset`，本类按
-//! [`crate::reader::abstract_project_stream_reader::read_stream_into_cursor`] 的建议，
-//! 先把整个流读进内存得到 [`std::io::Cursor`]（`Cursor` 实现 [`Seek`]，`seek` 即 `reset`）：
+//! Rust's [`std::io::Read`] has no `mark` / `reset`, so per the advice of
+//! [`crate::reader::abstract_project_stream_reader::read_stream_into_cursor`] this class first reads
+//! the whole stream into memory to obtain a [`std::io::Cursor`] (`Cursor` implements [`Seek`], and
+//! `seek` is `reset`):
 //!
 //! | Java | Rust |
 //! |---|---|
 //! | `new BufferedInputStream(is)` | [`read_stream_into_cursor`] → `Cursor<Vec<u8>>` |
-//! | 逐字节 `bis.read()` 探测 4 字节 | `cursor.read(...)` 读 4 字节 |
+//! | Byte-wise `bis.read()` probing 4 bytes | `cursor.read(...)` reads 4 bytes |
 //! | `bis.mark(1024)` / `bis.reset()` | `cursor.seek(SeekFrom::Start(1))` |
 //! | `new InputStreamTokenizer(bis)` | `Tokenizer::new(ByteSource::new(cursor))` |
 //! | `new ReaderTokenizer(new InputStreamReader(bis, charset))` | `Tokenizer::new(CharSource::with_encoding(cursor, encoding))` |
-//! | `codePage.getCharset()` | [`crate::CodePage::get_charset`]（`None` 时回落到 [`encoding_rs::WINDOWS_1252`]，见下） |
+//! | `codePage.getCharset()` | [`crate::CodePage::get_charset`] (falls back to [`encoding_rs::WINDOWS_1252`] when `None`, see below) |
 //!
-//! 交接的关键是 [`crate::common::input_stream_tokenizer::ByteSource`] /
-//! [`crate::common::reader_tokenizer::CharSource`] 都支持「把底层数据源取回」
-//! （`Tokenizer::into_source()` → `ByteSource::into_inner()`），字节阶段读完后
-//! 同一个 `Cursor` 会原样交给字符阶段的解码器 —— 对应 Java 中同一个
-//! `BufferedInputStream` 先后被 `InputStreamTokenizer` 与 `InputStreamReader` 使用。
+//! The key to the handoff is that both
+//! [`crate::common::input_stream_tokenizer::ByteSource`] /
+//! [`crate::common::reader_tokenizer::CharSource`] support "taking back the underlying data source"
+//! (`Tokenizer::into_source()` → `ByteSource::into_inner()`), so after the byte stage the same
+//! `Cursor` is handed unchanged to the character-stage decoder — corresponding to the same
+//! `BufferedInputStream` being used first by `InputStreamTokenizer` and then by `InputStreamReader`
+//! in Java.
 //!
-//! 取舍说明：`Record::new`（Java 的 `new Record(file, locale, tk, m_formats)`）需要的参数是
-//! `&mut Tokenizer<S>`，而 [`crate::common::input_stream_tokenizer::InputStreamTokenizer`] /
-//! [`crate::common::reader_tokenizer::ReaderTokenizer`] 只对外转发 `nextToken` 等方法、
-//! 不暴露内部 `Tokenizer`，故这里直接组合两者内部使用的 `ByteSource` / `CharSource` 构造
-//! `Tokenizer<S>`；语义与使用上述两个包装类型完全一致（它们本就是 `Tokenizer<S>` 的薄包装）。
+//! Trade-off note: `Record::new` (Java's `new Record(file, locale, tk, m_formats)`) needs a
+//! `&mut Tokenizer<S>`, whereas
+//! [`crate::common::input_stream_tokenizer::InputStreamTokenizer`] /
+//! [`crate::common::reader_tokenizer::ReaderTokenizer`] only forward methods such as `nextToken` and
+//! do not expose the inner `Tokenizer`; so here the `ByteSource` / `CharSource` used internally by
+//! both are combined directly to construct a `Tokenizer<S>`; the semantics are exactly the same as
+//! using the two wrapper types above (they are themselves thin wrappers around `Tokenizer<S>`).
 //!
-//! `CodePage::get_charset()` 对 CP437 / CP850 返回 `None`（`encoding_rs` 未实现这两种编码，
-//! 见 [`crate::CodePage`]），而 Java 侧字符集恒非 null；Rust 侧回落到
-//! [`encoding_rs::WINDOWS_1252`]（同为单字节西文编码，比 UTF-8 更接近原文件语义）。
+//! `CodePage::get_charset()` returns `None` for CP437 / CP850 (`encoding_rs` does not implement
+//! these two encodings, see [`crate::CodePage`]), whereas the Java charset is always non-null; Rust
+//! falls back to [`encoding_rs::WINDOWS_1252`] (also a single-byte Western encoding, closer to the
+//! original file's semantics than UTF-8).
 //!
-//! # 记录分派清单（Java `switch (recordNumber)`，Rust `match`）
+//! # Record dispatch list (Java `switch (recordNumber)`, Rust `match`)
 //!
-//! | 记录号（常量） | 处理 |
+//! | Record number (constant) | Handling |
 //! |---|---|
-//! | `PROJECT_NAMES`(80) / `DDE_OLE_CLIENT_LINKS`(81) / `COMMENTS`(0) | 静默忽略 |
+//! | `PROJECT_NAMES`(80) / `DDE_OLE_CLIENT_LINKS`(81) / `COMMENTS`(0) | Silently ignored |
 //! | `CURRENCY_SETTINGS`(10) | [`MPXReader::populate_currency_settings`] + `m_formats.update()` |
 //! | `DEFAULT_SETTINGS`(11) | [`MPXReader::populate_default_settings`] + `m_formats.update()` |
 //! | `DATE_TIME_SETTINGS`(12) | [`MPXReader::populate_date_time_settings`] + `m_formats.update()` |
-//! | `BASE_CALENDAR`(20) | `addCalendar()` + [`MPXReader::populate_calendar`]（基日历） |
+//! | `BASE_CALENDAR`(20) | `addCalendar()` + [`MPXReader::populate_calendar`] (base calendar) |
 //! | `BASE_CALENDAR_HOURS`(25) | [`MPXReader::populate_calendar_hours`] |
 //! | `BASE_CALENDAR_EXCEPTION`(26) | [`MPXReader::populate_calendar_exception`] |
 //! | `PROJECT_HEADER`(30) | [`MPXReader::populate_project_header`] + `m_formats.update()` |
 //! | `RESOURCE_MODEL_TEXT`(40) / `RESOURCE_MODEL_NUMERIC`(41) | `ResourceModel::update` |
-//! | `RESOURCE_RECORD`(50) | `addResource()` + [`MPXReader::populate_resource`] + 事件 |
+//! | `RESOURCE_RECORD`(50) | `addResource()` + [`MPXReader::populate_resource`] + events |
 //! | `RESOURCE_NOTES`(51) | `setNotes` |
-//! | `RESOURCE_CALENDAR`(55) / `_HOURS`(56) / `_EXCEPTION`(57) | 同上（作用于资源日历） |
+//! | `RESOURCE_CALENDAR`(55) / `_HOURS`(56) / `_EXCEPTION`(57) | As above (acting on the resource calendar) |
 //! | `TASK_MODEL_TEXT`(60) / `TASK_MODEL_NUMERIC`(61) | `TaskModel::update` |
-//! | `TASK_RECORD`(70) | `addTask()` + [`MPXReader::populate_task`] + 层级挂接 + 事件 |
+//! | `TASK_RECORD`(70) | `addTask()` + [`MPXReader::populate_task`] + hierarchy attachment + events |
 //! | `TASK_NOTES`(71) | `setNotes` |
 //! | `RECURRING_TASK`(72) | `setRecurring(true)` + `addRecurringTask()` + [`MPXReader::populate_recurring_task`] |
 //! | `RESOURCE_ASSIGNMENT`(75) | `addResourceAssignment` + [`MPXReader::populate_resource_assignment`] |
 //! | `RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`(76) | `addWorkgroupAssignment()` + [`MPXReader::populate_resource_assignment_workgroup_fields`] |
 //! | `FILE_CREATION`(999) | [`MPXReader::populate_file_creation_record`] |
-//! | 其它 | `Err(INVALID_RECORD)` |
+//! | Other | `Err(INVALID_RECORD)` |
 //!
-//! # 绕过字段表直接写实体的字段（Rust 特有取舍）
+//! # Fields written directly to entities, bypassing the field table (Rust-specific trade-off)
 //!
-//! [`crate::FieldValue`] 只有标量变体（`Integer` / `Short` / `Double` / `Boolean` /
-//! `String` / `Date` / `Time` / `DateTime` / `Duration` / `Rate`），**没有实体引用与集合
-//! 变体**。Java 中把「`Resource` 对象」「`List<Relation>`」写进字段表的字段，Rust 侧改为
-//! 绕过字段表、直接调用实体的 setter / 构建器：
+//! [`crate::FieldValue`] has only scalar variants (`Integer` / `Short` / `Double` / `Boolean` /
+//! `String` / `Date` / `Time` / `DateTime` / `Duration` / `Rate`) and **no entity-reference or
+//! collection variants**. Fields into which Java writes a "`Resource` object" or
+//! "`List<Relation>`", Rust instead bypasses the field table and calls the entity's setters /
+//! builders directly:
 //!
-//! | Java 字段 | Java 写法 | Rust 写法 |
+//! | Java field | Java form | Rust form |
 //! |---|---|---|
-//! | `AssignmentField.RESOURCE` | 由 `Task.addResourceAssignment(resource)` 内部经字段写入 | [`crate::Task::add_resource_assignment`]（经 `resource unique ID` 关联） |
-//! | `TaskField.PREDECESSORS` / `UNIQUE_ID_PREDECESSORS` | `populateRelationList` 收集后建 `Relation` | [`MPXReader::populate_relation_list`] + [`crate::Task::add_predecessor`]（存入延迟处理列表，不写字段表） |
-//! | `ResourceField.MAX_UNITS` | `resource.getAvailability().add(new Availability(...))` | [`crate::Resource::add_availability`]（Rust 特有的写通道，语义与 Java 的 `getAvailability().add(...)` 相同，见「与 Java 的差异」第 3 条） |
-//! | 枚举字段（`CONSTRAINT_TYPE` / `PRIORITY` / `TYPE`） | `task.set(taskField, ConstraintType/Priority/TaskType)` | 字段表以 `Integer`（枚举的 `getValue()`）编码，或直接调用 `set_type`（见「与 Java 的差异」第 4 条） |
+//! | `AssignmentField.RESOURCE` | Written through the field internally by `Task.addResourceAssignment(resource)` | [`crate::Task::add_resource_assignment`] (associated by `resource unique ID`) |
+//! | `TaskField.PREDECESSORS` / `UNIQUE_ID_PREDECESSORS` | `populateRelationList` collects, then a `Relation` is built | [`MPXReader::populate_relation_list`] + [`crate::Task::add_predecessor`] (stored in the deferred list, not written to the field table) |
+//! | `ResourceField.MAX_UNITS` | `resource.getAvailability().add(new Availability(...))` | [`crate::Resource::add_availability`] (a Rust-specific write path with the same semantics as Java's `getAvailability().add(...)`, see item 3 of "Differences from Java") |
+//! | Enum fields (`CONSTRAINT_TYPE` / `PRIORITY` / `TYPE`) | `task.set(taskField, ConstraintType/Priority/TaskType)` | The field table encodes an `Integer` (the enum's `getValue()`), or `set_type` is called directly (see item 4 of "Differences from Java") |
 //!
-//! `TaskField.NOTES` / `TaskField.SUCCESSORS` 在 Java 中被显式忽略（MS Project 不写备注列、
-//! MPX 文件通常只有前置关系），Rust 侧同样忽略。
+//! `TaskField.NOTES` / `TaskField.SUCCESSORS` are explicitly ignored in Java (MS Project does not
+//! write a notes column, and MPX files usually contain only predecessor relations), and Rust
+//! likewise ignores them.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 1. **`m_formats` 不是结构体成员**：`m_formats` 是 Java 的**临时工作数据**（`finally` 中置
-//!    null）。Rust 侧 `Record` 借用 `MPXJFormats`（`Record<'a>` 的生命周期参数），若它同时是
-//!    `self` 的成员，则 `parse_record(&mut self, &record)` 会同时要求「字段借用」与「整体可变
-//!    借用」，无法通过借用检查。故读取期间以局部变量承载它，并且 `m_formats.update()`
-//!    上提到 [`MPXReader::read`] 的循环里执行：`parse_record` 返回「本记录是否触发
-//!    `m_formats.update()`」（Java 中紧随 populate 之后的那 4 处调用），调用方在 `Record`
-//!    释放后再执行 update，语义与 Java 完全一致。
-//! 2. **`m_projectConfig` 不是结构体成员**：Java 的 `ProjectConfig` 由 `ProjectContext` 持有，
-//!    Rust 侧只能经 `Ref` 临时借用（`ProjectFile::get_project_config`），无法长期保存
-//!    （`ProjectConfig` 未实现 `Clone`，也不是 `Rc`）。故改为按需读取：
-//!    [`MPXReader::with_project_config`] 每次现场取配置，等价于 Java 的
-//!    `m_projectConfig.getXxx()`。
-//! 3. **`ResourceField.MAX_UNITS`**：Java 走 `resource.getAvailability().add(new Availability(...))`。
-//!    本仓 `Resource::get_availability()` 只借出只读 `Ref`，故经 [`crate::Resource::add_availability`]
-//!    写入可用性表（与 Java 完全一致：值不落字段表，`Resource::get_max_units()` 由可用性表计算）。
-//! 4. **枚举字段**：`FieldValue` 没有枚举变体，Java 的 `task.set(taskField, enumValue)`
-//!    在 Rust 侧统一按「枚举的 `getValue()` → `FieldValue::Integer`」写入字段表
-//!    （与 `Task::set_priority` / `Task::set_constraint_type` 的内部编码一致，读回时
-//!    由 `Task::get_priority` / `get_constraint_type` 还原）。
-//! 5. **`TaskModel::get_model` / `ResourceModel::get_model` 需要 `&mut self`**（Java 直接返回内部
-//!    数组），而 `populate_task` / `populate_resource` 在循环中还调用 `&mut self` 的方法
-//!    （如 `populate_relation_list`）。Rust 侧改为把模型**拷贝**成本地 `Vec<i32>` 再遍历，
-//!    语义不变（模型最多 154 项）。
-//! 6. **`m_projectFile.addTask()`**：Rust 的 `ProjectFile::add_task` 在持有
-//!    `borrow_mut()` 的情况下会重入借用，故使用其提供的免借用入口
-//!    [`crate::ProjectFile::add_task_shared`]（语义与 Java 的 `addTask()` 相同）。
-//! 7. **集合与实体**：`List` → `Vec`，`Map` → `HashMap`；实体一律以
-//!    `Rc<RefCell<..>>` 共享持有（本 crate 约定）。`resourceCalendarMap` 的键是
-//!    `Integer`（可为 null），Rust 侧用 `HashMap<Option<i32>, usize>` 表达。
-//! 8. **`Resource` 的 ID / unique ID 访问经由 trait**：`get_id` / `set_id` /
-//!    `get_unique_id` / `set_unique_id` 在 [`crate::Resource`] 上是
+//! 1. **`m_formats` is not a struct member**: `m_formats` is Java's **temporary working data** (set to
+//!    null in `finally`). On the Rust side `Record` borrows `MPXJFormats` (`Record<'a>`'s lifetime
+//!    parameter); if it were also a member of `self`, then `parse_record(&mut self, &record)` would
+//!    simultaneously require a "field borrow" and a "whole-value mutable borrow" and fail borrow
+//!    checking. So during reading it is carried in a local variable, and `m_formats.update()` is
+//!    hoisted into the loop of [`MPXReader::read`]: `parse_record` returns "whether this record
+//!    triggers `m_formats.update()`" (the 4 call sites that immediately follow populate in Java), and
+//!    the caller performs the update after `Record` is released, exactly matching Java's semantics.
+//! 2. **`m_projectConfig` is not a struct member**: Java's `ProjectConfig` is held by
+//!    `ProjectContext`; Rust can only borrow it temporarily via a `Ref`
+//!    (`ProjectFile::get_project_config`) and cannot store it long-term (`ProjectConfig` implements
+//!    neither `Clone` nor `Rc`). So it is read on demand: [`MPXReader::with_project_config`] fetches
+//!    the config fresh each time, equivalent to Java's `m_projectConfig.getXxx()`.
+//! 3. **`ResourceField.MAX_UNITS`**: Java goes through `resource.getAvailability().add(new Availability(...))`.
+//!    This repo's `Resource::get_availability()` only lends a read-only `Ref`, so it writes to the
+//!    availability table via [`crate::Resource::add_availability`] (exactly as in Java: the value
+//!    does not go into the field table, and `Resource::get_max_units()` is computed from the
+//!    availability table).
+//! 4. **Enum fields**: `FieldValue` has no enum variant, so Java's `task.set(taskField, enumValue)` is
+//!    uniformly written to the field table on the Rust side as "enum's `getValue()` → `FieldValue::Integer`"
+//!    (consistent with the internal encoding of `Task::set_priority` / `Task::set_constraint_type`,
+//!    restored on read by `Task::get_priority` / `get_constraint_type`).
+//! 5. **`TaskModel::get_model` / `ResourceModel::get_model` need `&mut self`** (Java returns the
+//!    internal array directly), and `populate_task` / `populate_resource` also call `&mut self`
+//!    methods in the loop (such as `populate_relation_list`). Rust instead **copies** the model into
+//!    a local `Vec<i32>` and iterates that; the semantics are unchanged (the model has at most 154
+//!    entries).
+//! 6. **`m_projectFile.addTask()`**: Rust's `ProjectFile::add_task` re-enters the borrow while
+//!    holding `borrow_mut()`, so the borrow-free entry point it provides,
+//!    [`crate::ProjectFile::add_task_shared`], is used (same semantics as Java's `addTask()`).
+//! 7. **Collections and entities**: `List` → `Vec`, `Map` → `HashMap`; entities are always shared as
+//!    `Rc<RefCell<..>>` (this crate's convention). The key of `resourceCalendarMap` is `Integer`
+//!    (may be null), expressed on the Rust side as `HashMap<Option<i32>, usize>`.
+//! 8. **`Resource` ID / unique ID access goes through traits**: `get_id` / `set_id` /
+//!    `get_unique_id` / `set_unique_id` on [`crate::Resource`] are methods of the
 //!    `ProjectEntityWithID` / `ProjectEntityWithMutableUniqueID` / `ProjectEntityWithUniqueID`
-//!    三个 trait 的方法，故本模块引入了这三个 trait。
-//! 9. **`read` 的异常包装**：Java 的 `catch (Exception ex)` 会把**所有**异常（含
-//!    `INVALID_FILE` / `INVALID_RECORD`）重新包成
-//!    `MPXJException(READ_ERROR + " (failed at line N)", ex)`；Rust 侧同样如此
-//!    （[`crate::MpxjError::with_cause`]），消息形如 `Error reading file (failed at line 3): ...`。
-//! 10. **`finally` 中的清理**：Java 把全部临时成员置空；Rust 侧由
-//!     [`MPXReader::reset_transient`] 完成同样的清理（返回值已克隆，不受影响）。
-//! 11. **`get_time_from_integer`**：Java 的 `LocalTime.ofSecondOfDay` 对超出一天的秒数按
-//!     模 86400 归一；Rust 侧显式 `rem_euclid(86_400)` 后构造，行为一致。
-//! 12. **`DayOfWeekHelper.getInstance` 返回 `Option<Weekday>`**（Java 可为 null）：Rust 侧取不到
-//!     星期时跳过该条「日历工作时间」记录（Java 会把 null 传给 `addCalendarHours`）。
-//! 13. **关系字符串的切分**：Java 用 `String.indexOf(char, int)` / `substring`（UTF-16 索引），
-//!     Rust 侧用字节索引（`str::find` / 切片），对 ASCII 分隔符与 ASCII 关系串二者等价
-//!     （`index + 2` 处改用「取两个 `char`」，对增补平面字符也安全）。
-//! 14. **`m_projectFile.updateStructure()` 的调用方式**：与 Java 一致，原地调用
-//!     [`crate::ProjectFile::update_structure`]。原先「把任务容器临时移出 `ProjectFile`
-//!     再重建」的绕法已移除 —— `TaskContainer::update_structure` 现在接收
-//!     调用方传入的自动编号开关，`Task::add_child_task_with_auto_outline_level` 同理，
-//!     容器侧不再回调父文件，因此持有 `ProjectFile` 可变借用调用不会重入借用冲突。
-//!     WBS / 大纲编号的「第几个顶层任务」计数由容器把自己的 `child_tasks.len()` 传入，
-//!     取值与 Java 读取 `getChildTasks().size()` 的时机和结果完全一致。
-//! 15. **任务 ID → 任务映射的接线**：[`crate::Task::set_id`] 与 Java 的 `Task.setID` 一致，
-//!     会回调 [`crate::TaskContainer`] 的 `unmap_id` / `map_id`（该回调依赖
-//!     `Task::set_self_reference` 在任务入容器时接线），因此本类无需额外补偿。任务尚未
-//!     接线、或父文件正被借用时，该回调退化为「不维护 ID 索引」而不 panic。
-//! 16. **未映射的 MPX 字段号**：任务记录里 Java 显式判 `taskField == null` 后跳过；资源记录里
-//!     Java 未判（`MPXResourceField.getMpxjField` 返回 null 时落到 `default` 分支并 NPE）。
-//!     Rust 侧两种情况都跳过该字段（不 panic）。
-//! 17. **字段文本无法解析为整数时**（任务的 `Objects` / `OutlineLevel` / `ID` / `UniqueID`）：
-//!     Java 的 `Integer.valueOf` 抛 `NumberFormatException`，被 `read` 的 catch 包成
-//!     `READ_ERROR (failed at line N)`；Rust 侧返回同文本的 [`crate::MpxjError`]
-//!     （`For input string: "..."`），再由 [`MPXReader::read`] 做同样的包装。
-//! 18. **`populateTask` 里的格式解析改经 [`Record`] 的访问器**：Java 在 `populateTask` 中直接写
-//!     `m_formats.getPercentageDecimalFormat().parse(field)` / `parseDateTime(field)` 等，
-//!     Rust 侧改用 `record.get_percentage(i)` / `record.get_currency(i)` /
-//!     `record.get_float(i)` / `record.get_date_time(i)`——[`Record`] 的这些访问器内部调用的正是
-//!     **同一批** `MPXJFormats` 格式对象，解析结果与错误消息与 Java 一致
-//!     （仅 `NUMBER1..5` 一处的消息按 Java 的 `"Failed to parse number"` 重写，
-//!     因为 `Record::get_float` 的消息是 `"Failed to parse float"`）。这样 `MPXJFormats`
-//!     无需层层下传到各 populate 方法；只有需要格式对象**本身**的调用点例外：
-//!     `populate_task` 经 [`Record::get_formats`] 取回，`populate_relation`（不接收
-//!     `Record`）则由 [`MPXReader::read_impl`] 逐层传入（两者都用于
-//!     `DurationUtility.getInstance(..., m_formats.getDurationDecimalFormat(), ...)`）。
+//!    traits, so this module imports these three traits.
+//! 9. **Exception wrapping in `read`**: Java's `catch (Exception ex)` re-wraps **all** exceptions
+//!    (including `INVALID_FILE` / `INVALID_RECORD`) as
+//!    `MPXJException(READ_ERROR + " (failed at line N)", ex)`; Rust does the same
+//!    ([`crate::MpxjError::with_cause`]), with a message like `Error reading file (failed at line 3): ...`.
+//! 10. **Cleanup in `finally`**: Java nulls out all temporary members; on the Rust side
+//!     [`MPXReader::reset_transient`] performs the same cleanup (the return value has already been
+//!     cloned, so it is unaffected).
+//! 11. **`get_time_from_integer`**: Java's `LocalTime.ofSecondOfDay` normalizes seconds beyond one day
+//!     modulo 86400; Rust explicitly `rem_euclid(86_400)` before constructing, giving the same behavior.
+//! 12. **`DayOfWeekHelper.getInstance` returns `Option<Weekday>`** (may be null in Java): when Rust
+//!     cannot resolve the weekday it skips that "calendar working hours" record (Java passes null to
+//!     `addCalendarHours`).
+//! 13. **Splitting the relation string**: Java uses `String.indexOf(char, int)` / `substring`
+//!     (UTF-16 indices), while Rust uses byte indices (`str::find` / slicing), which are equivalent
+//!     for ASCII separators and ASCII relation strings (the `index + 2` spot instead "takes two
+//!     `char`s", which is also safe for supplementary-plane characters).
+//! 14. **How `m_projectFile.updateStructure()` is called**: as in Java, it is called in place,
+//!     [`crate::ProjectFile::update_structure`]. The previous workaround of "temporarily moving the
+//!     task container out of `ProjectFile` and rebuilding it" has been removed —
+//!     `TaskContainer::update_structure` now accepts the automatic-numbering switch passed in by the
+//!     caller, as does `Task::add_child_task_with_auto_outline_level`, and the container side no
+//!     longer calls back into the parent file, so calling it while holding a mutable borrow of
+//!     `ProjectFile` does not re-enter a borrow conflict. The "number of top-level tasks" counter for
+//!     WBS / outline numbering is passed in by the container as its own `child_tasks.len()`, matching
+//!     both the timing and the result of Java reading `getChildTasks().size()`.
+//! 15. **Wiring of the task ID → task map**: [`crate::Task::set_id`], like Java's `Task.setID`, calls
+//!     back into [`crate::TaskContainer`]'s `unmap_id` / `map_id` (that callback relies on
+//!     `Task::set_self_reference` being wired when the task enters the container), so this class needs
+//!     no extra compensation. When the task is not yet wired, or the parent file is being borrowed,
+//!     the callback degrades to "does not maintain the ID index" without panicking.
+//! 16. **Unmapped MPX field numbers**: in task records Java explicitly checks `taskField == null` and
+//!     skips; in resource records Java does not check (`MPXResourceField.getMpxjField` returning null
+//!     falls into the `default` branch and NPEs). Rust skips the field in both cases (no panic).
+//! 17. **When field text cannot be parsed as an integer** (a task's `Objects` / `OutlineLevel` / `ID` /
+//!     `UniqueID`): Java's `Integer.valueOf` throws `NumberFormatException`, which `read`'s catch wraps
+//!     as `READ_ERROR (failed at line N)`; Rust returns an equivalent-text [`crate::MpxjError`]
+//!     (`For input string: "..."`), and [`MPXReader::read`] performs the same wrapping.
+//! 18. **Format parsing in `populateTask` goes through [`Record`]'s accessors**: Java in
+//!     `populateTask` writes `m_formats.getPercentageDecimalFormat().parse(field)` /
+//!     `parseDateTime(field)` etc. directly, while Rust uses `record.get_percentage(i)` /
+//!     `record.get_currency(i)` / `record.get_float(i)` / `record.get_date_time(i)` — the internals of
+//!     these [`Record`] accessors call **the same set** of `MPXJFormats` format objects, so parse
+//!     results and error messages match Java (only the message for `NUMBER1..5` is rewritten to Java's
+//!     `"Failed to parse number"`, since `Record::get_float`'s message is `"Failed to parse float"`).
+//!     This way `MPXJFormats` need not be passed down through every populate method; only call sites
+//!     that need the format object **itself** are exceptions: `populate_task` retrieves it via
+//!     [`Record::get_formats`], and `populate_relation` (which does not receive a `Record`) has it
+//!     passed down through the layers by [`MPXReader::read_impl`] (both are used for
+//!     `DurationUtility.getInstance(..., m_formats.getDurationDecimalFormat(), ...)`).
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `MPXWriter` | 按任务要求不移植（本文件只含读取链路） |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `MPXWriter` | Not ported per the task requirements (this file contains only the read chain) |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! 未移植的成员：无（上表列出的成员已说明原因）。
+//! Skipped Java members: none (the members listed in the table above have their reasons stated).
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -253,31 +277,32 @@ use crate::task_type::TaskType;
 use crate::time_unit::TimeUnit;
 use crate::{CalendarType, DayType, EventManager, FieldKey, FieldValue, LocalTimeRange, MpxjError, MpxjResult};
 
-/// 等待延迟处理的任务关系数据。
+/// Task relationship data awaiting deferred processing.
 ///
-/// 对应 Java: `protected static class DeferredRelationship`
+/// Corresponds to Java: `protected static class DeferredRelationship`
 ///
-/// 之所以延迟处理：MPX 文件中的前置关系可以**前向引用**（指向文件后面才出现的任务），
-/// 因此先把关系文本收集起来，等整个文件读完后统一解析、建 [`Relation`]。
+/// Why deferred: predecessor relationships in an MPX file may be **forward references** (pointing to
+/// tasks that appear later in the file), so the relationship text is collected first and parsed
+/// uniformly after the whole file is read, building [`Relation`]s.
 pub struct DeferredRelationship {
-    /// 关系所属（后继）任务。
+    /// The (successor) task the relationship belongs to.
     ///
-    /// 对应 Java: `private Task m_task;`
+    /// Corresponds to Java: `private Task m_task;`
     task: Option<Rc<RefCell<Task>>>,
-    /// 数据来源的字段（`PREDECESSORS` 按 ID 查找，`UNIQUE_ID_PREDECESSORS` 按 unique ID 查找）。
+    /// The source field (`PREDECESSORS` looks up by ID, `UNIQUE_ID_PREDECESSORS` by unique ID).
     ///
-    /// 对应 Java: `private TaskField m_field;`
+    /// Corresponds to Java: `private TaskField m_field;`
     field: Option<TaskField>,
-    /// 关系文本（可能含多条关系，以字段分隔符分隔）。
+    /// Relationship text (may contain multiple relationships separated by the field delimiter).
     ///
-    /// 对应 Java: `private String m_data;`
+    /// Corresponds to Java: `private String m_data;`
     data: Option<String>,
 }
 
 impl DeferredRelationship {
-    /// 构造空的延迟关系（Java 为隐式无参构造）。
+    /// Construct an empty deferred relationship (an implicit no-arg constructor in Java).
     ///
-    /// 对应 Java: `DeferredRelationship()`
+    /// Corresponds to Java: `DeferredRelationship()`
     pub fn new() -> Self {
         Self {
             task: None,
@@ -286,156 +311,157 @@ impl DeferredRelationship {
         }
     }
 
-    /// 取后继任务。
+    /// Get the successor task.
     ///
-    /// 对应 Java: `public Task getTask()`
+    /// Corresponds to Java: `public Task getTask()`
     pub fn get_task(&self) -> Option<Rc<RefCell<Task>>> {
         self.task.clone()
     }
 
-    /// 设置后继任务。
+    /// Set the successor task.
     ///
-    /// 对应 Java: `public void setTask(Task task)`
+    /// Corresponds to Java: `public void setTask(Task task)`
     pub fn set_task(&mut self, task: Rc<RefCell<Task>>) {
         self.task = Some(task);
     }
 
-    /// 取数据来源字段。
+    /// Get the source field.
     ///
-    /// 对应 Java: `public TaskField getField()`
+    /// Corresponds to Java: `public TaskField getField()`
     pub fn get_field(&self) -> Option<TaskField> {
         self.field
     }
 
-    /// 设置数据来源字段。
+    /// Set the source field.
     ///
-    /// 对应 Java: `public void setField(TaskField field)`
+    /// Corresponds to Java: `public void setField(TaskField field)`
     pub fn set_field(&mut self, field: TaskField) {
         self.field = Some(field);
     }
 
-    /// 取关系文本。
+    /// Get the relationship text.
     ///
-    /// 对应 Java: `public String getData()`
+    /// Corresponds to Java: `public String getData()`
     pub fn get_data(&self) -> Option<&str> {
         self.data.as_deref()
     }
 
-    /// 设置关系文本。
+    /// Set the relationship text.
     ///
-    /// 对应 Java: `public void setData(String data)`
+    /// Corresponds to Java: `public void setData(String data)`
     pub fn set_data(&mut self, data: String) {
         self.data = Some(data);
     }
 }
 
 impl Default for DeferredRelationship {
-    /// 对应 Java: 隐式无参构造。
+    /// Corresponds to Java: implicit no-arg constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 通过读取 MPX 文件构造 [`ProjectFile`] 实例。
+/// Constructs a [`ProjectFile`] instance by reading an MPX file.
 ///
-/// 对应 Java: `public final class MPXReader extends AbstractProjectStreamReader`
+/// Corresponds to Java: `public final class MPXReader extends AbstractProjectStreamReader`
 pub struct MPXReader {
-    /// 已注册的监听器（Rust 特有：对应 Java 抽象基类的 `m_projectListeners` 字段）。
+    /// Registered listeners (Rust-specific: corresponds to the `m_projectListeners` field of Java's abstract base class).
     ///
-    /// 对应 Java: `AbstractProjectReader.m_projectListeners`
+    /// Corresponds to Java: `AbstractProjectReader.m_projectListeners`
     listeners: Vec<SharedProjectListener>,
 
-    /// 目标区域设置。
+    /// Target locale.
     ///
-    /// 对应 Java: `private Locale m_locale = Locale.ENGLISH;`
+    /// Corresponds to Java: `private Locale m_locale = Locale.ENGLISH;`
     m_locale: MpxLocale,
 
-    /// 是否忽略文本形式的任务 / 资源表定义记录。
+    /// Whether to ignore text-form task / resource table definition records.
     ///
-    /// 对应 Java: `private boolean m_ignoreTextModels = true;`
+    /// Corresponds to Java: `private boolean m_ignoreTextModels = true;`
     m_ignore_text_models: bool,
 
     /*
-     * 以下为临时工作数据，对应 Java 中同名成员（Java 的 `finally` 会全部置空，
-     * Rust 侧由 [`MPXReader::reset_transient`] 完成同样的清理）。
+     * The following is temporary working data, corresponding to the same-named members in Java
+     * (Java nulls them all out in `finally`; Rust performs the same cleanup via
+     * [`MPXReader::reset_transient`]).
      */
 
-    /// 正在读取的项目文件。
+    /// The project file being read.
     ///
-    /// 对应 Java: `private ProjectFile m_projectFile;`
+    /// Corresponds to Java: `private ProjectFile m_projectFile;`
     m_project_file: Option<Rc<RefCell<ProjectFile>>>,
 
-    /// 最近一条任务记录产生的任务。
+    /// The task produced by the most recent task record.
     ///
-    /// 对应 Java: `private Task m_lastTask;`
+    /// Corresponds to Java: `private Task m_lastTask;`
     m_last_task: Option<Rc<RefCell<Task>>>,
 
-    /// 最近一条资源记录产生的资源。
+    /// The resource produced by the most recent resource record.
     ///
-    /// 对应 Java: `private Resource m_lastResource;`
+    /// Corresponds to Java: `private Resource m_lastResource;`
     m_last_resource: Option<Rc<RefCell<Resource>>>,
 
-    /// 最近一条资源日历记录产生的日历。
+    /// The calendar produced by the most recent resource calendar record.
     ///
-    /// 对应 Java: `private ProjectCalendar m_lastResourceCalendar;`
+    /// Corresponds to Java: `private ProjectCalendar m_lastResourceCalendar;`
     m_last_resource_calendar: Option<Rc<RefCell<ProjectCalendar>>>,
 
-    /// 最近一条资源分配记录产生的分配。
+    /// The assignment produced by the most recent resource assignment record.
     ///
-    /// 对应 Java: `private ResourceAssignment m_lastResourceAssignment;`
+    /// Corresponds to Java: `private ResourceAssignment m_lastResourceAssignment;`
     m_last_resource_assignment: Option<Rc<RefCell<ResourceAssignment>>>,
 
-    /// 最近一条基准日历记录产生的日历。
+    /// The calendar produced by the most recent base calendar record.
     ///
-    /// 对应 Java: `private ProjectCalendar m_lastBaseCalendar;`
+    /// Corresponds to Java: `private ProjectCalendar m_lastBaseCalendar;`
     m_last_base_calendar: Option<Rc<RefCell<ProjectCalendar>>>,
 
-    /// 是否已读到资源表定义记录。
+    /// Whether a resource table definition record has been read.
     ///
-    /// 对应 Java: `private boolean m_resourceTableDefinition;`
+    /// Corresponds to Java: `private boolean m_resourceTableDefinition;`
     m_resource_table_definition: bool,
 
-    /// 是否已读到任务表定义记录。
+    /// Whether a task table definition record has been read.
     ///
-    /// 对应 Java: `private boolean m_taskTableDefinition;`
+    /// Corresponds to Java: `private boolean m_taskTableDefinition;`
     m_task_table_definition: bool,
 
-    /// 任务字段模型（列位置 → MPX 字段号）。
+    /// Task field model (column position → MPX field number).
     ///
-    /// 对应 Java: `private TaskModel m_taskModel;`
+    /// Corresponds to Java: `private TaskModel m_taskModel;`
     m_task_model: Option<TaskModel>,
 
-    /// 资源字段模型（列位置 → MPX 字段号）。
+    /// Resource field model (column position → MPX field number).
     ///
-    /// 对应 Java: `private ResourceModel m_resourceModel;`
+    /// Corresponds to Java: `private ResourceModel m_resourceModel;`
     m_resource_model: Option<ResourceModel>,
 
-    /// 字段分隔符（取自文件头第 4 个字节）。
+    /// Field delimiter (taken from the 4th byte of the file header).
     ///
-    /// 对应 Java: `private char m_delimiter;`
+    /// Corresponds to Java: `private char m_delimiter;`
     m_delimiter: char,
 
-    /// 待处理的（可能前向引用的）任务关系。
+    /// Pending (possibly forward-referencing) task relationships.
     ///
-    /// 对应 Java: `private List<DeferredRelationship> m_deferredRelationships;`
+    /// Corresponds to Java: `private List<DeferredRelationship> m_deferredRelationships;`
     m_deferred_relationships: Vec<DeferredRelationship>,
 
-    /// 项目头记录里指定的默认日历名。
+    /// The default calendar name specified in the project header record.
     ///
-    /// 对应 Java: `private String m_defaultCalendarName;`
+    /// Corresponds to Java: `private String m_defaultCalendarName;`
     m_default_calendar_name: Option<String>,
 
-    /// 文件中第一条任务记录使用的大纲级别。
+    /// The outline level used by the first task record in the file.
     ///
-    /// 对应 Java: `private int m_baseOutlineLevel;`
+    /// Corresponds to Java: `private int m_baseOutlineLevel;`
     m_base_outline_level: i32,
 }
 
 impl MPXReader {
-    /// 构造 reader：默认区域设置为英语，且忽略文本形式的表定义记录。
+    /// Construct the reader: the default locale is English and text-form table definition records are ignored.
     ///
-    /// 对应 Java: `MPXReader` 的隐式无参构造（成员默认值见
-    /// `private Locale m_locale = Locale.ENGLISH;` 与 `private boolean m_ignoreTextModels = true;`）
+    /// Corresponds to Java: `MPXReader`'s implicit no-arg constructor (member defaults are in
+    /// `private Locale m_locale = Locale.ENGLISH;` and `private boolean m_ignoreTextModels = true;`)
     pub fn new() -> Self {
         Self {
             listeners: Vec::new(),
@@ -458,50 +484,52 @@ impl MPXReader {
         }
     }
 
-    /// 取当前区域设置。
+    /// Get the current locale.
     ///
-    /// 对应 Java: `public Locale getLocale()`
+    /// Corresponds to Java: `public Locale getLocale()`
     pub fn get_locale(&self) -> MpxLocale {
         self.m_locale
     }
 
-    /// 设置区域设置。
+    /// Set the locale.
     ///
-    /// 对应 Java: `public void setLocale(Locale locale)`
+    /// Corresponds to Java: `public void setLocale(Locale locale)`
     pub fn set_locale(&mut self, locale: MpxLocale) {
         self.m_locale = locale;
     }
 
-    /// 取本类支持的区域设置。
+    /// Get the locales supported by this class.
     ///
-    /// 对应 Java: `public static Locale[] getSupportedLocales()`
+    /// Corresponds to Java: `public static Locale[] getSupportedLocales()`
     pub fn get_supported_locales() -> &'static [MpxLocale] {
         LocaleUtility::get_supported_locales()
     }
 
-    /// 设置「是否忽略文本形式的任务 / 资源表定义记录」。
+    /// Set "whether to ignore text-form task / resource table definition records".
     ///
-    /// 对应 Java: `public void setIgnoreTextModels(boolean flag)`
+    /// Corresponds to Java: `public void setIgnoreTextModels(boolean flag)`
     ///
-    /// 忽略这些记录的用途：有些工具生成的 MPX 文件里，文本形式的表定义用了错误的字段名
-    /// （但数值形式记录里的字段号是对的），忽略文本形式即可绕开该问题。
+    /// Why ignore these records: in MPX files generated by some tools, the text-form table definition
+    /// uses wrong field names (but the field numbers in the numeric-form records are correct), so
+    /// ignoring the text form sidesteps the problem.
     pub fn set_ignore_text_models(&mut self, flag: bool) {
         self.m_ignore_text_models = flag;
     }
 
-    /// 取「是否忽略文本形式的任务 / 资源表定义记录」。
+    /// Get "whether to ignore text-form task / resource table definition records".
     ///
-    /// 对应 Java: `public boolean getIgnoreTextModels()`
+    /// Corresponds to Java: `public boolean getIgnoreTextModels()`
     pub fn get_ignore_text_models(&self) -> bool {
         self.m_ignore_text_models
     }
 
-    /// 读取一个 MPX 文件（本类的读取入口）。
+    /// Read an MPX file (this class's read entry point).
     ///
-    /// 对应 Java: `@Override public ProjectFile read(InputStream is) throws MPXJException`
+    /// Corresponds to Java: `@Override public ProjectFile read(InputStream is) throws MPXJException`
     ///
-    /// 与 Java 一致：任何失败（含文件头不合法、记录号非法、字段解析失败）都被包成
-    /// `READ_ERROR + " (failed at line N)"` 后再返回；无论成败都在最后清理临时工作数据。
+    /// As in Java: any failure (including an invalid file header, an invalid record number, or a field
+    /// parse failure) is wrapped as `READ_ERROR + " (failed at line N)"` before returning; temporary
+    /// working data is cleaned up at the end regardless of success or failure.
     pub fn read(&mut self, reader: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         let mut line = 1usize;
 
@@ -521,16 +549,16 @@ impl MPXReader {
         }
     }
 
-    /// 读取的实现体（`line` 由调用方持有，供错误消息使用）。
+    /// The implementation body of read (`line` is held by the caller and used for error messages).
     ///
-    /// 对应 Java: `read(InputStream)` 的 `try` 块主体
+    /// Corresponds to Java: the `try` block body of `read(InputStream)`
     fn read_impl(
         &mut self,
         reader: &mut dyn Read,
         line: &mut usize,
     ) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         // Java: BufferedInputStream bis = new BufferedInputStream(is); byte[] data = new byte[4];
-        // Rust 侧没有 mark/reset，改为把整个流读入内存并包成 Cursor（见文件头）。
+        // Rust has no mark/reset, so instead the whole stream is read into memory and wrapped in a Cursor (see the file header).
         let mut cursor: Cursor<Vec<u8>> = read_stream_into_cursor(reader)?;
 
         // Java:
@@ -547,8 +575,8 @@ impl MPXReader {
 
         // Java: if ((data[0] != 'M') || (data[1] != 'P') || (data[2] != 'X'))
         //       { throw new MPXJException(MPXJException.INVALID_FILE); }
-        // Java 对不足 4 字节的输入得到 -1（转成 0xFF），同样落到这里；
-        // Rust 侧把「不足 4 字节」与「前缀不匹配」一起报 INVALID_FILE。
+        // Java gets -1 (cast to 0xFF) for input shorter than 4 bytes and also falls here;
+        // Rust reports INVALID_FILE for both "fewer than 4 bytes" and "prefix mismatch".
         if count < data.len() || &data[0..3] != b"MPX" {
             return Err(MpxjError::new(MpxjError::INVALID_FILE));
         }
@@ -610,8 +638,8 @@ impl MPXReader {
         self.m_deferred_relationships.clear();
 
         // Java: bis.reset();
-        // Java 的 mark 设在读完第 1 个字节处，因此只能回到偏移 1：首条记录的首字段是 "PX"
-        //（见 Java 源码注释），这里等价地 seek 到 1。
+        // Java's mark is set after reading the 1st byte, so it can only return to offset 1: the first field
+        // of the first record is "PX" (see the Java source comment); here it equivalently seeks to 1.
         cursor.seek(SeekFrom::Start(1))?;
 
         //
@@ -621,7 +649,7 @@ impl MPXReader {
         //             new Record(m_projectFile, m_locale, tk, m_formats));
         // ++line;
         //
-        // 此时按「字节」读取，文本不做字符集解码（文件创建记录里只有 ASCII）。
+        // At this point reading is byte-wise and the text is not charset-decoded (the file creation record contains only ASCII).
         //
         let mut tk = Tokenizer::new(ByteSource::new(cursor));
         tk.set_delimiter(self.m_delimiter);
@@ -637,7 +665,7 @@ impl MPXReader {
         //     m_projectFile.getProjectProperties().getMpxCodePage().getCharset());
         // tk = new ReaderTokenizer(reader); tk.setDelimiter(m_delimiter);
         //
-        // 从字节阶段收回同一个数据源，交给按字符解码的 tokenizer（见文件头）。
+        // Take back the same data source from the byte stage and hand it to the character-decoding tokenizer (see the file header).
         //
         let cursor = tk.into_source().into_inner();
         let encoding = file
@@ -645,8 +673,8 @@ impl MPXReader {
             .get_project_properties()
             .get_mpx_code_page()
             .get_charset()
-            // Java 侧字符集恒非 null（CharsetHelper 提供）；CP437 / CP850 在 encoding_rs 中
-            // 无实现，这里按单字节西文编码回落到 WINDOWS_1252（见文件头）。
+            // The Java charset is always non-null (provided by CharsetHelper); CP437 / CP850 have no implementation
+            // in encoding_rs, so this falls back to WINDOWS_1252 as a single-byte Western encoding (see the file header).
             .unwrap_or(encoding_rs::WINDOWS_1252);
 
         let mut tk = Tokenizer::new(CharSource::with_encoding(cursor, encoding));
@@ -663,8 +691,8 @@ impl MPXReader {
                 None => false,
             };
 
-            // Java: m_formats.update() 在 parseRecord 的分支内；
-            // Rust 侧必须等 Record 释放后再可变借用 formats（见文件头差异第 1 条）。
+            // Java: m_formats.update() is inside parseRecord's branches;
+            // Rust must wait until Record is released before mutably borrowing formats (see item 1 of the file-header differences).
             drop(record);
             if needs_formats_update {
                 formats.update();
@@ -674,16 +702,16 @@ impl MPXReader {
         }
 
         // Java: processDeferredRelationships(); validateCalendars();
-        // Rust 特有：Java 的 `populateRelation` 直接读成员 `m_formats`，本仓的格式集合是
-        // 局部变量（见文件头差异第 1 条），故逐层传入。
+        // Rust-specific: Java's `populateRelation` reads the member `m_formats` directly, but this repo's format
+        // collection is a local variable (see item 1 of the file-header differences), so it is passed down through the layers.
         self.process_deferred_relationships(&formats)?;
         self.validate_calendars()?;
 
         // Java: m_projectFile.updateStructure();
         //
-        // 与 Java 一致地原地调用：[`crate::ProjectFile::update_structure`] 会先从
-        // `ProjectContext` 读出自动编号开关、再以参数形式传给任务容器，容器侧不再回调
-        // 父文件，因此调用方持有 `ProjectFile` 的可变借用也不会重入借用冲突。
+        // Called in place as in Java: [`crate::ProjectFile::update_structure`] first reads the automatic-numbering
+        // switches from `ProjectContext` and passes them as parameters to the task container; the container side no
+        // longer calls back into the parent file, so calling it while holding a mutable borrow of `ProjectFile` does not re-enter a borrow conflict.
         file.borrow_mut().update_structure();
 
         // Java: m_projectConfig.setAutoCalendarUniqueID(false);
@@ -701,9 +729,9 @@ impl MPXReader {
         Ok(file)
     }
 
-    /// 清理临时工作数据（对应 Java `read` 的 `finally` 块）。
+    /// Clean up temporary working data (corresponding to Java `read`'s `finally` block).
     ///
-    /// 对应 Java: `finally { m_projectFile = null; ... m_deferredRelationships = null; }`
+    /// Corresponds to Java: `finally { m_projectFile = null; ... m_deferredRelationships = null; }`
     fn reset_transient(&mut self) {
         self.m_project_file = None;
         self.m_last_task = None;
@@ -718,40 +746,40 @@ impl MPXReader {
         self.m_deferred_relationships.clear();
     }
 
-    /// 取当前项目文件句柄（Java 直接使用成员 `m_projectFile`）。
+    /// Get the current project file handle (Java uses the member `m_projectFile` directly).
     ///
-    /// Rust 特有：Java 的成员必然非 null，这里以 `Err` 表达「尚未开始读取」的退化情形。
+    /// Rust-specific: Java's member is always non-null; here `Err` expresses the degraded case of "reading has not started yet".
     fn file(&self) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         self.m_project_file
             .clone()
             .ok_or_else(|| MpxjError::new(MpxjError::READ_ERROR))
     }
 
-    /// 以只读方式访问项目配置。
+    /// Access the project configuration read-only.
     ///
-    /// 对应 Java: `m_projectConfig.getXxx()`
+    /// Corresponds to Java: `m_projectConfig.getXxx()`
     ///
-    /// 返回 `None` 表示项目文件尚未建立或正被可变借用（Java 无此情形）。
+    /// Returning `None` means the project file has not been created yet or is mutably borrowed (this cannot happen in Java).
     fn with_project_config<R>(&self, read: impl FnOnce(&ProjectConfig) -> R) -> Option<R> {
         let file = self.m_project_file.as_ref()?;
         let file_ref = file.try_borrow().ok()?;
         Some(read(&file_ref.get_project_config()))
     }
 
-    /// 取项目配置中的布尔标志（读不到时按 `false`，对应 Java 的「配置必然存在」）。
+    /// Get a boolean flag from the project configuration (falls back to `false` when unreadable, corresponding to Java's "the config always exists").
     ///
-    /// 对应 Java: `m_projectConfig.getXxx()` 之类的读取
+    /// Corresponds to Java: reads such as `m_projectConfig.getXxx()`
     fn project_config_flag(&self, read: impl FnOnce(&ProjectConfig) -> bool) -> bool {
         self.with_project_config(read).unwrap_or(false)
     }
 
-    /// 触发一次项目事件。
+    /// Fire a project event.
     ///
-    /// 对应 Java: `m_eventManager.fireXxxEvent(...)`
+    /// Corresponds to Java: `m_eventManager.fireXxxEvent(...)`
     ///
-    /// Java 的 `m_eventManager` 取自 `m_projectFile.getEventManager()`（即项目上下文的事件
-    /// 管理器，见 [`crate::project_file`] 文件头），Rust 侧同样经上下文取得；
-    /// 借用冲突（Java 无此情形）时跳过派发而不 panic。
+    /// Java's `m_eventManager` is taken from `m_projectFile.getEventManager()` (i.e. the project context's event
+    /// manager, see the [`crate::project_file`] file header), and Rust likewise obtains it through the context;
+    /// on a borrow conflict (which cannot happen in Java) it skips dispatching without panicking.
     fn with_event_manager(&self, fire: impl FnOnce(&mut EventManager)) {
         let Some(file) = self.m_project_file.as_ref() else {
             return;
@@ -768,15 +796,16 @@ impl MPXReader {
         }
     }
 
-    /// 解析一条 MPX 记录。
+    /// Parse one MPX record.
     ///
-    /// 对应 Java: `private void parseRecord(Integer recordNumber, Record record) throws MPXJException`
+    /// Corresponds to Java: `private void parseRecord(Integer recordNumber, Record record) throws MPXJException`
     ///
-    /// 返回值表示 Java 中紧随 populate 之后的 `m_formats.update()` 是否需要调用
-    /// （Java 在 4 个分支内直接调用；Rust 侧因借用限制上提到调用方，见文件头差异第 1 条）。
+    /// The return value indicates whether the `m_formats.update()` that immediately follows populate in Java
+    /// needs to be called (Java calls it directly in 4 branches; Rust hoists it to the caller due to borrow
+    /// constraints, see item 1 of the file-header differences).
     fn parse_record(&mut self, record_number: i32, record: &Record<'_>) -> MpxjResult<bool> {
         let needs_formats_update = match record_number {
-            // Java: case PROJECT_NAMES / DDE_OLE_CLIENT_LINKS / COMMENTS: 静默忽略
+            // Java: case PROJECT_NAMES / DDE_OLE_CLIENT_LINKS / COMMENTS: silently ignored
             MPXConstants::PROJECT_NAMES_RECORD_NUMBER
             | MPXConstants::DDE_OLE_CLIENT_LINKS_RECORD_NUMBER
             | MPXConstants::COMMENTS_RECORD_NUMBER => false,
@@ -1018,9 +1047,9 @@ impl MPXReader {
         Ok(needs_formats_update)
     }
 
-    /// 填充货币设置。
+    /// Populate currency settings.
     ///
-    /// 对应 Java: `private void populateCurrencySettings(Record record, ProjectProperties properties)`
+    /// Corresponds to Java: `private void populateCurrencySettings(Record record, ProjectProperties properties)`
     fn populate_currency_settings(record: &Record<'_>, properties: &mut ProjectProperties) {
         properties.set_currency_symbol(record.get_string(0));
         properties.set_symbol_position(Some(record.get_currency_symbol_position(1)));
@@ -1037,9 +1066,9 @@ impl MPXReader {
         }
     }
 
-    /// 填充默认设置。
+    /// Populate default settings.
     ///
-    /// 对应 Java: `private void populateDefaultSettings(Record record, ProjectProperties properties) throws MPXJException`
+    /// Corresponds to Java: `private void populateDefaultSettings(Record record, ProjectProperties properties) throws MPXJException`
     fn populate_default_settings(
         record: &Record<'_>,
         properties: &mut ProjectProperties,
@@ -1063,9 +1092,9 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 填充日期时间设置。
+    /// Populate date-time settings.
     ///
-    /// 对应 Java: `private void populateDateTimeSettings(Record record, ProjectProperties properties)`
+    /// Corresponds to Java: `private void populateDateTimeSettings(Record record, ProjectProperties properties)`
     fn populate_date_time_settings(record: &Record<'_>, properties: &mut ProjectProperties) {
         properties.set_date_order(Some(record.get_date_order(0)));
         properties.set_time_format(Some(record.get_time_format(1)));
@@ -1088,11 +1117,11 @@ impl MPXReader {
         properties.set_bar_text_date_format(Some(record.get_date_format(8)));
     }
 
-    /// 把以分钟表示的整数时间转换为 [`NaiveTime`]。
+    /// Convert an integer time expressed in minutes into a [`NaiveTime`].
     ///
-    /// 对应 Java: `private LocalTime getTimeFromInteger(Integer time)`
+    /// Corresponds to Java: `private LocalTime getTimeFromInteger(Integer time)`
     ///
-    /// Java 的 `LocalTime.ofSecondOfDay` 对超出一天的秒数按模 86400 归一，这里保持一致。
+    /// Java's `LocalTime.ofSecondOfDay` normalizes seconds beyond one day modulo 86400; kept consistent here.
     fn get_time_from_integer(time: Option<i32>) -> Option<NaiveTime> {
         let time = time?;
 
@@ -1103,9 +1132,9 @@ impl MPXReader {
         NaiveTime::from_num_seconds_from_midnight_opt(seconds_of_day as u32, 0)
     }
 
-    /// 填充项目头（项目属性）。
+    /// Populate the project header (project properties).
     ///
-    /// 对应 Java: `private void populateProjectHeader(Record record, ProjectProperties properties) throws MPXJException`
+    /// Corresponds to Java: `private void populateProjectHeader(Record record, ProjectProperties properties) throws MPXJException`
     fn populate_project_header(
         &mut self,
         record: &Record<'_>,
@@ -1146,12 +1175,12 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 填充一个日历工作时间（某星期的工作时段）实例。
+    /// Populate a calendar working hours (a weekday's working periods) instance.
     ///
-    /// 对应 Java: `private void populateCalendarHours(Record record, ProjectCalendar calendar)`
+    /// Corresponds to Java: `private void populateCalendarHours(Record record, ProjectCalendar calendar)`
     fn populate_calendar_hours(record: &Record<'_>, calendar: &Rc<RefCell<ProjectCalendar>>) {
         // Java: calendar.addCalendarHours(DayOfWeekHelper.getInstance(NumberHelper.getInt(record.getInteger(0))))
-        // Rust 侧取不到星期时跳过该记录（Java 会把 null 传给 addCalendarHours）。
+        // When Rust cannot resolve the weekday it skips this record (Java passes null to addCalendarHours).
         let day_value = NumberHelper::get_int(record.get_integer(0).map(f64::from));
         let Some(day) = DayOfWeekHelper::get_instance(day_value) else {
             return;
@@ -1165,12 +1194,13 @@ impl MPXReader {
         Self::add_date_range(hours, record.get_time(5), record.get_time(6));
     }
 
-    /// 向工作时间添加一个时段（起点与终点都非空时才添加）。
+    /// Add a time range to the working hours (only when both start and end are non-null).
     ///
-    /// 对应 Java: `private void addDateRange(ProjectCalendarHours hours, LocalTime start, LocalTime end)`
+    /// Corresponds to Java: `private void addDateRange(ProjectCalendarHours hours, LocalTime start, LocalTime end)`
     ///
-    /// Java 的注释提到「终点为午夜」的情形（此时终点应视为次日零点）；MPX 记录里的
-    /// 时间为 `HH:mm` 文本，Java 侧同样只是原样构造 `LocalTimeRange`，故行为一致。
+    /// Java's comment mentions the "end is midnight" case (where the end should be treated as midnight of the
+    /// next day); the time in an MPX record is `HH:mm` text and Java likewise just constructs a `LocalTimeRange`
+    /// as-is, so the behavior matches.
     fn add_date_range(
         hours: &mut ProjectCalendarHours,
         start: Option<NaiveTime>,
@@ -1181,15 +1211,15 @@ impl MPXReader {
         }
     }
 
-    /// 填充一个日历例外（非工作日 / 特殊工作日）。
+    /// Populate a calendar exception (non-working day / special working day).
     ///
-    /// 对应 Java: `private void populateCalendarException(Record record, ProjectCalendar calendar)`
+    /// Corresponds to Java: `private void populateCalendarException(Record record, ProjectCalendar calendar)`
     fn populate_calendar_exception(record: &Record<'_>, calendar: &Rc<RefCell<ProjectCalendar>>) {
         let from_date = record.get_date(0);
         let mut to_date = record.get_date(1);
         let working = record.get_numeric_boolean(2);
 
-        // Java: 有些 MPX 文件对单日例外只写起始日期，此时把结束日期视作与起始日期相同。
+        // Java: some MPX files write only the start date for a single-day exception; the end date is then treated as the same as the start date.
         if from_date.is_some() && to_date.is_none() {
             to_date = from_date;
         }
@@ -1210,9 +1240,9 @@ impl MPXReader {
         }
     }
 
-    /// 向例外添加一个时段，避免添加空时段。
+    /// Add a time range to the exception, avoiding adding empty ranges.
     ///
-    /// 对应 Java: `private void addExceptionRange(ProjectCalendarException exception, LocalTime start, LocalTime finish)`
+    /// Corresponds to Java: `private void addExceptionRange(ProjectCalendarException exception, LocalTime start, LocalTime finish)`
     fn add_exception_range(
         exception: &mut ProjectCalendarException,
         start: Option<NaiveTime>,
@@ -1223,12 +1253,12 @@ impl MPXReader {
         }
     }
 
-    /// 填充一个日历实例。
+    /// Populate a calendar instance.
     ///
-    /// 对应 Java: `private void populateCalendar(Record record, ProjectCalendar calendar, boolean isBaseCalendar)`
+    /// Corresponds to Java: `private void populateCalendar(Record record, ProjectCalendar calendar, boolean isBaseCalendar)`
     ///
-    /// `is_base_calendar == true` 时该日历是基准日历（第 0 个字段是日历名），
-    /// 否则是资源日历（第 0 个字段是父（基准）日历名）。
+    /// When `is_base_calendar == true` the calendar is a base calendar (field 0 is the calendar name);
+    /// otherwise it is a resource calendar (field 0 is the parent (base) calendar name).
     fn populate_calendar(
         &mut self,
         record: &Record<'_>,
@@ -1245,14 +1275,14 @@ impl MPXReader {
                 .as_ref()
                 .and_then(|file| match file.try_borrow() {
                     Ok(file) => file.get_calendar_by_name(record.get_string(0).as_deref()),
-                    // Java 无此分支；Rust 侧避免借用冲突
+                    // Java has no such branch; Rust avoids a borrow conflict
                     Err(_) => None,
                 });
 
             calendar.borrow_mut().set_parent(parent);
         }
 
-        // Java 按 DayOfWeek 声明顺序（周日 → 周六）设置第 1..7 个字段
+        // Java sets fields 1..7 in DayOfWeek declaration order (Sunday → Saturday)
         {
             let mut calendar_ref = calendar.borrow_mut();
             calendar_ref.set_calendar_day_type(Weekday::Sun, record.get_day_type(1));
@@ -1268,9 +1298,9 @@ impl MPXReader {
         self.with_event_manager(|manager| manager.fire_calendar_read_event(calendar));
     }
 
-    /// 填充一个资源。
+    /// Populate a resource.
     ///
-    /// 对应 Java: `private void populateResource(Resource resource, Record record) throws MPXJException`
+    /// Corresponds to Java: `private void populateResource(Resource resource, Record record) throws MPXJException`
     fn populate_resource(
         &mut self,
         resource: &Rc<RefCell<Resource>>,
@@ -1279,7 +1309,7 @@ impl MPXReader {
         let false_text = LocaleData::get_string(self.m_locale, LocaleData::NO);
 
         let length = record.get_length();
-        // Java: int[] model = m_resourceModel.getModel();（Rust 侧拷贝，见文件头差异第 5 条）
+        // Java: int[] model = m_resourceModel.getModel(); (Rust copies it, see item 5 of the file-header differences)
         let model: Vec<i32> = match self.m_resource_model.as_mut() {
             Some(model) => model.get_model().to_vec(),
             None => Vec::new(),
@@ -1293,7 +1323,7 @@ impl MPXReader {
 
         for i in 0..length {
             // Java: int mpxFieldType = model[i]; if (mpxFieldType == -1) break;
-            // 模型长度不足时同样终止（Java 会抛 ArrayIndexOutOfBoundsException）
+            // Terminates as well when the model is too short (Java throws ArrayIndexOutOfBoundsException)
             let mpx_field_type = match model.get(i) {
                 Some(value) => *value,
                 None => -1,
@@ -1315,8 +1345,8 @@ impl MPXReader {
             }
 
             // Java: ResourceField resourceField = MPXResourceField.getMpxjField(mpxFieldType);
-            // Java 未对 null 做检查（未映射的字段号会走 default 分支并 NPE），
-            // Rust 侧跳过未映射的字段号。
+            // Java does not check for null (an unmapped field number falls into the default branch and NPEs);
+            // Rust skips unmapped field numbers.
             let Some(resource_field) = MPXResourceField::get_mpxj_field(mpx_field_type) else {
                 continue;
             };
@@ -1401,7 +1431,7 @@ impl MPXReader {
 
                 ResourceField::AccrueAt => {
                     // Java: resource.set(resourceField, record.getAccrueType(i));
-                    // 枚举按 getValue() 编码进字段表（见文件头差异第 4 条）。
+                    // Enums are encoded into the field table via getValue() (see item 4 of the file-header differences).
                     resource.borrow_mut().set(
                         FieldKey::Resource(resource_field),
                         record
@@ -1463,7 +1493,7 @@ impl MPXReader {
         ));
         resource.borrow_mut().set_cost_rate_table(0, table);
 
-        // Java: 处理畸形的 MPX 文件 —— 保证 unique ID 非空。
+        // Java: handle malformed MPX files — ensure the unique ID is non-null.
         // if (resource.getUniqueID() == null) resource.setUniqueID(resource.getID());
         if resource.borrow().get_unique_id().is_none() {
             let id = resource.borrow().get_id();
@@ -1473,9 +1503,9 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 收集一条待延迟处理的关系列表。
+    /// Collect one relationship into the deferred-processing list.
     ///
-    /// 对应 Java: `private void populateRelationList(Task task, TaskField field, String data)`
+    /// Corresponds to Java: `private void populateRelationList(Task task, TaskField field, String data)`
     fn populate_relation_list(&mut self, task: &Rc<RefCell<Task>>, field: TaskField, data: String) {
         let mut deferred = DeferredRelationship::new();
         deferred.set_task(Rc::clone(task));
@@ -1485,15 +1515,15 @@ impl MPXReader {
         self.m_deferred_relationships.push(deferred);
     }
 
-    /// 遍历全部延迟关系并逐条处理。
+    /// Iterate over all deferred relationships and process them one by one.
     ///
-    /// 对应 Java: `private void processDeferredRelationships() throws MPXJException`
+    /// Corresponds to Java: `private void processDeferredRelationships() throws MPXJException`
     ///
-    /// `formats` 为 Rust 特有参数（见文件头差异第 1 条）：Java 的 `populateRelation`
-    /// 直接读成员 `m_formats`。
+    /// `formats` is a Rust-specific parameter (see item 1 of the file-header differences): Java's
+    /// `populateRelation` reads the member `m_formats` directly.
     fn process_deferred_relationships(&mut self, formats: &MPXJFormats) -> MpxjResult<()> {
-        // Java 遍历成员列表；Rust 侧先取出列表再处理，避免「遍历 &self 字段」与
-        // 「&mut self 处理」的借用冲突。
+        // Java iterates the member list; Rust takes the list out first and then processes it, avoiding a borrow
+        // conflict between "iterating a &self field" and "processing with &mut self".
         let deferred = std::mem::take(&mut self.m_deferred_relationships);
 
         for relationship in &deferred {
@@ -1503,9 +1533,9 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 处理一条延迟关系（其中的数据可能包含多条关系）。
+    /// Process one deferred relationship (its data may contain multiple relationships).
     ///
-    /// 对应 Java: `private void processDeferredRelationship(DeferredRelationship dr) throws MPXJException`
+    /// Corresponds to Java: `private void processDeferredRelationship(DeferredRelationship dr) throws MPXJException`
     fn process_deferred_relationship(
         &self,
         dr: &DeferredRelationship,
@@ -1548,12 +1578,12 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 创建并填充一条新的任务关系。
+    /// Create and populate a new task relationship.
     ///
-    /// 对应 Java: `private void populateRelation(TaskField field, Task sourceTask, String relationship) throws MPXJException`
+    /// Corresponds to Java: `private void populateRelation(TaskField field, Task sourceTask, String relationship) throws MPXJException`
     ///
-    /// `formats` 为 Rust 特有参数（见文件头差异第 1 条）：Java 直接读成员 `m_formats`
-    /// 取「工期小数格式」解析延隔时间。
+    /// `formats` is a Rust-specific parameter (see item 1 of the file-header differences): Java reads the
+    /// member `m_formats` directly to get the "duration decimal format" for parsing lag time.
     fn populate_relation(
         &self,
         field: TaskField,
@@ -1564,13 +1594,13 @@ impl MPXReader {
         let length = relationship.len();
 
         //
-        // Java: 取出开头连续的数字作为任务 ID
+        // Java: take the leading run of digits as the task ID
         //
         // int index = 0;
         // while ((index < length) && Character.isDigit(relationship.charAt(index))) { ++index; }
         //
-        // Java 的 `Character.isDigit` 接受非 ASCII 数字，Rust 侧按 ASCII 数字处理
-        // （`Integer.valueOf` / `str::parse` 对非 ASCII 数字都不接受，结果一致）。
+        // Java's `Character.isDigit` accepts non-ASCII digits; Rust handles ASCII digits (`Integer.valueOf` /
+        // `str::parse` reject non-ASCII digits in both, so the results match).
         let mut index = 0usize;
         for (offset, c) in relationship.char_indices() {
             if c.is_ascii_digit() {
@@ -1591,7 +1621,7 @@ impl MPXReader {
         })?;
 
         //
-        // Java: 按字段选择按 ID 还是按 unique ID 查找目标任务
+        // Java: choose whether to look up the target task by ID or by unique ID based on the field
         //
         let target_task = match self.m_project_file.as_ref() {
             Some(file) => match file.try_borrow() {
@@ -1602,21 +1632,21 @@ impl MPXReader {
                         file.get_task_by_unique_id(Some(task_id))
                     }
                 }
-                // Java 无此分支；Rust 侧避免借用冲突
+                // Java has no such branch; Rust avoids a borrow conflict
                 Err(_) => None,
             },
             None => None,
         };
 
         //
-        // Java: 若尚未到结尾，接下来应是 SF / SS / FS / FF
+        // Java: if not yet at the end, the next part should be SF / SS / FS / FF
         //
         let (relation_type, lag) = if index == length {
             // Java: type = RelationType.FINISH_START; lag = Duration.getInstance(0, TimeUnit.DAYS);
             (Some(crate::RelationType::FinishStart), Some(Duration::get_instance(0.0, TimeUnit::Days)))
         } else {
             // Java: if ((index + 1) == length) { throw new MPXJException(INVALID_FORMAT ...); }
-            // Rust 侧把「不足两个字符」一并视为格式非法。
+            // Rust also treats "fewer than two characters" as an invalid format.
             let mut chars = relationship[index..].chars();
             match (chars.next(), chars.next()) {
                 (Some(first), Some(second)) => {
@@ -1669,7 +1699,7 @@ impl MPXReader {
             )));
         };
 
-        // Java: 有些 MPX 文件里存在非法的任务 ID，此时忽略该关系（其余排程仍然有效）。
+        // Java: some MPX files contain an invalid task ID; the relationship is then ignored (the rest of the schedule remains valid).
         if let Some(target_task) = target_task {
             let builder = RelationBuilder::new()
                 .predecessor_task(&target_task)
@@ -1685,22 +1715,22 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 填充一个任务实例。
+    /// Populate a task instance.
     ///
-    /// 对应 Java: `private void populateTask(Record record, Task task) throws MPXJException`
+    /// Corresponds to Java: `private void populateTask(Record record, Task task) throws MPXJException`
     fn populate_task(&mut self, record: &Record<'_>, task: &Rc<RefCell<Task>>) -> MpxjResult<()> {
         let false_text = LocaleData::get_string(self.m_locale, LocaleData::NO);
 
         let mut i = 0usize;
         let length = record.get_length();
-        // Java: int[] model = m_taskModel.getModel();（Rust 侧拷贝，见文件头差异第 5 条）
+        // Java: int[] model = m_taskModel.getModel(); (Rust copies it, see item 5 of the file-header differences)
         let model: Vec<i32> = match self.m_task_model.as_mut() {
             Some(model) => model.get_model().to_vec(),
             None => Vec::new(),
         };
 
         while i < length {
-            // Java: 模型长度不足时 Java 会抛 ArrayIndexOutOfBoundsException，Rust 侧终止循环
+            // Java throws ArrayIndexOutOfBoundsException when the model is too short; Rust terminates the loop
             let mpx_field_id = match model.get(i) {
                 Some(value) => *value,
                 None => -1,
@@ -1724,23 +1754,23 @@ impl MPXReader {
             }
 
             // Java: TaskField taskField = MPXTaskField.getMpxjField(mpxFieldID);
-            //       if (taskField == null) { 忽略不认识的字段 }
+            //       if (taskField == null) { ignore unknown fields }
             let Some(task_field) = MPXTaskField::get_mpxj_field(mpx_field_id) else {
                 continue;
             };
 
             match task_field {
                 TaskField::Notes => {
-                    // Java: 备注属性虽然可能出现，但 MS Project 会忽略它，这里同样忽略。
+                    // Java: although a notes property may appear, MS Project ignores it, and it is likewise ignored here.
                 }
 
                 TaskField::Summary => {
-                    // Java: 忽略文件中的 summary 属性，默认 false；后续 updateStructure 时会重新设置。
+                    // Java: ignore the summary property in the file, defaulting to false; it is set again later during updateStructure.
                     task.borrow_mut().set_summary(false);
                 }
 
                 TaskField::Successors => {
-                    // Java: 通常 MPX 文件只写前置关系，忽略后继属性。
+                    // Java: MPX files usually write only predecessor relations, so successor properties are ignored.
                 }
 
                 TaskField::Predecessors | TaskField::UniqueIdPredecessors => {
@@ -1751,7 +1781,7 @@ impl MPXReader {
                 TaskField::PercentComplete | TaskField::PercentWorkComplete => {
                     // Java: task.set(taskField, m_formats.getPercentageDecimalFormat().parse(field));
                     //       catch (ParseException ex) { throw new MPXJException("Failed to parse percentage", ex); }
-                    // 与 Record::get_percentage 走同一格式对象，错误消息与 Java 一致。
+                    // Uses the same format object as Record::get_percentage; error messages match Java.
                     let value = record.get_percentage(index)?;
                     task.borrow_mut().set(
                         FieldKey::Task(task_field),
@@ -1800,7 +1830,7 @@ impl MPXReader {
                 | TaskField::LevelingDelay => {
                     // Java: task.set(taskField, DurationUtility.getInstance(
                     //           field, m_formats.getDurationDecimalFormat(), m_locale));
-                    // Rust 特有：格式集合经 [`Record::get_formats`] 取回（见文件头差异第 1 条）。
+                    // Rust-specific: the format collection is retrieved via [`Record::get_formats`] (see item 1 of the file-header differences).
                     let value = DurationUtility::get_instance(
                         Some(&field),
                         record.get_formats().get_duration_decimal_format(),
@@ -1872,7 +1902,7 @@ impl MPXReader {
 
                 TaskField::ConstraintType => {
                     // Java: task.set(taskField, ConstraintTypeUtility.getInstance(m_locale, field));
-                    // 枚举按 getValue() 编码进字段表（见文件头差异第 4 条）。
+                    // Enums are encoded into the field table via getValue() (see item 4 of the file-header differences).
                     let value = ConstraintTypeUtility::get_instance(self.m_locale, Some(&field));
                     task.borrow_mut().set(
                         FieldKey::Task(task_field),
@@ -1912,7 +1942,7 @@ impl MPXReader {
                 | TaskField::Number5 => {
                     // Java: task.set(taskField, m_formats.getDecimalFormat().parse(field));
                     //       catch (ParseException ex) { throw new MPXJException("Failed to parse number", ex); }
-                    // 与 Record::get_float 走同一格式对象；此处保留 Java 的异常消息。
+                    // Uses the same format object as Record::get_float; Java's exception message is kept here.
                     let value = record
                         .get_float(index)
                         .map_err(|_| MpxjError::new("Failed to parse number"))?;
@@ -1985,7 +2015,7 @@ impl MPXReader {
             task.borrow_mut().set_id(Some(next_id));
         }
 
-        // Java: 处理畸形的 MPX 文件 —— 保证 unique ID 非空。
+        // Java: handle malformed MPX files — ensure the unique ID is non-null.
         // if (task.getUniqueID() == null) task.setUniqueID(task.getID());
         if task.borrow().get_unique_id().is_none() {
             let id = task.borrow().get_id();
@@ -1993,8 +2023,8 @@ impl MPXReader {
         }
 
         //
-        // Java: 有些应用（如 SureTrak）不写 start / finish；MS Project 打开这类文件时会用
-        // 最早开始 / 最早完成（若存在）来补全。
+        // Java: some applications (such as SureTrak) do not write start / finish; when MS Project opens such files it
+        // fills them in with early start / early finish (if present).
         //
         if task.borrow().get_start().is_none() {
             if let Some(early_start) = task.borrow().get_early_start() {
@@ -2009,7 +2039,7 @@ impl MPXReader {
         }
 
         //
-        // Java: 工期不为 0 的任务即使是里程碑标志为真，也不是里程碑。
+        // Java: a task whose duration is not 0 is not a milestone even if the milestone flag is true.
         //
         let milestone_with_duration = task.borrow().get_milestone()
             && task
@@ -2021,22 +2051,22 @@ impl MPXReader {
         }
 
         //
-        // Java: 文件里只写了总时差，这里假定它是对的，并据此回填开始 / 完成时差。
+        // Java: only total slack is written in the file; this assumes it is correct and back-fills start / finish variance from it.
         //
         SlackHelper::infer_slack(&mut task.borrow_mut());
 
         //
-        // Java 无额外动作：`Task.setID` 自身已负责把 ID 登记进容器的「ID → 任务」映射。
-        // Rust 的 [`crate::Task::set_id`] 现在同样会回调 `TaskContainer::map_id` /
-        // `unmap_id`（见该方法文档与文件头差异第 15 条），故此处不再需要补偿。
+        // Java has no extra action: `Task.setID` itself registers the ID in the container's "ID → task" map.
+        // Rust's [`crate::Task::set_id`] now likewise calls back into `TaskContainer::map_id` /
+        // `unmap_id` (see that method's docs and item 15 of the file-header differences), so no compensation is needed here.
         //
 
         Ok(())
     }
 
-    /// 填充周期性任务记录（`RECURRING_TASK_RECORD_NUMBER`）。
+    /// Populate a recurring task record (`RECURRING_TASK_RECORD_NUMBER`).
     ///
-    /// 对应 Java: `private void populateRecurringTask(Record record, RecurringTask task)`
+    /// Corresponds to Java: `private void populateRecurringTask(Record record, RecurringTask task)`
     fn populate_recurring_task(
         &self,
         record: &Record<'_>,
@@ -2045,7 +2075,7 @@ impl MPXReader {
         // Java: RecurrenceUtility.getDuration(m_projectFile.getProjectProperties(), ...)
         let file = self.file()?;
 
-        // 本仓约定：共享对象用 `try_borrow_mut`（Java 无此分支，借用冲突时跳过该记录而不 panic）。
+        // This repo's convention: shared objects use `try_borrow_mut` (Java has no such branch; on a borrow conflict it skips this record without panicking).
         let Ok(mut task_ref) = task.try_borrow_mut() else {
             return Ok(());
         };
@@ -2078,8 +2108,8 @@ impl MPXReader {
 
         // Java: task.setUseEndDate(NumberHelper.getInt(record.getInteger(8)) == 1);
         //       task.setWorkingDaysOnly(NumberHelper.getInt(record.getInteger(9)) == 1);
-        // 本仓 `NumberHelper` 只有 `get_int(Option<f64>)`，整数入参下 `getInt(x) == 1`
-        // 等价于 `x == Some(1)`（null / 其它值都为 false）。
+        // This repo's `NumberHelper` only has `get_int(Option<f64>)`; for an integer argument `getInt(x) == 1`
+        // is equivalent to `x == Some(1)` (null / other values are all false).
         recurring.set_use_end_date(record.get_integer(8) == Some(1));
         recurring.set_working_days_only(record.get_integer(9) == Some(1));
 
@@ -2115,8 +2145,8 @@ impl MPXReader {
                     //       task.setDayOfWeek(RecurrenceUtility.getDay(record.getInteger(16)));
                     recurring.set_frequency(record.get_integer(17));
                     recurring.set_day_number(record.get_integer(15));
-                    // 本仓 `RecurringData::set_day_of_week` 接收非空 `Weekday`
-                    //（Java 的 `DayOfWeek` 可为 null），取不到时跳过。
+                    // This repo's `RecurringData::set_day_of_week` takes a non-null `Weekday`
+                    // (Java's `DayOfWeek` may be null); it is skipped when unavailable.
                     if let Some(day) = RecurrenceUtility::get_day(record.get_integer(16)) {
                         recurring.set_day_of_week(day);
                     }
@@ -2150,18 +2180,18 @@ impl MPXReader {
                 }
             }
 
-            // Java: type == null 时不进入 switch
+            // Java: does not enter the switch when type == null
             None => {}
         }
 
         Ok(())
     }
 
-    /// 取资源分配记录对应的资源。
+    /// Get the resource corresponding to a resource assignment record.
     ///
-    /// 对应 Java: `private Resource getResourceForAssignment(Record record)`
+    /// Corresponds to Java: `private Resource getResourceForAssignment(Record record)`
     ///
-    /// 处理畸形 MPX 文件：先按 unique ID 查找，找不到再按 ID 查找。
+    /// Handle malformed MPX files: look up by unique ID first, then by ID if not found.
     fn get_resource_for_assignment(&self, record: &Record<'_>) -> Option<Rc<RefCell<Resource>>> {
         let file = self.m_project_file.as_ref()?;
         let file_ref = file.try_borrow().ok()?;
@@ -2177,9 +2207,9 @@ impl MPXReader {
         file_ref.get_resource_by_id(record.get_integer(0))
     }
 
-    /// 填充一条资源分配。
+    /// Populate a resource assignment.
     ///
-    /// 对应 Java: `private void populateResourceAssignment(Record record, ResourceAssignment assignment) throws MPXJException`
+    /// Corresponds to Java: `private void populateResourceAssignment(Record record, ResourceAssignment assignment) throws MPXJException`
     fn populate_resource_assignment(
         &self,
         record: &Record<'_>,
@@ -2201,7 +2231,7 @@ impl MPXReader {
         }
 
         //
-        // Java: 计算剩余工时
+        // Java: compute remaining work
         //
         // Duration work = assignment.getWork();
         // Duration actualWork = assignment.getActualWork();
@@ -2238,11 +2268,11 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 填充一个资源分配的工作组字段实例（`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER`）。
+    /// Populate a resource assignment workgroup fields instance (`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS_RECORD_NUMBER`).
     ///
-    /// 对应 Java: `private void populateResourceAssignmentWorkgroupFields(Record record, ResourceAssignmentWorkgroupFields workgroup)`
+    /// Corresponds to Java: `private void populateResourceAssignmentWorkgroupFields(Record record, ResourceAssignmentWorkgroupFields workgroup)`
     ///
-    /// 取舍：Java 侧本方法是 `private`；Rust 侧设为 `pub` 便于单元测试直接覆盖逐字段逻辑。
+    /// Trade-off: this method is `private` in Java; Rust makes it `pub` so unit tests can directly cover the per-field logic.
     pub fn populate_resource_assignment_workgroup_fields(
         record: &Record<'_>,
         workgroup: &mut ResourceAssignmentWorkgroupFields,
@@ -2252,8 +2282,8 @@ impl MPXReader {
 
         // Java: workgroup.setConfirmed(NumberHelper.getInt(record.getInteger(1)) == 1);
         //       workgroup.setResponsePending(NumberHelper.getInt(record.getInteger(1)) == 1);
-        // 注意：两行的字段下标相同（均为 1）—— 与 Java 源码逐字一致，不做「纠正」。
-        // 整数入参下 `getInt(x) == 1` 等价于 `x == Some(1)`（见 `populate_recurring_task`）。
+        // Note: both lines use the same field index (both 1) — copied verbatim from the Java source, not "corrected".
+        // For an integer argument `getInt(x) == 1` is equivalent to `x == Some(1)` (see `populate_recurring_task`).
         workgroup.set_confirmed(record.get_integer(1) == Some(1));
         workgroup.set_response_pending(record.get_integer(1) == Some(1));
 
@@ -2265,14 +2295,14 @@ impl MPXReader {
         workgroup.set_schedule_id(record.get_string(5));
     }
 
-    /// 校验项目的日历并修正问题。
+    /// Validate the project's calendars and fix problems.
     ///
-    /// 对应 Java: `private void validateCalendars()`
+    /// Corresponds to Java: `private void validateCalendars()`
     fn validate_calendars(&self) -> MpxjResult<()> {
         let file = self.file()?;
 
         //
-        // Java: 保证存在默认日历
+        // Java: ensure a default calendar exists
         //
         // ProjectCalendarContainer calendars = m_projectFile.getCalendars();
         // ProjectCalendar defaultCalendar = calendars.getByName(m_defaultCalendarName);
@@ -2301,7 +2331,7 @@ impl MPXReader {
         //
         // Java: calendars.forEach(this::validateCalendar);
         //
-        // Rust 侧先取日历快照再逐个校验（`for_each` 中会修改日历，需要独立的可变借用）。
+        // Rust takes a calendar snapshot first and then validates one by one (`for_each` modifies the calendars, requiring a separate mutable borrow).
         let calendars: Vec<Rc<RefCell<ProjectCalendar>>> =
             file.borrow().get_calendars().iter().cloned().collect();
 
@@ -2310,7 +2340,7 @@ impl MPXReader {
         }
 
         //
-        // Java: 资源日历的后处理
+        // Java: post-processing of resource calendars
         //
         // Map<Integer, List<Resource>> resourceCalendarMap = m_projectFile.getResources().stream()
         //     .filter(r -> r.getCalendarUniqueID() != null)
@@ -2318,7 +2348,7 @@ impl MPXReader {
         let resources: Vec<Rc<RefCell<Resource>>> =
             file.borrow().get_resources().iter().cloned().collect();
 
-        // 键可为 null（Java 的 Integer 键），故用 Option<i32>。
+        // The key may be null (Java's Integer key), so Option<i32> is used.
         let mut resource_calendar_map: std::collections::HashMap<Option<i32>, usize> =
             std::collections::HashMap::new();
 
@@ -2362,13 +2392,13 @@ impl MPXReader {
         Ok(())
     }
 
-    /// 校验一个日历并修正问题。
+    /// Validate a calendar and fix problems.
     ///
-    /// 对应 Java: `private void validateCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `private void validateCalendar(ProjectCalendar calendar)`
     fn validate_calendar(&self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         //
-        // Java: 若日历没有父日历，但存在 DEFAULT 类型的星期，则假定它本应有父日历，
-        //       于是把父日历设为项目的默认日历。
+        // Java: if a calendar has no parent but has a weekday of type DEFAULT, assume it was supposed to have a
+        //       parent and set the parent calendar to the project's default calendar.
         //
         // if (calendar.getParent() == null &&
         //     Stream.of(DayOfWeek.values()).anyMatch(d -> calendar.getCalendarDayType(d) == DayType.DEFAULT))
@@ -2399,7 +2429,7 @@ impl MPXReader {
             let default_calendar = self.m_project_file.as_ref().and_then(|file| {
                 match file.try_borrow() {
                     Ok(file_ref) => file_ref.get_default_calendar(),
-                    // Java 无此分支；Rust 侧避免借用冲突
+                    // Java has no such branch; Rust avoids a borrow conflict
                     Err(_) => None,
                 }
             });
@@ -2410,7 +2440,7 @@ impl MPXReader {
         }
 
         //
-        // Java: 为缺失工作时段的工作日 / 非工作日补上日历时段。
+        // Java: add calendar hours for working / non-working days that are missing working periods.
         //
         for day in days {
             let needs_hours = match calendar.try_borrow() {
@@ -2445,11 +2475,11 @@ impl MPXReader {
         }
     }
 
-    /// 填充文件创建记录。
+    /// Populate the file creation record.
     ///
-    /// 对应 Java: `static void populateFileCreationRecord(Record record, ProjectProperties properties)`
+    /// Corresponds to Java: `static void populateFileCreationRecord(Record record, ProjectProperties properties)`
     ///
-    /// Java 侧是 `static` 方法（包级可见），Rust 侧同样是与实例无关的关联函数。
+    /// It is a `static` method in Java (package-private); Rust likewise makes it an instance-independent associated function.
     fn populate_file_creation_record(record: &Record<'_>, properties: &mut ProjectProperties) {
         properties.set_mpx_program_name(record.get_string(0));
         properties.set_mpx_file_version(Some(crate::FileVersion::get_instance_optional(
@@ -2460,31 +2490,31 @@ impl MPXReader {
 }
 
 impl Default for MPXReader {
-    /// 对应 Java: 隐式无参构造。
+    /// Corresponds to Java: implicit no-arg constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ProjectReader for MPXReader {
-    /// 注册监听器。
+    /// Register a listener.
     ///
-    /// 对应 Java: `@Override public void addProjectListener(ProjectListener listener)`
+    /// Corresponds to Java: `@Override public void addProjectListener(ProjectListener listener)`
     fn add_project_listener(&mut self, listener: Box<dyn ProjectListener>) {
         self.add_project_listener_default(listener);
     }
 
-    /// 按路径读取一个 schedule。
+    /// Read one schedule by path.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(File file)`（定义于
-    /// `AbstractProjectStreamReader`）
+    /// Corresponds to Java: `@Override public ProjectFile read(File file)` (defined in
+    /// `AbstractProjectStreamReader`)
     fn read_file(&mut self, path: &std::path::Path) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         AbstractProjectStreamReader::read_file_default(self, path)
     }
 
-    /// 按路径读取全部 schedule（MPX 只有单份 schedule）。
+    /// Read all schedules by path (MPX has only a single schedule).
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(File file)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(File file)`
     fn read_all_file(
         &mut self,
         path: &std::path::Path,
@@ -2492,16 +2522,16 @@ impl ProjectReader for MPXReader {
         AbstractProjectStreamReader::read_all_file_default(self, path)
     }
 
-    /// 从读取器读取一个 schedule。
+    /// Read one schedule from a reader.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(InputStream is)`
+    /// Corresponds to Java: `@Override public ProjectFile read(InputStream is)`
     fn read_reader(&mut self, reader: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         self.read(reader)
     }
 
-    /// 从读取器读取全部 schedule（MPX 只有单份 schedule）。
+    /// Read all schedules from a reader (MPX has only a single schedule).
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
     fn read_all_reader(
         &mut self,
         reader: &mut dyn Read,
@@ -2511,17 +2541,17 @@ impl ProjectReader for MPXReader {
 }
 
 impl AbstractProjectReader for MPXReader {
-    /// 取已注册的监听器。
+    /// Get the registered listeners.
     ///
-    /// Rust 特有（Java 的 `m_projectListeners` 是私有字段，见
-    /// [`crate::reader::abstract_project_reader`] 文件头）。
+    /// Rust-specific (Java's `m_projectListeners` is a private field, see the
+    /// [`crate::reader::abstract_project_reader`] file header).
     fn project_listeners(&self) -> &[SharedProjectListener] {
         &self.listeners
     }
 
-    /// 取已注册的监听器（可变）。
+    /// Get the registered listeners (mutable).
     ///
-    /// Rust 特有（同上）。
+    /// Rust-specific (as above).
     fn project_listeners_mut(&mut self) -> &mut Vec<SharedProjectListener> {
         &mut self.listeners
     }
@@ -2533,7 +2563,7 @@ impl AbstractProjectStreamReader for MPXReader {}
 mod tests {
     use super::*;
 
-    /// 读取一段内存中的 MPX 数据。
+    /// Read a chunk of MPX data from memory.
     fn read(data: &[u8]) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         let mut reader = MPXReader::new();
         reader.read_reader(&mut &data[..])
@@ -2547,7 +2577,7 @@ mod tests {
         assert_eq!(reader.get_locale(), MpxLocale::En);
         assert!(reader.get_ignore_text_models());
 
-        // Java: getSupportedLocales() 委托 LocaleUtility
+        // Java: getSupportedLocales() delegates to LocaleUtility
         assert_eq!(MPXReader::get_supported_locales(), MpxLocale::ALL);
     }
 
@@ -2563,19 +2593,19 @@ mod tests {
 
     #[test]
     fn invalid_header_is_reported_as_a_read_error() {
-        // Java: 文件头不合法时抛 MPXJException(INVALID_FILE)，但会被 read 的 catch 重新包一层
+        // Java: an invalid file header throws MPXJException(INVALID_FILE), but read's catch wraps it again
         let error = read(b"XXX,bad\r\n")
             .err()
-            .expect("文件头不合法应报错");
+            .expect("invalid file header should error");
 
         assert!(
             error.message().starts_with(MpxjError::READ_ERROR),
-            "实际消息：{}",
+            "actual message: {}",
             error.message()
         );
         assert!(
             error.message().contains(MpxjError::INVALID_FILE),
-            "实际消息：{}",
+            "actual message: {}",
             error.message()
         );
     }
@@ -2588,15 +2618,15 @@ mod tests {
 
     #[test]
     fn file_creation_record_is_read_through_the_byte_phase() {
-        // 只有文件创建记录：字节阶段读出代码页等信息，之后字符阶段读到 EOF
-        let file = read(b"MPX,Microsoft Project for Windows,4.0,ANSI\r\n").expect("应当读取成功");
+        // Only the file creation record: the byte phase reads the code page and other info, then the character phase reads until EOF
+        let file = read(b"MPX,Microsoft Project for Windows,4.0,ANSI\r\n").expect("should read successfully");
 
         let file_ref = file.borrow();
         let properties = file_ref.get_project_properties();
 
         assert_eq!(properties.get_mpx_program_name(), "Microsoft Project for Windows");
         assert_eq!(properties.get_mpx_code_page(), crate::CodePage::Ansi);
-        // Java: m_delimiter = (char) data[3]，此处为 ','
+        // Java: m_delimiter = (char) data[3]; here it is ','
         assert_eq!(properties.get_mpx_delimiter(), ',');
         assert_eq!(properties.get_file_application().as_deref(), Some("Microsoft"));
         assert_eq!(properties.get_file_type().as_deref(), Some("MPX"));
@@ -2604,9 +2634,9 @@ mod tests {
 
     #[test]
     fn custom_delimiter_from_the_header_is_used() {
-        // 第 4 个字节是分隔符：这里用 ';'
+        // The 4th byte is the delimiter: ';' is used here
         let data = b"MPX;Microsoft Project for Windows;4.0;ANSI\r\n";
-        let file = read(data).expect("应当读取成功");
+        let file = read(data).expect("should read successfully");
 
         let file_ref = file.borrow();
         assert_eq!(file_ref.get_project_properties().get_mpx_delimiter(), ';');
@@ -2622,12 +2652,12 @@ mod tests {
 
         let first = reader
             .read_reader(&mut &b"MPX,Microsoft Project for Windows,4.0,ANSI\r\n"[..])
-            .expect("第一次读取成功");
+            .expect("first read succeeded");
         let second = reader
             .read_reader(&mut &b"MPX,Microsoft Project for Windows,4.0,ANSI\r\n"[..])
-            .expect("第二次读取成功");
+            .expect("second read succeeded");
 
-        // 每次读取都会新建 ProjectFile（Java 同样如此），且临时状态已清理
+        // Each read creates a new ProjectFile (as in Java), and the temporary state has been cleaned up
         assert!(!Rc::ptr_eq(&first, &second));
         assert!(reader.m_project_file.is_none());
         assert!(reader.m_task_model.is_none());
@@ -2636,13 +2666,13 @@ mod tests {
 
     #[test]
     fn unknown_record_numbers_are_rejected() {
-        // 123 不在 MPXConstants 的任何记录号之列（注意 999 是「文件创建记录」的占位值）
+        // 123 is not among any of MPXConstants' record numbers (note 999 is the placeholder value for the "file creation record")
         let data = b"MPX,Microsoft Project for Windows,4.0,ANSI\r\n123\r\n";
-        let error = read(data).err().expect("未知记录号应报错");
+        let error = read(data).err().expect("unknown record number should error");
 
         assert!(
             error.message().contains(MpxjError::INVALID_RECORD),
-            "实际消息：{}",
+            "actual message: {}",
             error.message()
         );
     }

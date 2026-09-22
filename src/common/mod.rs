@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/common` 包
+//! Corresponds to Java: `org/mpxj/common` package
 
 pub mod assignment_field_lists;
 pub mod boolean_helper;

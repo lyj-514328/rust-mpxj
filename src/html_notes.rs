@@ -1,61 +1,61 @@
-//! 对应 Java: `org/mpxj/HtmlNotes.java`
+//! Corresponds to Java: `org/mpxj/HtmlNotes.java`
 
 use crate::common::html_helper::HtmlHelper;
 use crate::notes::Notes;
 use std::fmt::{self, Display, Formatter};
 
-/// 以 HTML 格式保存的笔记。
+/// Notes stored in HTML format.
 ///
-/// 对应 Java: `public class HtmlNotes extends Notes`
+/// Corresponds to Java: `public class HtmlNotes extends Notes`
 ///
-/// # 继承关系如何还原
+/// # How the inheritance relationship is reproduced
 ///
-/// Java 中 `HtmlNotes` 直接继承 `Notes`；Rust 无继承，改为独立 struct 实现
-/// [`crate::notes::Notes`] trait。Java 通过 `super(HtmlHelper.strip(html))` 存进基类的
-/// `m_text` 直接作为本 struct 的字段；`m_html` 亦然。
+/// In Java, `HtmlNotes` directly extends `Notes`; Rust has no inheritance, so it is changed to a standalone struct implementing
+/// the [`crate::notes::Notes`] trait. Java stores the result of `super(HtmlHelper.strip(html))` into the base class's
+/// `m_text`, which becomes this struct's field directly; the same applies to `m_html`.
 ///
-/// 说明：任务描述里曾提到 `HtmlNotes` 继承 `StructuredNotes`，但 Java 源码中
-/// `HtmlNotes extends Notes`（与 `StructuredNotes` 无继承关系），本移植以源码为准。
+/// Note: the task description once mentioned that `HtmlNotes` extends `StructuredNotes`, but in the Java source
+/// `HtmlNotes extends Notes` (no inheritance relationship with `StructuredNotes`); this port follows the source.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub struct HtmlNotes {
-    /// 去掉 HTML 标记后的纯文本，供 `Display` 使用。
+/// Plain text with HTML markup stripped, used by `Display`.
     ///
-    /// 对应 Java: `Notes.m_text`（由 `super(HtmlHelper.strip(html))` 赋值）
+/// Corresponds to Java: `Notes.m_text` (assigned by `super(HtmlHelper.strip(html))`)
     m_text: Option<String>,
 
-    /// 原始 HTML 文档。
+/// The original HTML document.
     ///
-    /// 对应 Java: `private final String m_html;`
+    /// Corresponds to Java: `private final String m_html;`
     m_html: Option<String>,
 }
 
 impl HtmlNotes {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public HtmlNotes(String html)`
+    /// Corresponds to Java: `public HtmlNotes(String html)`
     ///
-    /// Java 的 `String` 引用可为 `null`，故入参用 `Option`。
+/// Java's `String` reference may be `null`, so the parameter uses `Option`.
     pub fn new(html: Option<String>) -> HtmlNotes {
         let m_text = HtmlHelper::strip(html.as_deref());
 
         HtmlNotes { m_text, m_html: html }
     }
 
-    /// 返回原始 HTML 文档。
+/// Return the original HTML document.
     ///
-    /// 对应 Java: `public String getHtml()`
+    /// Corresponds to Java: `public String getHtml()`
     pub fn get_html(&self) -> Option<&str> {
         self.m_html.as_deref()
     }
 }
 
 impl Display for HtmlNotes {
-    /// 返回去掉 HTML 标记后的纯文本。
+/// Return the plain text with HTML markup stripped.
     ///
-    /// 对应 Java: 继承自 `Notes.toString()`
+/// Corresponds to Java: inherited from `Notes.toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.m_text {
             Some(text) => f.write_str(text),
@@ -65,7 +65,7 @@ impl Display for HtmlNotes {
 }
 
 impl Notes for HtmlNotes {
-    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+/// Corresponds to Java: none (Rust-specific subtype-preserving copy, see [`Notes::to_box`])
     fn to_box(&self) -> Box<dyn Notes> {
         Box::new(HtmlNotes {
             m_text: self.m_text.clone(),

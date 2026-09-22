@@ -1,37 +1,37 @@
-﻿//! 对应 Java: `org/mpxj/mpp/TimephasedDataFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/TimephasedDataFactory.java`
 //!
-//! 把 MPP 文件中原始的时间分段（timephased）数据块解释成
-//! [`TimephasedWork`] / [`TimephasedCost`] 列表：已完成工时、计划工时、基准工时与基准成本。
+//! Interprets the raw timephased data blocks in an MPP file as
+//! lists of [`TimephasedWork`] / [`TimephasedCost`]: complete work, planned work, baseline work, and baseline cost.
 //!
-//! # 数据块格式（与 Java 注释一致）
+//! # Data block format (consistent with Java comments)
 //!
-//! - **不含非工作时间（irregular）数据**：16 字节块头（偏移 0 处为记录条数），其后是 8 字节记录
-//!   （两个 4 字节时间戳，分别表示非标准工作时间内那一段工作的起止）。
-//! - **常规（regular）已完成工时**：16 字节块头，其后是 20 字节记录
-//!   （偏移 0：累计工时，千分之一分钟；偏移 8：本段每小时工时；偏移 16：累计已用分钟，八十分之一分钟）。
-//!   首条记录是汇总，被跳过。
-//! - **计划工时**：16 字节块头 + 28 字节记录（偏移 0：累计工时；偏移 24：累计已用分钟）。
-//! - **基准工时**：8 字节块头 + 20 字节记录（偏移 0：含加班的累计工时；偏移 8：本段工时；
-//!   偏移 16：本段结束时间戳）。
-//! - **基准成本**：16 字节块头 + 20 字节记录（偏移 8：累计成本；偏移 16：本段结束时间戳）。
+//! - **Irregular (non-working-time) data**: a 16-byte block header (the record count at offset 0), followed by 8-byte records
+//! (two 4-byte timestamps, giving the start and end of a stretch of work during non-standard working hours).
+//! - **Regular complete work**: a 16-byte block header, followed by 20-byte records
+//! (offset 0: cumulative work in thousandths of a minute; offset 8: work per hour for this segment; offset 16: cumulative elapsed minutes in eightieths of a minute).
+//! The first record is a summary and is skipped.
+//! - **Planned work**: a 16-byte block header + 28-byte records (offset 0: cumulative work; offset 24: cumulative elapsed minutes).
+//! - **Baseline work**: an 8-byte block header + 20-byte records (offset 0: cumulative work including overtime; offset 8: work for this segment;
+//! offset 16: end timestamp of this segment).
+//! - **Baseline cost**: a 16-byte block header + 20-byte records (offset 8: cumulative cost; offset 16: end timestamp of this segment).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectCalendar calendar`（可为 `null`） | `Option<&Rc<RefCell<ProjectCalendar>>>` | 「`null` → `Option<T>`」约定。Java 只在 `getCompleteWork` 里显式判空（返回空列表），其余方法遇到 `null` 会抛 `NullPointerException`；Rust 侧**一律**提前返回空列表（不 panic） |
-//! | `calendar.getDate(...)` | 经 `RefCell::try_borrow_mut` 调用（`ProjectCalendar::get_date` 需要 `&mut self`） | 借用失败时退化为 `None`，同样不 panic |
-//! | `byte[] data`（可为 `null`） | `Option<&[u8]>` | 同上 |
-//! | `resourceAssignment.getTask()` / `getStart()` 等可能返回 `null` | `Option<..>`；为空时提前结束或跳过 | Java 会抛 `NullPointerException` |
-//! | `MPPUtility.getTimestamp` 等可能返回 `null` | `Option<NaiveDateTime>`；为空时结束该分支 | 同上 |
-//! | `ByteArrayHelper.getShort/getInt` 越界 | 返回 `None` → 视为 0 / 结束循环 | Java 抛 `ArrayIndexOutOfBoundsException` |
-//! | `Collections.emptyList()` / `new ArrayList<>()` | `Vec::new()` | Rust 的 `Vec` 本身就是可变的，Java 注释里「返回可变列表」的意图自然满足 |
-//! | `Math.round(minutes * 60.0)` | `f64::round` | 对正数行为一致；负数时 Java 的 `Math.round(-0.5)` 为 0，Rust 为 -1（本方法只用于工时，取值非负） |
+//! | `ProjectCalendar calendar` (may be `null`) | `Option<&Rc<RefCell<ProjectCalendar>>>` | the "`null` → `Option<T>`" convention. Java only explicitly null-checks in `getCompleteWork` (returning an empty list); the other methods throw `NullPointerException` on `null`; the Rust side **always** returns an empty list early (no panic) |
+//! | `calendar.getDate(...)` | called via `RefCell::try_borrow_mut` (`ProjectCalendar::get_date` needs `&mut self`) | on a failed borrow it degrades to `None`, again without panicking |
+//! | `byte[] data` (may be `null`) | `Option<&[u8]>` | same as above |
+//! | `resourceAssignment.getTask()` / `getStart()` etc. may return `null` | `Option<..>`; ends early or skips when empty | Java throws `NullPointerException` |
+//! | `MPPUtility.getTimestamp` etc. may return `null` | `Option<NaiveDateTime>`; ends that branch when empty | same as above |
+//! | `ByteArrayHelper.getShort/getInt` out of bounds | returns `None` → treated as 0 / ends the loop | Java throws `ArrayIndexOutOfBoundsException` |
+//! | `Collections.emptyList()` / `new ArrayList<>()` | `Vec::new()` | Rust's `Vec` is itself mutable, so the intent behind Java's comment "return a mutable list" is naturally satisfied |
+//! | `Math.round(minutes * 60.0)` | `f64::round` | behavior matches for positive numbers; for negatives Java's `Math.round(-0.5)` is 0 while Rust gives -1 (this method is only used for work, which is non-negative) |
 //!
-//! 跳过的 Java 成员：无（`getCompleteWork` / `getPlannedWork` / `getBaselineWork` / `getCost` /
-//! `splitItem` / `removeEmptyItems` / `roundMinutesToSeconds` 全部逐一翻译）。
+//! Skipped Java members: none (`getCompleteWork` / `getPlannedWork` / `getBaselineWork` / `getCost` /
+//! `splitItem` / `removeEmptyItems` / `roundMinutesToSeconds` are all translated one by one).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -49,25 +49,25 @@ use crate::time_unit::TimeUnit;
 use crate::timephased_cost::TimephasedCost;
 use crate::timephased_work::TimephasedWork;
 
-/// 时间分段数据的读取器。
+/// Reader for timephased data.
 ///
-/// 对应 Java: `final class TimephasedDataFactory`
+/// Corresponds to Java: `final class TimephasedDataFactory`
 pub struct TimephasedDataFactory;
 
 impl TimephasedDataFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法
+/// Corresponds to Java: implicit default constructor
     pub fn new() -> Self {
         Self
     }
 
-    /// 读取「已完成工时」。
+/// Reads "complete work".
     ///
-    /// 对应 Java: `public List<TimephasedWork> getCompleteWork(ProjectCalendar calendar, ResourceAssignment resourceAssignment, byte[] regularData, byte[] irregularData)`
+    /// Corresponds to Java: `public List<TimephasedWork> getCompleteWork(ProjectCalendar calendar, ResourceAssignment resourceAssignment, byte[] regularData, byte[] irregularData)`
     ///
-    /// Java 注释：「不再返回 `Collections.emptyList()`，而是返回可变列表」——Rust 的 `Vec`
-    /// 天然满足该意图。
+/// Java comment: "no longer returns `Collections.emptyList()`, but a mutable list" -- Rust's `Vec`
+/// naturally satisfies that intent.
     pub fn get_complete_work(
         &self,
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
@@ -97,9 +97,9 @@ impl TimephasedDataFactory {
         }
 
         // Java:
-        // 实际 / 已完成工时由两块数据表示。第一块是「常规」工时（正常工作时间内完成的工时），
-        // 其中也包含非工作时间完成的工时，但后者的存在会让后续各段工作的起止时间算错；
-        // 第二块给出了这些「非标准工作时间」段的正确起止时间，两者结合才能得到正确的起止。
+// Actual / complete work is represented by two data blocks. The first is "regular" work (work done during normal working hours),
+// which also includes work done during non-working time, but the presence of the latter would make the start and end times of subsequent segments wrong;
+// the second block gives the correct start and end times for these "non-standard working time" segments, and only by combining the two can the correct start and end be obtained.
         let mut irregular_ranges: Vec<LocalDateTimeRange> = Vec::new();
         if let Some(irregular_data) = irregular_data {
             // Java: int irregularDataBlockCount = ByteArrayHelper.getShort(irregularData, 0);
@@ -110,7 +110,7 @@ impl TimephasedDataFactory {
                 // Java: LocalDateTime start = MPPUtility.getTimestamp(irregularData, offset);
                 //       LocalDateTime end = MPPUtility.getTimestamp(irregularData, offset + 4);
                 //       irregularRanges.add(new LocalDateTimeRange(start, end));
-                // Java 在时间戳为 null 时比较会抛 NPE；Rust 侧跳过该条记录。
+// Java throws an NPE when comparing a null timestamp; the Rust side skips that record.
                 let start = MPPUtility::get_timestamp(irregular_data, offset);
                 let end = MPPUtility::get_timestamp(irregular_data, offset + 4);
                 if let (Some(start), Some(end)) = (start, end) {
@@ -121,13 +121,13 @@ impl TimephasedDataFactory {
         }
 
         // Java:
-        // 常规数据块以 16 字节块头开始（偏移 0 处为记录条数），其后是 20 字节记录：
-        // 偏移 0：本段结束时的累计工时（千分之一分钟）
-        // 偏移 8：本段每小时工时（万分之一小时）
-        // 偏移 16：本段结束时的累计已用分钟（八十分之一分钟）
-        // 第一段是资源分配的汇总，被跳过。
+// The regular data block starts with a 16-byte block header (the record count at offset 0), followed by 20-byte records:
+// offset 0: cumulative work at the end of this segment (thousandths of a minute)
+// offset 8: work per hour for this segment (ten-thousandths of an hour)
+// offset 16: cumulative elapsed minutes at the end of this segment (eightieths of a minute)
+// The first segment is a summary for the resource assignment and is skipped.
         let Some(mut calendar_period_start) = resource_assignment.get_start() else {
-            // Java: resourceAssignment.getStart() 为 null 时后续会抛 NPE
+// Java: a later call throws an NPE when resourceAssignment.getStart() is null
             return Vec::new();
         };
 
@@ -169,7 +169,7 @@ impl TimephasedDataFactory {
             {
                 resource_assignment.get_actual_finish()
             } else {
-                // Java 在日历缺失时会抛 NPE；Rust 侧提前结束
+// Java throws an NPE when the calendar is missing; the Rust side ends early
                 calendar_get_date(
                     Some(calendar),
                     calendar_period_start,
@@ -181,7 +181,7 @@ impl TimephasedDataFactory {
             };
 
             // Java: double calculatedWorkPerHour = (totalWorkMinutesThisPeriod * 60.0) / elapsedMinutesThisPeriod;
-            // （Java 的 double 除以 0 得到 Infinity，Rust 行为相同）
+// (Java's double division by 0 yields Infinity; Rust behaves the same)
             let calculated_work_per_hour =
                 (total_work_minutes_this_period * 60.0) / elapsed_minutes_this_period;
 
@@ -209,7 +209,7 @@ impl TimephasedDataFactory {
                     let (Some(item_start), Some(item_finish)) =
                         (current.get_start(), current.get_finish())
                     else {
-                        // Java 在起止时间为 null 时比较会抛 NPE
+// Java throws an NPE when comparing null start/end times
                         item = None;
                         continue;
                     };
@@ -302,9 +302,9 @@ impl TimephasedDataFactory {
 
                             if !irregular_ranges.is_empty() {
                                 // Java:
-                                // 这里的逻辑与下面的代码块略有不同，所以我们在拆分之后立即尝试，
-                                // 而不是循环等待落到下面的代码块。我们在找「紧接上一段常规块结束」
-                                // 开始的非标准工作时间块；此处不需要循环处理多个块。
+// The logic here differs slightly from the code block below, so we try immediately after splitting
+// rather than looping and waiting to fall into the code block below. We are looking for an irregular-work-time block that starts
+// immediately after the end of the previous regular block; no loop is needed here to handle multiple blocks.
                                 let next = irregular_ranges[0].clone();
                                 if let (Some(next_start), Some(item_finish_now), Some(item_amount)) = (
                                     next.get_start(),
@@ -386,16 +386,16 @@ impl TimephasedDataFactory {
         remove_empty_items(regular_list)
     }
 
-    /// 拆分一段常规工时，以便插入一段非标准工作时间的工时。
+/// Splits a stretch of regular work so that a stretch of irregular-work-time work can be inserted.
     ///
-    /// 对应 Java: `private TimephasedWork splitItem(ProjectCalendar calendar, List<TimephasedWork> regularList, List<LocalDateTimeRange> irregularRanges)`
+    /// Corresponds to Java: `private TimephasedWork splitItem(ProjectCalendar calendar, List<TimephasedWork> regularList, List<LocalDateTimeRange> irregularRanges)`
     fn split_item(
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
         regular_list: &mut Vec<TimephasedWork>,
         irregular_ranges: &mut Vec<LocalDateTimeRange>,
     ) -> Option<TimephasedWork> {
         // Java: TimephasedWork item = regularList.remove(regularList.size() - 1);
-        //（列表为空时 Java 抛 IndexOutOfBoundsException）
+// (Java throws IndexOutOfBoundsException when the list is empty)
         let item = regular_list.pop()?;
 
         let mut allocated_work_in_minutes = 0.0;
@@ -412,7 +412,7 @@ impl TimephasedDataFactory {
             .get_amount_per_hour()
             .map_or(0.0, |value| value.get_duration());
 
-        // 起始段
+// Leading segment
         // Java: if (item.getStart().isBefore(range.getStart()))
         if item_start < range_start {
             let finish = range_start;
@@ -439,7 +439,7 @@ impl TimephasedDataFactory {
             regular_list.push(start_item);
         }
 
-        // 插入段
+// Inserted segment
         // Java: double unallocatedWorkInMinutes = roundMinutesToSeconds(item.getTotalAmount().getDuration() - allocatedWorkInMinutes);
         let item_total = item.get_total_amount().map_or(0.0, |value| value.get_duration());
         let unallocated_work_in_minutes =
@@ -469,13 +469,13 @@ impl TimephasedDataFactory {
             .map_or(0.0, |value| value.get_duration());
         regular_list.push(inserted_item);
 
-        // 如果非标准工作时间段还没有用完，把剩余部分放回列表头部。
+// If the irregular-work-time segment is not yet used up, put the remainder back at the head of the list.
         // Java: if (requiredMinutes < rangeMinutes) { irregularRanges.add(0, new LocalDateTimeRange(finish, range.getEnd())); }
         if required_minutes < range_minutes {
             irregular_ranges.insert(0, LocalDateTimeRange::new(Some(finish), Some(range_end)));
         }
 
-        // 结束段
+// Trailing segment
         // Java: if (item.getFinish().isAfter(finish))
         if item_finish > finish {
             // Java: double workMinutes = item.getTotalAmount().getDuration() - allocatedWorkInMinutes;
@@ -509,9 +509,9 @@ impl TimephasedDataFactory {
         regular_list.last().cloned()
     }
 
-    /// 读取「计划工时」。
+/// Reads "planned work".
     ///
-    /// 对应 Java: `public List<TimephasedWork> getPlannedWork(ProjectCalendar calendar, ResourceAssignment assignment, byte[] data, List<TimephasedWork> timephasedComplete, ResourceType resourceType)`
+    /// Corresponds to Java: `public List<TimephasedWork> getPlannedWork(ProjectCalendar calendar, ResourceAssignment assignment, byte[] data, List<TimephasedWork> timephasedComplete, ResourceType resourceType)`
     pub fn get_planned_work(
         &self,
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
@@ -522,7 +522,7 @@ impl TimephasedDataFactory {
     ) -> Vec<TimephasedWork> {
         // Java: if (data == null || data.length < 24 || assignment.getTask().getDuration() == null
         //       || assignment.getTask().getDuration().getDuration() == 0) { return new ArrayList<>(); }
-        // （`resourceType` 参数在 Java 的实现体中并未被使用，此处保留以保持签名一致。）
+// (The `resourceType` parameter is not actually used in Java's implementation body; it is kept here to preserve the signature.)
         let _ = resource_type;
         let Some(data) = data else {
             return Vec::new();
@@ -532,18 +532,18 @@ impl TimephasedDataFactory {
         }
 
         // Java:
-        // 计划工时数据有 16 字节块头，其后是 28 字节块。块头前两字节是块数，第一块是汇总块、
-        // 不计入块数，即块数为 N 表示共有 N + 1 块。每个 28 字节块包含：
-        // 偏移 0：8 字节 double，累计工时（千分之一分钟）
-        // 偏移 8：8 字节 double，每天小时数（不可靠，不使用）
-        // 偏移 16：8 字节 double?，未知
-        // 偏移 24：4 字节 int，累计已用分钟（八十分之一分钟）
+// The planned work data has a 16-byte block header followed by 28-byte blocks. The first two bytes of the header are the block count; the first block is a summary block
+// and is not counted in the block count, i.e. a block count of N means N + 1 blocks in total. Each 28-byte block contains:
+// offset 0: 8-byte double, cumulative work (thousandths of a minute)
+// offset 8: 8-byte double, hours per day (unreliable, unused)
+// offset 16: 8-byte double?, unknown
+// offset 24: 4-byte int, cumulative elapsed minutes (eightieths of a minute)
         let mut new_list: Vec<TimephasedWork> = Vec::new();
         let block_count = read_short(data, 0).unwrap_or(0);
 
         if block_count == 0 {
             // Java:
-            // 块数为 0 时整个分派只有一条记录，其取值来自汇总块；总工时为 0 则无效，跳过。
+// When the block count is 0 the whole assignment has only one record, whose value comes from the summary block; if total work is 0 it is invalid and skipped.
             let total_work_in_minutes = MPPUtility::get_double(data, 16) / 1000.0;
             if total_work_in_minutes != 0.0 {
                 let Some(start) = assignment_start_or_resume(assignment, timephased_complete) else {
@@ -571,7 +571,7 @@ impl TimephasedDataFactory {
                 new_list.push(item);
             }
         } else {
-            // Java: 有块数据时跳过汇总块，为后续每块生成一条记录。
+// Java: when there is block data, skip the summary block and generate one record for each subsequent block.
             let mut offset = 16 + 28;
             let mut previous_work_minutes = 0.0;
             let mut previous_elapsed_minutes = 0.0;
@@ -606,7 +606,7 @@ impl TimephasedDataFactory {
                 };
                 let work = Duration::get_instance(work_minutes_this_period, TimeUnit::Minutes);
 
-                // Java: 偶尔会出现既无工时也无时间的块，跳过。
+// Java: blocks with neither work nor time occasionally occur; skip them.
                 if work_minutes_this_period >= 1.0 || start != end {
                     let mut item = TimephasedWork::new();
                     item.set_start(Some(start));
@@ -631,9 +631,9 @@ impl TimephasedDataFactory {
         remove_empty_items(new_list)
     }
 
-    /// 读取未区分「已完成 / 计划」的时间分段工时（基准工时）。
+/// Reads timephased work that does not distinguish "complete / planned" (baseline work).
     ///
-    /// 对应 Java: `public List<TimephasedWork> getBaselineWork(ProjectCalendar calendar, byte[] data)`
+    /// Corresponds to Java: `public List<TimephasedWork> getBaselineWork(ProjectCalendar calendar, byte[] data)`
     pub fn get_baseline_work(
         &self,
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
@@ -648,14 +648,14 @@ impl TimephasedDataFactory {
         }
 
         // Java:
-        // 基准工时数据是 8 字节块头 + 20 字节块。首块与末块是汇总块，被忽略；汇总块之后的第一块
-        // 只用于给出数据起始时间戳，其余直到末尾汇总块之间的块给出各个时间分段记录。
-        // 块头的偏移 0 处是块数。20 字节块的内容：
-        // 偏移 0：含加班的累计工时（double，千分之一分钟）
-        // 偏移 8：本段工时（int，十分之一分钟，不含加班）
-        // 偏移 12：未知 int，可能是标志
-        // 偏移 16：本段结束时间戳（十分之一分钟）
-        // 注意基准时间分段数据都相对于项目的基准日历，而不是原来的资源分配日历。
+// The baseline work data is an 8-byte block header + 20-byte blocks. The first and last blocks are summary blocks and are ignored; the first block after the summary block
+// is used only to give the data start timestamp, and the blocks between it and the final summary block give the individual timephased records.
+// The block count is at offset 0 of the header. The contents of a 20-byte block:
+// offset 0: cumulative work including overtime (double, thousandths of a minute)
+// offset 8: work for this segment (int, tenths of a minute, excluding overtime)
+// offset 12: unknown int, possibly a flag
+// offset 16: end timestamp of this segment (tenths of a minute)
+// Note that baseline timephased data is relative to the project's baseline calendar, not the original resource assignment calendar.
         let mut list: Vec<TimephasedWork> = Vec::new();
         let block_count = read_short(data, 0).unwrap_or(0);
         // Java: LocalDateTime start = MPPUtility.getTimestampFromTenths(data, 44);
@@ -716,9 +716,9 @@ impl TimephasedDataFactory {
         remove_empty_items(list)
     }
 
-    /// 读取未区分「已完成 / 计划」的时间分段成本（基准成本）。
+/// Reads timephased cost that does not distinguish "complete / planned" (baseline cost).
     ///
-    /// 对应 Java: `public List<TimephasedCost> getCost(ProjectCalendar calendar, byte[] data)`
+    /// Corresponds to Java: `public List<TimephasedCost> getCost(ProjectCalendar calendar, byte[] data)`
     pub fn get_cost(
         &self,
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
@@ -733,13 +733,13 @@ impl TimephasedDataFactory {
         }
 
         // Java:
-        // 基准成本数据是 16 字节块头 + 20 字节块，块数存放在块头偏移 0 处的 short。
-        // 每个 20 字节块：
-        // 偏移 0：标志？short
-        // 偏移 2：未知 6 字节
-        // 偏移 8：累计成本（double，百分之一当前单位）
-        // 偏移 16：本段结束时间戳（十分之一分钟）
-        // 首块与末块是汇总数据，被忽略；起始时间取自第一个汇总块。
+// The baseline cost data is a 16-byte block header + 20-byte blocks, with the block count stored as a short at offset 0 of the header.
+// Each 20-byte block:
+// offset 0: flag? short
+// offset 2: unknown 6 bytes
+// offset 8: cumulative cost (double, hundredths of the current unit)
+// offset 16: end timestamp of this segment (tenths of a minute)
+// The first and last blocks are summary data and are ignored; the start time is taken from the first summary block.
         let mut list: Vec<TimephasedCost> = Vec::new();
         let block_count = read_short(data, 0).unwrap_or(0);
         // Java: LocalDateTime start = MPPUtility.getTimestampFromTenths(data, 32);
@@ -794,16 +794,16 @@ impl TimephasedDataFactory {
 }
 
 impl Default for TimephasedDataFactory {
-    /// 对应 Java: 隐式默认构造方法。
+/// Corresponds to Java: implicit default constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 任务的工期是否为空或 0。
+/// Whether the task's duration is null or 0.
 ///
-/// 对应 Java: `resourceAssignment.getTask().getDuration() == null || getDuration().getDuration() == 0`
-///（任务引用或工期缺失时 Java 抛 `NullPointerException`，Rust 侧按「为空或 0」处理）
+/// Corresponds to Java: `resourceAssignment.getTask().getDuration() == null || getDuration().getDuration() == 0`
+/// (Java throws `NullPointerException` when the task reference or duration is missing; the Rust side treats it as "null or 0")
 fn assignment_has_zero_duration(assignment: &ResourceAssignment) -> bool {
     let Some(task) = assignment.get_task() else {
         return true;
@@ -818,9 +818,9 @@ fn assignment_has_zero_duration(assignment: &ResourceAssignment) -> bool {
     }
 }
 
-/// 取分派的起始时间：已完成 timephased 数据为空时用 `getStart()`，否则用 `getResume()`。
+/// Gets the assignment's start time: uses `getStart()` when the complete timephased data is empty, otherwise `getResume()`.
 ///
-/// 对应 Java: `timephasedComplete.isEmpty() ? assignment.getStart() : assignment.getResume()`
+/// Corresponds to Java: `timephasedComplete.isEmpty() ? assignment.getStart() : assignment.getResume()`
 fn assignment_start_or_resume(
     assignment: &ResourceAssignment,
     timephased_complete: &[TimephasedWork],
@@ -832,10 +832,10 @@ fn assignment_start_or_resume(
     }
 }
 
-/// 按日历推算日期（`ProjectCalendar::get_date` 需要可变借用）。
+/// Computes a date using the calendar (`ProjectCalendar::get_date` needs a mutable borrow).
 ///
-/// 对应 Java: `calendar.getDate(date, duration)`
-///（日历缺失时 Java 抛 `NullPointerException`，Rust 返回 `None`）
+/// Corresponds to Java: `calendar.getDate(date, duration)`
+/// (Java throws `NullPointerException` when the calendar is missing; Rust returns `None`)
 fn calendar_get_date(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     date: NaiveDateTime,
@@ -846,9 +846,9 @@ fn calendar_get_date(
     Some(calendar_ref.get_date(date, duration))
 }
 
-/// 取下一个工作开始时间。
+/// Gets the next work start time.
 ///
-/// 对应 Java: `calendar.getNextWorkStart(date)`
+/// Corresponds to Java: `calendar.getNextWorkStart(date)`
 fn calendar_get_next_work_start(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     date: NaiveDateTime,
@@ -858,9 +858,9 @@ fn calendar_get_next_work_start(
     Some(calendar_ref.get_next_work_start(date))
 }
 
-/// 取两个时间点之间在本日历下的工时（以给定单位）。
+/// Gets the work between two points in time under this calendar (in the given unit).
 ///
-/// 对应 Java: `calendar.getWork(startDate, endDate, format).getDuration()`
+/// Corresponds to Java: `calendar.getWork(startDate, endDate, format).getDuration()`
 fn calendar_get_work_duration(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     start_date: NaiveDateTime,
@@ -872,43 +872,43 @@ fn calendar_get_work_duration(
     Some(calendar_ref.get_work(start_date, end_date, format).get_duration())
 }
 
-/// 两个时间点之间的整分钟数。
+/// Whole minutes between two points in time.
 ///
-/// 对应 Java: `start.until(end, ChronoUnit.MINUTES)`
+/// Corresponds to Java: `start.until(end, ChronoUnit.MINUTES)`
 fn minutes_between(start: NaiveDateTime, end: NaiveDateTime) -> i64 {
     (end - start).num_minutes()
 }
 
-/// 时间点加上若干分钟。
+/// Adds a number of minutes to a point in time.
 ///
-/// 对应 Java: `date.plusMinutes(minutes)`（越界时 Java 抛 `DateTimeException`，
-/// Rust 侧返回原时间点）
+/// Corresponds to Java: `date.plusMinutes(minutes)` (on overflow Java throws `DateTimeException`,
+/// the Rust side returns the original point in time)
 fn plus_minutes(date: NaiveDateTime, minutes: i64) -> NaiveDateTime {
     date.checked_add_signed(chrono::Duration::try_minutes(minutes).unwrap_or_default())
         .unwrap_or(date)
 }
 
-/// 移除起止时间相同的记录。
+/// Removes records whose start and end times are the same.
 ///
-/// 对应 Java: `private List<TimephasedWork> removeEmptyItems(List<TimephasedWork> work)`
+/// Corresponds to Java: `private List<TimephasedWork> removeEmptyItems(List<TimephasedWork> work)`
 fn remove_empty_items(work: Vec<TimephasedWork>) -> Vec<TimephasedWork> {
     let mut work = work;
     // Java: work.removeIf(w -> w.getStart().isEqual(w.getFinish()));
-    //（起止时间为 null 时 Java 抛 NPE，Rust 侧把「都为 null」也视为相同。）
+// (Java throws an NPE when the start/end times are null; the Rust side also treats "both null" as the same.)
     work.retain(|item| item.get_start() != item.get_finish());
     work
 }
 
-/// 把以 double 表示的分钟数四舍五入到最近的秒。
+/// Rounds a minute count represented as a double to the nearest second.
 ///
-/// 对应 Java: `private double roundMinutesToSeconds(double minutes) { return Math.round(minutes * 60.0) / 60.0; }`
+/// Corresponds to Java: `private double roundMinutesToSeconds(double minutes) { return Math.round(minutes * 60.0) / 60.0; }`
 fn round_minutes_to_seconds(minutes: f64) -> f64 {
     (minutes * 60.0).round() / 60.0
 }
 
-/// 读两字节短整数（0..65535）；数据不足时返回 `None`。
+/// Reads a two-byte short (0..65535); returns `None` when data is insufficient.
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(data, offset)`（越界抛 `ArrayIndexOutOfBoundsException`）
+/// Corresponds to Java: `ByteArrayHelper.getShort(data, offset)` (out of bounds throws `ArrayIndexOutOfBoundsException`)
 fn read_short(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(2)? > data.len() {
         return None;
@@ -917,9 +917,9 @@ fn read_short(data: &[u8], offset: usize) -> Option<i32> {
     Some(ByteArrayHelper::get_short(data, offset))
 }
 
-/// 读四字节整数；数据不足时返回 `None`。
+/// Reads a four-byte integer; returns `None` when data is insufficient.
 ///
-/// 对应 Java: `ByteArrayHelper.getInt(data, offset)`（越界抛 `ArrayIndexOutOfBoundsException`）
+/// Corresponds to Java: `ByteArrayHelper.getInt(data, offset)` (out of bounds throws `ArrayIndexOutOfBoundsException`)
 fn read_int(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(4)? > data.len() {
         return None;
@@ -935,7 +935,7 @@ mod tests {
     use crate::project_file::ProjectFile;
     use std::rc::Weak;
 
-    /// 构造一个标准日历（周一至周五，08:00-12:00 / 13:00-17:00，每天 8 小时）。
+/// Builds a standard calendar (Monday to Friday, 08:00-12:00 / 13:00-17:00, 8 hours per day).
     fn calendar() -> Rc<RefCell<ProjectCalendar>> {
         let mut calendar = ProjectCalendar::new(Weak::new(), true);
         calendar.add_default_calendar_days();
@@ -943,15 +943,15 @@ mod tests {
         Rc::new(RefCell::new(calendar))
     }
 
-    /// 解析 `YYYY-MM-DD hh:mm` 形式的时间。
+/// Parses a time in `YYYY-MM-DD hh:mm` form.
     fn date_time(value: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M").expect("合法时间")
+        NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M").expect("valid time")
     }
 
-    /// 构造「项目文件 + 资源分配」测试夹具。
+/// Builds a "project file + resource assignment" test fixture.
     ///
-    /// `getTask()` 需要经父文件按 unique ID 查找任务，因此项目文件的 `Rc` 必须由调用方持有
-    /// （否则弱引用失效，任务工期会被视为 0）。
+/// `getTask()` needs to look up the task by unique ID through the parent file, so the project file's `Rc` must be held by the caller
+/// (otherwise the weak reference becomes invalid and the task duration is treated as 0).
     fn fixture(
         start: &str,
         finish: &str,
@@ -967,7 +967,7 @@ mod tests {
         let assignment = task
             .borrow_mut()
             .add_resource_assignment(None)
-            .expect("可新增分派");
+            .expect("can add dispatch");
 
         {
             let mut assignment_ref = assignment.borrow_mut();
@@ -979,10 +979,10 @@ mod tests {
         (file, assignment)
     }
 
-    /// 手工构造「已完成工时」的常规数据块（16 字节块头 + 20 字节记录）。
+/// Hand-builds a regular data block for "complete work" (16-byte block header + 20-byte records).
     ///
-    /// 每条记录给出「累计工时（千分之一分钟）」与「累计已用分钟（八十分之一分钟）」；
-    /// 块头偏移 24 处的 `finishTime` 取 24 小时的八十分之一分钟数，足以容纳测试数据。
+/// Each record gives "cumulative work (thousandths of a minute)" and "cumulative elapsed minutes (eightieths of a minute)";
+/// the `finishTime` at offset 24 of the header is taken as 24 hours in eightieths of a minute, enough to hold the test data.
     fn complete_work_data(records: &[(f64, i32)]) -> Vec<u8> {
         let mut data = vec![0u8; 36];
         data[0..2].copy_from_slice(&(records.len() as u16).to_le_bytes());
@@ -998,12 +998,12 @@ mod tests {
         data
     }
 
-    /// 已完成工时的解析：累计工时按段差分、按日历推进日期。
+/// Parsing of complete work: cumulative work is differenced per segment and dates advance according to the calendar.
     #[test]
     fn reads_complete_work() {
         let calendar = calendar();
         let (_file, assignment) = fixture("2024-06-03 08:00", "2024-06-04 17:00", 2.0);
-        // 两段：每段 8 小时（480 分钟），累计已用分钟的原始值 = 分钟 × 80
+// Two segments: 8 hours each (480 minutes); the raw value of cumulative elapsed minutes = minutes × 80
         let data = complete_work_data(&[
             (8.0 * 60.0 * 1000.0, 480 * 80),
             (16.0 * 60.0 * 1000.0, 960 * 80),
@@ -1015,7 +1015,7 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].get_start(), Some(date_time("2024-06-03 08:00")));
-        // 08:00 + 480 个工作分钟（含 12:00-13:00 午休）= 17:00
+// 08:00 + 480 working minutes (including the 12:00-13:00 lunch break) = 17:00
         assert_eq!(result[0].get_finish(), Some(date_time("2024-06-03 17:00")));
         assert_eq!(
             result[0]
@@ -1027,7 +1027,7 @@ mod tests {
         assert_eq!(result[1].get_finish(), Some(date_time("2024-06-04 17:00")));
     }
 
-    /// 已完成工时：`actualFinish` 存在时最后一段的结束时间取它。
+/// Complete work: when `actualFinish` exists, the end time of the last segment is taken from it.
     #[test]
     fn complete_work_uses_actual_finish_for_the_last_period() {
         let calendar = calendar();
@@ -1045,14 +1045,14 @@ mod tests {
         assert_eq!(result[0].get_finish(), Some(date_time("2024-06-04 12:00")));
     }
 
-    /// 数据不足 / 缺参数时返回空列表，不 panic。
+/// Returns an empty list without panicking when data is insufficient / a parameter is missing.
     #[test]
     fn complete_work_returns_empty_for_invalid_input() {
         let calendar = calendar();
         let (_file, assignment) = fixture("2024-06-03 08:00", "2024-06-03 17:00", 1.0);
         let factory = TimephasedDataFactory::new();
 
-        // 缺日历 / 缺数据
+// Missing calendar / missing data
         assert!(
             factory
                 .get_complete_work(None, &assignment.borrow(), Some(&vec![0u8; 40]), None)
@@ -1063,13 +1063,13 @@ mod tests {
                 .get_complete_work(Some(&calendar), &assignment.borrow(), None, None)
                 .is_empty()
         );
-        // 数据过短（Java: length <= 26）
+// Data too short (Java: length <= 26)
         assert!(
             factory
                 .get_complete_work(Some(&calendar), &assignment.borrow(), Some(&[0u8; 26]), None)
                 .is_empty()
         );
-        // 块数为 0
+// Block count is 0
         let mut data = vec![0u8; 40];
         data[0..2].copy_from_slice(&0u16.to_le_bytes());
         assert!(
@@ -1079,14 +1079,14 @@ mod tests {
         );
     }
 
-    /// 计划工时：块数为 0 时使用汇总块。
+/// Planned work: uses the summary block when the block count is 0.
     #[test]
     fn reads_planned_work_summary_block() {
         let calendar = calendar();
         let (_file, assignment) = fixture("2024-06-03 08:00", "2024-06-03 17:00", 1.0);
 
         let mut data = vec![0u8; 24];
-        // 汇总块：偏移 16 处的累计工时（千分之一分钟）→ 8 小时
+// Summary block: cumulative work at offset 16 (thousandths of a minute) → 8 hours
         data[16..24].copy_from_slice(&(8.0 * 60.0 * 1000.0f64).to_le_bytes());
 
         let factory = TimephasedDataFactory::new();
@@ -1109,16 +1109,16 @@ mod tests {
         );
     }
 
-    /// 计划工时：块数据（跳过汇总块后逐块生成）。
+/// Planned work: block data (generated block by block after skipping the summary block).
     #[test]
     fn reads_planned_work_blocks() {
         let calendar = calendar();
         let (_file, assignment) = fixture("2024-06-03 08:00", "2024-06-05 17:00", 3.0);
 
-        // 块头 16 字节 + 汇总块 28 字节 + 1 个数据块 28 字节
+// 16-byte header + 28-byte summary block + 1 28-byte data block
         let mut data = vec![0u8; 16 + 28 + 28];
         data[0..2].copy_from_slice(&1u16.to_le_bytes());
-        // 数据块：累计工时 8 小时、累计已用 480 分钟（原始值 = 分钟 × 80）
+// Data block: cumulative work 8 hours, cumulative elapsed 480 minutes (raw value = minutes × 80)
         data[44..52].copy_from_slice(&(8.0 * 60.0 * 1000.0f64).to_le_bytes());
         data[44 + 24..44 + 28].copy_from_slice(&(480 * 80i32).to_le_bytes());
 
@@ -1136,7 +1136,7 @@ mod tests {
         assert_eq!(result[0].get_finish(), Some(date_time("2024-06-03 17:00")));
     }
 
-    /// 计划工时：数据不足 24 字节或缺数据时返回空列表。
+/// Planned work: returns an empty list when there are fewer than 24 bytes of data or data is missing.
     #[test]
     fn planned_work_requires_minimum_length() {
         let calendar = calendar();
@@ -1167,19 +1167,19 @@ mod tests {
         );
     }
 
-    /// 基准工时：8 字节块头，首块与末块为汇总块。
+/// Baseline work: an 8-byte block header, with the first and last blocks being summary blocks.
     #[test]
     fn reads_baseline_work() {
         let calendar = calendar();
 
         let mut data = vec![0u8; 8 + 20 * 4];
         data[0..2].copy_from_slice(&4u16.to_le_bytes());
-        // 起始时间戳：偏移 44 = 纪元（1983-12-31 00:00）
+// Start timestamp: offset 44 = epoch (1983-12-31 00:00)
         data[44..48].copy_from_slice(&0i32.to_le_bytes());
-        // 数据块 1：偏移 48，累计工时 8 小时、结束时间戳 8 小时
+// Data block 1: offset 48, cumulative work 8 hours, end timestamp 8 hours
         data[48..56].copy_from_slice(&(8.0 * 60.0 * 1000.0f64).to_le_bytes());
         data[48 + 16..48 + 20].copy_from_slice(&(8 * 60 * 10i32).to_le_bytes());
-        // 数据块 2：偏移 68，累计工时 16 小时、结束时间戳 16 小时
+// Data block 2: offset 68, cumulative work 16 hours, end timestamp 16 hours
         data[68..76].copy_from_slice(&(16.0 * 60.0 * 1000.0f64).to_le_bytes());
         data[68 + 16..68 + 20].copy_from_slice(&(16 * 60 * 10i32).to_le_bytes());
 
@@ -1201,19 +1201,19 @@ mod tests {
         );
     }
 
-    /// 基准成本：16 字节块头，成本按百分之一单位换算。
+/// Baseline cost: a 16-byte block header, with cost converted in hundredths of a unit.
     #[test]
     fn reads_baseline_cost() {
         let calendar = calendar();
 
         let mut data = vec![0u8; 16 + 20 * 4];
         data[0..2].copy_from_slice(&4u16.to_le_bytes());
-        // 起始时间戳：偏移 32
+// Start timestamp: offset 32
         data[32..36].copy_from_slice(&0i32.to_le_bytes());
-        // 数据块 1：偏移 36，累计成本 10000（百分之一单位 → 100）、结束时间戳 8 小时
+// Data block 1: offset 36, cumulative cost 10000 (hundredths of a unit → 100), end timestamp 8 hours
         data[36 + 8..36 + 16].copy_from_slice(&10000.0f64.to_le_bytes());
         data[36 + 16..36 + 20].copy_from_slice(&(8 * 60 * 10i32).to_le_bytes());
-        // 数据块 2：偏移 56，累计成本 20000、结束时间戳 16 小时
+// Data block 2: offset 56, cumulative cost 20000, end timestamp 16 hours
         data[56 + 8..56 + 16].copy_from_slice(&20000.0f64.to_le_bytes());
         data[56 + 16..56 + 20].copy_from_slice(&(16 * 60 * 10i32).to_le_bytes());
 
@@ -1225,7 +1225,7 @@ mod tests {
         assert_eq!(result[1].get_total_amount(), Some(100.0));
     }
 
-    /// 空数据 / 空切片的边界行为（与 Java 的 `Collections.emptyList()` 一致）。
+/// Boundary behavior for empty data / empty slices (consistent with Java's `Collections.emptyList()`).
     #[test]
     fn empty_inputs_return_empty_lists() {
         let calendar = calendar();
@@ -1239,10 +1239,10 @@ mod tests {
         );
         assert!(factory.get_cost(Some(&calendar), None).is_empty());
         assert!(factory.get_cost(Some(&calendar), Some(&[])).is_empty());
-        // 缺日历时 Java 会抛 NPE，Rust 侧返回空列表
+// Java throws an NPE when the calendar is missing; the Rust side returns an empty list
         assert!(factory.get_baseline_work(None, Some(&[0u8; 60])).is_empty());
         assert!(factory.get_cost(None, Some(&[0u8; 60])).is_empty());
-        // 起始时间戳读不出来
+// The start timestamp cannot be read
         assert!(
             factory
                 .get_baseline_work(Some(&calendar), Some(&[0u8; 4]))
@@ -1255,7 +1255,7 @@ mod tests {
         );
     }
 
-    /// 起止时间相同的记录会被移除。
+/// Records with identical start and end times are removed.
     #[test]
     fn remove_empty_items_drops_zero_length_items() {
         let start = date_time("2024-06-03 08:00");
@@ -1273,11 +1273,11 @@ mod tests {
         assert_eq!(result[0].get_finish(), Some(date_time("2024-06-03 09:00")));
     }
 
-    /// 分钟到秒的取整。
+/// Rounding from minutes to seconds.
     #[test]
     fn rounds_minutes_to_seconds() {
         assert_eq!(round_minutes_to_seconds(1.0), 1.0);
-        // 1 分 1 秒 → 1.016666...
+// 1 minute 1 second → 1.016666...
         let value = round_minutes_to_seconds(1.0 + 1.0 / 60.0);
         assert!((value - (1.0 + 1.0 / 60.0)).abs() < 1e-9);
     }

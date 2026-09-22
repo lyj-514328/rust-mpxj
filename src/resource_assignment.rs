@@ -1,93 +1,93 @@
-//! 对应 Java: `org/mpxj/ResourceAssignment.java`
+//! Corresponds to Java: `org/mpxj/ResourceAssignment.java`
 //!
-//! 资源分配（任务 × 资源）实体。Java 侧继承 `AbstractFieldContainer` 并实现
-//! `ProjectEntityWithMutableUniqueID` / `TimePeriodEntity`。
+//! Resource assignment (task × resource) entity. On the Java side it extends `AbstractFieldContainer` and implements
+//! `ProjectEntityWithMutableUniqueID` / `TimePeriodEntity`.
 //!
-//! # 与 Java 的差异（取舍一览）
+//! # Differences from Java (trade-offs at a glance)
 //!
-//! ## 1) 继承改为组合
+//! ## 1) Inheritance replaced by composition
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends AbstractFieldContainer<ResourceAssignment>` | 字段存储改为组合一个 [`AbstractFieldContainer`]，`set` / `get` / `get_cached_value` 转发给它 |
-//! | `implements ProjectEntityWithMutableUniqueID` | [`ProjectEntityWithMutableUniqueID`]（含 [`ProjectEntityWithUniqueID`]） |
-//! | `implements TimePeriodEntity` | 无对应 trait（`time_period_entity` 未在本仓声明），两个 timephased 取值方法作为普通方法提供 |
-//! | `implements FieldContainer` | [`FieldContainer`]（`set` / `get` / `get_cached_value` / 监听器） |
+//! | `extends AbstractFieldContainer<ResourceAssignment>` | Field storage becomes composition of an [`AbstractFieldContainer`], to which `set` / `get` / `get_cached_value` forward |
+//! | `implements ProjectEntityWithMutableUniqueID` | [`ProjectEntityWithMutableUniqueID`] (includes [`ProjectEntityWithUniqueID`]) |
+//! | `implements TimePeriodEntity` | No corresponding trait (`time_period_entity` is not declared in this repository); the two timephased getters are provided as ordinary methods |
+//! | `implements FieldContainer` | [`FieldContainer`] (`set` / `get` / `get_cached_value` / listeners) |
 //!
-//! Java 的三个抽象方法按 [`crate::abstract_field_container`] 的约定落到本类：
-//! `getAlwaysCalculatedField` → [`ResourceAssignment::is_always_calculated`]；
-//! `getCalculationMethod` → [`ResourceAssignment::calculate`]（用 `match` 分派）；
-//! `handleFieldChange` → [`ResourceAssignment::handle_field_change`]。
+//! Java's three abstract methods land in this class per the conventions of [`crate::abstract_field_container`]:
+//! `getAlwaysCalculatedField` → [`ResourceAssignment::is_always_calculated`];
+//! `getCalculationMethod` → [`ResourceAssignment::calculate`] (dispatched with `match`);
+//! `handleFieldChange` → [`ResourceAssignment::handle_field_change`].
 //!
-//! ## 2) 对象引用一律用 `Weak` 断环（重要）
+//! ## 2) All object references use `Weak` to break cycles (important)
 //!
-//! Java 侧 `m_parentFile`、`getTask()` / `getResource()` 得到的是**强引用**。若 Rust 侧照搬
-//! `Rc`，会形成 `ResourceAssignment → Task/Resource/ProjectFile → 容器 → ResourceAssignment`
-//! 的 `Rc` 环，导致实体永不释放。因此本类一律持有 `Weak`：
+//! On the Java side `m_parentFile`, `getTask()` / `getResource()` yield **strong references**. If the Rust side copied them as-is
+//! `Rc`, it would form an `ResourceAssignment → Task/Resource/ProjectFile → container → ResourceAssignment`
+//! `Rc` cycle, causing the entity to never be released. This class therefore always holds `Weak`:
 //!
-//! | Java | Rust 字段 |
+//! | Java | Rust field |
 //! |---|---|
 //! | `private final ProjectFile m_parentFile` | `parent_file: Weak<RefCell<ProjectFile>>` |
-//! | `ProjectContext`（Java 经 `ProjectFile` 间接访问） | `context: Weak<RefCell<ProjectContext>>`（Rust 特有，用于按别名解析自定义字段） |
-//! | `getTask()`（按 unique ID 查父文件） | `task: Weak<RefCell<Task>>`，查不到时回退到父文件按 unique ID 查找 |
-//! | `getResource()`（按 unique ID 查父文件） | `resource: Weak<RefCell<Resource>>`，同上回退 |
+//! | `ProjectContext` (Java accesses it indirectly via `ProjectFile`) | `context: Weak<RefCell<ProjectContext>>` (Rust-specific, used to resolve custom fields by alias) |
+//! | `getTask()` (looks up the parent file by unique ID) | `task: Weak<RefCell<Task>>`, falling back to the parent file lookup by unique ID when not found |
+//! | `getResource()` (looks up the parent file by unique ID) | `resource: Weak<RefCell<Resource>>`, same fallback as above |
 //!
-//! Java 在构造方法里用 `this` / `file` 完成接线；Rust 无法在 `new()` 内取得自身的 `Rc`，
-//! 故先以空 `Weak` 构造，再由 [`ResourceAssignment::set_parent_file`] /
+//! Java wires things up in the constructor using `this` / `file`; Rust cannot obtain its own `Rc` inside `new()`,
+//! so it is first constructed with empty `Weak`s, then wired by [`ResourceAssignment::set_parent_file`] /
 //! [`ResourceAssignment::set_context`] / [`ResourceAssignment::set_task`] /
-//! [`ResourceAssignment::set_resource`] 接线（Rust 特有方法）。
+//! [`ResourceAssignment::set_resource`] (Rust-specific methods).
 //!
-//! ## 3) 字段值一律存放于字段表
+//! ## 3) Field values are always stored in the field table
 //!
-//! Java 的 `get` / `set` 把所有字段值（含 `WorkContour` / `RateSource` /
-//! `ResourceRequestType` / `TimeUnit`(variable rate) / `UUID`(GUID) / `Notes` 对象 /
-//! `List<TimephasedWork>` / `List<TimephasedCost>` / `List<LocalDateTimeRange>`）
-//! 都放在 `AbstractFieldContainer` 的字段表里，Rust 侧同样如此，因此
+//! Java's `get` / `set` store all field values (including `WorkContour` / `RateSource` /
+//! `ResourceRequestType` / `TimeUnit`(variable rate) / `UUID`(GUID) / `Notes` objects /
+//! `List<TimephasedWork>` / `List<TimephasedCost>` / `List<LocalDateTimeRange>`)
+//! are all placed in the `AbstractFieldContainer` field table; the Rust side does the same, so
 //! [`ResourceAssignment::get_field`] / [`ResourceAssignment::peek_cached_value`]
-//! 与 Java 的 `get` / `getCachedValue` 一致地能取到这些值
-//! （求值入口见 [`ResourceAssignment::calculate`]，与 Java 的 `CALCULATED_FIELD_MAP` 对应）。
+//! these values can be retrieved consistently with Java's `get` / `getCachedValue`
+//! (the evaluation entry point is [`ResourceAssignment::calculate`], corresponding to Java's `CALCULATED_FIELD_MAP`).
 //!
-//! 唯一例外是 `AssignmentField::RESOURCE_ASSIGNMENT_CODE_VALUES`：它依赖未移植的
-//! `ResourceAssignmentCode` / `ResourceAssignmentCodeValue`，整体跳过。
-//! 另外 Java 的 `m_workgroup`（MPX 记录 76 的工作组字段）**不在**字段表里，Rust 侧
-//! 同样是本类的独立字段（见 [`ResourceAssignment::add_workgroup_assignment`]）。
+//! The only exception is `AssignmentField::RESOURCE_ASSIGNMENT_CODE_VALUES`: it depends on the unported
+//! `ResourceAssignmentCode` / `ResourceAssignmentCodeValue`, so it is skipped entirely.
+//! Also, Java's `m_workgroup` (the workgroup field of MPX record 76) is **not** in the field table; the Rust side
+//! likewise keeps it as a standalone field of this class (see [`ResourceAssignment::add_workgroup_assignment`]).
 //!
-//! ## 4) 跳过的 Java 成员及原因
+//! ## 4) Skipped Java members and reasons
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `getCostAccount()` / `setCostAccount(CostAccount)` | `CostAccount` / `CostAccountContainer` 未在本仓声明（`getCostAccountUniqueID` / `setCostAccountUniqueID` 已移植） |
-//! | `getResourceAssignmentCodeValues()` / `addResourceAssignmentCodeValue(...)` | `ResourceAssignmentCode` / `ResourceAssignmentCodeValue` 未在本仓声明 |
-//! | `public CostRateTable getCostRateTable()` | [`ResourceAssignment::with_cost_rate_table`]（Rust 特有回调形式：资源按值持有 `CostRateTable` 且该类型未实现 `Clone`，无法返回所有权；`getEffectiveRate` / timephased 成本的调用点语义不变） |
-//! | `getEffectiveCalendar()` 里的 `CombinedCalendar` 包装 | 未移植该组合日历；手动排程的 `ManuallyScheduledTaskCalendar` 已接线（见方法注释） |
-//! | `calculatePercentWorkComplete` / `calculateStartVariance` / `calculateFinishVariance` 使用的 `ProjectProperties` | 经 `ProjectFile.get_project_properties()` 取值（与 `cpm::microsoft_slack_calculator` 的假设一致）；父文件未接线时退化为有效日历 / `TimeUnit::Days` |
-//! | `getRatePerHour` 使用的 `RateHelper.convertToHours` | 直接调用 [`crate::rate_helper::RateHelper::convert_to_hours`]（`getEffectiveCalendar()` 在 Rust 侧是 `Option<&Rc<RefCell<ProjectCalendar>>>`，未接线或借用冲突时按原值返回） |
-//! | `TimephasedUtility`（`org.mpxj.TimephasedUtility`，本仓未声明） | 在文件末尾以私有函数等价移植：`segment_work` / `segment_cost` / `segment_material` / `add_timephased_durations` / `add_timephased_numbers` |
-//! | `TimephasedUtility` 的 `validateRanges` / `validateTimephasedWork` / `validateTimephasedCost` | Java 抛 `IllegalArgumentException`；Rust 库代码不 panic，故不校验 |
-//! | `getFieldByAlias` / `setFieldByAlias` | 经上下文的自定义字段容器按别名解析（Java 经 `ProjectFile.getResourceAssignments().getFieldTypeByAlias()`，二者等价） |
-//! | `toString()` | [`Display`]（Java 的 `null` 渲染为 `"null"`，与 Rust 一致） |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `getCostAccount()` / `setCostAccount(CostAccount)` | `CostAccount` / `CostAccountContainer` are not declared in this repository (`getCostAccountUniqueID` / `setCostAccountUniqueID` are ported) |
+//! | `getResourceAssignmentCodeValues()` / `addResourceAssignmentCodeValue(...)` | `ResourceAssignmentCode` / `ResourceAssignmentCodeValue` are not declared in this repository |
+//! | `public CostRateTable getCostRateTable()` | [`ResourceAssignment::with_cost_rate_table`] (Rust-specific callback form: a resource holds a `CostRateTable` by value and that type does not implement `Clone`, so ownership cannot be returned; the call-site semantics of `getEffectiveRate` / timephased cost are unchanged) |
+//! | The `CombinedCalendar` wrapping in `getEffectiveCalendar()` | That combined calendar is not ported; the `ManuallyScheduledTaskCalendar` for manual scheduling is wired up (see the method docs) |
+//! | The `ProjectProperties` used by `calculatePercentWorkComplete` / `calculateStartVariance` / `calculateFinishVariance` | Obtained via `ProjectFile.get_project_properties()` (consistent with the assumptions of `cpm::microsoft_slack_calculator`); falls back to the effective calendar / `TimeUnit::Days` when the parent file is not wired up |
+//! | The `RateHelper.convertToHours` used by `getRatePerHour` | Calls [`crate::rate_helper::RateHelper::convert_to_hours`] directly (`getEffectiveCalendar()` on the Rust side is `Option<&Rc<RefCell<ProjectCalendar>>>`, returning the original value when not wired up or on borrow conflict) |
+//! | `TimephasedUtility` (`org.mpxj.TimephasedUtility`, not declared in this repository) | Ported equivalently as private functions at the end of the file: `segment_work` / `segment_cost` / `segment_material` / `add_timephased_durations` / `add_timephased_numbers` |
+//! | `TimephasedUtility`'s `validateRanges` / `validateTimephasedWork` / `validateTimephasedCost` | Java throws `IllegalArgumentException`; Rust library code must not panic, so no validation is performed |
+//! | `getFieldByAlias` / `setFieldByAlias` | Resolved by alias via the context's custom field container (Java uses `ProjectFile.getResourceAssignments().getFieldTypeByAlias()`; the two are equivalent) |
+//! | `toString()` | [`Display`] (Java renders `null` as `"null"`, consistent with Rust) |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! ## 5) 其它差异
+//! ## 5) Other differences
 //!
-//! * **unique ID 变化时同步容器**：Java 的 `handleFieldChange` 用 `this` 调用
-//!   `ResourceAssignmentContainer.updateUniqueID(this, old, new)`；Rust 无法从 `&mut self`
-//!   取得 `Rc`，故改为按 unique ID 同步序号生成器（见
-//!   [`crate::resource_assignment_container::ResourceAssignmentContainer::update_unique_id`]）。
-//! * **`get` 的写回副作用**：Java 的 `get` 会把计算出的字段值写回字段表（并触发依赖清理）；
-//!   Rust 的 `get_field(&self)` 无法写回，故只返回值、不缓存（返回值语义一致）。
-//! * **`calculateWorkVariance` 的 `set(WORK_VARIANCE, ...)`** 同理不再在计算中写回。
-//! * **方法重载**：Java 的重载在 Rust 中加后缀区分：`getBaselineWork(int)` →
-//!   [`ResourceAssignment::get_baseline_work_by_index`]、`setStart(int, ...)` / `getStart(int)`
-//!   → `*_by_index`、`getCost(int)` → [`ResourceAssignment::get_cost_by_index`]、
+//! * **Sync the container when the unique ID changes**: Java's `handleFieldChange` uses `this` to call
+//! `ResourceAssignmentContainer.updateUniqueID(this, old, new)`; Rust cannot obtain one from `&mut self`
+//! so it instead syncs the sequence generator by unique ID (see
+//!   [`crate::resource_assignment_container::ResourceAssignmentContainer::update_unique_id`]).
+//! * **The write-back side effect of `get`**: Java's `get` writes the computed field value back to the field table (and triggers dependent cleanup);
+//! Rust's `get_field(&self)` cannot write back, so it only returns the value without caching (the returned value semantics are the same).
+//! * **The `set(WORK_VARIANCE, ...)` in `calculateWorkVariance`** likewise no longer writes back during calculation.
+//! * **Method overloading**: Java overloads are distinguished in Rust by suffixes: `getBaselineWork(int)` →
+//!   [`ResourceAssignment::get_baseline_work_by_index`],`setStart(int, ...)` / `getStart(int)`
+//!   → `*_by_index`,`getCost(int)` → [`ResourceAssignment::get_cost_by_index`],
 //!   `getTimephasedCost(List)` → [`ResourceAssignment::get_timephased_cost_total`]
-//!   （私有重载 `getTimephasedCost(ranges, rateIndex, workSupplier)` 保留原名）。
-//! * **异常**：Java 抛 `IllegalArgumentException`（`selectField` 越界）、`IndexOutOfBoundsException`
-//!   （timephased 计提方法找不到相交区间）、`NullPointerException`（日历/日期缺失）的分支，
-//!   Rust 侧一律退化为 `None` / 空值列表 / no-op（不 panic）。
-//! * 未派生 `PartialEq` / `Eq` / `Hash`：Java 未覆写 `equals` / `hashCode`（保持引用相等语义）。
+//! (the private overload `getTimephasedCost(ranges, rateIndex, workSupplier)` keeps its original name).
+//! * **Exceptions**: Java throws `IllegalArgumentException` (`selectField` out of bounds), `IndexOutOfBoundsException`
+//! (a timephased accrual method cannot find an intersecting range), `NullPointerException` (missing calendar/date) branches;
+//! the Rust side uniformly degrades to `None` / an empty list / a no-op (without panicking).
+//! * `PartialEq` / `Eq` / `Hash` are not derived: Java does not override `equals` / `hashCode` (preserving reference-equality semantics).
 //!
-//! ## 6) 本文件对相关模块的接口假设（已核对一致）
+//! ## 6) Interface assumptions this file makes about related modules (verified consistent)
 //!
 //! ```text
 //! // ProjectFile
@@ -99,26 +99,26 @@
 //! ProjectFile::get_baseline_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>>
 //! ProjectFile::get_resource_by_unique_id(&self, Option<i32>) -> Option<Rc<RefCell<Resource>>>
 //! ProjectFile::get_task_by_unique_id(&self, Option<i32>) -> Option<Rc<RefCell<Task>>>
-//! // Task（与已落地的 task.rs 一致）
+//! // Task (consistent with the landed task.rs)
 //! Task::get_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>>
 //! Task::get_effective_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>>
 //! Task::get_ignore_resource_calendar(&self) -> bool
 //! Task::get_start(&self) -> Option<NaiveDateTime> / Task::get_finish(&self) -> Option<NaiveDateTime>
 //! Task::get_name(&self) -> Option<String>
-//! // Resource（与已落地的 resource.rs 一致）
+//! // Resource (consistent with the landed resource.rs)
 //! Resource::get_type(&self) -> ResourceType
 //! Resource::get_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>>
 //! Resource::get_cost_rate_table(&self, i32) -> Option<&CostRateTable>
 //! Resource::get_accrue_at(&self) -> Option<AccrueType>
 //! Resource::get_cost_per_use(&self) -> Option<f64>
 //! Resource::get_unique_id(&self) -> Option<i32> / Resource::get_name(&self) -> Option<String>
-//! // TimephasedWork / TimephasedCost（均 Clone，字段可为空）
+//! // TimephasedWork / TimephasedCost (both Clone, fields may be empty)
 //! TimephasedWork::new() / TimephasedWork::from_work(&TimephasedWork, f64)   // Java: new TimephasedWork(src, factor)
 //! TimephasedWork::get_start(&self) -> Option<NaiveDateTime> / set_start(Option<NaiveDateTime>)
 //! TimephasedWork::get_finish(&self) -> Option<NaiveDateTime> / set_finish(Option<NaiveDateTime>)
 //! TimephasedWork::get_total_amount(&self) -> Option<Duration> / set_total_amount(Option<Duration>)
 //! TimephasedWork::get_amount_per_hour(&self) -> Option<Duration> / set_amount_per_hour(Option<Duration>)
-//! TimephasedCost 同上，金额为 Option<f64>
+//! TimephasedCost is the same as above, with the amount as Option<f64>
 //! ```
 
 use std::cell::RefCell;
@@ -164,58 +164,58 @@ use crate::timephased_cost::TimephasedCost;
 use crate::timephased_work::TimephasedWork;
 use crate::work_contour::WorkContour;
 
-/// 资源分配（任务与资源的关联记录）。
+/// Resource assignment (the association record between a task and a resource).
 ///
-/// 对应 Java: `public class ResourceAssignment extends AbstractFieldContainer<ResourceAssignment>
+/// Corresponds to Java: `public class ResourceAssignment extends AbstractFieldContainer<ResourceAssignment>
 /// implements ProjectEntityWithMutableUniqueID, TimePeriodEntity`
 pub struct ResourceAssignment {
-    /// 父项目（弱引用，断 `ProjectFile ↔ ResourceAssignment` 的 `Rc` 环）。
+/// Parent project (weak reference, breaking the `Rc` cycle of `ProjectFile ↔ ResourceAssignment`).
     ///
-    /// 对应 Java 字段 `private final ProjectFile m_parentFile;`
+    /// Corresponds to Java field `private final ProjectFile m_parentFile;`
     parent_file: Weak<RefCell<ProjectFile>>,
 
-    /// 所属上下文（弱引用，Rust 特有：用于按别名解析自定义字段）。
+/// Owning context (weak reference, Rust-specific: used to resolve custom fields by alias).
     context: Weak<RefCell<ProjectContext>>,
 
-    /// 关联的任务（弱引用，对应 Java `getTask()` 的强引用）。
+/// Associated task (weak reference, corresponding to the strong reference of Java `getTask()`).
     task: Weak<RefCell<Task>>,
 
-    /// 关联的资源（弱引用，对应 Java `getResource()` 的强引用）。
+/// Associated resource (weak reference, corresponding to the strong reference of Java `getResource()`).
     resource: Weak<RefCell<Resource>>,
 
-    /// 字段存储（组合替代 Java 的继承）。
+/// Field storage (composition replaces Java's inheritance).
     ///
-    /// 笔记对象（`AssignmentField.NOTES`）、工时分布（`WORK_CONTOUR`）、费率来源
-    /// （`RATE_SOURCE`）、资源请求类型（`RESOURCE_REQUEST_TYPE`）、变动费率单位
-    /// （`VARIABLE_RATE_UNITS`）、GUID 以及原始 timephased 列表（`RAW_TIMEPHASED_*`）
-    /// 都与 Java 一致地存放在该字段表中（见 [`crate::field_value::FieldValue`]）。
+/// The notes object (`AssignmentField.NOTES`), work contour (`WORK_CONTOUR`), rate source
+/// (`RATE_SOURCE`), resource request type (`RESOURCE_REQUEST_TYPE`), variable rate units
+/// (`VARIABLE_RATE_UNITS`), GUID, and the raw timephased lists (`RAW_TIMEPHASED_*`)
+/// are all stored in that field table consistently with Java (see [`crate::field_value::FieldValue`]).
     fields: AbstractFieldContainer,
 
-    /// 工作组字段（MPX 记录 76）。
+/// Workgroup field (MPX record 76).
     ///
-    /// 对应 Java: `private ResourceAssignmentWorkgroupFields m_workgroup;`
+    /// Corresponds to Java: `private ResourceAssignmentWorkgroupFields m_workgroup;`
     ///
-    /// Java 侧不是字段表成员，而是本类的独立字段（由 `addWorkgroupAssignment()` 惰性创建），
-    /// 故 Rust 侧同样保留为独立字段。
+/// On the Java side this is not a field-table member but a standalone field of this class (lazily created by `addWorkgroupAssignment()`),
+/// so the Rust side likewise keeps it as a standalone field.
     workgroup_assignment: Option<ResourceAssignmentWorkgroupFields>,
 }
 
 impl Default for ResourceAssignment {
-    /// 对应 Java: 包级构造方法 `ResourceAssignment(ProjectFile file)` 的「无父文件」形态
-    /// （见 [`ResourceAssignment::new`]）。
+/// Corresponds to Java: the "no parent file" form of the package-level constructor `ResourceAssignment(ProjectFile file)`
+/// (see [`ResourceAssignment::new`]).
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ResourceAssignment {
-    /// 构造方法（Rust 特有形态：不自动分配 unique ID）。
+/// Constructor (Rust-specific form: does not automatically assign a unique ID).
     ///
-    /// 对应 Java: 包级构造方法 `ResourceAssignment(ProjectFile file)`（其中会按
-    /// `file.getProjectConfig().getAutoAssignmentUniqueID()` 分配 unique ID）。
+/// Corresponds to Java: the package-level constructor `ResourceAssignment(ProjectFile file)` (which assigns
+/// a unique ID according to `file.getProjectConfig().getAutoAssignmentUniqueID()`).
     ///
-    /// Rust 无法在 `new()` 内取得自身的 `Rc`，也无法完成接线，故不自动分配 unique ID；
-    /// 需要与 Java 等价的构造行为时请用 [`ResourceAssignment::with_parent_file`]。
+/// Rust cannot obtain its own `Rc` inside `new()` nor complete the wiring, so it does not automatically assign a unique ID;
+/// use [`ResourceAssignment::with_parent_file`] when Java-equivalent construction behavior is needed.
     pub fn new() -> Self {
         Self {
             parent_file: Weak::new(),
@@ -227,9 +227,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 与 Java 构造方法等价的形式：接线父文件，并在需要时自动分配 unique ID。
+/// The form equivalent to the Java constructor: wires up the parent file and automatically assigns a unique ID when needed.
     ///
-    /// 对应 Java: `ResourceAssignment(ProjectFile file)`
+    /// Corresponds to Java: `ResourceAssignment(ProjectFile file)`
     pub fn with_parent_file(parent_file: &Rc<RefCell<ProjectFile>>) -> Self {
         let mut assignment = Self::new();
         assignment.set_parent_file(parent_file);
@@ -260,64 +260,64 @@ impl ResourceAssignment {
         assignment
     }
 
-    /// 接线父文件（Rust 特有：Java 在构造方法中直接接收 `file`）。
+/// Wire up the parent file (Rust-specific: Java receives `file` directly in the constructor).
     ///
-    /// 对应 Java: 构造方法中的 `m_parentFile = file;`
+/// Corresponds to Java: `m_parentFile = file;` in the constructor
     pub fn set_parent_file(&mut self, parent_file: &Rc<RefCell<ProjectFile>>) {
         self.parent_file = Rc::downgrade(parent_file);
     }
 
-    /// 接线所属上下文（Rust 特有：Java 经 `ProjectFile` 间接访问上下文）。
+/// Wire up the owning context (Rust-specific: Java accesses the context indirectly via `ProjectFile`).
     pub fn set_context(&mut self, context: &Rc<RefCell<ProjectContext>>) {
         self.context = Rc::downgrade(context);
     }
 
-    /// 接线关联任务（Rust 特有：Java 由 `getTask()` 按 unique ID 动态查找）。
+/// Wire up the associated task (Rust-specific: Java looks it up dynamically by unique ID in `getTask()`).
     pub fn set_task(&mut self, task: &Rc<RefCell<Task>>) {
         self.task = Rc::downgrade(task);
     }
 
-    /// 接线关联资源（Rust 特有：Java 由 `getResource()` 按 unique ID 动态查找）。
+/// Wire up the associated resource (Rust-specific: Java looks it up dynamically by unique ID in `getResource()`).
     pub fn set_resource(&mut self, resource: &Rc<RefCell<Resource>>) {
         self.resource = Rc::downgrade(resource);
     }
 
-    /// 取父项目（弱引用升级；父文件已释放时返回 `None`）。
+/// Get the parent project (upgrades the weak reference; returns `None` when the parent file has been released).
     ///
-    /// 对应 Java: `public ProjectFile getParentFile()`
+    /// Corresponds to Java: `public ProjectFile getParentFile()`
     pub fn get_parent_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.parent_file.upgrade()
     }
 
-    /// 取所属上下文（Rust 特有访问器）。
+/// Get the owning context (Rust-specific accessor).
     ///
-    /// 对应 Java: 无（Java 经 `ProjectFile` 访问上下文）。
+/// Corresponds to Java: none (Java accesses the context via `ProjectFile`).
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
     }
 
-    /// 创建（或在已有记录时返回）工作组字段记录。
+/// Create (or return, if already present) the workgroup field record.
     ///
-    /// 对应 Java: `public ResourceAssignmentWorkgroupFields addWorkgroupAssignment()`
+    /// Corresponds to Java: `public ResourceAssignmentWorkgroupFields addWorkgroupAssignment()`
     ///
-    /// Java 在已有记录时抛 `MPXJException(MAXIMUM_RECORDS)`；Rust 库代码不 panic，
-    /// 改为返回既有记录（见文件头「跳过的 Java 成员」）。
+/// Java throws `MPXJException(MAXIMUM_RECORDS)` when a record already exists; Rust library code must not panic,
+/// so it instead returns the existing record (see "Skipped Java members" in the file header).
     pub fn add_workgroup_assignment(&mut self) -> &mut ResourceAssignmentWorkgroupFields {
         self.workgroup_assignment
             .get_or_insert_with(ResourceAssignmentWorkgroupFields::new)
     }
 
-    /// 取工作组字段记录；未创建时返回 `None`。
+/// Get the workgroup field record; returns `None` when it has not been created.
     ///
-    /// 对应 Java: `public ResourceAssignmentWorkgroupFields getWorkgroupAssignment()`
+    /// Corresponds to Java: `public ResourceAssignmentWorkgroupFields getWorkgroupAssignment()`
     pub fn get_workgroup_assignment(&self) -> Option<&ResourceAssignmentWorkgroupFields> {
         self.workgroup_assignment.as_ref()
     }
 
-    /// 把值写入字段表，并在值真正变化时执行 Java 的 `handleFieldChange`。
+/// Write the value into the field table and, when the value actually changes, perform Java's `handleFieldChange`.
     ///
-    /// 对应 Java: `AbstractFieldContainer.set(FieldType field, Object value)`
-    ///（内部顺序为：更新字段表 → `handleFieldChange` → `fireFieldChangeEvent`）。
+    /// Corresponds to Java: `AbstractFieldContainer.set(FieldType field, Object value)`
+/// (the internal order is: update the field table → `handleFieldChange` → `fireFieldChangeEvent`).
     fn set_key(&mut self, field: FieldKey, value: Option<FieldValue>) {
         let old_value = self.fields.get_cached_value(field).cloned();
         if old_value == value {
@@ -328,16 +328,16 @@ impl ResourceAssignment {
         self.handle_field_change(field, old_value.as_ref(), value.as_ref());
     }
 
-    /// 设置字段值（[`FieldContainer`] 的公开入口）。
+/// Set a field value (the public entry point of [`FieldContainer`]).
     ///
-    /// 对应 Java: `public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `public void set(FieldType field, Object value)`
     pub fn set_field(&mut self, field: FieldKey, value: Option<FieldValue>) {
         self.set_key(field, value);
     }
 
-    /// 清空受本次字段变化影响的缓存计算值。
+/// Clear the cached calculated values affected by this field change.
     ///
-    /// 对应 Java: `@Override protected void handleFieldChange(FieldType field, Object oldValue, Object newValue)`
+    /// Corresponds to Java: `@Override protected void handleFieldChange(FieldType field, Object oldValue, Object newValue)`
     fn handle_field_change(
         &mut self,
         field: FieldKey,
@@ -346,7 +346,7 @@ impl ResourceAssignment {
     ) {
         if field == FieldKey::Assignment(AssignmentField::UniqueId) {
             // Java: m_parentFile.getResourceAssignments().updateUniqueID(this, oldValue, newValue);
-            // Rust 侧不传元素（无法从 `&mut self` 取得 `Rc`），改为按 unique ID 同步序号生成器。
+// The Rust side does not pass the element (it cannot obtain an `Rc` from `&mut self`) and instead syncs the sequence generator by unique ID.
             let old_unique_id = old_value.and_then(FieldValue::as_integer);
             let new_unique_id = new_value.and_then(FieldValue::as_integer);
 
@@ -364,9 +364,9 @@ impl ResourceAssignment {
         self.fields.clear_dependent_fields(dependency_map(), field);
     }
 
-    /// 该字段是否「总是重新计算」（不读缓存）。
+/// Whether the field is "always recalculated" (does not read the cache).
     ///
-    /// 对应 Java: `@Override boolean getAlwaysCalculatedField(FieldType field)`
+    /// Corresponds to Java: `@Override boolean getAlwaysCalculatedField(FieldType field)`
     fn is_always_calculated(field: FieldKey) -> bool {
         matches!(
             field,
@@ -375,11 +375,11 @@ impl ResourceAssignment {
         )
     }
 
-    /// 从字段表读取字段值（含计算字段）。
+/// Read a field value from the field table (including calculated fields).
     ///
-    /// 对应 Java: `public Object get(FieldType field)`
+    /// Corresponds to Java: `public Object get(FieldType field)`
     ///
-    /// 注：Java 侧会把计算结果写回字段表；Rust 的 `&self` 无法写回，故只计算不缓存。
+/// Note: the Java side writes the computed result back to the field table; Rust's `&self` cannot write back, so it computes without caching.
     pub fn get_field(&self, field: FieldKey) -> Option<FieldValue> {
         if !Self::is_always_calculated(field) {
             if let Some(value) = self.fields.get_cached_value(field) {
@@ -390,31 +390,31 @@ impl ResourceAssignment {
         self.calculate(field)
     }
 
-    /// 关闭字段更新时的依赖字段清理与事件触发。
+/// Disable dependent-field cleanup and event firing during field updates.
     ///
-    /// 对应 Java: `public void disableEvents()`
+    /// Corresponds to Java: `public void disableEvents()`
     pub fn disable_events(&mut self) {
         self.fields.disable_events();
     }
 
-    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+/// Enable dependent-field cleanup and event firing during field updates (the default state).
     ///
-    /// 对应 Java: `public void enableEvents()`
+    /// Corresponds to Java: `public void enableEvents()`
     pub fn enable_events(&mut self) {
         self.fields.enable_events();
     }
 
-    /// 只读取已保存的字段值，不触发计算。
+/// Read only the stored field value without triggering calculation.
     ///
-    /// 对应 Java: `public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `public Object getCachedValue(FieldType field)`
     pub fn peek_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 计算字段取值；非计算字段返回 `None`。
+/// Evaluate a calculated field; returns `None` for non-calculated fields.
     ///
-    /// 对应 Java: `@Override Function<ResourceAssignment, Object> getCalculationMethod(FieldType field)`
-    /// 与 `CALCULATED_FIELD_MAP`。
+    /// Corresponds to Java: `@Override Function<ResourceAssignment, Object> getCalculationMethod(FieldType field)`
+/// Corresponds to `CALCULATED_FIELD_MAP`.
     fn calculate(&self, field: FieldKey) -> Option<FieldValue> {
         let field = match field {
             FieldKey::Assignment(field) => field,
@@ -493,12 +493,12 @@ impl ResourceAssignment {
                 .default_calculate_costs_from_units()
                 .map(FieldValue::Boolean),
             F::ResourceAssignmentCodeValues => None,
-            // Java: `CALCULATED_FIELD_MAP` 的 `calculateTimephasedOvertimeWork`
+// Java: the `calculateTimephasedOvertimeWork` of `CALCULATED_FIELD_MAP`
             F::RawTimephasedRemainingOvertimeWork => {
                 Some(FieldValue::TimephasedWork(self.calculate_timephased_overtime_work()))
             }
-            // Java: 其余 `RAW_TIMEPHASED_*` 的默认值分别为
-            // `defaultTimephasedWork()` / `defaultTimephasedCost()`（空列表）。
+// Java: the default values of the remaining `RAW_TIMEPHASED_*` are respectively
+// `defaultTimephasedWork()` / `defaultTimephasedCost()` (empty lists).
             F::RawTimephasedPlannedWork
             | F::RawTimephasedActualRegularWork
             | F::RawTimephasedRemainingRegularWork
@@ -557,27 +557,27 @@ impl ResourceAssignment {
         }
     }
 
-    /// 读取指定属性字段（内部便捷方法）。
+/// Read the specified property field (internal convenience method).
     fn assignment_value(&self, field: AssignmentField) -> Option<FieldValue> {
         self.get_field(FieldKey::Assignment(field))
     }
 
-    /// 按 `f64` 读取属性字段（对应 Java 的 `Number`）。
+/// Read a property field as `f64` (corresponding to Java's `Number`).
     fn number_value(&self, field: AssignmentField) -> Option<f64> {
         self.assignment_value(field).and_then(|value| value.as_double())
     }
 
-    /// 按 `i32` 读取属性字段（对应 Java 的 `Integer`）。
+/// Read a property field as `i32` (corresponding to Java's `Integer`).
     fn integer_value(&self, field: AssignmentField) -> Option<i32> {
         self.assignment_value(field).and_then(|value| value.as_integer())
     }
 
-    /// 按布尔读取属性字段（对应 Java 的 `BooleanHelper.getBoolean`）。
+/// Read a property field as boolean (corresponding to Java's `BooleanHelper.getBoolean`).
     fn boolean_value(&self, field: AssignmentField) -> bool {
         BooleanHelper::get_boolean(self.assignment_value(field).and_then(|value| value.as_boolean()))
     }
 
-    /// 按字符串读取属性字段。
+/// Read a property field as a string.
     fn string_value(&self, field: AssignmentField) -> Option<String> {
         self.assignment_value(field).and_then(|value| match value {
             FieldValue::String(text) => Some(text),
@@ -585,48 +585,48 @@ impl ResourceAssignment {
         })
     }
 
-    /// 按工期读取属性字段。
+/// Read a property field as a duration.
     fn duration_value(&self, field: AssignmentField) -> Option<Duration> {
         self.assignment_value(field).and_then(|value| value.as_duration())
     }
 
-    /// 按日期时间读取属性字段。
+/// Read a property field as a date-time.
     fn date_time_value(&self, field: AssignmentField) -> Option<NaiveDateTime> {
         self.assignment_value(field).and_then(|value| value.as_date_time())
     }
 
-    /// 按费率读取属性字段。
+/// Read a property field as a rate.
     fn rate_value(&self, field: AssignmentField) -> Option<Rate> {
         self.assignment_value(field).and_then(|value| value.as_rate())
     }
 
-    /// 写入属性字段。
+/// Write a property field.
     fn set_assignment_value(&mut self, field: AssignmentField, value: Option<FieldValue>) {
         self.set_key(FieldKey::Assignment(field), value);
     }
 
-    /// 写入字符串属性字段。
+/// Write a string property field.
     fn set_string_value(&mut self, field: AssignmentField, value: Option<String>) {
         self.set_assignment_value(field, value.map(FieldValue::String));
     }
 
-    /// 写入 `int` 属性字段（Java 的装箱 `Integer`）。
+/// Write an `int` property field (Java's boxed `Integer`).
     fn set_integer_value(&mut self, field: AssignmentField, value: i32) {
         self.set_assignment_value(field, Some(FieldValue::Integer(value)));
     }
 
-    /// 写入布尔属性字段（Java 的装箱 `Boolean`）。
+/// Write a boolean property field (Java's boxed `Boolean`).
     ///
-    /// 对应 Java: `private void set(FieldType field, boolean value)`
+    /// Corresponds to Java: `private void set(FieldType field, boolean value)`
     fn set_boolean_value(&mut self, field: AssignmentField, value: bool) {
         self.set_assignment_value(field, Some(FieldValue::Boolean(value)));
     }
 
-    /// 把下标（1 起）映射为字段枚举。
+/// Map an index (1-based) to a field enum.
     ///
-    /// 对应 Java: `private AssignmentField selectField(AssignmentField[] fields, int index)`
+    /// Corresponds to Java: `private AssignmentField selectField(AssignmentField[] fields, int index)`
     ///
-    /// Java 越界抛 `IllegalArgumentException`，Rust 侧返回 `None`（不 panic）。
+/// Java throws `IllegalArgumentException` on out of bounds; the Rust side returns `None` (without panicking).
     fn select_field(fields: &[AssignmentField], index: i32) -> Option<AssignmentField> {
         if index < 1 || index as usize > fields.len() {
             return None;
@@ -634,44 +634,44 @@ impl ResourceAssignment {
         fields.get((index - 1) as usize).copied()
     }
 
-    /// 取资源分配的 unique ID。
+/// Get the resource assignment's unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.integer_value(AssignmentField::UniqueId)
     }
 
-    /// 设置资源分配的 unique ID。
+/// Set the resource assignment's unique ID.
     ///
-    /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer uniqueID)`
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_assignment_value(AssignmentField::UniqueId, unique_id.map(FieldValue::Integer));
     }
 
-    /// 取分配单位（百分比）。
+/// Get the assignment units (percentage).
     ///
-    /// 对应 Java: `public Number getUnits()`
+    /// Corresponds to Java: `public Number getUnits()`
     pub fn get_units(&self) -> Option<f64> {
         self.number_value(AssignmentField::AssignmentUnits)
     }
 
-    /// 设置分配单位。
+/// Set the assignment units.
     ///
-    /// 对应 Java: `public void setUnits(Number val)`
+    /// Corresponds to Java: `public void setUnits(Number val)`
     pub fn set_units(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::AssignmentUnits, val.map(FieldValue::Double));
     }
 
-    /// 取剩余分配单位。
+/// Get the remaining assignment units.
     ///
-    /// 对应 Java: `public Number getRemainingUnits()`
+    /// Corresponds to Java: `public Number getRemainingUnits()`
     pub fn get_remaining_units(&self) -> Option<f64> {
         self.number_value(AssignmentField::RemainingAssignmentUnits)
     }
 
-    /// 设置剩余分配单位。
+/// Set the remaining assignment units.
     ///
-    /// 对应 Java: `public void setRemainingUnits(Number val)`
+    /// Corresponds to Java: `public void setRemainingUnits(Number val)`
     pub fn set_remaining_units(&mut self, val: Option<f64>) {
         self.set_assignment_value(
             AssignmentField::RemainingAssignmentUnits,
@@ -679,114 +679,114 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取工时。
+/// Get the work.
     ///
-    /// 对应 Java: `public Duration getWork()`
+    /// Corresponds to Java: `public Duration getWork()`
     pub fn get_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::Work)
     }
 
-    /// 设置工时。
+/// Set the work.
     ///
-    /// 对应 Java: `public void setWork(Duration dur)`
+    /// Corresponds to Java: `public void setWork(Duration dur)`
     pub fn set_work(&mut self, dur: Option<Duration>) {
         self.set_assignment_value(AssignmentField::Work, dur.map(FieldValue::Duration));
     }
 
-    /// 取基准开始时间。
+/// Get the baseline start.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineStart()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineStart()`
     pub fn get_baseline_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::BaselineStart)
     }
 
-    /// 设置基准开始时间。
+/// Set the baseline start.
     ///
-    /// 对应 Java: `public void setBaselineStart(LocalDateTime start)`
+    /// Corresponds to Java: `public void setBaselineStart(LocalDateTime start)`
     pub fn set_baseline_start(&mut self, start: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::BaselineStart, start.map(FieldValue::DateTime));
     }
 
-    /// 取实际开始时间。
+/// Get the actual start.
     ///
-    /// 对应 Java: `public LocalDateTime getActualStart()`
+    /// Corresponds to Java: `public LocalDateTime getActualStart()`
     pub fn get_actual_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::ActualStart)
     }
 
-    /// 设置实际开始时间。
+/// Set the actual start.
     ///
-    /// 对应 Java: `public void setActualStart(LocalDateTime start)`
+    /// Corresponds to Java: `public void setActualStart(LocalDateTime start)`
     pub fn set_actual_start(&mut self, start: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::ActualStart, start.map(FieldValue::DateTime));
     }
 
-    /// 取基准完成时间。
+/// Get the baseline finish.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineFinish()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineFinish()`
     pub fn get_baseline_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::BaselineFinish)
     }
 
-    /// 设置基准完成时间。
+/// Set the baseline finish.
     ///
-    /// 对应 Java: `public void setBaselineFinish(LocalDateTime finish)`
+    /// Corresponds to Java: `public void setBaselineFinish(LocalDateTime finish)`
     pub fn set_baseline_finish(&mut self, finish: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::BaselineFinish, finish.map(FieldValue::DateTime));
     }
 
-    /// 取实际完成时间。
+/// Get the actual finish.
     ///
-    /// 对应 Java: `public LocalDateTime getActualFinish()`
+    /// Corresponds to Java: `public LocalDateTime getActualFinish()`
     pub fn get_actual_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::ActualFinish)
     }
 
-    /// 设置实际完成时间。
+/// Set the actual finish.
     ///
-    /// 对应 Java: `public void setActualFinish(LocalDateTime finish)`
+    /// Corresponds to Java: `public void setActualFinish(LocalDateTime finish)`
     pub fn set_actual_finish(&mut self, finish: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::ActualFinish, finish.map(FieldValue::DateTime));
     }
 
-    /// 取基准工时。
+/// Get the baseline work.
     ///
-    /// 对应 Java: `public Duration getBaselineWork()`
+    /// Corresponds to Java: `public Duration getBaselineWork()`
     pub fn get_baseline_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::BaselineWork)
     }
 
-    /// 设置基准工时。
+/// Set the baseline work.
     ///
-    /// 对应 Java: `public void setBaselineWork(Duration val)`
+    /// Corresponds to Java: `public void setBaselineWork(Duration val)`
     pub fn set_baseline_work(&mut self, val: Option<Duration>) {
         self.set_assignment_value(AssignmentField::BaselineWork, val.map(FieldValue::Duration));
     }
 
-    /// 取实际工时。
+/// Get the actual work.
     ///
-    /// 对应 Java: `public Duration getActualWork()`
+    /// Corresponds to Java: `public Duration getActualWork()`
     pub fn get_actual_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::ActualWork)
     }
 
-    /// 设置实际工时。
+/// Set the actual work.
     ///
-    /// 对应 Java: `public void setActualWork(Duration val)`
+    /// Corresponds to Java: `public void setActualWork(Duration val)`
     pub fn set_actual_work(&mut self, val: Option<Duration>) {
         self.set_assignment_value(AssignmentField::ActualWork, val.map(FieldValue::Duration));
     }
 
-    /// 取加班工时。
+/// Get the overtime work.
     ///
-    /// 对应 Java: `public Duration getOvertimeWork()`
+    /// Corresponds to Java: `public Duration getOvertimeWork()`
     pub fn get_overtime_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::OvertimeWork)
     }
 
-    /// 设置加班工时。
+/// Set the overtime work.
     ///
-    /// 对应 Java: `public void setOvertimeWork(Duration overtimeWork)`
+    /// Corresponds to Java: `public void setOvertimeWork(Duration overtimeWork)`
     pub fn set_overtime_work(&mut self, overtime_work: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::OvertimeWork,
@@ -794,123 +794,123 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取成本。
+/// Get the cost.
     ///
-    /// 对应 Java: `public Number getCost()`
+    /// Corresponds to Java: `public Number getCost()`
     pub fn get_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::Cost)
     }
 
-    /// 设置成本。
+/// Set the cost.
     ///
-    /// 对应 Java: `public void setCost(Number cost)`
+    /// Corresponds to Java: `public void setCost(Number cost)`
     pub fn set_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(AssignmentField::Cost, cost.map(FieldValue::Double));
     }
 
-    /// 取基准成本。
+/// Get the baseline cost.
     ///
-    /// 对应 Java: `public Number getBaselineCost()`
+    /// Corresponds to Java: `public Number getBaselineCost()`
     pub fn get_baseline_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::BaselineCost)
     }
 
-    /// 设置基准成本。
+/// Set the baseline cost.
     ///
-    /// 对应 Java: `public void setBaselineCost(Number val)`
+    /// Corresponds to Java: `public void setBaselineCost(Number val)`
     pub fn set_baseline_cost(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::BaselineCost, val.map(FieldValue::Double));
     }
 
-    /// 取实际成本。
+/// Get the actual cost.
     ///
-    /// 对应 Java: `public Number getActualCost()`
+    /// Corresponds to Java: `public Number getActualCost()`
     pub fn get_actual_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::ActualCost)
     }
 
-    /// 设置实际成本。
+/// Set the actual cost.
     ///
-    /// 对应 Java: `public void setActualCost(Number actualCost)`
+    /// Corresponds to Java: `public void setActualCost(Number actualCost)`
     pub fn set_actual_cost(&mut self, actual_cost: Option<f64>) {
         self.set_assignment_value(AssignmentField::ActualCost, actual_cost.map(FieldValue::Double));
     }
 
-    /// 取开始时间（总是重新计算）。
+/// Get the start (always recalculated).
     ///
-    /// 对应 Java: `@Override public LocalDateTime getStart()`
+    /// Corresponds to Java: `@Override public LocalDateTime getStart()`
     pub fn get_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::Start)
     }
 
-    /// 设置开始时间。
+/// Set the start.
     ///
-    /// 对应 Java: `public void setStart(LocalDateTime val)`
+    /// Corresponds to Java: `public void setStart(LocalDateTime val)`
     pub fn set_start(&mut self, val: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::Start, val.map(FieldValue::DateTime));
     }
 
-    /// 取完成时间（总是重新计算）。
+/// Get the finish (always recalculated).
     ///
-    /// 对应 Java: `@Override public LocalDateTime getFinish()`
+    /// Corresponds to Java: `@Override public LocalDateTime getFinish()`
     pub fn get_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::Finish)
     }
 
-    /// 设置完成时间。
+/// Set the finish.
     ///
-    /// 对应 Java: `public void setFinish(LocalDateTime val)`
+    /// Corresponds to Java: `public void setFinish(LocalDateTime val)`
     pub fn set_finish(&mut self, val: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::Finish, val.map(FieldValue::DateTime));
     }
 
-    /// 取分配延迟。
+/// Get the assignment delay.
     ///
-    /// 对应 Java: `public Duration getDelay()`
+    /// Corresponds to Java: `public Duration getDelay()`
     pub fn get_delay(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::AssignmentDelay)
     }
 
-    /// 设置分配延迟。
+/// Set the assignment delay.
     ///
-    /// 对应 Java: `public void setDelay(Duration dur)`
+    /// Corresponds to Java: `public void setDelay(Duration dur)`
     pub fn set_delay(&mut self, dur: Option<Duration>) {
         self.set_assignment_value(AssignmentField::AssignmentDelay, dur.map(FieldValue::Duration));
     }
 
-    /// 取资源的 unique ID。
+/// Get the resource's unique ID.
     ///
-    /// 对应 Java: `public Integer getResourceUniqueID()`
+    /// Corresponds to Java: `public Integer getResourceUniqueID()`
     pub fn get_resource_unique_id(&self) -> Option<i32> {
         self.integer_value(AssignmentField::ResourceUniqueId)
     }
 
-    /// 设置资源的 unique ID。
+/// Set the resource's unique ID.
     ///
-    /// 对应 Java: `public void setResourceUniqueID(Integer val)`
+    /// Corresponds to Java: `public void setResourceUniqueID(Integer val)`
     pub fn set_resource_unique_id(&mut self, val: Option<i32>) {
         self.set_assignment_value(AssignmentField::ResourceUniqueId, val.map(FieldValue::Integer));
     }
 
-    /// 取任务的 unique ID。
+/// Get the task's unique ID.
     ///
-    /// 对应 Java: `public Integer getTaskUniqueID()`
+    /// Corresponds to Java: `public Integer getTaskUniqueID()`
     pub fn get_task_unique_id(&self) -> Option<i32> {
         self.integer_value(AssignmentField::TaskUniqueId)
     }
 
-    /// 设置任务的 unique ID。
+/// Set the task's unique ID.
     ///
-    /// 对应 Java: `public void setTaskUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setTaskUniqueID(Integer id)`
     pub fn set_task_unique_id(&mut self, id: Option<i32>) {
         self.set_assignment_value(AssignmentField::TaskUniqueId, id.map(FieldValue::Integer));
     }
 
-    /// 取关联任务。
+/// Get the associated task.
     ///
-    /// 对应 Java: `public Task getTask()`
+    /// Corresponds to Java: `public Task getTask()`
     ///
-    /// Rust 侧优先使用接线好的弱引用；未接线时回退到父文件按 unique ID 查找。
+/// The Rust side prefers the wired-up weak reference; when not wired up, it falls back to looking up the parent file by unique ID.
     pub fn get_task(&self) -> Option<Rc<RefCell<Task>>> {
         if let Some(task) = self.task.upgrade() {
             return Some(task);
@@ -924,11 +924,11 @@ impl ResourceAssignment {
             .and_then(|parent_file| parent_file.get_task_by_unique_id(task_unique_id))
     }
 
-    /// 取关联资源。
+/// Get the associated resource.
     ///
-    /// 对应 Java: `public Resource getResource()`
+    /// Corresponds to Java: `public Resource getResource()`
     ///
-    /// 回退策略同 [`ResourceAssignment::get_task`]。
+/// The fallback strategy is the same as [`ResourceAssignment::get_task`].
     pub fn get_resource(&self) -> Option<Rc<RefCell<Resource>>> {
         if let Some(resource) = self.resource.upgrade() {
             return Some(resource);
@@ -942,9 +942,9 @@ impl ResourceAssignment {
             .and_then(|parent_file| parent_file.get_resource_by_unique_id(resource_unique_id))
     }
 
-    /// 取工时分布类型。
+/// Get the work contour type.
     ///
-    /// 对应 Java: `public WorkContour getWorkContour()`
+    /// Corresponds to Java: `public WorkContour getWorkContour()`
     pub fn get_work_contour(&self) -> Option<WorkContour> {
         match self.assignment_value(AssignmentField::WorkContour) {
             Some(FieldValue::WorkContour(work_contour)) => Some(work_contour),
@@ -952,9 +952,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 设置工时分布类型。
+/// Set the work contour type.
     ///
-    /// 对应 Java: `public void setWorkContour(WorkContour workContour)`
+    /// Corresponds to Java: `public void setWorkContour(WorkContour workContour)`
     pub fn set_work_contour(&mut self, work_contour: Option<WorkContour>) {
         self.set_assignment_value(
             AssignmentField::WorkContour,
@@ -962,12 +962,12 @@ impl ResourceAssignment {
         );
     }
 
-    /// 从项目中移除本资源分配；成功返回 `true`（Java 无返回值）。
+/// Remove this resource assignment from the project; returns `true` on success (Java has no return value).
     ///
-    /// 对应 Java: `public void remove()`
+    /// Corresponds to Java: `public void remove()`
     ///
-    /// Java 通过 `this` 的引用相等定位元素；Rust 无法从 `&self` 取得 `Rc`，
-    /// 故退化为按 unique ID 移除（见文件头第 5 节）。
+/// Java locates the element by `this` reference equality; Rust cannot obtain an `Rc` from `&self`,
+/// so it degrades to removal by unique ID (see section 5 of the file header).
     pub fn remove(&self) -> bool {
         let Some(parent_file) = self.parent_file.upgrade() else {
             return false;
@@ -982,16 +982,16 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取剩余工时。
+/// Get the remaining work.
     ///
-    /// 对应 Java: `public Duration getRemainingWork()`
+    /// Corresponds to Java: `public Duration getRemainingWork()`
     pub fn get_remaining_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::RemainingWork)
     }
 
-    /// 设置剩余工时。
+/// Set the remaining work.
     ///
-    /// 对应 Java: `public void setRemainingWork(Duration remainingWork)`
+    /// Corresponds to Java: `public void setRemainingWork(Duration remainingWork)`
     pub fn set_remaining_work(&mut self, remaining_work: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::RemainingWork,
@@ -999,16 +999,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取调配延迟。
+/// Get the leveling delay.
     ///
-    /// 对应 Java: `public Duration getLevelingDelay()`
+    /// Corresponds to Java: `public Duration getLevelingDelay()`
     pub fn get_leveling_delay(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::LevelingDelay)
     }
 
-    /// 设置调配延迟。
+/// Set the leveling delay.
     ///
-    /// 对应 Java: `public void setLevelingDelay(Duration levelingDelay)`
+    /// Corresponds to Java: `public void setLevelingDelay(Duration levelingDelay)`
     pub fn set_leveling_delay(&mut self, leveling_delay: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::LevelingDelay,
@@ -1016,37 +1016,37 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取成本费率表下标（默认 0）。
+/// Get the cost rate table index (default 0).
     ///
-    /// 对应 Java: `public Integer getRateIndex()`
+    /// Corresponds to Java: `public Integer getRateIndex()`
     pub fn get_rate_index(&self) -> Option<i32> {
         self.integer_value(AssignmentField::RateIndex)
     }
 
-    /// 设置成本费率表下标。
+/// Set the cost rate table index.
     ///
-    /// 对应 Java: `public void setRateIndex(Integer index)`
+    /// Corresponds to Java: `public void setRateIndex(Integer index)`
     pub fn set_rate_index(&mut self, index: Option<i32>) {
         self.set_assignment_value(AssignmentField::RateIndex, index.map(FieldValue::Integer));
     }
 
-    /// 取角色的 unique ID。
+/// Get the role's unique ID.
     ///
-    /// 对应 Java: `public Integer getRoleUniqueID()`
+    /// Corresponds to Java: `public Integer getRoleUniqueID()`
     pub fn get_role_unique_id(&self) -> Option<i32> {
         self.integer_value(AssignmentField::RoleUniqueId)
     }
 
-    /// 设置角色的 unique ID。
+/// Set the role's unique ID.
     ///
-    /// 对应 Java: `public void setRoleUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setRoleUniqueID(Integer id)`
     pub fn set_role_unique_id(&mut self, id: Option<i32>) {
         self.set_assignment_value(AssignmentField::RoleUniqueId, id.map(FieldValue::Integer));
     }
 
-    /// 取角色（以资源形态表示）。
+/// Get the role (represented as a resource).
     ///
-    /// 对应 Java: `public Resource getRole()`
+    /// Corresponds to Java: `public Resource getRole()`
     pub fn get_role(&self) -> Option<Rc<RefCell<Resource>>> {
         let parent_file = self.parent_file.upgrade()?;
         let role_unique_id = self.get_role_unique_id();
@@ -1056,9 +1056,9 @@ impl ResourceAssignment {
             .and_then(|parent_file| parent_file.get_resource_by_unique_id(role_unique_id))
     }
 
-    /// 设置角色（以资源形态表示）。
+/// Set the role (represented as a resource).
     ///
-    /// 对应 Java: `public void setRole(Resource role)`
+    /// Corresponds to Java: `public void setRole(Resource role)`
     pub fn set_role(&mut self, role: Option<&Rc<RefCell<Resource>>>) {
         let role_unique_id = role.and_then(|role| {
             role.try_borrow()
@@ -1071,35 +1071,35 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取覆盖费率。
+/// Get the override rate.
     ///
-    /// 对应 Java: `public Rate getOverrideRate()`
+    /// Corresponds to Java: `public Rate getOverrideRate()`
     pub fn get_override_rate(&self) -> Option<Rate> {
         self.rate_value(AssignmentField::OverrideRate)
     }
 
-    /// 设置覆盖费率。
+/// Set the override rate.
     ///
-    /// 对应 Java: `public void setOverrideRate(Rate rate)`
+    /// Corresponds to Java: `public void setOverrideRate(Rate rate)`
     pub fn set_override_rate(&mut self, rate: Option<Rate>) {
         self.set_assignment_value(AssignmentField::OverrideRate, rate.map(FieldValue::Rate));
     }
 
-    /// 取费率来源（默认 `RateSource::Resource`）。
+/// Get the rate source (default `RateSource::Resource`).
     ///
-    /// 对应 Java: `public RateSource getRateSource()`
+    /// Corresponds to Java: `public RateSource getRateSource()`
     ///
-    /// Java 的 `get` 会回落到计算字段 `defaultRateSource()`（`RateSource.RESOURCE`）；
-    /// Rust 侧同样在 [`ResourceAssignment::calculate`] 中提供该默认值。
+/// Java's `get` falls back to the calculated field `defaultRateSource()` (`RateSource.RESOURCE`);
+/// the Rust side likewise provides that default in [`ResourceAssignment::calculate`].
     pub fn get_rate_source(&self) -> RateSource {
         self.assignment_value(AssignmentField::RateSource)
             .and_then(|value| value.as_rate_source())
             .unwrap_or_else(Self::default_rate_source)
     }
 
-    /// 设置费率来源。
+/// Set the rate source.
     ///
-    /// 对应 Java: `public void setRateSource(RateSource source)`
+    /// Corresponds to Java: `public void setRateSource(RateSource source)`
     pub fn set_rate_source(&mut self, source: Option<RateSource>) {
         self.set_assignment_value(
             AssignmentField::RateSource,
@@ -1107,21 +1107,21 @@ impl ResourceAssignment {
         );
     }
 
-    /// 费率来源的默认取值。
+/// The default value of the rate source.
     ///
-    /// 对应 Java: `private RateSource defaultRateSource()`
+    /// Corresponds to Java: `private RateSource defaultRateSource()`
     fn default_rate_source() -> RateSource {
         RateSource::Resource
     }
 
-    /// 取本分配使用的有效日历。
+/// Get the effective calendar used by this assignment.
     ///
-    /// 对应 Java: `public ProjectCalendar getEffectiveCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getEffectiveCalendar()`
     ///
-    /// # 与 Java 的差异
+    /// # Differences from Java
     ///
-    /// Java 在「任务显式日历与资源日历同时存在」时构造 `CombinedCalendar`，
-    /// 本仓尚未移植此组合；手动排程时再包一层临时日历，日期时间缺失时退化为原日历。
+/// Java constructs a `CombinedCalendar` when "a task's explicit calendar and a resource calendar both exist";
+/// this repository has not yet ported that combination; for manual scheduling it wraps another temporary calendar and falls back to the original calendar when date-times are missing.
     pub fn get_effective_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let task = self.get_task()?;
         let task_calendar = task.try_borrow().ok().and_then(|task| task.get_calendar());
@@ -1149,9 +1149,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取任务可用的资源日历（任务忽略资源日历、或资源不是基于时间的资源时为 `None`）。
+/// Get the resource calendar available to the task (returns `None` when the task ignores resource calendars or the resource is not a time-based resource).
     ///
-    /// 对应 Java: `getEffectiveCalendar()` 中 `resourceCalendar` 的取值逻辑。
+/// Corresponds to Java: the `resourceCalendar` retrieval logic in `getEffectiveCalendar()`.
     fn resource_calendar(&self, task: &Rc<RefCell<Task>>) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let resource = self.get_resource()?;
 
@@ -1172,17 +1172,17 @@ impl ResourceAssignment {
         resource.get_calendar()
     }
 
-    /// 取变动费率单位（固定费率时为 `None`）。
+/// Get the variable rate units (returns `None` for a fixed rate).
     ///
-    /// 对应 Java: `public TimeUnit getVariableRateUnits()`
+    /// Corresponds to Java: `public TimeUnit getVariableRateUnits()`
     pub fn get_variable_rate_units(&self) -> Option<TimeUnit> {
         self.assignment_value(AssignmentField::VariableRateUnits)
             .and_then(|value| value.as_time_unit())
     }
 
-    /// 设置变动费率单位。
+/// Set the variable rate units.
     ///
-    /// 对应 Java: `public void setVariableRateUnits(TimeUnit variableRateUnits)`
+    /// Corresponds to Java: `public void setVariableRateUnits(TimeUnit variableRateUnits)`
     pub fn set_variable_rate_units(&mut self, variable_rate_units: Option<TimeUnit>) {
         self.set_assignment_value(
             AssignmentField::VariableRateUnits,
@@ -1190,44 +1190,44 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取预算成本。
+/// Get the budget cost.
     ///
-    /// 对应 Java: `public Number getBudgetCost()`
+    /// Corresponds to Java: `public Number getBudgetCost()`
     pub fn get_budget_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::BudgetCost)
     }
 
-    /// 设置预算成本。
+/// Set budget cost.
     ///
-    /// 对应 Java: `public void setBudgetCost(Number cost)`
+    /// Corresponds to Java: `public void setBudgetCost(Number cost)`
     pub fn set_budget_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(AssignmentField::BudgetCost, cost.map(FieldValue::Double));
     }
 
-    /// 取预算工时。
+/// Get budget work.
     ///
-    /// 对应 Java: `public Duration getBudgetWork()`
+    /// Corresponds to Java: `public Duration getBudgetWork()`
     pub fn get_budget_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::BudgetWork)
     }
 
-    /// 设置预算工时。
+/// Set budget work.
     ///
-    /// 对应 Java: `public void setBudgetWork(Duration work)`
+    /// Corresponds to Java: `public void setBudgetWork(Duration work)`
     pub fn set_budget_work(&mut self, work: Option<Duration>) {
         self.set_assignment_value(AssignmentField::BudgetWork, work.map(FieldValue::Duration));
     }
 
-    /// 取基准预算成本。
+/// Get baseline budget cost.
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost()`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost()`
     pub fn get_baseline_budget_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::BaselineBudgetCost)
     }
 
-    /// 设置基准预算成本。
+/// Set baseline budget cost.
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(Number cost)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(Number cost)`
     pub fn set_baseline_budget_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(
             AssignmentField::BaselineBudgetCost,
@@ -1235,16 +1235,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取基准预算工时。
+/// Get baseline budget work.
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork()`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork()`
     pub fn get_baseline_budget_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::BaselineBudgetWork)
     }
 
-    /// 设置基准预算工时。
+/// Set baseline budget work.
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(Duration work)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(Duration work)`
     pub fn set_baseline_budget_work(&mut self, work: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::BaselineBudgetWork,
@@ -1252,43 +1252,43 @@ impl ResourceAssignment {
         );
     }
 
-    /// 设置基准成本（下标 1-10）。
+/// Set baseline cost (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineCost(int baselineNumber, Number value)`
     pub fn set_baseline_cost_by_index(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&BASELINE_COSTS, baseline_number) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 设置基准工时（下标 1-10）。
+/// Set baseline work (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineWork(int baselineNumber, Duration value)`
     pub fn set_baseline_work_by_index(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = Self::select_field(&BASELINE_WORKS, baseline_number) {
             self.set_assignment_value(field, value.map(FieldValue::Duration));
         }
     }
 
-    /// 取基准工时（下标 1-10）。
+/// Get baseline work (index 1-10).
     ///
-    /// 对应 Java: `public Duration getBaselineWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineWork(int baselineNumber)`
     pub fn get_baseline_work_by_index(&self, baseline_number: i32) -> Option<Duration> {
         let field = Self::select_field(&BASELINE_WORKS, baseline_number)?;
         self.duration_value(field)
     }
 
-    /// 取基准成本（下标 1-10）。
+/// Get baseline cost (index 1-10).
     ///
-    /// 对应 Java: `public Number getBaselineCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineCost(int baselineNumber)`
     pub fn get_baseline_cost_by_index(&self, baseline_number: i32) -> Option<f64> {
         let field = Self::select_field(&BASELINE_COSTS, baseline_number)?;
         self.number_value(field)
     }
 
-    /// 设置基准开始时间（下标 1-10）。
+/// Set baseline start (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineStart(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineStart(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_start_by_index(
         &mut self,
         baseline_number: i32,
@@ -1299,17 +1299,17 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取基准开始时间（下标 1-10）。
+/// Get baseline start (index 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineStart(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineStart(int baselineNumber)`
     pub fn get_baseline_start_by_index(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&BASELINE_STARTS, baseline_number)?;
         self.date_time_value(field)
     }
 
-    /// 设置基准完成时间（下标 1-10）。
+/// Set baseline finish (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineFinish(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineFinish(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_finish_by_index(
         &mut self,
         baseline_number: i32,
@@ -1320,26 +1320,26 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取基准完成时间（下标 1-10）。
+/// Get baseline finish (index 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineFinish(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineFinish(int baselineNumber)`
     pub fn get_baseline_finish_by_index(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&BASELINE_FINISHES, baseline_number)?;
         self.date_time_value(field)
     }
 
-    /// 设置基准预算成本（下标 1-10）。
+/// Set baseline budget cost (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
     pub fn set_baseline_budget_cost_by_index(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&BASELINE_BUDGET_COSTS, baseline_number) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 设置基准预算工时（下标 1-10）。
+/// Set baseline budget work (index 1-10).
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
     pub fn set_baseline_budget_work_by_index(
         &mut self,
         baseline_number: i32,
@@ -1350,153 +1350,153 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取基准预算工时（下标 1-10）。
+/// Get baseline budget work (index 1-10).
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
     pub fn get_baseline_budget_work_by_index(&self, baseline_number: i32) -> Option<Duration> {
         let field = Self::select_field(&BASELINE_BUDGET_WORKS, baseline_number)?;
         self.duration_value(field)
     }
 
-    /// 取基准预算成本（下标 1-10）。
+/// Get baseline budget cost (index 1-10).
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost(int baselineNumber)`
     pub fn get_baseline_budget_cost_by_index(&self, baseline_number: i32) -> Option<f64> {
         let field = Self::select_field(&BASELINE_BUDGET_COSTS, baseline_number)?;
         self.number_value(field)
     }
 
-    /// 设置自定义文本（下标 1-30）。
+/// Set custom text (index 1-30).
     ///
-    /// 对应 Java: `public void setText(int index, String value)`
+    /// Corresponds to Java: `public void setText(int index, String value)`
     pub fn set_text(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = Self::select_field(&CUSTOM_TEXT, index) {
             self.set_string_value(field, value);
         }
     }
 
-    /// 取自定义文本（下标 1-30）。
+/// Get custom text (index 1-30).
     ///
-    /// 对应 Java: `public String getText(int index)`
+    /// Corresponds to Java: `public String getText(int index)`
     pub fn get_text(&self, index: i32) -> Option<String> {
         let field = Self::select_field(&CUSTOM_TEXT, index)?;
         self.string_value(field)
     }
 
-    /// 设置自定义开始时间（下标 1-10）。
+/// Set custom start (index 1-10).
     ///
-    /// 对应 Java: `public void setStart(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setStart(int index, LocalDateTime value)`
     pub fn set_start_by_index(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = Self::select_field(&CUSTOM_START, index) {
             self.set_assignment_value(field, value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取自定义开始时间（下标 1-10）。
+/// Get custom start (index 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getStart(int index)`
+    /// Corresponds to Java: `public LocalDateTime getStart(int index)`
     pub fn get_start_by_index(&self, index: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&CUSTOM_START, index)?;
         self.date_time_value(field)
     }
 
-    /// 设置自定义完成时间（下标 1-10）。
+/// Set custom finish (index 1-10).
     ///
-    /// 对应 Java: `public void setFinish(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setFinish(int index, LocalDateTime value)`
     pub fn set_finish_by_index(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = Self::select_field(&CUSTOM_FINISH, index) {
             self.set_assignment_value(field, value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取自定义完成时间（下标 1-10）。
+/// Get custom finish (index 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getFinish(int index)`
+    /// Corresponds to Java: `public LocalDateTime getFinish(int index)`
     pub fn get_finish_by_index(&self, index: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&CUSTOM_FINISH, index)?;
         self.date_time_value(field)
     }
 
-    /// 设置自定义日期（下标 1-10）。
+/// Set custom date (index 1-10).
     ///
-    /// 对应 Java: `public void setDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setDate(int index, LocalDateTime value)`
     pub fn set_date(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = Self::select_field(&CUSTOM_DATE, index) {
             self.set_assignment_value(field, value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取自定义日期（下标 1-10）。
+/// Get custom date (index 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getDate(int index)`
     pub fn get_date(&self, index: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&CUSTOM_DATE, index)?;
         self.date_time_value(field)
     }
 
-    /// 设置自定义数字（下标 1-20）。
+/// Set custom number (index 1-20).
     ///
-    /// 对应 Java: `public void setNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setNumber(int index, Number value)`
     pub fn set_number(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&CUSTOM_NUMBER, index) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 取自定义数字（下标 1-20）。
+/// Get custom number (index 1-20).
     ///
-    /// 对应 Java: `public Number getNumber(int index)`
+    /// Corresponds to Java: `public Number getNumber(int index)`
     pub fn get_number(&self, index: i32) -> Option<f64> {
         let field = Self::select_field(&CUSTOM_NUMBER, index)?;
         self.number_value(field)
     }
 
-    /// 设置自定义工期（下标 1-10）。
+/// Set custom duration (index 1-10).
     ///
-    /// 对应 Java: `public void setDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setDuration(int index, Duration value)`
     pub fn set_duration(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = Self::select_field(&CUSTOM_DURATION, index) {
             self.set_assignment_value(field, value.map(FieldValue::Duration));
         }
     }
 
-    /// 取自定义工期（下标 1-10）。
+/// Get custom duration (index 1-10).
     ///
-    /// 对应 Java: `public Duration getDuration(int index)`
+    /// Corresponds to Java: `public Duration getDuration(int index)`
     pub fn get_duration(&self, index: i32) -> Option<Duration> {
         let field = Self::select_field(&CUSTOM_DURATION, index)?;
         self.duration_value(field)
     }
 
-    /// 设置自定义成本（下标 1-10）。
+/// Set custom cost (index 1-10).
     ///
-    /// 对应 Java: `public void setCost(int index, Number value)`
+    /// Corresponds to Java: `public void setCost(int index, Number value)`
     pub fn set_cost_by_index(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&CUSTOM_COST, index) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 取自定义成本（下标 1-10）。
+/// Get custom cost (index 1-10).
     ///
-    /// 对应 Java: `public Number getCost(int index)`
+    /// Corresponds to Java: `public Number getCost(int index)`
     pub fn get_cost_by_index(&self, index: i32) -> Option<f64> {
         let field = Self::select_field(&CUSTOM_COST, index)?;
         self.number_value(field)
     }
 
-    /// 设置自定义布尔标志（下标 1-20）。
+/// Set custom flag (index 1-20).
     ///
-    /// 对应 Java: `public void setFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setFlag(int index, boolean value)`
     pub fn set_flag(&mut self, index: i32, value: bool) {
         if let Some(field) = Self::select_field(&CUSTOM_FLAG, index) {
             self.set_boolean_value(field, value);
         }
     }
 
-    /// 取自定义布尔标志（下标 1-20）；未设置或越界时返回 `false`。
+/// Get custom flag (index 1-20); returns `false` when unset or out of bounds.
     ///
-    /// 对应 Java: `public boolean getFlag(int index)`
+    /// Corresponds to Java: `public boolean getFlag(int index)`
     pub fn get_flag(&self, index: i32) -> bool {
         match Self::select_field(&CUSTOM_FLAG, index) {
             Some(field) => self.boolean_value(field),
@@ -1504,69 +1504,69 @@ impl ResourceAssignment {
         }
     }
 
-    /// 设置企业自定义成本（下标 1-10）。
+/// Set enterprise custom cost (index 1-10).
     ///
-    /// 对应 Java: `public void setEnterpriseCost(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseCost(int index, Number value)`
     pub fn set_enterprise_cost(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_COST, index) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 取企业自定义成本（下标 1-10）。
+/// Get enterprise custom cost (index 1-10).
     ///
-    /// 对应 Java: `public Number getEnterpriseCost(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseCost(int index)`
     pub fn get_enterprise_cost(&self, index: i32) -> Option<f64> {
         let field = Self::select_field(&ENTERPRISE_CUSTOM_COST, index)?;
         self.number_value(field)
     }
 
-    /// 设置企业自定义日期（下标 1-30）。
+/// Set enterprise custom date (index 1-30).
     ///
-    /// 对应 Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
     pub fn set_enterprise_date(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_DATE, index) {
             self.set_assignment_value(field, value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取企业自定义日期（下标 1-30）。
+/// Get enterprise custom date (index 1-30).
     ///
-    /// 对应 Java: `public LocalDateTime getEnterpriseDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getEnterpriseDate(int index)`
     pub fn get_enterprise_date(&self, index: i32) -> Option<NaiveDateTime> {
         let field = Self::select_field(&ENTERPRISE_CUSTOM_DATE, index)?;
         self.date_time_value(field)
     }
 
-    /// 设置企业自定义工期（下标 1-10）。
+/// Set enterprise custom duration (index 1-10).
     ///
-    /// 对应 Java: `public void setEnterpriseDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setEnterpriseDuration(int index, Duration value)`
     pub fn set_enterprise_duration(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_DURATION, index) {
             self.set_assignment_value(field, value.map(FieldValue::Duration));
         }
     }
 
-    /// 取企业自定义工期（下标 1-10）。
+/// Get enterprise custom duration (index 1-10).
     ///
-    /// 对应 Java: `public Duration getEnterpriseDuration(int index)`
+    /// Corresponds to Java: `public Duration getEnterpriseDuration(int index)`
     pub fn get_enterprise_duration(&self, index: i32) -> Option<Duration> {
         let field = Self::select_field(&ENTERPRISE_CUSTOM_DURATION, index)?;
         self.duration_value(field)
     }
 
-    /// 设置企业自定义布尔标志（下标 1-20）。
+/// Set enterprise custom flag (index 1-20).
     ///
-    /// 对应 Java: `public void setEnterpriseFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setEnterpriseFlag(int index, boolean value)`
     pub fn set_enterprise_flag(&mut self, index: i32, value: bool) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_FLAG, index) {
             self.set_boolean_value(field, value);
         }
     }
 
-    /// 取企业自定义布尔标志（下标 1-20）；未设置或越界时返回 `false`。
+/// Get enterprise custom flag (index 1-20); returns `false` when unset or out of bounds.
     ///
-    /// 对应 Java: `public boolean getEnterpriseFlag(int index)`
+    /// Corresponds to Java: `public boolean getEnterpriseFlag(int index)`
     pub fn get_enterprise_flag(&self, index: i32) -> bool {
         match Self::select_field(&ENTERPRISE_CUSTOM_FLAG, index) {
             Some(field) => self.boolean_value(field),
@@ -1574,64 +1574,64 @@ impl ResourceAssignment {
         }
     }
 
-    /// 设置企业自定义数字（下标 1-40）。
+/// Set enterprise custom number (index 1-40).
     ///
-    /// 对应 Java: `public void setEnterpriseNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseNumber(int index, Number value)`
     pub fn set_enterprise_number(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_NUMBER, index) {
             self.set_assignment_value(field, value.map(FieldValue::Double));
         }
     }
 
-    /// 取企业自定义数字（下标 1-40）。
+/// Get enterprise custom number (index 1-40).
     ///
-    /// 对应 Java: `public Number getEnterpriseNumber(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseNumber(int index)`
     pub fn get_enterprise_number(&self, index: i32) -> Option<f64> {
         let field = Self::select_field(&ENTERPRISE_CUSTOM_NUMBER, index)?;
         self.number_value(field)
     }
 
-    /// 设置企业自定义文本（下标 1-40）。
+/// Set enterprise custom text (index 1-40).
     ///
-    /// 对应 Java: `public void setEnterpriseText(int index, String value)`
+    /// Corresponds to Java: `public void setEnterpriseText(int index, String value)`
     pub fn set_enterprise_text(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = Self::select_field(&ENTERPRISE_CUSTOM_TEXT, index) {
             self.set_string_value(field, value);
         }
     }
 
-    /// 取企业自定义文本（下标 1-40）。
+/// Get enterprise custom text (index 1-40).
     ///
-    /// 对应 Java: `public String getEnterpriseText(int index)`
+    /// Corresponds to Java: `public String getEnterpriseText(int index)`
     pub fn get_enterprise_text(&self, index: i32) -> Option<String> {
         let field = Self::select_field(&ENTERPRISE_CUSTOM_TEXT, index)?;
         self.string_value(field)
     }
 
-    /// 取常规工时。
+/// Get regular work.
     ///
-    /// 对应 Java: `public Duration getRegularWork()`
+    /// Corresponds to Java: `public Duration getRegularWork()`
     pub fn get_regular_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::RegularWork)
     }
 
-    /// 设置常规工时。
+/// Set regular work.
     ///
-    /// 对应 Java: `public void setRegularWork(Duration dur)`
+    /// Corresponds to Java: `public void setRegularWork(Duration dur)`
     pub fn set_regular_work(&mut self, dur: Option<Duration>) {
         self.set_assignment_value(AssignmentField::RegularWork, dur.map(FieldValue::Duration));
     }
 
-    /// 取实际加班工时。
+/// Get actual overtime work.
     ///
-    /// 对应 Java: `public Duration getActualOvertimeWork()`
+    /// Corresponds to Java: `public Duration getActualOvertimeWork()`
     pub fn get_actual_overtime_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::ActualOvertimeWork)
     }
 
-    /// 设置实际加班工时。
+/// Set actual overtime work.
     ///
-    /// 对应 Java: `public void setActualOvertimeWork(Duration dur)`
+    /// Corresponds to Java: `public void setActualOvertimeWork(Duration dur)`
     pub fn set_actual_overtime_work(&mut self, dur: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::ActualOvertimeWork,
@@ -1639,16 +1639,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余加班工时。
+/// Get remaining overtime work.
     ///
-    /// 对应 Java: `public Duration getRemainingOvertimeWork()`
+    /// Corresponds to Java: `public Duration getRemainingOvertimeWork()`
     pub fn get_remaining_overtime_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::RemainingOvertimeWork)
     }
 
-    /// 设置剩余加班工时。
+/// Set remaining overtime work.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeWork(Duration dur)`
+    /// Corresponds to Java: `public void setRemainingOvertimeWork(Duration dur)`
     pub fn set_remaining_overtime_work(&mut self, dur: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::RemainingOvertimeWork,
@@ -1656,44 +1656,44 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取加班成本（计算字段）。
+/// Get overtime cost (calculated field).
     ///
-    /// 对应 Java: `public Number getOvertimeCost()`
+    /// Corresponds to Java: `public Number getOvertimeCost()`
     pub fn get_overtime_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::OvertimeCost)
     }
 
-    /// 设置加班成本。
+/// Set overtime cost.
     ///
-    /// 对应 Java: `public void setOvertimeCost(Number cost)`
+    /// Corresponds to Java: `public void setOvertimeCost(Number cost)`
     pub fn set_overtime_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(AssignmentField::OvertimeCost, cost.map(FieldValue::Double));
     }
 
-    /// 取剩余成本。
+/// Get remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCost()`
+    /// Corresponds to Java: `public Number getRemainingCost()`
     pub fn get_remaining_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::RemainingCost)
     }
 
-    /// 设置剩余成本。
+/// Set remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCost(Number cost)`
+    /// Corresponds to Java: `public void setRemainingCost(Number cost)`
     pub fn set_remaining_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(AssignmentField::RemainingCost, cost.map(FieldValue::Double));
     }
 
-    /// 取实际加班成本。
+/// Get actual overtime cost.
     ///
-    /// 对应 Java: `public Number getActualOvertimeCost()`
+    /// Corresponds to Java: `public Number getActualOvertimeCost()`
     pub fn get_actual_overtime_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::ActualOvertimeCost)
     }
 
-    /// 设置实际加班成本。
+/// Set actual overtime cost.
     ///
-    /// 对应 Java: `public void setActualOvertimeCost(Number cost)`
+    /// Corresponds to Java: `public void setActualOvertimeCost(Number cost)`
     pub fn set_actual_overtime_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(
             AssignmentField::ActualOvertimeCost,
@@ -1701,16 +1701,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余加班成本。
+/// Get remaining overtime cost.
     ///
-    /// 对应 Java: `public Number getRemainingOvertimeCost()`
+    /// Corresponds to Java: `public Number getRemainingOvertimeCost()`
     pub fn get_remaining_overtime_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::RemainingOvertimeCost)
     }
 
-    /// 设置剩余加班成本。
+/// Set remaining overtime cost.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeCost(Number cost)`
+    /// Corresponds to Java: `public void setRemainingOvertimeCost(Number cost)`
     pub fn set_remaining_overtime_cost(&mut self, cost: Option<f64>) {
         self.set_assignment_value(
             AssignmentField::RemainingOvertimeCost,
@@ -1718,93 +1718,93 @@ impl ResourceAssignment {
         );
     }
 
-    /// 设置 BCWP（已完成工作预算成本）。
+/// Set BCWP (budgeted cost of work performed).
     ///
-    /// 对应 Java: `public void setBCWP(Number val)`
+    /// Corresponds to Java: `public void setBCWP(Number val)`
     pub fn set_bcwp(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::Bcwp, val.map(FieldValue::Double));
     }
 
-    /// 取 BCWP。
+/// Get BCWP.
     ///
-    /// 对应 Java: `public Number getBCWP()`
+    /// Corresponds to Java: `public Number getBCWP()`
     pub fn get_bcwp(&self) -> Option<f64> {
         self.number_value(AssignmentField::Bcwp)
     }
 
-    /// 设置 BCWS（计划工作预算成本）。
+/// Set BCWS (budgeted cost of work scheduled).
     ///
-    /// 对应 Java: `public void setBCWS(Number val)`
+    /// Corresponds to Java: `public void setBCWS(Number val)`
     pub fn set_bcws(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::Bcws, val.map(FieldValue::Double));
     }
 
-    /// 取 BCWS。
+/// Get BCWS.
     ///
-    /// 对应 Java: `public Number getBCWS()`
+    /// Corresponds to Java: `public Number getBCWS()`
     pub fn get_bcws(&self) -> Option<f64> {
         self.number_value(AssignmentField::Bcws)
     }
 
-    /// 取 ACWP（已完成工作实际成本）。
+/// Get ACWP (actual cost of work performed).
     ///
-    /// 对应 Java: `public Number getACWP()`
+    /// Corresponds to Java: `public Number getACWP()`
     pub fn get_acwp(&self) -> Option<f64> {
         self.number_value(AssignmentField::Acwp)
     }
 
-    /// 设置 ACWP。
+/// Set ACWP.
     ///
-    /// 对应 Java: `public void setACWP(Number acwp)`
+    /// Corresponds to Java: `public void setACWP(Number acwp)`
     pub fn set_acwp(&mut self, acwp: Option<f64>) {
         self.set_assignment_value(AssignmentField::Acwp, acwp.map(FieldValue::Double));
     }
 
-    /// 设置 SV（进度偏差）。
+/// Set SV (schedule variance).
     ///
-    /// 对应 Java: `public void setSV(Number val)`
+    /// Corresponds to Java: `public void setSV(Number val)`
     pub fn set_sv(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::Sv, val.map(FieldValue::Double));
     }
 
-    /// 取 SV（计算字段）。
+/// Get SV (calculated field).
     ///
-    /// 对应 Java: `public Number getSV()`
+    /// Corresponds to Java: `public Number getSV()`
     pub fn get_sv(&self) -> Option<f64> {
         self.number_value(AssignmentField::Sv)
     }
 
-    /// 设置 CV（成本偏差）。
+/// Set CV (cost variance).
     ///
-    /// 对应 Java: `public void setCV(Number val)`
+    /// Corresponds to Java: `public void setCV(Number val)`
     pub fn set_cv(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::Cv, val.map(FieldValue::Double));
     }
 
-    /// 取 CV（计算字段）。
+/// Get CV (calculated field).
     ///
-    /// 对应 Java: `public Number getCV()`
+    /// Corresponds to Java: `public Number getCV()`
     pub fn get_cv(&self) -> Option<f64> {
         self.number_value(AssignmentField::Cv)
     }
 
-    /// 设置成本偏差（VAC）。
+/// Set cost variance (VAC).
     ///
-    /// 对应 Java: `public void setCostVariance(Number val)`
+    /// Corresponds to Java: `public void setCostVariance(Number val)`
     pub fn set_cost_variance(&mut self, val: Option<f64>) {
         self.set_assignment_value(AssignmentField::CostVariance, val.map(FieldValue::Double));
     }
 
-    /// 取成本偏差（计算字段）。
+/// Get cost variance (calculated field).
     ///
-    /// 对应 Java: `public Number getCostVariance()`
+    /// Corresponds to Java: `public Number getCostVariance()`
     pub fn get_cost_variance(&self) -> Option<f64> {
         self.number_value(AssignmentField::CostVariance)
     }
 
-    /// 设置工时完成百分比。
+/// Set percent work complete.
     ///
-    /// 对应 Java: `public void setPercentageWorkComplete(Number val)`
+    /// Corresponds to Java: `public void setPercentageWorkComplete(Number val)`
     pub fn set_percentage_work_complete(&mut self, val: Option<f64>) {
         self.set_assignment_value(
             AssignmentField::PercentWorkComplete,
@@ -1812,16 +1812,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取工时完成百分比（计算字段）。
+/// Get percent work complete (calculated field).
     ///
-    /// 对应 Java: `public Number getPercentageWorkComplete()`
+    /// Corresponds to Java: `public Number getPercentageWorkComplete()`
     pub fn get_percentage_work_complete(&self) -> Option<f64> {
         self.number_value(AssignmentField::PercentWorkComplete)
     }
 
-    /// 设置纯文本笔记（Java 存 `new Notes(notes)`；Rust 侧用 `PlainNotes`）。
+/// Set plain text notes (Java stores `new Notes(notes)`; the Rust side uses `PlainNotes`).
     ///
-    /// 对应 Java: `public void setNotes(String notes)`
+    /// Corresponds to Java: `public void setNotes(String notes)`
     pub fn set_notes(&mut self, notes: Option<String>) {
         let value = notes.map(|text| {
             let notes: Rc<dyn Notes> = Rc::new(PlainNotes::new(Some(text)));
@@ -1830,152 +1830,152 @@ impl ResourceAssignment {
         self.set_assignment_value(AssignmentField::Notes, value);
     }
 
-    /// 取笔记的纯文本表示；无笔记时返回空串。
+/// Get the plain text representation of the notes; returns an empty string when there are no notes.
     ///
-    /// 对应 Java: `public String getNotes()`
+    /// Corresponds to Java: `public String getNotes()`
     pub fn get_notes(&self) -> String {
         self.notes_object()
             .map(|notes| notes.to_string())
             .unwrap_or_default()
     }
 
-    /// 设置笔记对象（`RtfNotes` / `HtmlNotes` / `StructuredNotes` 等子类型经
-    /// `Rc<dyn Notes>` 保真保存）。
+/// Set the notes object (subtypes such as `RtfNotes` / `HtmlNotes` / `StructuredNotes` are stored
+/// faithfully via `Rc<dyn Notes>`).
     ///
-    /// 对应 Java: `public void setNotesObject(Notes notes)`
+    /// Corresponds to Java: `public void setNotesObject(Notes notes)`
     pub fn set_notes_object(&mut self, notes: Option<Box<dyn Notes>>) {
         let value = notes.map(|notes| FieldValue::Notes(Rc::from(notes)));
         self.set_assignment_value(AssignmentField::Notes, value);
     }
 
-    /// 取笔记对象。
+/// Get the notes object.
     ///
-    /// 对应 Java: `public Notes getNotesObject()`
+    /// Corresponds to Java: `public Notes getNotesObject()`
     pub fn get_notes_object(&self) -> Option<Rc<dyn Notes>> {
         self.notes_object()
     }
 
-    /// 取笔记对象（内部便捷方法）。
+/// Get the notes object (internal convenience method).
     fn notes_object(&self) -> Option<Rc<dyn Notes>> {
         self.assignment_value(AssignmentField::Notes)
             .and_then(|value| value.as_notes().cloned())
     }
 
-    /// 设置「已确认」标志。
+/// Set the "confirmed" flag.
     ///
-    /// 对应 Java: `public void setConfirmed(boolean val)`
+    /// Corresponds to Java: `public void setConfirmed(boolean val)`
     pub fn set_confirmed(&mut self, val: bool) {
         self.set_boolean_value(AssignmentField::Confirmed, val);
     }
 
-    /// 取「已确认」标志。
+/// Get the "confirmed" flag.
     ///
-    /// 对应 Java: `public boolean getConfirmed()`
+    /// Corresponds to Java: `public boolean getConfirmed()`
     pub fn get_confirmed(&self) -> bool {
         self.boolean_value(AssignmentField::Confirmed)
     }
 
-    /// 设置「需要更新」标志。
+/// Set the "update needed" flag.
     ///
-    /// 对应 Java: `public void setUpdateNeeded(boolean val)`
+    /// Corresponds to Java: `public void setUpdateNeeded(boolean val)`
     pub fn set_update_needed(&mut self, val: bool) {
         self.set_boolean_value(AssignmentField::UpdateNeeded, val);
     }
 
-    /// 取「需要更新」标志。
+/// Get the "update needed" flag.
     ///
-    /// 对应 Java: `public boolean getUpdateNeeded()`
+    /// Corresponds to Java: `public boolean getUpdateNeeded()`
     pub fn get_update_needed(&self) -> bool {
         self.boolean_value(AssignmentField::UpdateNeeded)
     }
 
-    /// 设置「链接字段」标志。
+/// Set the "linked fields" flag.
     ///
-    /// 对应 Java: `public void setLinkedFields(boolean flag)`
+    /// Corresponds to Java: `public void setLinkedFields(boolean flag)`
     pub fn set_linked_fields(&mut self, flag: bool) {
         self.set_boolean_value(AssignmentField::LinkedFields, flag);
     }
 
-    /// 取「链接字段」标志。
+/// Get the "linked fields" flag.
     ///
-    /// 对应 Java: `public boolean getLinkedFields()`
+    /// Corresponds to Java: `public boolean getLinkedFields()`
     pub fn get_linked_fields(&self) -> bool {
         self.boolean_value(AssignmentField::LinkedFields)
     }
 
-    /// 取超链接。
+/// Get the hyperlink.
     ///
-    /// 对应 Java: `public String getHyperlink()`
+    /// Corresponds to Java: `public String getHyperlink()`
     pub fn get_hyperlink(&self) -> Option<String> {
         self.string_value(AssignmentField::Hyperlink)
     }
 
-    /// 取超链接地址。
+/// Get the hyperlink address.
     ///
-    /// 对应 Java: `public String getHyperlinkAddress()`
+    /// Corresponds to Java: `public String getHyperlinkAddress()`
     pub fn get_hyperlink_address(&self) -> Option<String> {
         self.string_value(AssignmentField::HyperlinkAddress)
     }
 
-    /// 取超链接子地址。
+/// Get the hyperlink subaddress.
     ///
-    /// 对应 Java: `public String getHyperlinkSubAddress()`
+    /// Corresponds to Java: `public String getHyperlinkSubAddress()`
     pub fn get_hyperlink_sub_address(&self) -> Option<String> {
         self.string_value(AssignmentField::HyperlinkSubaddress)
     }
 
-    /// 设置超链接。
+/// Set the hyperlink.
     ///
-    /// 对应 Java: `public void setHyperlink(String text)`
+    /// Corresponds to Java: `public void setHyperlink(String text)`
     pub fn set_hyperlink(&mut self, text: Option<String>) {
         self.set_string_value(AssignmentField::Hyperlink, text);
     }
 
-    /// 设置超链接地址。
+/// Set the hyperlink address.
     ///
-    /// 对应 Java: `public void setHyperlinkAddress(String text)`
+    /// Corresponds to Java: `public void setHyperlinkAddress(String text)`
     pub fn set_hyperlink_address(&mut self, text: Option<String>) {
         self.set_string_value(AssignmentField::HyperlinkAddress, text);
     }
 
-    /// 设置超链接子地址。
+/// Set the hyperlink subaddress.
     ///
-    /// 对应 Java: `public void setHyperlinkSubAddress(String text)`
+    /// Corresponds to Java: `public void setHyperlinkSubAddress(String text)`
     pub fn set_hyperlink_sub_address(&mut self, text: Option<String>) {
         self.set_string_value(AssignmentField::HyperlinkSubaddress, text);
     }
 
-    /// 设置工时偏差。
+/// Set work variance.
     ///
-    /// 对应 Java: `public void setWorkVariance(Duration val)`
+    /// Corresponds to Java: `public void setWorkVariance(Duration val)`
     pub fn set_work_variance(&mut self, val: Option<Duration>) {
         self.set_assignment_value(AssignmentField::WorkVariance, val.map(FieldValue::Duration));
     }
 
-    /// 取工时偏差（计算字段）。
+/// Get work variance (calculated field).
     ///
-    /// 对应 Java: `public Duration getWorkVariance()`
+    /// Corresponds to Java: `public Duration getWorkVariance()`
     pub fn get_work_variance(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::WorkVariance)
     }
 
-    /// 设置开始时间偏差。
+/// Set start variance.
     ///
-    /// 对应 Java: `public void setStartVariance(Duration val)`
+    /// Corresponds to Java: `public void setStartVariance(Duration val)`
     pub fn set_start_variance(&mut self, val: Option<Duration>) {
         self.set_assignment_value(AssignmentField::StartVariance, val.map(FieldValue::Duration));
     }
 
-    /// 取开始时间偏差（计算字段）。
+/// Get start variance (calculated field).
     ///
-    /// 对应 Java: `public Duration getStartVariance()`
+    /// Corresponds to Java: `public Duration getStartVariance()`
     pub fn get_start_variance(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::StartVariance)
     }
 
-    /// 设置完成时间偏差。
+/// Set finish variance.
     ///
-    /// 对应 Java: `public void setFinishVariance(Duration duration)`
+    /// Corresponds to Java: `public void setFinishVariance(Duration duration)`
     pub fn set_finish_variance(&mut self, duration: Option<Duration>) {
         self.set_assignment_value(
             AssignmentField::FinishVariance,
@@ -1983,94 +1983,94 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取完成时间偏差（计算字段）。
+/// Get finish variance (calculated field).
     ///
-    /// 对应 Java: `public Duration getFinishVariance()`
+    /// Corresponds to Java: `public Duration getFinishVariance()`
     pub fn get_finish_variance(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::FinishVariance)
     }
 
-    /// 取创建时间。
+/// Get the creation time.
     ///
-    /// 对应 Java: `public LocalDateTime getCreateDate()`
+    /// Corresponds to Java: `public LocalDateTime getCreateDate()`
     pub fn get_create_date(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::Created)
     }
 
-    /// 设置创建时间。
+/// Set the creation time.
     ///
-    /// 对应 Java: `public void setCreateDate(LocalDateTime val)`
+    /// Corresponds to Java: `public void setCreateDate(LocalDateTime val)`
     pub fn set_create_date(&mut self, val: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::Created, val.map(FieldValue::DateTime));
     }
 
-    /// 取分配的 GUID。
+/// Get the assignment GUID.
     ///
-    /// 对应 Java: `public UUID getGUID()`
+    /// Corresponds to Java: `public UUID getGUID()`
     pub fn get_guid(&self) -> Option<Uuid> {
         self.assignment_value(AssignmentField::Guid)
             .and_then(|value| value.as_uuid())
     }
 
-    /// 设置分配的 GUID。
+/// Set the assignment GUID.
     ///
-    /// 对应 Java: `public void setGUID(UUID value)`
+    /// Corresponds to Java: `public void setGUID(UUID value)`
     pub fn set_guid(&mut self, value: Option<Uuid>) {
         self.set_assignment_value(AssignmentField::Guid, value.map(FieldValue::Uuid));
     }
 
-    /// 设置「响应待处理」标志。
+/// Set the "response pending" flag.
     ///
-    /// 对应 Java: `public void setResponsePending(boolean val)`
+    /// Corresponds to Java: `public void setResponsePending(boolean val)`
     pub fn set_response_pending(&mut self, val: bool) {
         self.set_boolean_value(AssignmentField::ResponsePending, val);
     }
 
-    /// 取「响应待处理」标志。
+/// Get the "response pending" flag.
     ///
-    /// 对应 Java: `public boolean getResponsePending()`
+    /// Corresponds to Java: `public boolean getResponsePending()`
     pub fn get_response_pending(&self) -> bool {
         self.boolean_value(AssignmentField::ResponsePending)
     }
 
-    /// 设置「团队状态待处理」标志。
+/// Set the "team status pending" flag.
     ///
-    /// 对应 Java: `public void setTeamStatusPending(boolean val)`
+    /// Corresponds to Java: `public void setTeamStatusPending(boolean val)`
     pub fn set_team_status_pending(&mut self, val: bool) {
         self.set_boolean_value(AssignmentField::TeamStatusPending, val);
     }
 
-    /// 取「团队状态待处理」标志。
+/// Get the "team status pending" flag.
     ///
-    /// 对应 Java: `public boolean getTeamStatusPending()`
+    /// Corresponds to Java: `public boolean getTeamStatusPending()`
     pub fn get_team_status_pending(&self) -> bool {
         self.boolean_value(AssignmentField::TeamStatusPending)
     }
 
-    /// 设置 VAC。
+/// Set VAC.
     ///
-    /// 对应 Java: `public void setVAC(Number value)`
+    /// Corresponds to Java: `public void setVAC(Number value)`
     pub fn set_vac(&mut self, value: Option<f64>) {
         self.set_assignment_value(AssignmentField::Vac, value.map(FieldValue::Double));
     }
 
-    /// 取 VAC。
+/// Get VAC.
     ///
-    /// 对应 Java: `public Number getVAC()`
+    /// Corresponds to Java: `public Number getVAC()`
     pub fn get_vac(&self) -> Option<f64> {
         self.number_value(AssignmentField::Vac)
     }
 
-    /// 设置成本费率表下标（`int` 版本）。
+/// Set the cost rate table index (the `int` version).
     ///
-    /// 对应 Java: `public void setCostRateTableIndex(int index)`
+    /// Corresponds to Java: `public void setCostRateTableIndex(int index)`
     pub fn set_cost_rate_table_index(&mut self, index: i32) {
         self.set_integer_value(AssignmentField::CostRateTable, index);
     }
 
-    /// 取成本费率表下标；越界时返回 0。
+/// Get the cost rate table index; returns 0 when out of bounds.
     ///
-    /// 对应 Java: `public int getCostRateTableIndex()`
+    /// Corresponds to Java: `public int getCostRateTableIndex()`
     pub fn get_cost_rate_table_index(&self) -> i32 {
         let value = NumberHelper::get_int(self.number_value(AssignmentField::CostRateTable));
         if value < 0 || value >= CostRateTable::MAX_TABLES {
@@ -2080,23 +2080,23 @@ impl ResourceAssignment {
         }
     }
 
-    /// 在本分配使用的成本费率表上执行给定操作。
+/// Perform the given operation on the cost rate table used by this assignment.
     ///
-    /// 对应 Java: `public CostRateTable getCostRateTable()`
+    /// Corresponds to Java: `public CostRateTable getCostRateTable()`
     ///
-    /// # 与 Java 的差异
+    /// # Differences from Java
     ///
-    /// Java 返回 `CostRateTable` 引用；Rust 侧资源按值持有费率表
-    /// （`Resource::get_cost_rate_table` 返回借用）且 `CostRateTable` 未实现 `Clone`，
-    /// 无法返回所有权，故改为回调形式（见文件头第 4 节）。表不存在时以 `None` 调用回调
-    /// （对应 Java 返回 `null`）。
+/// Java returns a `CostRateTable` reference; the Rust side holds rate tables by value
+/// (`Resource::get_cost_rate_table` returns a borrow) and `CostRateTable` does not implement `Clone`,
+/// so returning ownership is not possible; hence the callback form (see section 4 of the file header). When the table is absent, invoke the callback with `None`
+/// (corresponding to Java returning `null`).
     pub fn with_cost_rate_table<T>(&self, f: impl FnOnce(Option<&CostRateTable>) -> T) -> T {
-        // Java: 费率来源为 override 时没有费率表
+// Java: there is no rate table when the rate source is override
         if self.get_rate_source() == RateSource::Override {
             return f(None);
         }
 
-        // Java: 找不到资源/角色时返回 null
+// Java: returns null when no resource/role is found
         let resource = if self.get_rate_source() == RateSource::Role {
             self.get_role()
         } else {
@@ -2114,31 +2114,31 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取超链接屏幕提示。
+/// Get the hyperlink screen tip.
     ///
-    /// 对应 Java: `public String getHyperlinkScreenTip()`
+    /// Corresponds to Java: `public String getHyperlinkScreenTip()`
     pub fn get_hyperlink_screen_tip(&self) -> Option<String> {
         self.string_value(AssignmentField::HyperlinkScreenTip)
     }
 
-    /// 设置超链接屏幕提示。
+/// Set the hyperlink screen tip.
     ///
-    /// 对应 Java: `public void setHyperlinkScreenTip(String text)`
+    /// Corresponds to Java: `public void setHyperlinkScreenTip(String text)`
     pub fn set_hyperlink_screen_tip(&mut self, text: Option<String>) {
         self.set_string_value(AssignmentField::HyperlinkScreenTip, text);
     }
 
-    /// 取资源请求类型。
+/// Get the resource request type.
     ///
-    /// 对应 Java: `public ResourceRequestType getResourceRequestType()`
+    /// Corresponds to Java: `public ResourceRequestType getResourceRequestType()`
     pub fn get_resource_request_type(&self) -> Option<ResourceRequestType> {
         self.assignment_value(AssignmentField::ResourceRequestType)
             .and_then(|value| value.as_resource_request_type())
     }
 
-    /// 设置资源请求类型。
+/// Set the resource request type.
     ///
-    /// 对应 Java: `public void setResourceRequestType(ResourceRequestType type)`
+    /// Corresponds to Java: `public void setResourceRequestType(ResourceRequestType type)`
     pub fn set_resource_request_type(&mut self, r#type: Option<ResourceRequestType>) {
         self.set_assignment_value(
             AssignmentField::ResourceRequestType,
@@ -2146,100 +2146,100 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取停止时间。
+/// Get the stop time.
     ///
-    /// 对应 Java: `public LocalDateTime getStop()`
+    /// Corresponds to Java: `public LocalDateTime getStop()`
     pub fn get_stop(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::Stop)
     }
 
-    /// 设置停止时间。
+/// Set the stop time.
     ///
-    /// 对应 Java: `public void setStop(LocalDateTime stop)`
+    /// Corresponds to Java: `public void setStop(LocalDateTime stop)`
     pub fn set_stop(&mut self, stop: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::Stop, stop.map(FieldValue::DateTime));
     }
 
-    /// 取恢复时间。
+/// Get the resume time.
     ///
-    /// 对应 Java: `public LocalDateTime getResume()`
+    /// Corresponds to Java: `public LocalDateTime getResume()`
     pub fn get_resume(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::Resume)
     }
 
-    /// 设置恢复时间。
+/// Set the resume time.
     ///
-    /// 对应 Java: `public void setResume(LocalDateTime resume)`
+    /// Corresponds to Java: `public void setResume(LocalDateTime resume)`
     pub fn set_resume(&mut self, resume: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::Resume, resume.map(FieldValue::DateTime));
     }
 
-    /// 取计划工时。
+/// Get planned work.
     ///
-    /// 对应 Java: `public Duration getPlannedWork()`
+    /// Corresponds to Java: `public Duration getPlannedWork()`
     pub fn get_planned_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::PlannedWork)
     }
 
-    /// 设置计划工时。
+/// Set planned work.
     ///
-    /// 对应 Java: `public void setPlannedWork(Duration value)`
+    /// Corresponds to Java: `public void setPlannedWork(Duration value)`
     pub fn set_planned_work(&mut self, value: Option<Duration>) {
         self.set_assignment_value(AssignmentField::PlannedWork, value.map(FieldValue::Duration));
     }
 
-    /// 取计划成本。
+/// Get planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCost()`
+    /// Corresponds to Java: `public Number getPlannedCost()`
     pub fn get_planned_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::PlannedCost)
     }
 
-    /// 设置计划成本。
+/// Set planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCost(Number value)`
+    /// Corresponds to Java: `public void setPlannedCost(Number value)`
     pub fn set_planned_cost(&mut self, value: Option<f64>) {
         self.set_assignment_value(AssignmentField::PlannedCost, value.map(FieldValue::Double));
     }
 
-    /// 取计划开始时间。
+/// Get planned start.
     ///
-    /// 对应 Java: `public LocalDateTime getPlannedStart()`
+    /// Corresponds to Java: `public LocalDateTime getPlannedStart()`
     pub fn get_planned_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::PlannedStart)
     }
 
-    /// 设置计划开始时间。
+/// Set planned start.
     ///
-    /// 对应 Java: `public void setPlannedStart(LocalDateTime value)`
+    /// Corresponds to Java: `public void setPlannedStart(LocalDateTime value)`
     pub fn set_planned_start(&mut self, value: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::PlannedStart, value.map(FieldValue::DateTime));
     }
 
-    /// 取计划完成时间。
+/// Get planned finish.
     ///
-    /// 对应 Java: `public LocalDateTime getPlannedFinish()`
+    /// Corresponds to Java: `public LocalDateTime getPlannedFinish()`
     pub fn get_planned_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::PlannedFinish)
     }
 
-    /// 设置计划完成时间。
+/// Set planned finish.
     ///
-    /// 对应 Java: `public void setPlannedFinish(LocalDateTime value)`
+    /// Corresponds to Java: `public void setPlannedFinish(LocalDateTime value)`
     pub fn set_planned_finish(&mut self, value: Option<NaiveDateTime>) {
         self.set_assignment_value(AssignmentField::PlannedFinish, value.map(FieldValue::DateTime));
     }
 
-    /// 取「按单位计算成本」标志（默认 `true`）。
+/// Get the "cost per unit" flag (default `true`).
     ///
-    /// 对应 Java: `public boolean getCalculateCostsFromUnits()`
+    /// Corresponds to Java: `public boolean getCalculateCostsFromUnits()`
     pub fn get_calculate_costs_from_units(&self) -> bool {
         self.boolean_value(AssignmentField::CalculateCostsFromUnits)
     }
 
-    /// 设置「按单位计算成本」标志。
+/// Set the "cost per unit" flag.
     ///
-    /// 对应 Java: `public void setCalculateCostsFromUnits(boolean calculateCostsFromUnits)`
+    /// Corresponds to Java: `public void setCalculateCostsFromUnits(boolean calculateCostsFromUnits)`
     pub fn set_calculate_costs_from_units(&mut self, calculate_costs_from_units: bool) {
         self.set_boolean_value(
             AssignmentField::CalculateCostsFromUnits,
@@ -2247,16 +2247,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取成本科目的 unique ID。
+/// Get the cost account unique ID.
     ///
-    /// 对应 Java: `public Integer getCostAccountUniqueID()`
+    /// Corresponds to Java: `public Integer getCostAccountUniqueID()`
     pub fn get_cost_account_unique_id(&self) -> Option<i32> {
         self.integer_value(AssignmentField::CostAccountUniqueId)
     }
 
-    /// 设置成本科目的 unique ID。
+/// Set the cost account unique ID.
     ///
-    /// 对应 Java: `public void setCostAccountUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setCostAccountUniqueID(Integer id)`
     pub fn set_cost_account_unique_id(&mut self, id: Option<i32>) {
         self.set_assignment_value(
             AssignmentField::CostAccountUniqueId,
@@ -2264,16 +2264,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余最晚完成时间。
+/// Get remaining late finish.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingLateFinish()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingLateFinish()`
     pub fn get_remaining_late_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::RemainingLateFinish)
     }
 
-    /// 设置剩余最晚完成时间。
+/// Set remaining late finish.
     ///
-    /// 对应 Java: `public void setRemainingLateFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingLateFinish(LocalDateTime date)`
     pub fn set_remaining_late_finish(&mut self, date: Option<NaiveDateTime>) {
         self.set_assignment_value(
             AssignmentField::RemainingLateFinish,
@@ -2281,16 +2281,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余最晚开始时间。
+/// Get remaining late start.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingLateStart()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingLateStart()`
     pub fn get_remaining_late_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::RemainingLateStart)
     }
 
-    /// 设置剩余最晚开始时间。
+/// Set remaining late start.
     ///
-    /// 对应 Java: `public void setRemainingLateStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingLateStart(LocalDateTime date)`
     pub fn set_remaining_late_start(&mut self, date: Option<NaiveDateTime>) {
         self.set_assignment_value(
             AssignmentField::RemainingLateStart,
@@ -2298,16 +2298,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余最早完成时间。
+/// Get remaining early finish.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingEarlyFinish()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingEarlyFinish()`
     pub fn get_remaining_early_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::RemainingEarlyFinish)
     }
 
-    /// 设置剩余最早完成时间。
+/// Set remaining early finish.
     ///
-    /// 对应 Java: `public void setRemainingEarlyFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingEarlyFinish(LocalDateTime date)`
     pub fn set_remaining_early_finish(&mut self, date: Option<NaiveDateTime>) {
         self.set_assignment_value(
             AssignmentField::RemainingEarlyFinish,
@@ -2315,16 +2315,16 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取剩余最早开始时间。
+/// Get remaining early start.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingEarlyStart()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingEarlyStart()`
     pub fn get_remaining_early_start(&self) -> Option<NaiveDateTime> {
         self.date_time_value(AssignmentField::RemainingEarlyStart)
     }
 
-    /// 设置剩余最早开始时间。
+/// Set remaining early start.
     ///
-    /// 对应 Java: `public void setRemainingEarlyStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingEarlyStart(LocalDateTime date)`
     pub fn set_remaining_early_start(&mut self, date: Option<NaiveDateTime>) {
         self.set_assignment_value(
             AssignmentField::RemainingEarlyStart,
@@ -2332,9 +2332,9 @@ impl ResourceAssignment {
         );
     }
 
-    /// 取指定日期生效的成本费率。
+/// Get the cost rate in effect on the given date.
     ///
-    /// 对应 Java: `public Rate getEffectiveRate(LocalDateTime date)`
+    /// Corresponds to Java: `public Rate getEffectiveRate(LocalDateTime date)`
     pub fn get_effective_rate(&self, date: NaiveDateTime) -> Option<Rate> {
         if self.get_rate_source() == RateSource::Override {
             return self.get_override_rate();
@@ -2348,99 +2348,99 @@ impl ResourceAssignment {
         })
     }
 
-    /// 取实际常规成本（计算字段）。
+/// Get actual regular cost (calculated field).
     ///
-    /// 对应 Java: `public Number getActualRegularCost()`
+    /// Corresponds to Java: `public Number getActualRegularCost()`
     pub fn get_actual_regular_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::ActualRegularCost)
     }
 
-    /// 取剩余常规成本（计算字段）。
+/// Get remaining regular cost (calculated field).
     ///
-    /// 对应 Java: `public Number getRemainingRegularCost()`
+    /// Corresponds to Java: `public Number getRemainingRegularCost()`
     pub fn get_remaining_regular_cost(&self) -> Option<f64> {
         self.number_value(AssignmentField::RemainingRegularCost)
     }
 
-    /// 取实际常规工时（计算字段）。
+/// Get actual regular work (calculated field).
     ///
-    /// 对应 Java: `public Duration getActualRegularWork()`
+    /// Corresponds to Java: `public Duration getActualRegularWork()`
     pub fn get_actual_regular_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::ActualRegularWork)
     }
 
-    /// 取剩余常规工时（计算字段）。
+/// Get remaining regular work (calculated field).
     ///
-    /// 对应 Java: `public Duration getRemainingRegularWork()`
+    /// Corresponds to Java: `public Duration getRemainingRegularWork()`
     pub fn get_remaining_regular_work(&self) -> Option<Duration> {
         self.duration_value(AssignmentField::RemainingRegularWork)
     }
 
-    /// 取计划材料用量（计算字段，仅材料资源有值）。
+/// Get planned material quantity (calculated field, only populated for material resources).
     ///
-    /// 对应 Java: `public Number getPlannedMaterial()`
+    /// Corresponds to Java: `public Number getPlannedMaterial()`
     pub fn get_planned_material(&self) -> Option<f64> {
         self.number_value(AssignmentField::PlannedMaterial)
     }
 
-    /// 取实际材料用量（计算字段）。
+/// Get actual material quantity (calculated field).
     ///
-    /// 对应 Java: `public Number getActualMaterial()`
+    /// Corresponds to Java: `public Number getActualMaterial()`
     pub fn get_actual_material(&self) -> Option<f64> {
         self.number_value(AssignmentField::ActualMaterial)
     }
 
-    /// 取剩余材料用量（计算字段）。
+/// Get remaining material quantity (calculated field).
     ///
-    /// 对应 Java: `public Number getRemainingMaterial()`
+    /// Corresponds to Java: `public Number getRemainingMaterial()`
     pub fn get_remaining_material(&self) -> Option<f64> {
         self.number_value(AssignmentField::RemainingMaterial)
     }
 
-    /// 取材料用量（计算字段）。
+/// Get material quantity (calculated field).
     ///
-    /// 对应 Java: `public Number getMaterial()`
+    /// Corresponds to Java: `public Number getMaterial()`
     pub fn get_material(&self) -> Option<f64> {
         self.number_value(AssignmentField::Material)
     }
 
-    /// 取基准材料用量（计算字段）。
+/// Get baseline material quantity (calculated field).
     ///
-    /// 对应 Java: `public Number getBaselineMaterial()`
+    /// Corresponds to Java: `public Number getBaselineMaterial()`
     pub fn get_baseline_material(&self) -> Option<f64> {
         self.number_value(AssignmentField::BaselineMaterial)
     }
 
-    /// 取基准材料用量（下标 1-10，计算字段）。
+/// Get baseline material quantity (index 1-10, calculated field).
     ///
-    /// 对应 Java: `public Number getBaselineMaterial(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineMaterial(int baselineNumber)`
     pub fn get_baseline_material_by_index(&self, baseline_number: i32) -> Option<f64> {
         let field = Self::select_field(&BASELINE_MATERIALS, baseline_number)?;
         self.number_value(field)
     }
 
-    /// 按别名取字段值。
+/// Get the field value by alias.
     ///
-    /// 对应 Java: `public Object getFieldByAlias(String alias)`
+    /// Corresponds to Java: `public Object getFieldByAlias(String alias)`
     pub fn get_field_by_alias(&self, alias: &str) -> Option<FieldValue> {
         let field = self.field_type_by_alias(alias)?;
         self.get_field(field)
     }
 
-    /// 按别名设置字段值。
+/// Set the field value by alias.
     ///
-    /// 对应 Java: `public void setFieldByAlias(String alias, Object value)`
+    /// Corresponds to Java: `public void setFieldByAlias(String alias, Object value)`
     pub fn set_field_by_alias(&mut self, alias: &str, value: Option<FieldValue>) {
         if let Some(field) = self.field_type_by_alias(alias) {
             self.set_key(field, value);
         }
     }
 
-    /// 按别名解析字段标识。
+/// Resolve the field identifier by alias.
     ///
-    /// 对应 Java: `m_parentFile.getResourceAssignments().getFieldTypeByAlias(alias)`
+    /// Corresponds to Java: `m_parentFile.getResourceAssignments().getFieldTypeByAlias(alias)`
     ///
-    /// Rust 侧经上下文的自定义字段容器解析（见文件头第 4 节）。
+/// Resolved on the Rust side via the context's custom field container (see section 4 of the file header).
     fn field_type_by_alias(&self, alias: &str) -> Option<FieldKey> {
         let context = self.context.upgrade()?;
         let custom_fields = {
@@ -2453,9 +2453,9 @@ impl ResourceAssignment {
             .get_field_type_by_alias(FieldTypeClass::Assignment, alias)
     }
 
-    /// 计算加班成本。
+/// Calculate the overtime cost.
     ///
-    /// 对应 Java: `private Number calculateOvertimeCost()`
+    /// Corresponds to Java: `private Number calculateOvertimeCost()`
     fn calculate_overtime_cost(&self) -> Option<f64> {
         match (
             self.get_actual_overtime_cost(),
@@ -2466,9 +2466,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 计算进度偏差（SV = BCWP - BCWS）。
+/// Calculate schedule variance (SV = BCWP - BCWS).
     ///
-    /// 对应 Java: `private Double calculateSV()`
+    /// Corresponds to Java: `private Double calculateSV()`
     fn calculate_sv(&self) -> Option<f64> {
         match (self.get_bcwp(), self.get_bcws()) {
             (Some(bcwp), Some(bcws)) => Some(bcwp - bcws),
@@ -2476,16 +2476,16 @@ impl ResourceAssignment {
         }
     }
 
-    /// 计算成本偏差（CV = BCWP - ACWP）。
+/// Calculate cost variance (CV = BCWP - ACWP).
     ///
-    /// 对应 Java: `private Double calculateCV()`
+    /// Corresponds to Java: `private Double calculateCV()`
     fn calculate_cv(&self) -> Option<f64> {
         Some(NumberHelper::get_double(self.get_bcwp()) - NumberHelper::get_double(self.get_acwp()))
     }
 
-    /// 计算成本偏差（成本 - 基准成本）。
+/// Calculate cost variance (cost - baseline cost).
     ///
-    /// 对应 Java: `private Double calculateCostVariance()`
+    /// Corresponds to Java: `private Double calculateCostVariance()`
     fn calculate_cost_variance(&self) -> Option<f64> {
         match (self.get_cost(), self.get_baseline_cost()) {
             (Some(cost), Some(baseline_cost)) => Some(cost - baseline_cost),
@@ -2493,9 +2493,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 计算工时完成百分比。
+/// Calculate the percent work complete.
     ///
-    /// 对应 Java: `private Double calculatePercentWorkComplete()`
+    /// Corresponds to Java: `private Double calculatePercentWorkComplete()`
     fn calculate_percent_work_complete(&self) -> Option<f64> {
         match (self.get_actual_work(), self.get_work()) {
             (Some(actual_work), Some(work)) if work.get_duration() != 0.0 => {
@@ -2506,12 +2506,12 @@ impl ResourceAssignment {
         }
     }
 
-    /// 计算工时偏差。
+/// Calculate work variance.
     ///
-    /// 对应 Java: `private Duration calculateWorkVariance()`
+    /// Corresponds to Java: `private Duration calculateWorkVariance()`
     ///
-    /// Java 在计算末尾会 `set(AssignmentField.WORK_VARIANCE, variance)` 回写；Rust 的 `&self`
-    /// 无法写回（见文件头第 5 节）。
+/// Java writes back via `set(AssignmentField.WORK_VARIANCE, variance)` at the end of the calculation; Rust's `&self`
+/// cannot write back (see section 5 of the file header).
     fn calculate_work_variance(&self) -> Option<Duration> {
         match (self.get_work(), self.get_baseline_work()) {
             (Some(work), Some(baseline_work)) => {
@@ -2525,9 +2525,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 计算开始时间偏差。
+/// Calculate start variance.
     ///
-    /// 对应 Java: `private Duration calculateStartVariance()`
+    /// Corresponds to Java: `private Duration calculateStartVariance()`
     fn calculate_start_variance(&self) -> Option<Duration> {
         let calendar = self.get_effective_calendar();
         let calendar_ref = calendar
@@ -2541,9 +2541,9 @@ impl ResourceAssignment {
         ))
     }
 
-    /// 计算完成时间偏差。
+/// Calculate finish variance.
     ///
-    /// 对应 Java: `private Duration calculateFinishVariance()`
+    /// Corresponds to Java: `private Duration calculateFinishVariance()`
     fn calculate_finish_variance(&self) -> Option<Duration> {
         let calendar = self.get_effective_calendar();
         let calendar_ref = calendar
@@ -2557,11 +2557,11 @@ impl ResourceAssignment {
         ))
     }
 
-    /// 用项目属性提供的默认值换算工期。
+/// Convert the duration using the default values supplied by the project properties.
     ///
-    /// 对应 Java: `duration.convertUnits(units, m_parentFile.getProjectProperties())`
+    /// Corresponds to Java: `duration.convertUnits(units, m_parentFile.getProjectProperties())`
     ///
-    /// 父文件未接线（或正被借用）时退化为有效日历（见文件头第 4 节）。
+/// Falls back to the effective calendar when the parent file is not wired up (or is currently borrowed) (see section 4 of the file header).
     fn convert_units_with_defaults(&self, duration: Duration, units: TimeUnit) -> Duration {
         if let Some(parent_file) = self.parent_file.upgrade() {
             if let Ok(parent_file) = parent_file.try_borrow() {
@@ -2572,9 +2572,9 @@ impl ResourceAssignment {
         convert_units(duration, units, self.get_effective_calendar().as_ref())
     }
 
-    /// 取项目默认工期单位。
+/// Get the project default duration unit.
     ///
-    /// 对应 Java: `m_parentFile.getProjectProperties().getDefaultDurationUnits()`
+    /// Corresponds to Java: `m_parentFile.getProjectProperties().getDefaultDurationUnits()`
     fn default_duration_units(&self) -> TimeUnit {
         if let Some(parent_file) = self.parent_file.upgrade() {
             if let Ok(parent_file) = parent_file.try_borrow() {
@@ -2585,9 +2585,9 @@ impl ResourceAssignment {
         DEFAULT_DURATION_UNITS
     }
 
-    /// 计算开始时间（未显式设置时取任务开始时间）。
+/// Calculate the start time (falls back to the task start when not set explicitly).
     ///
-    /// 对应 Java: `private LocalDateTime calculateStart()`
+    /// Corresponds to Java: `private LocalDateTime calculateStart()`
     fn calculate_start(&self) -> Option<NaiveDateTime> {
         if let Some(start) = self
             .peek_cached_value(FieldKey::Assignment(AssignmentField::Start))
@@ -2600,9 +2600,9 @@ impl ResourceAssignment {
             .and_then(|task| task.try_borrow().ok().and_then(|task| task.get_start()))
     }
 
-    /// 计算完成时间（未显式设置时取任务完成时间）。
+/// Calculate the finish time (falls back to the task finish when not set explicitly).
     ///
-    /// 对应 Java: `private LocalDateTime calculateFinish()`
+    /// Corresponds to Java: `private LocalDateTime calculateFinish()`
     fn calculate_finish(&self) -> Option<NaiveDateTime> {
         if let Some(finish) = self
             .peek_cached_value(FieldKey::Assignment(AssignmentField::Finish))
@@ -2615,16 +2615,16 @@ impl ResourceAssignment {
             .and_then(|task| task.try_borrow().ok().and_then(|task| task.get_finish()))
     }
 
-    /// 计算剩余分配单位（无剩余单位值时退化为计划单位）。
+/// Calculate remaining assignment units (falls back to planned units when there is no remaining units value).
     ///
-    /// 对应 Java: `private Number calculateRemainingAssignmentUnits()`
+    /// Corresponds to Java: `private Number calculateRemainingAssignmentUnits()`
     fn calculate_remaining_assignment_units(&self) -> Option<f64> {
         self.get_units()
     }
 
-    /// 计算 timephased 加班工时（按剩余常规工时等比缩放）。
+/// Calculate timephased overtime work (proportionally scaled by remaining regular work).
     ///
-    /// 对应 Java: `private List<TimephasedWork> calculateTimephasedOvertimeWork()`
+    /// Corresponds to Java: `private List<TimephasedWork> calculateTimephasedOvertimeWork()`
     fn calculate_timephased_overtime_work(&self) -> Vec<TimephasedWork> {
         let (Some(total_remaining_work), Some(remaining_overtime_work)) =
             (self.get_remaining_work(), self.get_remaining_overtime_work())
@@ -2651,41 +2651,41 @@ impl ResourceAssignment {
             .collect()
     }
 
-    /// 计算「实际常规成本」。
+/// Calculate "actual regular cost".
     ///
-    /// 对应 Java: `CALCULATED_FIELD_MAP` 中的
+/// Corresponds to Java: entry in `CALCULATED_FIELD_MAP`
     /// `a -> a.calculateRegularCost(a::getActualCost, a::getActualOvertimeCost)`
     fn calculate_actual_regular_cost(&self) -> Option<f64> {
         self.calculate_regular_cost(self.get_actual_cost(), self.get_actual_overtime_cost())
     }
 
-    /// 计算「剩余常规成本」。
+/// Calculate "remaining regular cost".
     ///
-    /// 对应 Java: `CALCULATED_FIELD_MAP` 中的
+/// Corresponds to Java: entry in `CALCULATED_FIELD_MAP`
     /// `a -> a.calculateRegularCost(a::getRemainingCost, a::getRemainingOvertimeCost)`
     fn calculate_remaining_regular_cost(&self) -> Option<f64> {
         self.calculate_regular_cost(self.get_remaining_cost(), self.get_remaining_overtime_cost())
     }
 
-    /// 计算「实际常规工时」。
+/// Calculate "actual regular work".
     ///
-    /// 对应 Java: `CALCULATED_FIELD_MAP` 中的
+/// Corresponds to Java: entry in `CALCULATED_FIELD_MAP`
     /// `a -> a.calculateRegularWork(a::getActualWork, a::getActualOvertimeWork)`
     fn calculate_actual_regular_work(&self) -> Option<Duration> {
         self.calculate_regular_work(self.get_actual_work(), self.get_actual_overtime_work())
     }
 
-    /// 计算「剩余常规工时」。
+/// Calculate "remaining regular work".
     ///
-    /// 对应 Java: `CALCULATED_FIELD_MAP` 中的
+/// Corresponds to Java: entry in `CALCULATED_FIELD_MAP`
     /// `a -> a.calculateRegularWork(a::getRemainingWork, a::getRemainingOvertimeWork)`
     fn calculate_remaining_regular_work(&self) -> Option<Duration> {
         self.calculate_regular_work(self.get_remaining_work(), self.get_remaining_overtime_work())
     }
 
-    /// 由总成本与加班成本计算常规成本。
+/// Calculate regular cost from total cost and overtime cost.
     ///
-    /// 对应 Java: `private Number calculateRegularCost(Supplier<Number>, Supplier<Number>)`
+    /// Corresponds to Java: `private Number calculateRegularCost(Supplier<Number>, Supplier<Number>)`
     fn calculate_regular_cost(&self, total_cost: Option<f64>, overtime_cost: Option<f64>) -> Option<f64> {
         if total_cost.is_none() && overtime_cost.is_none() {
             return None;
@@ -2694,9 +2694,9 @@ impl ResourceAssignment {
         Some(NumberHelper::get_double(total_cost) - NumberHelper::get_double(overtime_cost))
     }
 
-    /// 由总工时与加班工时计算常规工时。
+/// Calculate regular work from total work and overtime work.
     ///
-    /// 对应 Java: `private Duration calculateRegularWork(Supplier<Duration>, Supplier<Duration>)`
+    /// Corresponds to Java: `private Duration calculateRegularWork(Supplier<Duration>, Supplier<Duration>)`
     fn calculate_regular_work(
         &self,
         total_work: Option<Duration>,
@@ -2723,9 +2723,9 @@ impl ResourceAssignment {
         Some(Duration::get_instance(total - overtime, units))
     }
 
-    /// 由工时计算材料用量（仅材料资源有值）。
+/// Calculate material quantity from work (only populated for material resources).
     ///
-    /// 对应 Java: `private Number calculateMaterial(Supplier<Duration> fn)`
+    /// Corresponds to Java: `private Number calculateMaterial(Supplier<Duration> fn)`
     fn calculate_material(&self, work: Option<Duration>) -> Option<f64> {
         if !self.is_material_resource() {
             return None;
@@ -2734,21 +2734,21 @@ impl ResourceAssignment {
         work.map(|work| work.get_duration())
     }
 
-    /// 费率表下标的默认值（0）。
+/// Default value for the cost rate table index (0).
     ///
-    /// 对应 Java: `private Integer defaultRateIndex()`
+    /// Corresponds to Java: `private Integer defaultRateIndex()`
     fn default_rate_index(&self) -> Option<i32> {
         Some(0)
     }
 
-    /// 「按单位计算成本」的默认值（`true`）。
+/// Default value for "cost per unit" (`true`).
     ///
-    /// 对应 Java: `private Boolean defaultCalculateCostsFromUnits()`
+    /// Corresponds to Java: `private Boolean defaultCalculateCostsFromUnits()`
     fn default_calculate_costs_from_units(&self) -> Option<bool> {
         Some(true)
     }
 
-    /// 本分配的资源是否为材料资源。
+/// Whether the resource for this assignment is a material resource.
     fn is_material_resource(&self) -> bool {
         match self.get_resource() {
             Some(resource) => resource
@@ -2760,9 +2760,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取本分配所用资源的计提方式；缺失时退化为 `AccrueType::Prorated`。
+/// Get the accrual method of the resource used by this assignment; falls back to `AccrueType::Prorated` when absent.
     ///
-    /// 对应 Java: `private AccrueType getResourceAccrueType()`
+    /// Corresponds to Java: `private AccrueType getResourceAccrueType()`
     fn get_resource_accrue_type(&self) -> AccrueType {
         let Some(resource) = self.get_resource() else {
             return AccrueType::Prorated;
@@ -2775,133 +2775,133 @@ impl ResourceAssignment {
             .unwrap_or(AccrueType::Prorated)
     }
 
-    // ---- timephased 原始数据访问器 ----
+// ---- timephased raw data accessors ----
 
-    /// 取原始 timephased 计划工时。
+/// Get raw timephased planned work.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedPlannedWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedPlannedWork()`
     ///
-    /// 未设置时与 Java 一致返回空列表（`CALCULATED_FIELD_MAP` 的
-    /// `defaultTimephasedWork()`）。
+/// Returns an empty list when unset, consistent with Java (the `CALCULATED_FIELD_MAP`
+    /// `defaultTimephasedWork()`).
     pub fn get_raw_timephased_planned_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedPlannedWork)
     }
 
-    /// 设置原始 timephased 计划工时（读者用它写回，语义等价 Java 的
-    /// `getRawTimephasedPlannedWork().addAll(...)`）。
+/// Set the raw timephased planned work (readers use it to write back; semantically equivalent to Java's
+    /// `getRawTimephasedPlannedWork().addAll(...)`).
     pub fn set_raw_timephased_planned_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedPlannedWork, work);
     }
 
-    /// 取原始 timephased 实际常规工时。
+/// Get the raw timephased actual regular work.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedActualRegularWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedActualRegularWork()`
     pub fn get_raw_timephased_actual_regular_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedActualRegularWork)
     }
 
-    /// 设置原始 timephased 实际常规工时。
+/// Set the raw timephased actual regular work.
     pub fn set_raw_timephased_actual_regular_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedActualRegularWork, work);
     }
 
-    /// 取原始 timephased 剩余常规工时。
+/// Get the raw timephased remaining regular work.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedRemainingRegularWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedRemainingRegularWork()`
     pub fn get_raw_timephased_remaining_regular_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedRemainingRegularWork)
     }
 
-    /// 设置原始 timephased 剩余常规工时。
+/// Set the raw timephased remaining regular work.
     pub fn set_raw_timephased_remaining_regular_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedRemainingRegularWork, work);
     }
 
-    /// 取原始 timephased 实际加班工时。
+/// Get the raw timephased actual overtime work.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedActualOvertimeWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedActualOvertimeWork()`
     pub fn get_raw_timephased_actual_overtime_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedActualOvertimeWork)
     }
 
-    /// 设置原始 timephased 实际加班工时。
+/// Set the raw timephased actual overtime work.
     pub fn set_raw_timephased_actual_overtime_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedActualOvertimeWork, work);
     }
 
-    /// 取原始 timephased 剩余加班工时；无数据时由计算字段
-    /// `calculateTimephasedOvertimeWork` 提供。
+/// Get the raw timephased remaining overtime work; when absent it is provided by the calculated field
+/// `calculateTimephasedOvertimeWork`.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedRemainingOvertimeWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedRemainingOvertimeWork()`
     pub fn get_raw_timephased_remaining_overtime_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedRemainingOvertimeWork)
     }
 
-    /// 设置原始 timephased 剩余加班工时。
+/// Set the raw timephased remaining overtime work.
     pub fn set_raw_timephased_remaining_overtime_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedRemainingOvertimeWork, work);
     }
 
-    /// 取原始 timephased 基准工时（下标 0 = Baseline，1..=10 = Baseline1..10）。
+/// Get the raw timephased baseline work (index 0 = Baseline, 1..=10 = Baseline1..10).
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBaselineWork(int index)`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedBaselineWork(int index)`
     ///
-    /// 越界时返回空列表（Java 会抛 `ArrayIndexOutOfBoundsException`）。
+/// Returns an empty list when out of bounds (Java throws `ArrayIndexOutOfBoundsException`).
     pub fn get_raw_timephased_baseline_work(&self, index: i32) -> Vec<TimephasedWork> {
         raw_timephased_baseline_work_field(index)
             .map(|field| self.timephased_work_value(field))
             .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准工时。
+/// Set the raw timephased baseline work.
     pub fn set_raw_timephased_baseline_work(&mut self, index: i32, work: Vec<TimephasedWork>) {
         if let Some(field) = raw_timephased_baseline_work_field(index) {
             self.set_timephased_work_value(field, work);
         }
     }
 
-    /// 取原始 timephased 基准预算工时（下标同上）。
+/// Get the raw timephased baseline budget work (same indices as above).
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBaselineBudgetWork(int index)`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedBaselineBudgetWork(int index)`
     pub fn get_raw_timephased_baseline_budget_work(&self, index: i32) -> Vec<TimephasedWork> {
         raw_timephased_baseline_budget_work_field(index)
             .map(|field| self.timephased_work_value(field))
             .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准预算工时。
+/// Set the raw timephased baseline budget work.
     pub fn set_raw_timephased_baseline_budget_work(&mut self, index: i32, work: Vec<TimephasedWork>) {
         if let Some(field) = raw_timephased_baseline_budget_work_field(index) {
             self.set_timephased_work_value(field, work);
         }
     }
 
-    /// 取原始 timephased 基准成本（下标同上）。
+/// Get the raw timephased baseline cost (same indices as above).
     ///
-    /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBaselineCost(int index)`
+    /// Corresponds to Java: `public List<TimephasedCost> getRawTimephasedBaselineCost(int index)`
     pub fn get_raw_timephased_baseline_cost(&self, index: i32) -> Vec<TimephasedCost> {
         raw_timephased_baseline_cost_field(index)
             .map(|field| self.timephased_cost_value(field))
             .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准成本。
+/// Set the raw timephased baseline cost.
     pub fn set_raw_timephased_baseline_cost(&mut self, index: i32, cost: Vec<TimephasedCost>) {
         if let Some(field) = raw_timephased_baseline_cost_field(index) {
             self.set_timephased_cost_value(field, cost);
         }
     }
 
-    /// 取原始 timephased 基准预算成本（下标同上）。
+/// Get the raw timephased baseline budget cost (same indices as above).
     ///
-    /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBaselineBudgetCost(int index)`
+    /// Corresponds to Java: `public List<TimephasedCost> getRawTimephasedBaselineBudgetCost(int index)`
     pub fn get_raw_timephased_baseline_budget_cost(&self, index: i32) -> Vec<TimephasedCost> {
         raw_timephased_baseline_budget_cost_field(index)
             .map(|field| self.timephased_cost_value(field))
             .unwrap_or_default()
     }
 
-    /// 设置原始 timephased 基准预算成本。
+/// Set the raw timephased baseline budget cost.
     pub fn set_raw_timephased_baseline_budget_cost(
         &mut self,
         index: i32,
@@ -2912,57 +2912,57 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取原始 timephased 预算成本。
+/// Get the raw timephased budget cost.
     ///
-    /// 对应 Java: `public List<TimephasedCost> getRawTimephasedBudgetCost()`
+    /// Corresponds to Java: `public List<TimephasedCost> getRawTimephasedBudgetCost()`
     pub fn get_raw_timephased_budget_cost(&self) -> Vec<TimephasedCost> {
         self.timephased_cost_value(AssignmentField::RawTimephasedBudgetCost)
     }
 
-    /// 设置原始 timephased 预算成本。
+/// Set the raw timephased budget cost.
     pub fn set_raw_timephased_budget_cost(&mut self, cost: Vec<TimephasedCost>) {
         self.set_timephased_cost_value(AssignmentField::RawTimephasedBudgetCost, cost);
     }
 
-    /// 取原始 timephased 预算工时。
+/// Get the raw timephased budget work.
     ///
-    /// 对应 Java: `public List<TimephasedWork> getRawTimephasedBudgetWork()`
+    /// Corresponds to Java: `public List<TimephasedWork> getRawTimephasedBudgetWork()`
     pub fn get_raw_timephased_budget_work(&self) -> Vec<TimephasedWork> {
         self.timephased_work_value(AssignmentField::RawTimephasedBudgetWork)
     }
 
-    /// 设置原始 timephased 预算工时。
+/// Set the raw timephased budget work.
     pub fn set_raw_timephased_budget_work(&mut self, work: Vec<TimephasedWork>) {
         self.set_timephased_work_value(AssignmentField::RawTimephasedBudgetWork, work);
     }
 
-    /// 取字段表中的 timephased 工时列表（未设置时为空列表）。
+/// Get the timephased work list from the field table (empty list when not set).
     fn timephased_work_value(&self, field: AssignmentField) -> Vec<TimephasedWork> {
         self.assignment_value(field)
             .and_then(|value| value.as_timephased_work().map(<[TimephasedWork]>::to_vec))
             .unwrap_or_default()
     }
 
-    /// 把 timephased 工时列表写入字段表。
+/// Write the timephased work list to the field table.
     fn set_timephased_work_value(&mut self, field: AssignmentField, work: Vec<TimephasedWork>) {
         self.set_assignment_value(field, Some(FieldValue::TimephasedWork(work)));
     }
 
-    /// 取字段表中的 timephased 成本列表（未设置时为空列表）。
+/// Get the timephased cost list from the field table (empty list when not set).
     fn timephased_cost_value(&self, field: AssignmentField) -> Vec<TimephasedCost> {
         self.assignment_value(field)
             .and_then(|value| value.as_timephased_cost().map(<[TimephasedCost]>::to_vec))
             .unwrap_or_default()
     }
 
-    /// 把 timephased 成本列表写入字段表。
+/// Write the timephased cost list to the field table.
     fn set_timephased_cost_value(&mut self, field: AssignmentField, cost: Vec<TimephasedCost>) {
         self.set_assignment_value(field, Some(FieldValue::TimephasedCost(cost)));
     }
 
-    /// 取本分配区间内的工作时间段。
+/// Get the working time segments within this assignment's range.
     ///
-    /// 对应 Java: `public List<LocalDateTimeRange> getWorkSplits()`
+    /// Corresponds to Java: `public List<LocalDateTimeRange> getWorkSplits()`
     pub fn get_work_splits(&self) -> Vec<LocalDateTimeRange> {
         let actual_work = self.get_raw_timephased_actual_regular_work();
         let remaining_work = self.get_raw_timephased_remaining_regular_work();
@@ -2974,9 +2974,9 @@ impl ResourceAssignment {
         let mut result: Vec<LocalDateTimeRange> = Vec::new();
         let mut last_range: Option<LocalDateTimeRange> = None;
 
-        // Java 对两批数据用同一套合并逻辑
+// Java applies the same merge logic to both batches of data
         for work in actual_work.iter().chain(remaining_work.iter()) {
-            // Java: 表示非工作时间的块直接跳过，并打断合并
+// Java: blocks representing non-working time are skipped directly and break the merge
             let total_amount = work
                 .get_total_amount()
                 .map(|amount| amount.get_duration())
@@ -3019,12 +3019,12 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取指定字段的 timephased 工期值。
+/// Get the timephased duration value for the specified field.
     ///
-    /// 对应 Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
     ///
-    /// Rust 的 [`FieldContainer`] trait 未声明这两个 timephased 方法（见
-    /// `field_container.rs` 的说明），故以普通方法提供。
+/// Rust's [`FieldContainer`] trait does not declare these two timephased methods (see
+/// the note in `field_container.rs`), so they are provided as ordinary methods.
     pub fn get_timephased_duration_values(
         &self,
         field: FieldKey,
@@ -3075,9 +3075,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取指定字段的 timephased 数值。
+/// Get the timephased numeric value for the specified field.
     ///
-    /// 对应 Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_numeric_values(
         &self,
         field: FieldKey,
@@ -3140,9 +3140,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 计划工时。
+/// Get the timephased planned work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedPlannedWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedPlannedWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_planned_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3152,9 +3152,9 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 实际常规工时。
+/// Get the timephased actual regular work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedActualRegularWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedActualRegularWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_actual_regular_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3167,9 +3167,9 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 实际加班工时。
+/// Get the timephased actual overtime work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedActualOvertimeWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedActualOvertimeWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_actual_overtime_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3182,9 +3182,9 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 实际工时（常规 + 加班）。
+/// Get the timephased actual work (regular + overtime).
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedActualWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedActualWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_actual_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3195,9 +3195,9 @@ impl ResourceAssignment {
         add_timephased_durations(regular, overtime)
     }
 
-    /// 取 timephased 剩余常规工时。
+/// Get the timephased remaining regular work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedRemainingRegularWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedRemainingRegularWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_remaining_regular_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3210,9 +3210,9 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 剩余加班工时。
+/// Get the timephased remaining overtime work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedRemainingOvertimeWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedRemainingOvertimeWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_remaining_overtime_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3225,9 +3225,9 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 剩余工时（常规 + 加班）。
+/// Get the timephased remaining work (regular + overtime).
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedRemainingWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedRemainingWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_remaining_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3238,9 +3238,9 @@ impl ResourceAssignment {
         add_timephased_durations(regular, overtime)
     }
 
-    /// 取 timephased 工时（实际 + 剩余）。
+/// Get the timephased work (actual + remaining).
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3251,9 +3251,9 @@ impl ResourceAssignment {
         add_timephased_durations(actual, remaining)
     }
 
-    /// 取 timephased 基准工时（下标 0 = Baseline，1..=10 = Baseline1..10）。
+/// Get the timephased baseline work (index 0 = Baseline, 1..=10 = Baseline1..10).
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedBaselineWork(int index, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedBaselineWork(int index, List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_baseline_work(
         &self,
         index: i32,
@@ -3265,9 +3265,9 @@ impl ResourceAssignment {
         segment_work(calendar.as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 基准预算工时。
+/// Get the timephased baseline budget work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedBaselineBudgetWork(int index, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedBaselineBudgetWork(int index, List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_baseline_budget_work(
         &self,
         index: i32,
@@ -3279,9 +3279,9 @@ impl ResourceAssignment {
         segment_work(calendar.as_ref(), &work, ranges, units)
     }
 
-    /// 取 timephased 预算工时。
+/// Get the timephased budget work.
     ///
-    /// 对应 Java: `public List<Duration> getTimephasedBudgetWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `public List<Duration> getTimephasedBudgetWork(List<LocalDateTimeRange> ranges, TimeUnit units)`
     pub fn get_timephased_budget_work(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3291,36 +3291,36 @@ impl ResourceAssignment {
         segment_work(self.get_effective_calendar().as_ref(), &work, ranges, units)
     }
 
-    /// 取父项目的基准日历。
+/// Get the parent project's base calendar.
     ///
-    /// 对应 Java: `m_parentFile.getBaselineCalendar()`
+    /// Corresponds to Java: `m_parentFile.getBaselineCalendar()`
     fn get_baseline_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         self.parent_file
             .upgrade()
             .and_then(|parent_file| parent_file.try_borrow().ok()?.get_baseline_calendar())
     }
 
-    /// 取 timephased 计划材料用量。
+/// Get the timephased planned material quantity.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedPlannedMaterial(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedPlannedMaterial(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_planned_material(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let calendar = self.get_effective_calendar();
         let work = self.get_or_create_raw_timephased_planned_work();
         segment_material(self.is_material_resource(), calendar.as_ref(), &work, ranges)
     }
 
-    /// 取 timephased 实际材料用量。
+/// Get the timephased actual material quantity.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedActualMaterial(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedActualMaterial(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_actual_material(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let calendar = self.get_effective_calendar();
         let work = self.get_raw_timephased_actual_regular_work().to_vec();
         segment_material(self.is_material_resource(), calendar.as_ref(), &work, ranges)
     }
 
-    /// 取 timephased 剩余材料用量。
+/// Get the timephased remaining material quantity.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedRemainingMaterial(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedRemainingMaterial(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_remaining_material(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3330,18 +3330,18 @@ impl ResourceAssignment {
         segment_material(self.is_material_resource(), calendar.as_ref(), &work, ranges)
     }
 
-    /// 取 timephased 材料用量（实际 + 剩余）。
+/// Get the timephased material quantity (actual + remaining).
     ///
-    /// 对应 Java: `public List<Number> getTimephasedMaterial(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedMaterial(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_material(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let actual = self.get_timephased_actual_material(ranges);
         let remaining = self.get_timephased_remaining_material(ranges);
         add_timephased_numbers(actual, remaining)
     }
 
-    /// 取 timephased 基准材料用量。
+/// Get the timephased baseline material quantity.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedBaselineMaterial(int index, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedBaselineMaterial(int index, List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_baseline_material(
         &self,
         index: i32,
@@ -3352,20 +3352,20 @@ impl ResourceAssignment {
         segment_material(self.is_material_resource(), calendar.as_ref(), &work, ranges)
     }
 
-    /// 取 timephased 预算成本。
+/// Get the timephased budget cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedBudgetCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedBudgetCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_budget_cost(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let calendar = self.get_effective_calendar();
         let cost = self.get_raw_timephased_budget_cost().to_vec();
         segment_cost(calendar.as_ref(), &cost, ranges)
     }
 
-    // ---- timephased 成本 ----
+// ---- timephased cost ----
 
-    /// 取 timephased 剩余常规成本。
+/// Get the timephased remaining regular cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedRemainingRegularCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedRemainingRegularCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_remaining_regular_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3409,9 +3409,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 剩余加班成本。
+/// Get the timephased remaining overtime cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedRemainingOvertimeCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedRemainingOvertimeCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_remaining_overtime_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3426,7 +3426,7 @@ impl ResourceAssignment {
         }
 
         if self.resource_type() == ResourceType::Cost {
-            // Java: 成本资源没有加班
+// Java: cost resources have no overtime
             return empty_numbers(ranges.len());
         }
 
@@ -3447,9 +3447,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 剩余成本（常规 + 加班）。
+/// Get the timephased remaining cost (regular + overtime).
     ///
-    /// 对应 Java: `public List<Number> getTimephasedRemainingCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedRemainingCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_remaining_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3459,9 +3459,9 @@ impl ResourceAssignment {
         add_timephased_numbers(regular, overtime)
     }
 
-    /// 取 timephased 实际常规成本。
+/// Get the timephased actual regular cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedActualRegularCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedActualRegularCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_actual_regular_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3509,9 +3509,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 实际加班成本。
+/// Get the timephased actual overtime cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedActualOvertimeCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedActualOvertimeCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_actual_overtime_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3531,7 +3531,7 @@ impl ResourceAssignment {
         }
 
         if resource_type == ResourceType::Cost {
-            // Java: 成本资源没有加班
+// Java: cost resources have no overtime
             return empty_numbers(ranges.len());
         }
 
@@ -3552,9 +3552,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 计划成本。
+/// Get the timephased planned cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedPlannedCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedPlannedCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_planned_cost(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         if ranges.is_empty() {
             return Vec::new();
@@ -3582,30 +3582,30 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取 timephased 实际成本（常规 + 加班）。
+/// Get the timephased actual cost (regular + overtime).
     ///
-    /// 对应 Java: `public List<Number> getTimephasedActualCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedActualCost(List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_actual_cost(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let regular = self.get_timephased_actual_regular_cost(ranges);
         let overtime = self.get_timephased_actual_overtime_cost(ranges);
         add_timephased_numbers(regular, overtime)
     }
 
-    /// 取 timephased 成本（实际 + 剩余）。
+/// Get the timephased cost (actual + remaining).
     ///
-    /// 对应 Java: `public List<Number> getTimephasedCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedCost(List<LocalDateTimeRange> ranges)`
     ///
-    /// Rust 无方法重载，故与同名的私有方法 [`ResourceAssignment::get_timephased_cost`] 以
-    /// `_total` 后缀区分（对应 Java 中 `getTimephasedCost(ranges)` 的重载）。
+/// Rust has no method overloading, so it is distinguished from the private method of the same name [`ResourceAssignment::get_timephased_cost`] by the
+/// `_total` suffix (corresponding to the `getTimephasedCost(ranges)` overload in Java).
     pub fn get_timephased_cost_total(&self, ranges: &[LocalDateTimeRange]) -> Vec<Option<f64>> {
         let actual = self.get_timephased_actual_cost(ranges);
         let remaining = self.get_timephased_remaining_cost(ranges);
         add_timephased_numbers(actual, remaining)
     }
 
-    /// 取 timephased 基准成本。
+/// Get the timephased baseline cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedBaselineCost(int index, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedBaselineCost(int index, List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_baseline_cost(
         &self,
         index: i32,
@@ -3616,9 +3616,9 @@ impl ResourceAssignment {
         segment_cost(calendar.as_ref(), &cost, ranges)
     }
 
-    /// 取 timephased 基准预算成本。
+/// Get the timephased baseline budget cost.
     ///
-    /// 对应 Java: `public List<Number> getTimephasedBaselineBudgetCost(int index, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `public List<Number> getTimephasedBaselineBudgetCost(int index, List<LocalDateTimeRange> ranges)`
     pub fn get_timephased_baseline_budget_cost(
         &self,
         index: i32,
@@ -3629,23 +3629,23 @@ impl ResourceAssignment {
         segment_cost(calendar.as_ref(), &cost, ranges)
     }
 
-    /// 资源类型（无资源时按 Java 的默认值 `ResourceType.WORK`）。
+/// Resource type (when there is no resource, use Java's default `ResourceType.WORK`).
     fn resource_type(&self) -> ResourceType {
         self.get_resource()
             .and_then(|resource| resource.try_borrow().ok().map(|resource| resource.get_type()))
             .unwrap_or(ResourceType::Work)
     }
 
-    /// 用给定的工时提供函数计算 timephased 成本。
+/// Calculate the timephased cost using the given work provider function.
     ///
-    /// 对应 Java: `private List<Number> getTimephasedCost(List<LocalDateTimeRange> ranges, int rateIndex, BiFunction<...> workSupplier)`
+    /// Corresponds to Java: `private List<Number> getTimephasedCost(List<LocalDateTimeRange> ranges, int rateIndex, BiFunction<...> workSupplier)`
     fn get_timephased_cost(
         &self,
         ranges: &[LocalDateTimeRange],
         rate_index: usize,
         work_supplier: &dyn Fn(&[LocalDateTimeRange], TimeUnit) -> Vec<Option<Duration>>,
     ) -> Vec<Option<f64>> {
-        // Java: 没有工时则返回空值
+// Java: returns null when there is no work
         let hours = work_supplier(ranges, TimeUnit::Hours);
         if hours.is_empty() {
             return empty_numbers(ranges.len());
@@ -3669,7 +3669,7 @@ impl ResourceAssignment {
                 return result;
             }
 
-            // Java: 假定费率表行按顺序排列
+// Java: assumes the rate table rows are ordered
             let mut cost_rate_table_entry_index = 0usize;
             let mut current_rate = rates[0];
 
@@ -3698,12 +3698,12 @@ impl ResourceAssignment {
                     current_rate = rates[cost_rate_table_entry_index];
                 }
 
-                // Java: 费率表行在区间结束前就用完 —— 直接返回已有结果
+// Java: the rate table rows run out before the range ends -- return the existing result directly
                 if cost_rate_table_entry_index >= rates.len() {
                     break;
                 }
 
-                // Java: 区间未越过当前费率行的结束时间，可一次算完
+// Java: the range does not pass the current rate row's end time, so it can be computed in one pass
                 if current_rate
                     .get_end_date()
                     .map(|end_date| range_end <= end_date)
@@ -3715,7 +3715,7 @@ impl ResourceAssignment {
                     continue;
                 }
 
-                // 一个区间内跨多个费率行
+// spans multiple rate rows within one range
                 let mut total = 0.0;
                 let mut sub_range = LocalDateTimeRange::new(
                     Some(range_start),
@@ -3755,9 +3755,9 @@ impl ResourceAssignment {
         })
     }
 
-    /// 把费率换算为「每小时」费率。
+/// Convert a rate to an "hourly" rate.
     ///
-    /// 对应 Java: `private Rate getRatePerHour(Rate rate)`
+    /// Corresponds to Java: `private Rate getRatePerHour(Rate rate)`
     fn get_rate_per_hour(
         &self,
         rate: Option<Rate>,
@@ -3774,17 +3774,17 @@ impl ResourceAssignment {
         // Java: RateHelper.convertToHours(getEffectiveCalendar(), rate)
         let amount = match calendar.and_then(|calendar| calendar.try_borrow().ok()) {
             Some(calendar) => RateHelper::convert_to_hours(&*calendar, &rate),
-            // Java 的 getEffectiveCalendar() 恒非 null（日历引用稳定）；Rust 侧未接线或
-            // 借用冲突时按原值返回，不 panic
+// Java's getEffectiveCalendar() is never null (the calendar reference is stable); on the Rust side, when not wired or
+// when there is a borrow conflict, return the original value without panicking
             None => rate.get_amount(),
         };
 
         Rate::value_of(Some(amount), TimeUnit::Hours).unwrap_or(Rate::ZERO)
     }
 
-    /// 取成本资源的 timephased 剩余成本。
+/// Get the timephased remaining cost of a cost resource.
     ///
-    /// 对应 Java: `private List<Number> getTimephasedCostResourceRemainingCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `private List<Number> getTimephasedCostResourceRemainingCost(List<LocalDateTimeRange> ranges)`
     fn get_timephased_cost_resource_remaining_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3804,9 +3804,9 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取成本资源的 timephased 实际成本。
+/// Get the timephased actual cost of a cost resource.
     ///
-    /// 对应 Java: `private List<Number> getTimephasedCostResourceActualCost(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `private List<Number> getTimephasedCostResourceActualCost(List<LocalDateTimeRange> ranges)`
     fn get_timephased_cost_resource_actual_cost(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3826,11 +3826,11 @@ impl ResourceAssignment {
         }
     }
 
-    /// 取「在分配开始时计提」的 timephased 剩余成本。
+/// Get the timephased remaining cost that is "incurred at the start of the assignment".
     ///
-    /// 对应 Java: `private List<Number> getTimephasedRemainingCostAccruedAtStart(List<LocalDateTimeRange> ranges, Supplier<Number> totalCost, Supplier<Number> remainingCost)`
+    /// Corresponds to Java: `private List<Number> getTimephasedRemainingCostAccruedAtStart(List<LocalDateTimeRange> ranges, Supplier<Number> totalCost, Supplier<Number> remainingCost)`
     ///
-    /// Java 在找不到与分配相交的区间时会抛越界异常；Rust 侧退化为返回空值列表。
+/// Java throws an out-of-bounds exception when no range intersecting the assignment is found; the Rust side degrades gracefully to returning an empty list.
     fn get_timephased_remaining_cost_accrued_at_start(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3844,7 +3844,7 @@ impl ResourceAssignment {
         let remaining_work = self.get_timephased_remaining_work(ranges, TimeUnit::Hours);
 
         if NumberHelper::get_double(remaining_cost) == 0.0 {
-            // Java: 分配已开始，实际成本已覆盖全部成本，剩余成本全为 0
+// Java: the assignment has started, actual cost covers the entire cost, and remaining cost is all 0
             while range_index < ranges.len()
                 && ranges[range_index].intersects_with(&assignment_range)
             {
@@ -3857,7 +3857,7 @@ impl ResourceAssignment {
             return result;
         }
 
-        // Java: 分配尚未开始，成本计入分配的第一个区间
+// Java: the assignment has not started, so the cost is included in the assignment's first range
         if range_compare_to_date(&ranges[range_index.max(0)], self.get_start())
             .map(|compare| compare == 0)
             .unwrap_or(false)
@@ -3877,9 +3877,9 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取「在分配结束时计提」的 timephased 剩余成本。
+/// Get the timephased remaining cost that is "incurred at the end of the assignment".
     ///
-    /// 对应 Java: `private List<Number> getTimephasedRemainingCostAccruedAtEnd(List<LocalDateTimeRange> ranges, Supplier<Number> totalCost, Supplier<Number> remainingCost)`
+    /// Corresponds to Java: `private List<Number> getTimephasedRemainingCostAccruedAtEnd(List<LocalDateTimeRange> ranges, Supplier<Number> totalCost, Supplier<Number> remainingCost)`
     fn get_timephased_remaining_cost_accrued_at_end(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3891,7 +3891,7 @@ impl ResourceAssignment {
 
         let mut range_index = first_intersecting_range(ranges, &assignment_range);
 
-        // Java: 覆盖分配区间的区间先全部填 0
+// Java: the ranges covering the assignment range are first all filled with 0
         let remaining_work = self.get_timephased_remaining_work(ranges, TimeUnit::Hours);
         while range_index < ranges.len() && ranges[range_index].intersects_with(&assignment_range) {
             result[range_index] = match remaining_work.get(range_index).copied().flatten() {
@@ -3902,7 +3902,7 @@ impl ResourceAssignment {
         }
 
         if NumberHelper::get_double(remaining_cost) == 0.0 {
-            // Java: 分配已结束，实际成本已覆盖全部成本
+// Java: the assignment has ended, actual cost covers the entire cost
             return result;
         }
 
@@ -3910,7 +3910,7 @@ impl ResourceAssignment {
             return result;
         }
 
-        // Java: 最后一个相交区间包含分配结束时间，成本计入该区间
+// Java: the last intersecting range contains the assignment end time, so the cost is included in that range
         if range_compare_to_date(&ranges[range_index - 1], self.get_finish())
             .map(|compare| compare == 0)
             .unwrap_or(false)
@@ -3921,9 +3921,9 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取按时长比例分摊的 timephased 剩余成本。
+/// Get the timephased remaining cost prorated by duration.
     ///
-    /// 对应 Java: `private List<Number> getTimephasedRemainingCostProRata(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `private List<Number> getTimephasedRemainingCostProRata(List<LocalDateTimeRange> ranges)`
     fn get_timephased_remaining_cost_pro_rata(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3972,9 +3972,9 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取「在分配开始时计提」的 timephased 成本。
+/// Get the timephased cost that is "incurred at the start of the assignment".
     ///
-    /// 对应 Java: `private List<Number> getTimephasedCostAccruedAtStart(List<LocalDateTimeRange> ranges, Supplier<Number> costSupplier, BiFunction<...> workSupplier)`
+    /// Corresponds to Java: `private List<Number> getTimephasedCostAccruedAtStart(List<LocalDateTimeRange> ranges, Supplier<Number> costSupplier, BiFunction<...> workSupplier)`
     fn get_timephased_cost_accrued_at_start(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -3986,7 +3986,7 @@ impl ResourceAssignment {
 
         let mut range_index = first_intersecting_range(ranges, &assignment_range);
 
-        // Java: 第一个相交区间包含分配开始时间，成本计入该区间
+// Java: the first intersecting range contains the assignment start time, so the cost is included in that range
         if range_index < ranges.len()
             && range_compare_to_date(&ranges[range_index], self.get_start())
                 .map(|compare| compare == 0)
@@ -3996,7 +3996,7 @@ impl ResourceAssignment {
             range_index += 1;
         }
 
-        // Java: 其余相交区间成本为 0
+// Java: the remaining intersecting ranges have a cost of 0
         let work = work_supplier(ranges, TimeUnit::Hours);
         while range_index < ranges.len() && ranges[range_index].intersects_with(&assignment_range) {
             result[range_index] = match work.get(range_index).copied().flatten() {
@@ -4009,9 +4009,9 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取「在分配结束时计提」的 timephased 成本。
+/// Get the timephased cost that is "incurred at the end of the assignment".
     ///
-    /// 对应 Java: `private List<Number> getTimephasedCostAccruedAtEnd(List<LocalDateTimeRange> ranges, Supplier<Number> costSupplier, BiFunction<...> workSupplier)`
+    /// Corresponds to Java: `private List<Number> getTimephasedCostAccruedAtEnd(List<LocalDateTimeRange> ranges, Supplier<Number> costSupplier, BiFunction<...> workSupplier)`
     fn get_timephased_cost_accrued_at_end(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -4037,7 +4037,7 @@ impl ResourceAssignment {
             range_index += 1;
         }
 
-        // Java: 最后一个区间包含分配结束时间，成本计入该区间
+// Java: the last range contains the assignment end time, so the cost is included in that range
         if range_index > 0 {
             let last_has_work = work.get(range_index - 1).copied().flatten().is_some();
             let ends_with_finish = range_compare_to_date(&ranges[range_index - 1], self.get_finish())
@@ -4051,9 +4051,9 @@ impl ResourceAssignment {
         result
     }
 
-    /// 取按时长比例分摊的 timephased 实际成本。
+/// Get the timephased actual cost prorated by duration.
     ///
-    /// 对应 Java: `private List<Number> getTimephasedActualCostProrata(List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `private List<Number> getTimephasedActualCostProrata(List<LocalDateTimeRange> ranges)`
     fn get_timephased_actual_cost_prorata(
         &self,
         ranges: &[LocalDateTimeRange],
@@ -4074,7 +4074,7 @@ impl ResourceAssignment {
             return empty_numbers(ranges.len());
         };
 
-        // Java: 找到与调用方区间对齐、且覆盖整个分配的起点
+// Java: find the starting point aligned with the caller's range and covering the entire assignment
         let minutes_per_range = (first_end - first_start).num_minutes();
         let mut assignment_start_range = first_start;
         if first_start > start {
@@ -4087,7 +4087,7 @@ impl ResourceAssignment {
             }
         }
 
-        // 生成覆盖整个分配的区间
+// Generate ranges covering the entire assignment
         let mut assignment_ranges: Vec<LocalDateTimeRange> = Vec::new();
         loop {
             let range = LocalDateTimeRange::new(
@@ -4104,7 +4104,7 @@ impl ResourceAssignment {
             assignment_start_range = end;
         }
 
-        // 统计包含工作时间的区间数
+// Count the ranges that contain working time
         let calendar = self.get_effective_calendar();
         let working_ranges = assignment_ranges
             .iter()
@@ -4148,15 +4148,15 @@ impl ResourceAssignment {
         result
     }
 
-    /// 为 timephased 成本追加「剩余每次使用成本」。
+/// Append the "remaining cost per use" to the timephased cost.
     ///
-    /// 对应 Java: `private List<Number> addTimephasedRemainingCostPerUse(List<LocalDateTimeRange> ranges, List<Number> costs)`
+    /// Corresponds to Java: `private List<Number> addTimephasedRemainingCostPerUse(List<LocalDateTimeRange> ranges, List<Number> costs)`
     fn add_timephased_remaining_cost_per_use(
         &self,
         ranges: &[LocalDateTimeRange],
         mut costs: Vec<Option<f64>>,
     ) -> Vec<Option<f64>> {
-        // Java: 已开始则每次使用成本已计入实际成本
+// Java: if it has started, the cost per use is already included in the actual cost
         if self.get_actual_start().is_some() {
             return costs;
         }
@@ -4175,7 +4175,7 @@ impl ResourceAssignment {
             return costs;
         }
 
-        // Java: 非材料资源且单位不为 100% 时按单位折算
+// Java: for non-material resources with units other than 100%, scale by the units
         let units = NumberHelper::get_double(self.get_units());
         let time_based = !self.is_material_resource();
         if time_based && units != 100.0 {
@@ -4195,15 +4195,15 @@ impl ResourceAssignment {
         costs
     }
 
-    /// 为 timephased 成本追加「实际每次使用成本」。
+/// Append the "actual cost per use" to the timephased cost.
     ///
-    /// 对应 Java: `private List<Number> addTimephasedActualCostPerUse(List<LocalDateTimeRange> ranges, List<Number> costs)`
+    /// Corresponds to Java: `private List<Number> addTimephasedActualCostPerUse(List<LocalDateTimeRange> ranges, List<Number> costs)`
     fn add_timephased_actual_cost_per_use(
         &self,
         ranges: &[LocalDateTimeRange],
         mut costs: Vec<Option<f64>>,
     ) -> Vec<Option<f64>> {
-        // Java: 未开始则每次使用成本计入剩余成本
+// Java: if it has not started, the cost per use is included in the remaining cost
         if self.get_actual_start().is_none() {
             return costs;
         }
@@ -4236,9 +4236,9 @@ impl ResourceAssignment {
         costs
     }
 
-    /// 取原始 timephased 计划工时，缺失时按计划工时与计划起止时间生成。
+/// Get the raw timephased planned work; when absent, generate it from the planned work and planned start/end times.
     ///
-    /// 对应 Java: `private List<TimephasedWork> getOrCreateRawTimephasedPlannedWork()`
+    /// Corresponds to Java: `private List<TimephasedWork> getOrCreateRawTimephasedPlannedWork()`
     fn get_or_create_raw_timephased_planned_work(&self) -> Vec<TimephasedWork> {
         let planned_work = self.get_raw_timephased_planned_work();
         if !planned_work.is_empty() {
@@ -4273,9 +4273,9 @@ impl ResourceAssignment {
         vec![item]
     }
 
-    /// 取原始 timephased 实际工时，缺失时按实际工时与实际起止时间生成。
+/// Get the raw timephased actual work; when absent, generate it from the actual work and actual start/end times.
     ///
-    /// 对应 Java: `private List<TimephasedWork> getOrCreateRawTimephasedActualWork(List<TimephasedWork> timephasedWork, Supplier<Duration> workSupplier)`
+    /// Corresponds to Java: `private List<TimephasedWork> getOrCreateRawTimephasedActualWork(List<TimephasedWork> timephasedWork, Supplier<Duration> workSupplier)`
     fn get_or_create_raw_timephased_actual_work(
         &self,
         timephased_work: Vec<TimephasedWork>,
@@ -4298,7 +4298,7 @@ impl ResourceAssignment {
         if finish.is_none() {
             let units = NumberHelper::get_double(self.get_units());
             if units == 0.0 {
-                // Java: XER 文件中可能出现单位为 0 的情况，直接放弃生成
+// Java: XER files may have units of 0, in which case generation is abandoned directly
                 return timephased_work;
             }
 
@@ -4337,9 +4337,9 @@ impl ResourceAssignment {
         vec![item]
     }
 
-    /// 取原始 timephased 剩余工时，缺失时按剩余工时与剩余起止时间生成。
+/// Get the raw timephased remaining work; when absent, generate it from the remaining work and remaining start/end times.
     ///
-    /// 对应 Java: `private List<TimephasedWork> getOrCreateRawTimephasedRemainingWork(List<TimephasedWork> timephasedWork, Supplier<Duration> workSupplier)`
+    /// Corresponds to Java: `private List<TimephasedWork> getOrCreateRawTimephasedRemainingWork(List<TimephasedWork> timephasedWork, Supplier<Duration> workSupplier)`
     fn get_or_create_raw_timephased_remaining_work(
         &self,
         timephased_work: Vec<TimephasedWork>,
@@ -4359,8 +4359,8 @@ impl ResourceAssignment {
         let calendar = self.get_effective_calendar();
         let actual_work = self.get_actual_work();
 
-        // Java: 已开始且已产生实际工时时，从「剩余最早开始时间」继续；
-        // 没有剩余最早开始时间则由实际开始时间与实际工时推算下一个工作开始时刻。
+// Java: when it has started and actual work has been generated, continue from the "remaining earliest start time";
+// when there is no remaining earliest start time, derive the next work start moment from the actual start time and actual work.
         let start = match (self.get_actual_start(), actual_work) {
             (Some(actual_start), Some(actual_work)) if actual_work.get_duration() != 0.0 => {
                 match self.get_remaining_early_start() {
@@ -4401,24 +4401,24 @@ impl ResourceAssignment {
 }
 
 impl FieldContainer for ResourceAssignment {
-    /// 对应 Java: `public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `public void set(FieldType field, Object value)`
     fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         self.set_key(field, value);
     }
 
-    /// 对应 Java: `public Object get(FieldType field)`
+    /// Corresponds to Java: `public Object get(FieldType field)`
     fn get(&self, field: FieldKey) -> Option<FieldValue> {
         self.get_field(field)
     }
 
-    /// 对应 Java: `public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `public Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 对应 Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
     ///
-    /// Java 经 `TIMEPHASED_WORK_FUNCTIONS` 分派；Rust 侧由本类同名普通方法承担（见文件头第 5 节）。
+/// Java dispatches via `TIMEPHASED_WORK_FUNCTIONS`; the Rust side is handled by an ordinary method of the same name in this class (see section 5 in the file header).
     fn get_timephased_duration_values(
         &self,
         field: FieldKey,
@@ -4428,9 +4428,9 @@ impl FieldContainer for ResourceAssignment {
         ResourceAssignment::get_timephased_duration_values(self, field, ranges, units)
     }
 
-    /// 对应 Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
     ///
-    /// Java 经 `TIMEPHASED_NUMERIC_FUNCTIONS` 分派；Rust 侧由本类同名普通方法承担。
+/// Java dispatches via `TIMEPHASED_NUMERIC_FUNCTIONS`; the Rust side is handled by an ordinary method of the same name in this class.
     fn get_timephased_numeric_values(
         &self,
         field: FieldKey,
@@ -4439,36 +4439,36 @@ impl FieldContainer for ResourceAssignment {
         ResourceAssignment::get_timephased_numeric_values(self, field, ranges)
     }
 
-    /// 对应 Java: `public void addFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `public void addFieldListener(FieldListener listener)`
     fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         self.fields.add_field_listener(listener);
     }
 
-    /// 对应 Java: `public void removeFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `public void removeFieldListener(FieldListener listener)`
     fn clear_field_listeners(&mut self) {
         self.fields.clear_field_listeners();
     }
 }
 
 impl ProjectEntityWithUniqueID for ResourceAssignment {
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32> {
         ResourceAssignment::get_unique_id(self)
     }
 }
 
 impl ProjectEntityWithMutableUniqueID for ResourceAssignment {
-    /// 对应 Java: `@Override public void setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer uniqueID)`
     fn set_unique_id(&mut self, id: Option<i32>) {
         ResourceAssignment::set_unique_id(self, id);
     }
 }
 
 impl Display for ResourceAssignment {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 用 `null` 渲染空值；Rust 侧保持同样的文本（`NaiveDateTime` 的分隔符为空格，
-    /// Java 为 `T`）。
+/// Java renders null values with `null`; the Rust side keeps the same text (`NaiveDateTime` uses a space as separator,
+/// whereas Java uses `T`).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let task_name = match self.get_task() {
             Some(task) => task
@@ -4502,14 +4502,14 @@ impl Display for ResourceAssignment {
     }
 }
 
-/// 计算时间偏差时的默认工期单位（父文件未接线时的退化值）。
+/// Default duration units when calculating the time variance (degraded value when the parent file is not wired).
 ///
-/// 对应 Java 的 `ProjectProperties.getDefaultDurationUnits()`（MSP 默认值为天）。
+/// Corresponds to Java's `ProjectProperties.getDefaultDurationUnits()` (the MSP default is days).
 const DEFAULT_DURATION_UNITS: TimeUnit = TimeUnit::Days;
 
-/// 基准成本字段（下标 1-10）。
+/// Baseline cost fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_COSTS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_COSTS`
 const BASELINE_COSTS: [AssignmentField; 10] = [
     AssignmentField::Baseline1Cost,
     AssignmentField::Baseline2Cost,
@@ -4523,9 +4523,9 @@ const BASELINE_COSTS: [AssignmentField; 10] = [
     AssignmentField::Baseline10Cost,
 ];
 
-/// 基准工时字段（下标 1-10）。
+/// Baseline work fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_WORKS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_WORKS`
 const BASELINE_WORKS: [AssignmentField; 10] = [
     AssignmentField::Baseline1Work,
     AssignmentField::Baseline2Work,
@@ -4539,9 +4539,9 @@ const BASELINE_WORKS: [AssignmentField; 10] = [
     AssignmentField::Baseline10Work,
 ];
 
-/// 基准材料用量字段（下标 1-10）。
+/// Baseline material quantity fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_MATERIALS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_MATERIALS`
 const BASELINE_MATERIALS: [AssignmentField; 10] = [
     AssignmentField::Baseline1Material,
     AssignmentField::Baseline2Material,
@@ -4555,9 +4555,9 @@ const BASELINE_MATERIALS: [AssignmentField; 10] = [
     AssignmentField::Baseline10Material,
 ];
 
-/// 基准开始时间字段（下标 1-10）。
+/// Baseline start time fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_STARTS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_STARTS`
 const BASELINE_STARTS: [AssignmentField; 10] = [
     AssignmentField::Baseline1Start,
     AssignmentField::Baseline2Start,
@@ -4571,9 +4571,9 @@ const BASELINE_STARTS: [AssignmentField; 10] = [
     AssignmentField::Baseline10Start,
 ];
 
-/// 基准完成时间字段（下标 1-10）。
+/// Baseline finish time fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_FINISHES`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_FINISHES`
 const BASELINE_FINISHES: [AssignmentField; 10] = [
     AssignmentField::Baseline1Finish,
     AssignmentField::Baseline2Finish,
@@ -4587,9 +4587,9 @@ const BASELINE_FINISHES: [AssignmentField; 10] = [
     AssignmentField::Baseline10Finish,
 ];
 
-/// 基准预算成本字段（下标 1-10）。
+/// Baseline budget cost fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_BUDGET_COSTS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_BUDGET_COSTS`
 const BASELINE_BUDGET_COSTS: [AssignmentField; 10] = [
     AssignmentField::Baseline1BudgetCost,
     AssignmentField::Baseline2BudgetCost,
@@ -4603,9 +4603,9 @@ const BASELINE_BUDGET_COSTS: [AssignmentField; 10] = [
     AssignmentField::Baseline10BudgetCost,
 ];
 
-/// 基准预算工时字段（下标 1-10）。
+/// Baseline budget work fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.BASELINE_BUDGET_WORKS`
+/// Corresponds to Java: `AssignmentFieldLists.BASELINE_BUDGET_WORKS`
 const BASELINE_BUDGET_WORKS: [AssignmentField; 10] = [
     AssignmentField::Baseline1BudgetWork,
     AssignmentField::Baseline2BudgetWork,
@@ -4619,9 +4619,9 @@ const BASELINE_BUDGET_WORKS: [AssignmentField; 10] = [
     AssignmentField::Baseline10BudgetWork,
 ];
 
-/// 自定义文本字段（下标 1-30）。
+/// Custom text fields (indices 1-30).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_TEXT`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_TEXT`
 const CUSTOM_TEXT: [AssignmentField; 30] = [
     AssignmentField::Text1,
     AssignmentField::Text2,
@@ -4655,9 +4655,9 @@ const CUSTOM_TEXT: [AssignmentField; 30] = [
     AssignmentField::Text30,
 ];
 
-/// 自定义开始时间字段（下标 1-10）。
+/// Custom start time fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_START`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_START`
 const CUSTOM_START: [AssignmentField; 10] = [
     AssignmentField::Start1,
     AssignmentField::Start2,
@@ -4671,9 +4671,9 @@ const CUSTOM_START: [AssignmentField; 10] = [
     AssignmentField::Start10,
 ];
 
-/// 自定义完成时间字段（下标 1-10）。
+/// Custom finish time fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_FINISH`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_FINISH`
 const CUSTOM_FINISH: [AssignmentField; 10] = [
     AssignmentField::Finish1,
     AssignmentField::Finish2,
@@ -4687,9 +4687,9 @@ const CUSTOM_FINISH: [AssignmentField; 10] = [
     AssignmentField::Finish10,
 ];
 
-/// 自定义日期字段（下标 1-10）。
+/// Custom date fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_DATE`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_DATE`
 const CUSTOM_DATE: [AssignmentField; 10] = [
     AssignmentField::Date1,
     AssignmentField::Date2,
@@ -4703,9 +4703,9 @@ const CUSTOM_DATE: [AssignmentField; 10] = [
     AssignmentField::Date10,
 ];
 
-/// 自定义数字字段（下标 1-20）。
+/// Custom number fields (indices 1-20).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_NUMBER`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_NUMBER`
 const CUSTOM_NUMBER: [AssignmentField; 20] = [
     AssignmentField::Number1,
     AssignmentField::Number2,
@@ -4729,9 +4729,9 @@ const CUSTOM_NUMBER: [AssignmentField; 20] = [
     AssignmentField::Number20,
 ];
 
-/// 自定义工期字段（下标 1-10）。
+/// Custom duration fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_DURATION`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_DURATION`
 const CUSTOM_DURATION: [AssignmentField; 10] = [
     AssignmentField::Duration1,
     AssignmentField::Duration2,
@@ -4745,9 +4745,9 @@ const CUSTOM_DURATION: [AssignmentField; 10] = [
     AssignmentField::Duration10,
 ];
 
-/// 自定义成本字段（下标 1-10）。
+/// Custom cost fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_COST`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_COST`
 const CUSTOM_COST: [AssignmentField; 10] = [
     AssignmentField::Cost1,
     AssignmentField::Cost2,
@@ -4761,9 +4761,9 @@ const CUSTOM_COST: [AssignmentField; 10] = [
     AssignmentField::Cost10,
 ];
 
-/// 自定义布尔标志字段（下标 1-20）。
+/// Custom boolean flag fields (indices 1-20).
 ///
-/// 对应 Java: `AssignmentFieldLists.CUSTOM_FLAG`
+/// Corresponds to Java: `AssignmentFieldLists.CUSTOM_FLAG`
 const CUSTOM_FLAG: [AssignmentField; 20] = [
     AssignmentField::Flag1,
     AssignmentField::Flag2,
@@ -4787,9 +4787,9 @@ const CUSTOM_FLAG: [AssignmentField; 20] = [
     AssignmentField::Flag20,
 ];
 
-/// 企业自定义成本字段（下标 1-10）。
+/// Enterprise custom cost fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_COST`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_COST`
 const ENTERPRISE_CUSTOM_COST: [AssignmentField; 10] = [
     AssignmentField::EnterpriseCost1,
     AssignmentField::EnterpriseCost2,
@@ -4803,9 +4803,9 @@ const ENTERPRISE_CUSTOM_COST: [AssignmentField; 10] = [
     AssignmentField::EnterpriseCost10,
 ];
 
-/// 企业自定义日期字段（下标 1-30）。
+/// Enterprise custom date fields (indices 1-30).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_DATE`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_DATE`
 const ENTERPRISE_CUSTOM_DATE: [AssignmentField; 30] = [
     AssignmentField::EnterpriseDate1,
     AssignmentField::EnterpriseDate2,
@@ -4839,9 +4839,9 @@ const ENTERPRISE_CUSTOM_DATE: [AssignmentField; 30] = [
     AssignmentField::EnterpriseDate30,
 ];
 
-/// 企业自定义工期字段（下标 1-10）。
+/// Enterprise custom duration fields (indices 1-10).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_DURATION`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_DURATION`
 const ENTERPRISE_CUSTOM_DURATION: [AssignmentField; 10] = [
     AssignmentField::EnterpriseDuration1,
     AssignmentField::EnterpriseDuration2,
@@ -4855,9 +4855,9 @@ const ENTERPRISE_CUSTOM_DURATION: [AssignmentField; 10] = [
     AssignmentField::EnterpriseDuration10,
 ];
 
-/// 企业自定义布尔标志字段（下标 1-20）。
+/// Enterprise custom boolean flag fields (indices 1-20).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_FLAG`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_FLAG`
 const ENTERPRISE_CUSTOM_FLAG: [AssignmentField; 20] = [
     AssignmentField::EnterpriseFlag1,
     AssignmentField::EnterpriseFlag2,
@@ -4881,9 +4881,9 @@ const ENTERPRISE_CUSTOM_FLAG: [AssignmentField; 20] = [
     AssignmentField::EnterpriseFlag20,
 ];
 
-/// 企业自定义数字字段（下标 1-40）。
+/// Enterprise custom number fields (indices 1-40).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_NUMBER`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_NUMBER`
 const ENTERPRISE_CUSTOM_NUMBER: [AssignmentField; 40] = [
     AssignmentField::EnterpriseNumber1,
     AssignmentField::EnterpriseNumber2,
@@ -4927,9 +4927,9 @@ const ENTERPRISE_CUSTOM_NUMBER: [AssignmentField; 40] = [
     AssignmentField::EnterpriseNumber40,
 ];
 
-/// 企业自定义文本字段（下标 1-40）。
+/// Enterprise custom text fields (indices 1-40).
 ///
-/// 对应 Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_TEXT`
+/// Corresponds to Java: `AssignmentFieldLists.ENTERPRISE_CUSTOM_TEXT`
 const ENTERPRISE_CUSTOM_TEXT: [AssignmentField; 40] = [
     AssignmentField::EnterpriseText1,
     AssignmentField::EnterpriseText2,
@@ -4973,11 +4973,11 @@ const ENTERPRISE_CUSTOM_TEXT: [AssignmentField; 40] = [
     AssignmentField::EnterpriseText40,
 ];
 
-/// 字段依赖表：修改某字段后需要清理（重算）的字段。
+/// Field dependency table: fields that must be cleared (recalculated) after a given field is modified.
 ///
-/// 对应 Java: `private static final Map<FieldType, List<FieldType>> DEPENDENCY_MAP`
-/// 与 `FieldContainerDependencies.calculatedField(X).dependsOn(A, B)`
-///（语义为：`A` / `B` 变化时清除 `X` 的缓存值）。
+/// Corresponds to Java: `private static final Map<FieldType, List<FieldType>> DEPENDENCY_MAP`
+/// Corresponds to `FieldContainerDependencies.calculatedField(X).dependsOn(A, B)`
+/// (meaning: clear the cached value of `X` when `A` / `B` changes).
 fn dependency_map() -> &'static HashMap<FieldKey, Vec<FieldKey>> {
     static DEPENDENCY_MAP: OnceLock<HashMap<FieldKey, Vec<FieldKey>>> = OnceLock::new();
 
@@ -5036,11 +5036,11 @@ fn dependency_map() -> &'static HashMap<FieldKey, Vec<FieldKey>> {
     })
 }
 
-/// 按下标取「原始 timephased 基准工时」字段。
+/// Get the "raw timephased baseline work" field by index.
 ///
-/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_WORKS[index]`
-///（下标 0 = Baseline，1..=10 = Baseline1..10）；越界返回 `None`
-///（Java 会抛 `ArrayIndexOutOfBoundsException`）。
+/// Corresponds to Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_WORKS[index]`
+/// (index 0 = Baseline, 1..=10 = Baseline1..10); returns `None` when out of bounds
+/// (Java throws `ArrayIndexOutOfBoundsException`).
 fn raw_timephased_baseline_work_field(index: i32) -> Option<AssignmentField> {
     const FIELDS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineWork,
@@ -5059,9 +5059,9 @@ fn raw_timephased_baseline_work_field(index: i32) -> Option<AssignmentField> {
     usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
-/// 按下标取「原始 timephased 基准预算工时」字段。
+/// Get the "raw timephased baseline budget work" field by index.
 ///
-/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_WORKS[index]`
+/// Corresponds to Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_WORKS[index]`
 fn raw_timephased_baseline_budget_work_field(index: i32) -> Option<AssignmentField> {
     const FIELDS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineBudgetWork,
@@ -5080,9 +5080,9 @@ fn raw_timephased_baseline_budget_work_field(index: i32) -> Option<AssignmentFie
     usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
-/// 按下标取「原始 timephased 基准成本」字段。
+/// Get the "raw timephased baseline cost" field by index.
 ///
-/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_COSTS[index]`
+/// Corresponds to Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_COSTS[index]`
 fn raw_timephased_baseline_cost_field(index: i32) -> Option<AssignmentField> {
     const FIELDS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineCost,
@@ -5101,9 +5101,9 @@ fn raw_timephased_baseline_cost_field(index: i32) -> Option<AssignmentField> {
     usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
-/// 按下标取「原始 timephased 基准预算成本」字段。
+/// Get the "raw timephased baseline budget cost" field by index.
 ///
-/// 对应 Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_COSTS[index]`
+/// Corresponds to Java: `AssignmentFieldLists.RAW_TIMEPHASED_BASELINE_BUDGET_COSTS[index]`
 fn raw_timephased_baseline_budget_cost_field(index: i32) -> Option<AssignmentField> {
     const FIELDS: [AssignmentField; 11] = [
         AssignmentField::RawTimephasedBaselineBudgetCost,
@@ -5122,26 +5122,26 @@ fn raw_timephased_baseline_budget_cost_field(index: i32) -> Option<AssignmentFie
     usize::try_from(index).ok().and_then(|index| FIELDS.get(index).copied())
 }
 
-/// 全为 `None` 的工期列表。
+/// A duration list that is entirely `None`.
 fn empty_durations(len: usize) -> Vec<Option<Duration>> {
     vec![None; len]
 }
 
-/// 全为 `None` 的数值列表。
+/// A numeric list that is entirely `None`.
 fn empty_numbers(len: usize) -> Vec<Option<f64>> {
     vec![None; len]
 }
 
-/// 把区间与可选日期比较。
+/// Compare a range with an optional date.
 ///
-/// 对应 Java 的 `LocalDateTimeRange.compareTo(LocalDateTime)`；日期为空时返回 `None`。
+/// Corresponds to Java's `LocalDateTimeRange.compareTo(LocalDateTime)`; returns `None` when the date is null.
 fn range_compare_to_date(range: &LocalDateTimeRange, date: Option<NaiveDateTime>) -> Option<i32> {
     date.map(|date| range.compare_to_date(date))
 }
 
-/// 区间列表是否完全落在分配区间之外。
+/// Whether the range list falls entirely outside the assignment range.
 ///
-/// 对应 Java: `ranges.get(ranges.size() - 1).isBefore(assignmentRange) || ranges.get(0).isAfter(assignmentRange)`
+/// Corresponds to Java: `ranges.get(ranges.size() - 1).isBefore(assignmentRange) || ranges.get(0).isAfter(assignmentRange)`
 fn out_of_assignment_range(
     ranges: &[LocalDateTimeRange],
     assignment_range: &LocalDateTimeRange,
@@ -5154,9 +5154,9 @@ fn out_of_assignment_range(
     }
 }
 
-/// 找第一个与目标区间相交的下标；没有时返回 `ranges.len()`。
+/// Find the index of the first range intersecting the target range; returns `ranges.len()` when there is none.
 ///
-/// 对应 Java 中 `while (rangeIndex < ranges.size() && !ranges.get(rangeIndex).intersectsWith(...)) ++rangeIndex;`
+/// Corresponds to Java's `while (rangeIndex < ranges.size() && !ranges.get(rangeIndex).intersectsWith(...)) ++rangeIndex;`
 fn first_intersecting_range(ranges: &[LocalDateTimeRange], range: &LocalDateTimeRange) -> usize {
     let mut index = 0;
     while index < ranges.len() && !ranges[index].intersects_with(range) {
@@ -5165,7 +5165,7 @@ fn first_intersecting_range(ranges: &[LocalDateTimeRange], range: &LocalDateTime
     index
 }
 
-/// 取日历上两个时刻之间的工时；日历缺失或已被借用时返回 0（Java 会抛 NPE）。
+/// Get the work between two instants on the calendar; returns 0 when the calendar is missing or already borrowed (Java throws an NPE).
 fn calendar_work(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     start: Option<NaiveDateTime>,
@@ -5181,7 +5181,7 @@ fn calendar_work(
     }
 }
 
-/// 按日历提供的单位换算默认值换算工期；日历缺失时按原值返回（Java 会抛 NPE）。
+/// Convert a duration using the default unit conversion provided by the calendar; returns the original value when the calendar is missing (Java throws an NPE).
 fn convert_units(
     duration: Duration,
     units: TimeUnit,
@@ -5196,9 +5196,9 @@ fn convert_units(
     }
 }
 
-/// 取下一个费率行的开始时间；没有下一行时取 `LocalDateTimeHelper.END_DATE_NA`。
+/// Get the start time of the next rate row; uses `LocalDateTimeHelper.END_DATE_NA` when there is no next row.
 ///
-/// 对应 Java: `private LocalDateTime getNextRateStart(List<CostRateTableEntry> rates, int costRateTableIndex)`
+/// Corresponds to Java: `private LocalDateTime getNextRateStart(List<CostRateTableEntry> rates, int costRateTableIndex)`
 fn get_next_rate_start(rates: &[&CostRateTableEntry], index: usize) -> Option<NaiveDateTime> {
     if index + 1 < rates.len() {
         rates[index + 1].get_start_date()
@@ -5207,9 +5207,9 @@ fn get_next_rate_start(rates: &[&CostRateTableEntry], index: usize) -> Option<Na
     }
 }
 
-/// 该 timephased 工时项是否覆盖非工作时间。
+/// Whether this timephased work item covers non-working time.
 ///
-/// 对应 Java: `TimephasedUtility.itemIsNonWorking(ProjectCalendar calendar, TimephasedItem<?> item)`
+/// Corresponds to Java: `TimephasedUtility.itemIsNonWorking(ProjectCalendar calendar, TimephasedItem<?> item)`
 fn item_is_non_working(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     item: &TimephasedWork,
@@ -5217,9 +5217,9 @@ fn item_is_non_working(
     calendar_work(calendar, item.get_start(), item.get_finish(), TimeUnit::Hours).get_duration() == 0.0
 }
 
-/// 该 timephased 成本项是否覆盖非工作时间。
+/// Whether this timephased cost item covers non-working time.
 ///
-/// 对应 Java: `TimephasedUtility.itemIsNonWorking(...)`
+/// Corresponds to Java: `TimephasedUtility.itemIsNonWorking(...)`
 fn cost_item_is_non_working(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     item: &TimephasedCost,
@@ -5227,11 +5227,11 @@ fn cost_item_is_non_working(
     calendar_work(calendar, item.get_start(), item.get_finish(), TimeUnit::Hours).get_duration() == 0.0
 }
 
-/// 把原始 timephased 工时按时间区间切分。
+/// Split the raw timephased work by time ranges.
 ///
-/// 对应 Java: `TimephasedUtility.segmentWork(ProjectCalendar calendar, List<TimephasedWork> work, List<LocalDateTimeRange> ranges, TimeUnit targetUnits)`
+/// Corresponds to Java: `TimephasedUtility.segmentWork(ProjectCalendar calendar, List<TimephasedWork> work, List<LocalDateTimeRange> ranges, TimeUnit targetUnits)`
 ///
-/// Java 的入参校验（`validateRanges` / `validateTimephasedWork`）抛异常，Rust 侧不校验。
+/// Java's argument validation (`validateRanges` / `validateTimephasedWork`) throws exceptions; the Rust side does not validate.
 fn segment_work(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     work: &[TimephasedWork],
@@ -5242,7 +5242,7 @@ fn segment_work(
         return empty_durations(ranges.len());
     }
 
-    // Java: Microsoft Project 特例 —— 只有一段、起止相同且总量非 0 时，工时计入最后一个区间
+// Java: Microsoft Project special case -- when there is a single segment with identical start and end and a non-zero total, the work is included in the last range
     if work.len() == 1 {
         if let Some(item) = work.first() {
             let same_instant = matches!(
@@ -5263,7 +5263,7 @@ fn segment_work(
         }
     }
 
-    // Java 用 -1 表示 null，最后统一映射
+// Java uses -1 to represent null and maps it uniformly at the end
     let mut result: Vec<Option<f64>> = vec![None; ranges.len()];
 
     let mut current_item_index = 0usize;
@@ -5293,7 +5293,7 @@ fn segment_work(
         };
 
         if range_end <= item_start {
-            // Java: 区间早于当前 timephased 项 —— 该区间没有工时
+// Java: the range is earlier than the current timephased item -- that range has no work
             current_range_index += 1;
             if current_range_index as usize >= ranges.len() {
                 break;
@@ -5347,7 +5347,7 @@ fn segment_work(
 
         let mut more_time_in_range = false;
         if range_end > item_start {
-            // Java: 区间与本项相交
+// Java: the range intersects this item
             let work_start = if range_start > item_start {
                 range_start
             } else {
@@ -5378,13 +5378,13 @@ fn segment_work(
 
             more_time_in_range = work_finish < range_end;
             if more_time_in_range {
-                // Java: 当前区间仍有剩余时间需要计算
+// Java: the current range still has remaining time to compute
                 current_range = LocalDateTimeRange::new(Some(work_finish), Some(range_end));
             }
         }
 
         if !more_time_in_range {
-            // Java: 当前区间处理完毕，前进
+// Java: the current range is finished, advance
             current_range_index += 1;
             if current_range_index as usize >= ranges.len() {
                 break;
@@ -5403,9 +5403,9 @@ fn segment_work(
         .collect()
 }
 
-/// 把原始 timephased 成本按时间区间切分。
+/// Split the raw timephased cost by time ranges.
 ///
-/// 对应 Java: `TimephasedUtility.segmentCost(ProjectCalendar calendar, List<TimephasedCost> cost, List<LocalDateTimeRange> ranges)`
+/// Corresponds to Java: `TimephasedUtility.segmentCost(ProjectCalendar calendar, List<TimephasedCost> cost, List<LocalDateTimeRange> ranges)`
 fn segment_cost(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     cost: &[TimephasedCost],
@@ -5484,7 +5484,7 @@ fn segment_cost(
             break;
         };
 
-        // Java: 区间与本项相交
+// Java: the range intersects this item
         let work_start = if range_start > item_start {
             range_start
         } else {
@@ -5527,11 +5527,11 @@ fn segment_cost(
     result
 }
 
-/// 把原始 timephased 工时按时间区间切分为材料用量。
+/// Split the raw timephased work by time ranges into material quantities.
 ///
-/// 对应 Java: `TimephasedUtility.segmentMaterial(ResourceAssignment assignment, ProjectCalendar calendar, List<TimephasedWork> work, List<LocalDateTimeRange> ranges)`
+/// Corresponds to Java: `TimephasedUtility.segmentMaterial(ResourceAssignment assignment, ProjectCalendar calendar, List<TimephasedWork> work, List<LocalDateTimeRange> ranges)`
 ///
-/// Rust 侧用 `is_material` 布尔参数表达 Java 的「资源为空或类型不是 MATERIAL」判断。
+/// The Rust side uses the `is_material` boolean parameter to express Java's "the resource is null or its type is not MATERIAL" check.
 fn segment_material(
     is_material: bool,
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
@@ -5548,11 +5548,11 @@ fn segment_material(
         .collect()
 }
 
-/// 逐项相加两个 timephased 工期列表。
+/// Add two timephased duration lists element by element.
 ///
-/// 对应 Java: `TimephasedUtility.addTimephasedDurations(List<Duration> list1, List<Duration> list2)`
+/// Corresponds to Java: `TimephasedUtility.addTimephasedDurations(List<Duration> list1, List<Duration> list2)`
 ///
-/// Java 在长度不一致时抛 `RuntimeException`；Rust 侧原样返回第一个列表。
+/// Java throws `RuntimeException` when the lengths differ; the Rust side returns the first list unchanged.
 fn add_timephased_durations(
     list1: Vec<Option<Duration>>,
     list2: Vec<Option<Duration>>,
@@ -5579,9 +5579,9 @@ fn add_timephased_durations(
         .collect()
 }
 
-/// 逐项相加两个 timephased 数值列表。
+/// Add two timephased numeric lists element by element.
 ///
-/// 对应 Java: `TimephasedUtility.addTimephasedNumbers(List<Number> list1, List<Number> list2)`
+/// Corresponds to Java: `TimephasedUtility.addTimephasedNumbers(List<Number> list1, List<Number> list2)`
 fn add_timephased_numbers(list1: Vec<Option<f64>>, list2: Vec<Option<f64>>) -> Vec<Option<f64>> {
     if list1.len() != list2.len() {
         return list1;
@@ -5599,7 +5599,7 @@ fn add_timephased_numbers(list1: Vec<Option<f64>>, list2: Vec<Option<f64>>) -> V
         .collect()
 }
 
-/// 以 Java 的 `null` 语义渲染可选值。
+/// Render an optional value with Java's `null` semantics.
 fn display_option<T: Display>(value: Option<&T>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -5612,7 +5612,7 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
 
-    /// 构造一个未接线的分配（用于字段读写测试）。
+/// Construct an unwired assignment (for field read/write tests).
     fn assignment() -> ResourceAssignment {
         ResourceAssignment::new()
     }
@@ -5639,7 +5639,7 @@ mod tests {
         );
         assert_eq!(assignment.get_cost(), Some(1_000.0));
 
-        // unique ID 也可经 FieldContainer 接口读写
+// The unique ID can also be read and written via the FieldContainer interface
         {
             let container: &mut dyn FieldContainer = &mut assignment;
             container.set(
@@ -5657,7 +5657,7 @@ mod tests {
         }
         assert_eq!(assignment.get_unique_id(), Some(9));
 
-        // 传 None 等价于 Java 传 null（移除字段）
+// Passing None is equivalent to passing null in Java (removes the field)
         assignment.set_units(None);
         assert_eq!(assignment.get_units(), None);
     }
@@ -5666,9 +5666,9 @@ mod tests {
     fn boolean_and_flag_fields_use_java_defaults() {
         let mut assignment = assignment();
 
-        // Java: getCalculateCostsFromUnits() 的默认值为 true
+// Java: the default value of getCalculateCostsFromUnits() is true
         assert!(assignment.get_calculate_costs_from_units());
-        // Java: 未设置的布尔字段默认 false
+// Java: unset boolean fields default to false
         assert!(!assignment.get_confirmed());
 
         assignment.set_confirmed(true);
@@ -5706,7 +5706,7 @@ mod tests {
         assert_eq!(assignment.get_number(20), Some(20.0));
         assert!(assignment.get_date(1).is_some());
 
-        // Java 越界会抛 IllegalArgumentException；Rust 侧为 None / no-op
+// Java throws IllegalArgumentException when out of bounds; the Rust side returns None / is a no-op
         assert_eq!(assignment.get_baseline_work_by_index(0), None);
         assert_eq!(assignment.get_baseline_work_by_index(11), None);
         assert_eq!(assignment.get_text(31), None);
@@ -5734,20 +5734,20 @@ mod tests {
         assert_eq!(assignment.get_sv(), Some(20.0));
         // Java: CV = BCWP - ACWP
         assert_eq!(assignment.get_cv(), Some(30.0));
-        // Java: REMAINING_ASSIGNMENT_UNITS 无值时退化为计划单位
+// Java: when REMAINING_ASSIGNMENT_UNITS has no value, it degrades gracefully to the planned units
         assert_eq!(assignment.get_remaining_units(), Some(100.0));
         assert_eq!(assignment.get_units(), Some(100.0));
-        // Java: RATE_INDEX 默认 0
+// Java: RATE_INDEX defaults to 0
         assert_eq!(assignment.get_rate_index(), Some(0));
-        // Java: RATE_SOURCE 默认 Resource（由计算字段 defaultRateSource 提供）
+// Java: RATE_SOURCE defaults to Resource (provided by the calculated field defaultRateSource)
         assert_eq!(assignment.get_rate_source(), RateSource::Resource);
-        // Java: COST_RATE_TABLE 越界时取 0
+// Java: COST_RATE_TABLE yields 0 when out of bounds
         assert_eq!(assignment.get_cost_rate_table_index(), 0);
         assignment.set_cost_rate_table_index(7);
         assert_eq!(assignment.get_cost_rate_table_index(), 0);
         assignment.set_cost_rate_table_index(2);
         assert_eq!(assignment.get_cost_rate_table_index(), 2);
-        // 无资源/角色时没有费率表
+// There is no rate table when there is no resource/role
         assert!(assignment.with_cost_rate_table(|table| table.is_none()));
     }
 
@@ -5755,7 +5755,7 @@ mod tests {
     fn dependency_map_clears_cached_calculated_values() {
         let mut assignment = assignment();
 
-        // Java: COST_VARIANCE 依赖 COST 与 BASELINE_COST，修改后应清除缓存
+// Java: COST_VARIANCE depends on COST and BASELINE_COST, so its cache should be cleared after modification
         assignment
             .set_assignment_value(AssignmentField::CostVariance, Some(FieldValue::Double(1.0)));
         assert_eq!(assignment.get_cost_variance(), Some(1.0));
@@ -5765,7 +5765,7 @@ mod tests {
             assignment.peek_cached_value(FieldKey::Assignment(AssignmentField::CostVariance)),
             None
         );
-        // 缓存被清除后按计算值返回（BASELINE_COST 为空 → 无值）
+// After the cache is cleared, it returns the calculated value (BASELINE_COST empty -> no value)
         assert_eq!(assignment.get_cost_variance(), None);
     }
 
@@ -5773,7 +5773,7 @@ mod tests {
     fn timephased_segment_work_maps_ranges_without_calendar() {
         let start = NaiveDate::from_ymd_opt(2024, 1, 1)
             .and_then(|date| date.and_hms_opt(9, 0, 0))
-            .expect("合法日期");
+            .expect("valid date");
         let finish = start + chrono::Duration::hours(8);
 
         let mut item = TimephasedWork::new();
@@ -5787,7 +5787,7 @@ mod tests {
             Some(start + chrono::Duration::hours(4)),
         )];
 
-        // 无日历时按时间比例切分（实际工时按小时计）
+// When there is no calendar, split by time proportion (actual work is counted in hours)
         let result = segment_work(None, &[item], &ranges, TimeUnit::Hours);
         assert_eq!(result.len(), 1);
         assert!(result[0].is_some());
@@ -5806,7 +5806,7 @@ mod tests {
         let numbers = add_timephased_numbers(vec![Some(1.0), None], vec![Some(2.5), None]);
         assert_eq!(numbers, vec![Some(3.5), None]);
 
-        // 长度不一致时不再相加（Java 抛 RuntimeException）
+// When the lengths differ, no longer add (Java throws RuntimeException)
         let mismatched = add_timephased_numbers(vec![Some(1.0)], vec![Some(2.0), Some(3.0)]);
         assert_eq!(mismatched, vec![Some(1.0)]);
     }
@@ -5828,7 +5828,7 @@ mod tests {
         assert_eq!(assignment.get_raw_timephased_baseline_work(1).len(), 1);
         assert!(assignment.get_raw_timephased_baseline_work(11).is_empty());
 
-        // 未设置时按默认空列表返回
+// When not set, returns the default empty list
         assert!(assignment.get_raw_timephased_budget_work().is_empty());
         assert!(assignment.get_raw_timephased_remaining_overtime_work().is_empty());
     }
@@ -5840,7 +5840,7 @@ mod tests {
         assignment.set_notes(Some("hello".to_owned()));
         assert_eq!(assignment.get_notes(), "hello");
         assert!(assignment.get_notes_object().is_some());
-        // Java 的 get(AssignmentField.NOTES) 取到的就是该对象
+// Java's get(AssignmentField.NOTES) retrieves exactly this object
         assert_eq!(
             assignment
                 .get_field(FieldKey::Assignment(AssignmentField::Notes))
@@ -5889,7 +5889,7 @@ mod tests {
             Some(FieldValue::ResourceRequestType(ResourceRequestType::None))
         ));
 
-        // RATE_SOURCE 未显式设置时由计算字段给出默认值（Java 的 defaultRateSource）
+// When RATE_SOURCE is not explicitly set, the default value is provided by the calculated field (Java's defaultRateSource)
         assert_eq!(
             assignment
                 .get_field(FieldKey::Assignment(AssignmentField::RateSource))
@@ -5911,7 +5911,7 @@ mod tests {
         item.set_amount_per_hour(Some(Duration::get_instance(1.0, TimeUnit::Hours)));
         assignment.set_raw_timephased_planned_work(vec![item]);
 
-        // Java 的 get(AssignmentField.RAW_TIMEPHASED_PLANNED_WORK) 取到的就是该列表
+// Java's get(AssignmentField.RAW_TIMEPHASED_PLANNED_WORK) retrieves exactly this list
         assert!(matches!(
             assignment.peek_cached_value(FieldKey::Assignment(
                 AssignmentField::RawTimephasedPlannedWork
@@ -5919,7 +5919,7 @@ mod tests {
             Some(FieldValue::TimephasedWork(work)) if work.len() == 1
         ));
 
-        // 未设置的 timephased 字段按 Java 的 defaultTimephasedWork / defaultTimephasedCost 回落为空列表
+// Unset timephased fields fall back to an empty list per Java's defaultTimephasedWork / defaultTimephasedCost
         assert!(matches!(
             assignment.get_field(FieldKey::Assignment(
                 AssignmentField::RawTimephasedBudgetWork
@@ -5934,13 +5934,13 @@ mod tests {
         ));
     }
 
-    /// 经 [`FieldContainer`] trait 入口查询 timephased 数据（Java 的
-    /// `getTimephasedDurationValues` / `getTimephasedNumericValues`）。
+/// Query timephased data via the [`FieldContainer`] trait entry point (Java's
+    /// `getTimephasedDurationValues` / `getTimephasedNumericValues`).
     #[test]
     fn timephased_queries_via_field_container_trait() {
         let start = NaiveDate::from_ymd_opt(2024, 1, 1)
             .and_then(|date| date.and_hms_opt(9, 0, 0))
-            .expect("合法日期");
+            .expect("valid date");
         let finish = start + chrono::Duration::hours(8);
 
         let ranges = [LocalDateTimeRange::new(
@@ -5980,7 +5980,7 @@ mod tests {
         assert_eq!(costs.len(), 1);
         assert!(costs[0].is_some());
 
-        // 字段不在分派表中时与 Java 一致返回全 None 列表
+// When the field is not in the dispatch table, returns an all-None list consistent with Java
         let unsupported = FieldContainer::get_timephased_numeric_values(
             &assignment,
             FieldKey::Assignment(AssignmentField::TaskUniqueId),
@@ -5997,14 +5997,14 @@ mod tests {
         assignment
             .add_workgroup_assignment()
             .set_message_unique_id(Some("MSG-1".to_owned()));
-        // Java 在已有记录时抛 MPXJException；Rust 侧返回既有记录
+// Java throws MPXJException when a record already exists; the Rust side returns the existing record
         assignment
             .add_workgroup_assignment()
             .set_schedule_id(Some("SCHED-9".to_owned()));
 
         let workgroup = assignment
             .get_workgroup_assignment()
-            .expect("工作组字段已创建");
+            .expect("workgroup field created");
         assert_eq!(workgroup.get_message_unique_id(), Some("MSG-1"));
         assert_eq!(workgroup.get_schedule_id(), Some("SCHED-9"));
     }
@@ -6024,7 +6024,7 @@ mod tests {
         let date = |day: u32| {
             NaiveDate::from_ymd_opt(2024, 1, day)
                 .and_then(|date| date.and_hms_opt(0, 0, 0))
-                .expect("合法日期")
+                .expect("valid date")
         };
 
         let assignment_range = LocalDateTimeRange::new(Some(date(10)), Some(date(20)));

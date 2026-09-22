@@ -1,42 +1,42 @@
-//! 对应 Java: `org/mpxj/TimescaleUnits.java`
+//! Corresponds to Java: `org/mpxj/TimescaleUnits.java`
 
 use std::fmt::{self, Display, Formatter};
 
-/// 甘特图时间刻度所用单位的枚举。
+/// Enum for the units used by the Gantt chart timescale.
 ///
-/// 对应 Java: `public enum TimescaleUnits`
+/// Corresponds to Java: `public enum TimescaleUnits`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`
-/// （int ↔ `TimescaleUnits` 的映射在 Java 中由 `org.mpxj.mpp.TimescaleUnitsHelper`
-/// 完成）；Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// On the Java side this enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`
+/// (the int <-> `TimescaleUnits` mapping is done in Java by `org.mpxj.mpp.TimescaleUnitsHelper`
+/// ); the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TimescaleUnits {
-    /// 对应 Java: `NONE("None")`
+    /// Corresponds to Java: `NONE("None")`
     None,
-    /// 对应 Java: `MINUTES("Minutes")`
+    /// Corresponds to Java: `MINUTES("Minutes")`
     Minutes,
-    /// 对应 Java: `HOURS("Hours")`
+    /// Corresponds to Java: `HOURS("Hours")`
     Hours,
-    /// 对应 Java: `DAYS("Days")`
+    /// Corresponds to Java: `DAYS("Days")`
     Days,
-    /// 对应 Java: `WEEKS("Weeks")`
+    /// Corresponds to Java: `WEEKS("Weeks")`
     Weeks,
-    /// 对应 Java: `THIRDS_OF_MONTHS("Thirds of Months")`
+    /// Corresponds to Java: `THIRDS_OF_MONTHS("Thirds of Months")`
     ThirdsOfMonths,
-    /// 对应 Java: `MONTHS("Months")`
+    /// Corresponds to Java: `MONTHS("Months")`
     Months,
-    /// 对应 Java: `QUARTERS("Quarters")`
+    /// Corresponds to Java: `QUARTERS("Quarters")`
     Quarters,
-    /// 对应 Java: `HALF_YEARS("Half Years")`
+    /// Corresponds to Java: `HALF_YEARS("Half Years")`
     HalfYears,
-    /// 对应 Java: `YEARS("Years")`
+    /// Corresponds to Java: `YEARS("Years")`
     Years,
 }
 
 impl TimescaleUnits {
-    /// 全部取值，按 Java 声明顺序排列。
+/// All values, arranged in Java declaration order.
     ///
-    /// 对应 Java: `TimescaleUnits.values()`
+    /// Corresponds to Java: `TimescaleUnits.values()`
     pub const ALL: [TimescaleUnits; 10] = [
         TimescaleUnits::None,
         TimescaleUnits::Minutes,
@@ -50,11 +50,11 @@ impl TimescaleUnits {
         TimescaleUnits::Years,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+/// Get the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`TimescaleUnits::ALL`] 配套查表，
-    /// 对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+/// The Java side has no such method; the Rust side adds it to pair with [`TimescaleUnits::ALL`] for table lookup,
+/// corresponding to the `values()[value]` form in Java. Java throws
+/// `ArrayIndexOutOfBoundsException` when out of bounds; the Rust side returns `None` per this repository's convention.
     pub fn get_instance(value: i32) -> Option<TimescaleUnits> {
         usize::try_from(value)
             .ok()
@@ -62,9 +62,9 @@ impl TimescaleUnits {
             .copied()
     }
 
-    /// 返回该时间刻度单位的名称（未做本地化）。
+/// Return the name of this timescale unit (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             TimescaleUnits::None => "None",
@@ -82,9 +82,9 @@ impl TimescaleUnits {
 }
 
 impl Display for TimescaleUnits {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回字段 `m_name`，与 `getName()` 相同。
+/// Java returns the field `m_name`, the same as `getName()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }

@@ -1,41 +1,41 @@
-//! 对应 Java: `org/mpxj/mpp/AbstractCalendarFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/AbstractCalendarFactory.java`
 //!
-//! MPP9 / MPP12 / MPP14 三个版本的日历读取所共用的解析逻辑：按 `TBkndCal` 存储里的
-//! `VarMeta` / `Var2Data` / `FixedMeta` / `FixedData` 组合出每个日历的工作时段。
+//! Parsing logic shared by the calendar reading of the three versions MPP9 / MPP12 / MPP14: based on the
+//! `VarMeta` / `Var2Data` / `FixedMeta` / `FixedData` stored in `TBkndCal` it assembles the working hours of each calendar.
 //!
-//! # 继承关系的还原
+//! # Restoring the inheritance relationships
 //!
-//! Java: `abstract class AbstractCalendarFactory implements CalendarFactory`，
-//! `MPP9CalendarFactory extends AbstractCalendarFactory`，
-//! `MPP12/MPP14CalendarFactory extends AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`。
-//! Rust 没有继承，按下列方式还原（组合 + 转发，与 `VarMeta`/`AbstractVarMeta` 的做法一致）：
+//! Java: `abstract class AbstractCalendarFactory implements CalendarFactory`,
+//! `MPP9CalendarFactory extends AbstractCalendarFactory`,
+//! `MPP12/MPP14CalendarFactory extends AbstractCalendarAndExceptionFactory extends AbstractCalendarFactory`.
+//! Rust has no inheritance, so it is restored as follows (composition + forwarding, consistent with the approach used for `VarMeta`/`AbstractVarMeta`):
 //!
 //! | Java | Rust |
 //! |---|---|
 //! | `interface CalendarFactory` | [`crate::mpp::calendar_factory::CalendarFactory`] trait |
-//! | `abstract class AbstractCalendarFactory` | 本文件的 [`AbstractCalendarFactory`] 结构体（持有 `file`） |
-//! | 基类的 8 个 `protected abstract` 方法 | [`AbstractCalendarFactoryMethods`] trait（由子类实现） |
-//! | 基类实现 `processCalendarData`（虚调用抽象方法） | [`AbstractCalendarFactory::process_calendar_data`] 增加 `factory: &dyn AbstractCalendarFactoryMethods` 参数，由基类回调子类实现 |
-//! | `MPP9CalendarFactory extends AbstractCalendarFactory` | [`crate::mpp::mpp9_calendar_factory::MPP9CalendarFactory`] **组合**一个 `AbstractCalendarFactory`，并把 `process_calendar_data` 转发给它（同时把自己作为 `factory` 传入） |
+//! | `abstract class AbstractCalendarFactory` | the [`AbstractCalendarFactory`] struct in this file (holding `file`) |
+//! | the base class's 8 `protected abstract` methods | the [`AbstractCalendarFactoryMethods`] trait (implemented by subclasses) |
+//! | the base class implements `processCalendarData` (virtually calling the abstract methods) | [`AbstractCalendarFactory::process_calendar_data`] gains a `factory: &dyn AbstractCalendarFactoryMethods` parameter, and the base class calls back into the subclass implementation |
+//! | `MPP9CalendarFactory extends AbstractCalendarFactory` | [`crate::mpp::mpp9_calendar_factory::MPP9CalendarFactory`] **composes** an `AbstractCalendarFactory` and forwards `process_calendar_data` to it (also passing itself as `factory`) |
 //!
-//! 之所以需要 [`AbstractCalendarFactoryMethods`]：Java 的 `processCalendarData` 会调用
-//! `getCalendarIDOffset()` 等由子类覆写的抽象方法，Rust 没有虚方法，只能显式把子类
-//! 作为 trait 对象传入（等价于 Java 的动态分派）。抽象方法名与 Java 保持 1:1。
+//! [`AbstractCalendarFactoryMethods`] is needed because Java's `processCalendarData` calls
+//! abstract methods such as `getCalendarIDOffset()` that are overridden by subclasses; Rust has no virtual methods, so the subclass can only be passed explicitly
+//! as a trait object (equivalent to Java's dynamic dispatch). The abstract method names are kept 1:1 with Java.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | 按约定共享；访问用 `try_borrow` / `try_borrow_mut`，避免借用冲突 panic |
-//! | `ProjectCalendar` | `Rc<RefCell<ProjectCalendar>>` | 日历需要在文件容器与局部变量间共享 |
-//! | `byte[]` | `&[u8]` / `Option<&[u8]>` | Java 的 `null` → `None` |
-//! | `Pair<ProjectCalendar, Integer>` | `(Rc<RefCell<ProjectCalendar>>, i32)` | [`crate::common::pair`] 的 `Pair` 未被使用 |
-//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java 越界抛异常，Rust 必须不 panic（见函数注释） |
-//! | `LocalTime.plus(duration, MILLIS)` | [`plus_milliseconds`] | chrono 没有等价的「按毫秒回绕」方法 |
+//! | `ProjectFile m_file` | `Rc<RefCell<ProjectFile>>` | shared by convention; access uses `try_borrow` / `try_borrow_mut` to avoid a borrow conflict panic |
+//! | `ProjectCalendar` | `Rc<RefCell<ProjectCalendar>>` | the calendar must be shared between the file container and local variables |
+//! | `byte[]` | `&[u8]` / `Option<&[u8]>` | Java's `null` → `None` |
+//! | `Pair<ProjectCalendar, Integer>` | `(Rc<RefCell<ProjectCalendar>>, i32)` | the `Pair` from [`crate::common::pair`] is not used |
+//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java throws on out of bounds, while Rust must not panic (see the function docs) |
+//! | `LocalTime.plus(duration, MILLIS)` | [`plus_milliseconds`] | chrono has no equivalent "wrap by milliseconds" method |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无（`processCalendarHours` 为 `private`，Rust 侧同样不对模块外暴露）。
+//! Skipped Java methods/members: none (`processCalendarHours` is `private`, and the Rust side likewise does not expose it outside the module).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -61,15 +61,15 @@ use crate::project_calendar::ProjectCalendar;
 use crate::project_calendar_days::ProjectCalendarDays;
 use crate::project_file::ProjectFile;
 
-/// 默认工作周（下标与 `DayOfWeekHelper::get_instance(index + 1)` 对应：0 = 周日）。
+/// Default working week (the index corresponds to `DayOfWeekHelper::get_instance(index + 1)`: 0 = Sunday).
 ///
-/// 对应 Java: `private static final boolean[] DEFAULT_WORKING_WEEK`
+/// Corresponds to Java: `private static final boolean[] DEFAULT_WORKING_WEEK`
 const DEFAULT_WORKING_WEEK: [bool; 7] = [false, true, true, true, true, true, false];
 
-/// Java 的 `DayOfWeek.values()` 的顺序（周一 → 周日）。
+/// The order of Java's `DayOfWeek.values()` (Monday → Sunday).
 ///
-/// 注意与 [`DayOfWeekHelper::ORDERED_DAYS`]（周日 → 周六）不同，Java 的
-/// `Stream.of(DayOfWeek.values())` 用的是枚举声明顺序。
+/// Note that this differs from [`DayOfWeekHelper::ORDERED_DAYS`] (Sunday → Saturday); Java's
+/// `Stream.of(DayOfWeek.values())` uses the enum declaration order.
 const JAVA_DAY_OF_WEEK_VALUES: [Weekday; 7] = [
     Weekday::Mon,
     Weekday::Tue,
@@ -80,84 +80,84 @@ const JAVA_DAY_OF_WEEK_VALUES: [Weekday; 7] = [
     Weekday::Sun,
 ];
 
-/// `AbstractCalendarFactory` 中由子类覆写的抽象方法的 Rust 表达。
+/// Rust representation of the abstract methods in `AbstractCalendarFactory` overridden by subclasses.
 ///
-/// 对应 Java: `AbstractCalendarFactory` 的 8 个 `protected abstract` 方法。
-/// Java 的基类在 `processCalendarData` 中虚调用它们；Rust 侧改为由调用方把具体工厂
-/// 作为 `&dyn` 传入（见文件头「继承关系的还原」）。
+/// Corresponds to Java: the 8 `protected abstract` methods of `AbstractCalendarFactory`.
+/// Java's base class virtually calls them in `processCalendarData`; the Rust side instead has the caller pass the concrete factory
+/// in as `&dyn` (see "Restoring the inheritance relationships" in the file header).
 pub trait AbstractCalendarFactoryMethods {
-    /// 日历唯一 ID 在定长数据块中的偏移。
+/// Offset of the calendar unique ID within the fixed-length data block.
     ///
-    /// 对应 Java: `protected abstract int getCalendarIDOffset()`
+    /// Corresponds to Java: `protected abstract int getCalendarIDOffset()`
     fn get_calendar_id_offset(&self) -> usize;
 
-    /// 基日历唯一 ID 在定长数据块中的偏移。
+/// Offset of the base calendar unique ID within the fixed-length data block.
     ///
-    /// 对应 Java: `protected abstract int getBaseIDOffset()`
+    /// Corresponds to Java: `protected abstract int getBaseIDOffset()`
     fn get_base_id_offset(&self) -> usize;
 
-    /// 资源 ID 在定长数据块中的偏移。
+/// Offset of the resource ID within the fixed-length data block.
     ///
-    /// 对应 Java: `protected abstract int getResourceIDOffset()`
+    /// Corresponds to Java: `protected abstract int getResourceIDOffset()`
     fn get_resource_id_offset(&self) -> usize;
 
-    /// 读取 `TBkndCal` 下的 `VarMeta` 流。
+/// Read the `VarMeta` stream under `TBkndCal`.
     ///
-    /// 对应 Java: `protected abstract VarMeta getCalendarVarMeta(DirectoryEntry directory) throws IOException`
+    /// Corresponds to Java: `protected abstract VarMeta getCalendarVarMeta(DirectoryEntry directory) throws IOException`
     fn get_calendar_var_meta(&self, directory: &DirectoryEntry) -> MpxjResult<Rc<dyn VarMeta>>;
 
-    /// 每个星期的工作时段块在日历数据块中的起始偏移。
+/// Start offset of each weekday's working-hours block within the calendar data block.
     ///
-    /// 对应 Java: `protected abstract int getCalendarHoursOffset()`
+    /// Corresponds to Java: `protected abstract int getCalendarHoursOffset()`
     fn get_calendar_hours_offset(&self) -> usize;
 
-    /// 存放日历名称的 VarData 类型。
+/// VarData type storing the calendar name.
     ///
-    /// 对应 Java: `protected abstract Integer getCalendarNameVarDataType()`
+    /// Corresponds to Java: `protected abstract Integer getCalendarNameVarDataType()`
     fn get_calendar_name_var_data_type(&self) -> i32;
 
-    /// 存放日历数据的 VarData 类型。
+/// VarData type storing the calendar data.
     ///
-    /// 对应 Java: `protected abstract Integer getCalendarDataVarDataType()`
+    /// Corresponds to Java: `protected abstract Integer getCalendarDataVarDataType()`
     fn get_calendar_data_var_data_type(&self) -> i32;
 
-    /// 解析日历数据块中的例外日期。
+/// Parse the exception dates in the calendar data block.
     ///
-    /// 对应 Java: `protected abstract void processCalendarExceptions(byte[] data, ProjectCalendar cal)`
+    /// Corresponds to Java: `protected abstract void processCalendarExceptions(byte[] data, ProjectCalendar cal)`
     fn process_calendar_exceptions(&self, data: &[u8], cal: &Rc<RefCell<ProjectCalendar>>);
 }
 
-/// 日历读取的公共实现。
+/// Common implementation for calendar reading.
 ///
-/// 对应 Java: `abstract class AbstractCalendarFactory implements CalendarFactory`
+/// Corresponds to Java: `abstract class AbstractCalendarFactory implements CalendarFactory`
 pub struct AbstractCalendarFactory {
-    /// 对应 Java 字段: `private final ProjectFile m_file;`
+    /// Corresponds to Java field: `private final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 }
 
 impl AbstractCalendarFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public AbstractCalendarFactory(ProjectFile file)`
+    /// Corresponds to Java: `public AbstractCalendarFactory(ProjectFile file)`
     ///
-    /// Java 侧持有 `ProjectFile` 强引用；Rust 侧按约定用 `Rc<RefCell<ProjectFile>>` 共享。
+/// The Java side holds a strong `ProjectFile` reference; the Rust side uses `Rc<RefCell<ProjectFile>>` sharing by convention.
     pub fn new(file: Rc<RefCell<ProjectFile>>) -> Self {
         Self { file }
     }
 
-    /// 取所属项目文件。
+/// Get the owning project file.
     ///
-    /// Rust 特有：Java 的子类直接访问 protected 字段 `m_file`，Rust 侧提供读取入口。
+/// Rust-specific: Java's subclasses access the protected field `m_file` directly, while the Rust side provides an accessor.
     pub fn get_file(&self) -> &Rc<RefCell<ProjectFile>> {
         &self.file
     }
 
-    /// 日历数据块的结构：4 字节块头 + 7 × 60 字节（一周七天）+（MPP12 起）例外日期块。
+/// Calendar data block layout: 4-byte block header + 7 × 60 bytes (seven days of the week) + (from MPP12) the exception date block.
     ///
-    /// 对应 Java: `public void processCalendarData(DirectoryEntry projectDir, Props projectProps,
+    /// Corresponds to Java: `public void processCalendarData(DirectoryEntry projectDir, Props projectProps,
     /// DocumentInputStreamFactory inputStreamFactory, HashMap<Integer, ProjectCalendar> resourceMap)`
     ///
-    /// `factory` 是「子类」——Java 侧由继承与虚方法提供抽象方法实现，Rust 侧显式传入。
+/// `factory` is the "subclass" — on the Java side the abstract method implementations come from inheritance and virtual methods, while the Rust side passes them in explicitly.
     pub fn process_calendar_data(
         &self,
         factory: &dyn AbstractCalendarFactoryMethods,
@@ -167,7 +167,7 @@ impl AbstractCalendarFactory {
         resource_map: &mut HashMap<i32, Rc<RefCell<ProjectCalendar>>>,
     ) -> MpxjResult<()> {
         // Java: DirectoryEntry calDir = (DirectoryEntry) projectDir.getEntry("TBkndCal");
-        // POI 找不到条目时抛异常，强转失败时抛 ClassCastException；Rust 侧返回 Err。
+// POI throws when it cannot find an entry and throws ClassCastException when the cast fails; the Rust side returns Err.
         let Some(cal_dir) = project_dir.get_directory("TBkndCal") else {
             return Err(MpxjError::new("Missing TBkndCal directory"));
         };
@@ -409,14 +409,14 @@ impl AbstractCalendarFactory {
         Ok(())
     }
 
-    /// 设置每一天的工作日标志；数据块里存在工作时段时一并写入。
+/// Set the working-day flag for each day; also writes the working hours when the data block contains them.
     ///
-    /// 对应 Java: `private void processCalendarHours(byte[] data, ProjectCalendar defaultCalendar,
+    /// Corresponds to Java: `private void processCalendarHours(byte[] data, ProjectCalendar defaultCalendar,
     /// ProjectCalendar cal, boolean isBaseCalendar)`
     ///
-    /// Java 的 `data` / `defaultCalendar` 允许为 `null`，Rust 侧对应 `None`。
-    /// `cal` 在 Java 里既可能是刚构造的独立实例（默认日历），也可能是文件中的日历，
-    /// 故 Rust 侧接收 `&mut ProjectCalendar`（调用方自行从 `Rc<RefCell<..>>` 借出）。
+/// Java's `data` / `defaultCalendar` may be `null`, corresponding to `None` on the Rust side.
+/// In Java `cal` may be either a freshly constructed standalone instance (the default calendar) or a calendar in the file,
+/// so the Rust side accepts `&mut ProjectCalendar` (the caller borrows it out of the `Rc<RefCell<..>>` itself).
     ///
     /// NOTE: MPP14 defines the concept of working weeks. MPXJ does not
     /// currently support this, and thus we only read the working hours
@@ -467,7 +467,7 @@ impl AbstractCalendarFactory {
                             let working_day = default_calendar.is_working_day(day);
                             cal.set_working_day(day, working_day);
                             if working_day {
-                                // Java 的 getHours 可能返回 null（未定义工作时段），故用 Option 承接
+// Java's getHours may return null (working hours undefined), hence Option is used to receive it
                                 if let Some(default_hours) = default_calendar.get_hours(day) {
                                     if let Some(hours) = cal.get_calendar_hours_for_day_mut(day) {
                                         hours.add_all(&default_hours);
@@ -482,10 +482,10 @@ impl AbstractCalendarFactory {
                 }
             } else {
                 //
-                // 显式定义了工作时段
+// Working hours are explicitly defined
                 //
                 // Java: periodIndex = 0; periodCount = ByteArrayHelper.getShort(data, offset + 2);
-                // （defaultFlag != 1 只可能来自 Some(data)，此处的兜底不会触发）
+// (defaultFlag != 1 can only come from Some(data), so this fallback never triggers)
                 let Some(data) = data else {
                     continue;
                 };
@@ -527,9 +527,9 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 把「基日历 ID」占位（MPP14 的派生日历可能前向引用基日历）转换为真正的父子关系。
+/// Convert the "base calendar ID" placeholder (an MPP14 derived calendar may forward-reference its base calendar) into a real parent-child relationship.
     ///
-    /// 对应 Java: `private void updateBaseCalendarNames(List<Pair<ProjectCalendar, Integer>> baseCalendars,
+    /// Corresponds to Java: `private void updateBaseCalendarNames(List<Pair<ProjectCalendar, Integer>> baseCalendars,
     /// HashMap<Integer, ProjectCalendar> map)`
     fn update_base_calendar_names(
         &self,
@@ -553,7 +553,7 @@ impl AbstractCalendarFactory {
                     cal_ref.set_parent(base_cal.map(Rc::clone));
                 }
             } else {
-                // Java: m_file.removeCalendar(cal);（移除非法日历，避免后续出现严重问题）
+// Java: m_file.removeCalendar(cal); (removes the invalid calendar to avoid serious problems later)
                 if let Ok(mut file) = self.file.try_borrow_mut() {
                     file.remove_calendar(cal);
                 }
@@ -561,10 +561,10 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 取上下文的弱引用（供新建独立日历时使用）。
+/// Get a weak reference to the context (used when creating a standalone calendar).
     ///
-    /// Java 的 `new ProjectCalendar(m_file)` 内部取 `file.getProjectContext()`（强引用）；
-    /// Rust 的 [`ProjectCalendar::new`] 需要 `Weak<RefCell<ProjectContext>>`。
+/// Java's `new ProjectCalendar(m_file)` internally obtains `file.getProjectContext()` (a strong reference);
+/// the Rust [`ProjectCalendar::new`] needs a `Weak<RefCell<ProjectContext>>`.
     fn project_context_weak(
         &self,
     ) -> std::rc::Weak<RefCell<crate::project_context::ProjectContext>> {
@@ -574,11 +574,11 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 新建日历。
+/// Create a new calendar.
     ///
-    /// 对应 Java: `m_file.addCalendar()`
+    /// Corresponds to Java: `m_file.addCalendar()`
     ///
-    /// 文件正被借用（Java 不会出现）时返回一个游离日历，保证不 panic。
+/// When the file is already borrowed (which cannot happen in Java) returns a detached calendar to guarantee no panic.
     fn add_calendar(&self) -> Rc<RefCell<ProjectCalendar>> {
         match self.file.try_borrow_mut() {
             Ok(mut file) => file.add_calendar(),
@@ -589,9 +589,9 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 新建名为 “Standard” 的基准日历。
+/// Create a base calendar named "Standard".
     ///
-    /// 对应 Java: `m_file.addDefaultBaseCalendar()`
+    /// Corresponds to Java: `m_file.addDefaultBaseCalendar()`
     fn add_default_base_calendar(&self) -> Rc<RefCell<ProjectCalendar>> {
         match self.file.try_borrow_mut() {
             Ok(mut file) => file.add_default_base_calendar(),
@@ -599,9 +599,9 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 新建一个默认派生日历。
+/// Create a default derived calendar.
     ///
-    /// 对应 Java: `m_file.addDefaultDerivedCalendar()`
+    /// Corresponds to Java: `m_file.addDefaultDerivedCalendar()`
     fn add_default_derived_calendar(&self) -> Rc<RefCell<ProjectCalendar>> {
         match self.file.try_borrow_mut() {
             Ok(mut file) => file.add_default_derived_calendar(),
@@ -609,12 +609,12 @@ impl AbstractCalendarFactory {
         }
     }
 
-    /// 触发「日历已读取」事件。
+/// Fire the "calendar read" event.
     ///
-    /// 对应 Java: `m_file.getEventManager().fireCalendarReadEvent(cal)`
+    /// Corresponds to Java: `m_file.getEventManager().fireCalendarReadEvent(cal)`
     ///
-    /// Rust 侧的事件管理器挂在 `ProjectContext` 上（`EventManager::fire_calendar_read_event`
-    /// 需要 `&mut`），故经由上下文的可变借用触发。
+/// The Rust-side event manager hangs off `ProjectContext` (`EventManager::fire_calendar_read_event`
+/// needs `&mut`), so it is fired through a mutable borrow of the context.
     fn fire_calendar_read_event(&self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         let Ok(file) = self.file.try_borrow() else {
             return;
@@ -630,35 +630,35 @@ impl AbstractCalendarFactory {
     }
 }
 
-/// 读取小端 `short`，数据不足两个字节时返回 0。
+/// Read a little-endian `short`, returning 0 when fewer than two bytes of data are available.
 ///
-/// [`ByteArrayHelper::get_short`] 越界时会 panic（Java 抛
-/// `ArrayIndexOutOfBoundsException`），本模块内统一用本函数做边界保护。
+/// [`ByteArrayHelper::get_short`] panics when out of bounds (Java throws
+/// `ArrayIndexOutOfBoundsException`), so this function is used throughout this module for bounds protection.
 pub(crate) fn get_short_safe(data: &[u8], offset: usize) -> i32 {
     if offset.checked_add(2).map_or(true, |end| end > data.len()) {
-        // Java 会抛 ArrayIndexOutOfBoundsException；Rust 侧返回 0
+// Java throws ArrayIndexOutOfBoundsException; the Rust side returns 0
         return 0;
     }
 
     ByteArrayHelper::get_short(data, offset)
 }
 
-/// 读取小端 `int`，数据不足四个字节时返回 0。
+/// Read a little-endian `int`, returning 0 when fewer than four bytes of data are available.
 ///
-/// 理由同 [`get_short_safe`]。
+/// Same rationale as [`get_short_safe`].
 pub(crate) fn get_int_safe(data: &[u8], offset: usize) -> i32 {
     if offset.checked_add(4).map_or(true, |end| end > data.len()) {
-        // Java 会抛 ArrayIndexOutOfBoundsException；Rust 侧返回 0
+// Java throws ArrayIndexOutOfBoundsException; the Rust side returns 0
         return 0;
     }
 
     ByteArrayHelper::get_int(data, offset)
 }
 
-/// 在 `LocalTime` 上加上若干毫秒，并按一天（24 小时）回绕。
+/// Add a number of milliseconds to a `LocalTime`, wrapping around a day (24 hours).
 ///
-/// 对应 Java: `LocalTime.plus(long amountToAdd, ChronoUnit.MILLIS)` —— Java 的
-/// `LocalTime` 是模 24 小时的时钟，`plus` 会回绕；chrono 的加减法会溢出报错，故此处复刻。
+/// Corresponds to Java: `LocalTime.plus(long amountToAdd, ChronoUnit.MILLIS)` — Java's
+/// `LocalTime` is a clock modulo 24 hours and `plus` wraps around; chrono's add/subtract reports an overflow error, so it is replicated here.
 pub(crate) fn plus_milliseconds(time: NaiveTime, milliseconds: i64) -> NaiveTime {
     const MILLIS_PER_DAY: i64 = 86_400_000;
 
@@ -676,8 +676,8 @@ mod tests {
     use super::*;
     use chrono::NaiveTime;
 
-    /// 测试用「子类」：实现抽象方法，抽象方法行为与 `MPP9CalendarFactory` 一致
-    /// （日历 ID 偏移 0、基日历偏移 4、资源偏移 8、工作时段偏移 4）。
+/// Test "subclass": implements the abstract methods, whose behavior matches `MPP9CalendarFactory`
+/// (calendar ID offset 0, base calendar offset 4, resource offset 8, working hours offset 4).
     struct TestFactory;
 
     impl AbstractCalendarFactoryMethods for TestFactory {
@@ -718,11 +718,11 @@ mod tests {
         }
 
         fn process_calendar_exceptions(&self, _data: &[u8], _cal: &Rc<RefCell<ProjectCalendar>>) {
-            // 本模块的测试只覆盖工作时段解析
+// The tests in this module cover only working-hours parsing
         }
     }
 
-    /// 工作日块（60 字节）：默认标志 + 时段数 + 各时段的开始时间 / 时长。
+/// Weekday block (60 bytes): default flag + number of periods + each period's start time / duration.
     fn day_block(default_flag: i32, periods: &[(u16, u32)]) -> [u8; 60] {
         let mut block = [0u8; 60];
         block[0..2].copy_from_slice(&(default_flag as u16).to_le_bytes());
@@ -738,43 +738,43 @@ mod tests {
         block
     }
 
-    /// 时间值：以「十分之一分钟」为单位的自午夜起算值。
+/// Time value: a value measured from midnight in units of one tenth of a minute.
     fn tenths_of_minute(hour: u32, minute: u32) -> u16 {
         ((hour * 60 + minute) * 10) as u16
     }
 
-    /// 时长值：以「十分之一分钟」为单位。
+/// Duration value: in units of one tenth of a minute.
     fn duration_tenths(hours: u32) -> u32 {
         hours * 60 * 10
     }
 
     fn default_week_blocks() -> Vec<u8> {
-        // 4 字节块头（TestFactory 的 get_calendar_hours_offset() 为 4）
+// 4-byte block header (TestFactory's get_calendar_hours_offset() is 4)
         let mut data = vec![0u8; 4];
-        // 顺序为 周日、周一 … 周六（DayOfWeekHelper.getInstance(index + 1)）
-        data.extend_from_slice(&day_block(1, &[])); // 周日：用默认值
+// The order is Sunday, Monday … Saturday (DayOfWeekHelper.getInstance(index + 1))
+        data.extend_from_slice(&day_block(1, &[])); // Sunday: use default value
         data.extend_from_slice(&day_block(
             0,
             &[
                 (tenths_of_minute(9, 0), duration_tenths(4)),
                 (tenths_of_minute(14, 0), duration_tenths(3)),
             ],
-        )); // 周一：09:00-13:00 / 14:00-17:00
-        data.extend_from_slice(&day_block(0, &[])); // 周二：休息
-        data.extend_from_slice(&day_block(1, &[])); // 周三：用默认值
-        data.extend_from_slice(&day_block(0, &[])); // 周四：休息
-        data.extend_from_slice(&day_block(1, &[])); // 周五：用默认值
-        data.extend_from_slice(&day_block(0, &[])); // 周六：休息
+        )); // Monday: 09:00-13:00 / 14:00-17:00
+        data.extend_from_slice(&day_block(0, &[])); // Tuesday: rest day
+        data.extend_from_slice(&day_block(1, &[])); // Wednesday: use default value
+        data.extend_from_slice(&day_block(0, &[])); // Thursday: rest day
+        data.extend_from_slice(&day_block(1, &[])); // Friday: use default value
+        data.extend_from_slice(&day_block(0, &[])); // Saturday: rest day
         data
     }
 
     fn time(hour: u32, minute: u32) -> NaiveTime {
-        NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间")
+        NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time")
     }
 
-    /// 构造仅含工作时段数据块的「日历数据」字节流并驱动解析。
+/// Build a "calendar data" byte stream containing only the working-hours data block and drive parsing.
     ///
-    /// 数据需要包含 4 字节块头（本测试的偏移约定为 `get_calendar_hours_offset() == 4`）。
+/// The data must include the 4-byte block header (this test's offset convention is `get_calendar_hours_offset() == 4`).
     fn process_week_blocks(data: &[u8]) -> ProjectCalendar {
         let file = ProjectFile::new();
         let factory = TestFactory;
@@ -790,7 +790,7 @@ mod tests {
         let calendar = process_week_blocks(&default_week_blocks());
 
         assert_eq!(calendar.get_day_type(Weekday::Mon), Some(DayType::Working));
-        let monday = calendar.get_hours(Weekday::Mon).expect("周一应有工作时段");
+        let monday = calendar.get_hours(Weekday::Mon).expect("Monday should have working hours");
         assert_eq!(monday.size(), 2);
         assert_eq!(
             monday.get(0),
@@ -810,14 +810,14 @@ mod tests {
 
     #[test]
     fn default_flag_days_fall_back_to_the_default_working_week() {
-        // 未提供 defaultCalendar（Java 的 null）：周一至周五按 08:00-12:00 / 13:00-17:00
+// No defaultCalendar provided (Java's null): Monday to Friday at 08:00-12:00 / 13:00-17:00
         let calendar = process_week_blocks(&default_week_blocks());
 
         assert_eq!(
             calendar.get_day_type(Weekday::Wed),
             Some(DayType::Working)
         );
-        let wednesday = calendar.get_hours(Weekday::Wed).expect("周三应有默认工作时段");
+        let wednesday = calendar.get_hours(Weekday::Wed).expect("Wednesday should have default working hours");
         assert_eq!(wednesday.size(), 2);
         assert_eq!(
             wednesday.get(0),
@@ -828,7 +828,7 @@ mod tests {
             LocalTimeRange::new(Some(time(13, 0)), Some(time(17, 0)))
         );
 
-        // 周日 / 周六为默认的非工作日
+// Sunday / Saturday are the default non-working days
         assert_eq!(
             calendar.get_day_type(Weekday::Sun),
             Some(DayType::NonWorking)
@@ -845,7 +845,7 @@ mod tests {
         let factory = TestFactory;
         let base = AbstractCalendarFactory::new(Rc::clone(&file));
 
-        // 默认日历：全部为默认标志（周一至周五 08:00-12:00 / 13:00-17:00）
+// Default calendar: all default flags (Monday to Friday 08:00-12:00 / 13:00-17:00)
         let mut default_calendar = ProjectCalendar::new(std::rc::Weak::new(), false);
         base.process_calendar_hours(&factory, None, None, &mut default_calendar, true);
 
@@ -859,7 +859,7 @@ mod tests {
             true,
         );
 
-        let friday = calendar.get_hours(Weekday::Fri).expect("周五应继承默认时段");
+        let friday = calendar.get_hours(Weekday::Fri).expect("Friday should inherit default hours");
         assert_eq!(friday.size(), 2);
         assert_eq!(
             friday.get(0),
@@ -874,7 +874,7 @@ mod tests {
         let base = AbstractCalendarFactory::new(Rc::clone(&file));
 
         let mut calendar = ProjectCalendar::new(std::rc::Weak::new(), false);
-        // isBaseCalendar = false：默认标志的日子写入 DayType::DEFAULT
+// isBaseCalendar = false: days with the default flag are written as DayType::DEFAULT
         let data = default_week_blocks();
         base.process_calendar_hours(
             &factory,
@@ -904,7 +904,7 @@ mod tests {
         let factory = TestFactory;
         let base = AbstractCalendarFactory::new(Rc::clone(&file));
 
-        // 数据块远短于 7 × 60 字节：所有取数都越界（Java 抛异常，Rust 返回 0 / 空）
+// The data block is far shorter than 7 × 60 bytes: every read is out of bounds (Java throws, Rust returns 0 / empty)
         for data in [vec![], vec![0u8; 4], vec![0u8; 30]] {
             let mut calendar = ProjectCalendar::new(std::rc::Weak::new(), false);
             base.process_calendar_hours(

@@ -1,28 +1,28 @@
-//! 对应 Java: `org/mpxj/mpp/GroupReader14.java`
+//! Corresponds to Java: `org/mpxj/mpp/GroupReader14.java`
 //!
-//! MPP14 的分组定义读取器。**本类在 Java 中不继承 `GroupReader`**（它是独立的
-//! `final class`，另有自己的解析实现），因此 Rust 侧同样是独立结构体，不实现
-//! [`GroupReader`](crate::mpp::group_reader::GroupReader) trait。
+//! Group definition reader for MPP14. **This class does not extend `GroupReader` in Java** (it is a standalone
+//! `final class` with its own parsing implementation), so the Rust side is likewise a standalone struct and does not implement
+//! [`GroupReader`](crate::mpp::group_reader::GroupReader) trait.
 //!
-//! 与 9 / 12 版的布局差异：块头 12 字节、子句 71 字节（9 / 12 版是 8 / 48），
-//! 分组方式在 `offset + 38`（单字节，9 / 12 版在 `offset + 14` 的短整数），
-//! 起始值 / 分组间隔分别在 `offset + 47` / `offset + 63`。
+//! Layout differences from versions 9 / 12: 12-byte block header, 71-byte clause (versions 9 / 12 use 8 / 48),
+//! the grouping method is at `offset + 38` (single byte; versions 9 / 12 use a short at `offset + 14`),
+//! and the start value / group interval are at `offset + 47` / `offset + 63` respectively.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 项目文件在本 crate 中以 `Rc<RefCell<..>>` 共享 |
-//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>` | Java 用它按 `offset + 8` 的字体序号取出 [`FontBase`]，再构造 [`FontStyle`] 交给 `clause.setFont(...)`；Rust 侧一致（字体表里没有该序号时 Java 传 `null`，Rust 传 `None`） |
-//! | `Color fontColor = MPPUtility.getColor(groupVarData, offset + 10)`、`clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22))`、`clause.setPattern(BackgroundPattern.getInstance(...))` | [`clause.set_font`](crate::group_clause::GroupClause::set_font) / [`clause.set_cell_background_color`](crate::group_clause::GroupClause::set_cell_background_color) / [`clause.set_pattern`](crate::group_clause::GroupClause::set_pattern) | 逐行还原；14 版直接取 `MPPUtility.getColor`（可返回 `null` ⇒ `Option<Color>`），与 9 / 12 版的 `ColorType` 路径不同，与 Java 一致 |
-//! | `ByteArrayHelper.getShort/getInt` 越界抛 `ArrayIndexOutOfBoundsException` | [`get_short_safe`] / [`get_int_safe`] 返回 0 | 遵循「不 panic」约定 |
-//! | `file.getGroups().add(group)` 在填充子句**之前**调用 | 填好子句后再 `add` | 容器按值持有分组，最终状态与 Java 一致 |
-//! | `Object startAt` / `Object groupInterval` | `Option<FieldValue>` | 取值可能是双精度 / 整数 / 布尔 / 日期时间，与 [`GroupClause`](crate::group_clause::GroupClause) 的成员类型一致 |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | Project files are shared in this crate as `Rc<RefCell<..>>` |
+//! | `Map<Integer, FontBase> fontBases` | `&HashMap<i32, FontBase>` | Java uses it to look up a [`FontBase`] by the font index at `offset + 8`, then builds a [`FontStyle`] and passes it to `clause.setFont(...)`; Rust does the same (when the font table has no such index, Java passes `null` and Rust passes `None`) |
+//! | `Color fontColor = MPPUtility.getColor(groupVarData, offset + 10)`, `clause.setCellBackgroundColor(MPPUtility.getColor(groupVarData, offset + 22))`, `clause.setPattern(BackgroundPattern.getInstance(...))` | [`clause.set_font`](crate::group_clause::GroupClause::set_font) / [`clause.set_cell_background_color`](crate::group_clause::GroupClause::set_cell_background_color) / [`clause.set_pattern`](crate::group_clause::GroupClause::set_pattern) | Translated line by line; version 14 calls `MPPUtility.getColor` directly (it may return `null` ⇒ `Option<Color>`), unlike the `ColorType` path of versions 9 / 12, consistent with Java |
+//! | `ByteArrayHelper.getShort/getInt` throws `ArrayIndexOutOfBoundsException` when out of bounds | [`get_short_safe`] / [`get_int_safe`] return 0 | follows the "no panic" convention |
+//! | `file.getGroups().add(group)` is called **before** the clauses are populated | `add` after the clauses are populated | the container holds groups by value; the final state matches Java |
+//! | `Object startAt` / `Object groupInterval` | `Option<FieldValue>` | the value may be a double / integer / boolean / date-time, matching the member type of [`GroupClause`](crate::group_clause::GroupClause) |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制
-//! （`java.awt.Color` 已由 `crate::mpp::mpp_utility::Color` 代替）。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms
+//! (`java.awt.Color` has been replaced by `crate::mpp::mpp_utility::Color`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -44,32 +44,32 @@ use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::var2_data::Var2Data;
 use crate::project_file::ProjectFile;
 
-/// 分组子句的字节数。
+/// Number of bytes in a group clause.
 ///
-/// 对应 Java: `offset += 71;`
+/// Corresponds to Java: `offset += 71;`
 const CLAUSE_BLOCK_SIZE: usize = 71;
 
-/// MPP14 分组定义读取器。
+/// MPP14 group definition reader.
 ///
-/// 对应 Java: `final class GroupReader14`
+/// Corresponds to Java: `final class GroupReader14`
 pub struct GroupReader14;
 
 impl GroupReader14 {
-    /// 本版本文件用于读取分组数据的 `Var2Data` 数据类型键。
+/// The `Var2Data` data type key this file version uses to read group data.
     ///
-    /// 对应 Java: `private static final Integer GROUP_DATA = Integer.valueOf(6);`
+    /// Corresponds to Java: `private static final Integer GROUP_DATA = Integer.valueOf(6);`
     pub const GROUP_DATA: i32 = 6;
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: the implicit default constructor (Java declares no explicit constructor).
     pub fn new() -> Self {
         Self
     }
 
-    /// 读取全部分组定义并加入项目文件。
+/// Read all group definitions and add them to the project file.
     ///
-    /// 对应 Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData,
+    /// Corresponds to Java: `public void process(ProjectFile file, FixedData fixedData, Var2Data varData,
     /// Map<Integer, FontBase> fontBases)`
     pub fn process(
         &self,
@@ -181,7 +181,7 @@ impl GroupReader14 {
                 //       clause.setGroupOn(groupOn);
                 clause.set_group_on(MPPUtility::get_byte(&group_var_data, offset + 38));
 
-                // Java: offset+47=start at；offset+63=group interval
+                // Java: offset+47=start at;offset+63=group interval
                 let (start_at, group_interval) =
                     clause_values(type_.as_ref(), &group_var_data, offset);
                 clause.set_start_at(start_at);
@@ -194,7 +194,7 @@ impl GroupReader14 {
             }
 
             // Java: file.getGroups().add(group);
-            // Rust 侧容器存 `Rc<RefCell<Group>>`；文件正被借用时跳过（不 panic）
+// The Rust container stores `Rc<RefCell<Group>>`; skip when the file is already borrowed (without panicking)
             if let Ok(mut project) = file.try_borrow_mut() {
                 project.get_groups_mut().add(Rc::new(RefCell::new(group)));
             }
@@ -203,19 +203,19 @@ impl GroupReader14 {
 }
 
 impl Default for GroupReader14 {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`GroupReader14::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`GroupReader14::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 按字段的数据类型读取子句的「起始值」与「分组间隔」。
+/// Read a clause's "start value" and "group interval" according to the field's data type.
 ///
-/// 对应 Java: `GroupReader14.process` 中的
+/// Corresponds to Java: in `GroupReader14.process`
 /// `if (type.getDataType() != null) { switch (type.getDataType()) { ... } }`
-///（起始值在 `offset + 47`、分组间隔在 `offset + 63`）。
+/// (start value at `offset + 47`, group interval at `offset + 63`).
 ///
-/// 与 9 / 12 版不同，14 版在字段类型为 `None` 时只是跳过整段（不会 NPE）。
+/// Unlike versions 9 / 12, version 14 merely skips the whole section when the field type is `None` (no NPE).
 fn clause_values(
     type_: Option<&MppFieldType>,
     data: &[u8],
@@ -228,25 +228,25 @@ fn clause_values(
             Some(FieldValue::Double(MPPUtility::get_double(data, offset + 63))),
         ),
 
-        // Java: case PERCENTAGE:（整数）
+// Java: case PERCENTAGE: (integer)
         Some(DataType::Percentage) => (
             Some(FieldValue::Integer(get_int_safe(data, offset + 47))),
             Some(FieldValue::Integer(get_int_safe(data, offset + 63))),
         ),
 
-        // Java: case BOOLEAN:（只设置起始值）
+// Java: case BOOLEAN: (only the start value is set)
         Some(DataType::Boolean) => (
             Some(FieldValue::Boolean(get_short_safe(data, offset + 47) == 1)),
             None,
         ),
 
-        // Java: case DATE:（起始值是时间戳，间隔是整数）
+// Java: case DATE: (the start value is a timestamp, the interval is an integer)
         Some(DataType::Date) => (
             MPPUtility::get_timestamp(data, offset + 47).map(FieldValue::DateTime),
             Some(FieldValue::Integer(get_int_safe(data, offset + 63))),
         ),
 
-        // Java: default: break;（两者保持 null，含 getDataType() 为 null 的情形）
+// Java: default: break; (both stay null, including the case where getDataType() is null)
         _ => (None, None),
     }
 }
@@ -259,7 +259,7 @@ mod tests {
     use crate::mpp::mpp_utility::Color;
     use crate::task_field::TaskField;
 
-    /// 分组定长数据：`[0..4)` = ID，`[4..)` = 名称（UTF-16LE + NUL）。
+/// Group fixed data: `[0..4)` = ID, `[4..)` = name (UTF-16LE + NUL).
     fn group_fixed_record(id: i32, name: &str) -> Vec<u8> {
         let mut record = id.to_le_bytes().to_vec();
         for unit in name.encode_utf16() {
@@ -269,13 +269,13 @@ mod tests {
         record
     }
 
-    /// 字段号。
+/// Field number.
     fn field_id(field: TaskField) -> i32 {
         FieldTypeHelper::get_field_id(Some(&MppFieldType::Builtin(FieldKey::Task(field))))
     }
 
-    /// 构造 MPP14 分组变长数据：`[4..6)` = 是否显示摘要任务，`[10..12)` = 子句数，
-    /// 子句从偏移 12 起，每条 71 字节。
+/// Build MPP14 group variable data: `[4..6)` = whether summary tasks are shown, `[10..12)` = clause count,
+/// clauses start at offset 12, each 71 bytes.
     fn group_var_data(show_summary_tasks: bool, clauses: &[(TaskField, bool, i32)]) -> Vec<u8> {
         let mut data = vec![0u8; 12 + clauses.len() * 71];
         data[4..6].copy_from_slice(&(u16::from(show_summary_tasks)).to_le_bytes());
@@ -291,7 +291,7 @@ mod tests {
         data
     }
 
-    /// 71 字节子句布局：分组方式为单字节、起始值 / 间隔在 +47 / +63。
+/// 71-byte clause layout: the grouping method is a single byte, the start value / interval are at +47 / +63.
     #[test]
     fn reads_clause_with_71_byte_blocks() {
         let mut data = group_var_data(true, &[(TaskField::Cost, false, 3)]);
@@ -309,7 +309,7 @@ mod tests {
         let groups = project.get_groups();
         assert_eq!(groups.len(), 1);
 
-        let group = groups.get(0).expect("应有一个分组").borrow();
+        let group = groups.get(0).expect("should have one group").borrow();
         assert_eq!(group.get_id(), Some(3));
         assert_eq!(group.get_name(), Some("G14"));
         assert!(group.get_show_summary_tasks());
@@ -326,7 +326,7 @@ mod tests {
         );
     }
 
-    /// 多条子句（两条 71 字节块）与百分比 / 日期分支。
+/// Multiple clauses (two 71-byte blocks) and the percentage / date branches.
     #[test]
     fn multiple_clauses_and_value_branches() {
         let mut data = group_var_data(
@@ -338,7 +338,7 @@ mod tests {
         );
         data[12 + 47..12 + 51].copy_from_slice(&75i32.to_le_bytes());
         data[12 + 63..12 + 67].copy_from_slice(&25i32.to_le_bytes());
-        // 日期：天数 2 ⇒ 1984-01-02
+// date: 2 days ⇒ 1984-01-02
         data[83 + 47..83 + 51].copy_from_slice(&[0x00, 0x00, 0x02, 0x00]);
 
         let fixed = fixed_data(&[group_fixed_record(1, "G")]);
@@ -348,7 +348,7 @@ mod tests {
         GroupReader14::new().process(&file, &fixed, &var_data, &HashMap::new());
 
         let project = file.borrow();
-        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let group = project.get_groups().get(0).expect("should have one group").borrow();
         let clauses = group.get_group_clauses();
         assert_eq!(clauses.len(), 2);
 
@@ -362,9 +362,9 @@ mod tests {
             clauses[1].get_start_at(),
             Some(&FieldValue::DateTime(
                 chrono::NaiveDate::from_ymd_opt(1984, 1, 2)
-                    .expect("合法日期")
+                    .expect("valid date")
                     .and_hms_opt(0, 0, 0)
-                    .expect("合法时间")
+                    .expect("valid time")
             ))
         );
         assert_eq!(
@@ -374,13 +374,13 @@ mod tests {
         assert!(!group.get_show_summary_tasks());
     }
 
-    /// 字体样式 / 字体色 / 单元格背景色 / 图案四段被写入子句（14 版的偏移与 9 / 12 版不同）。
+/// The four sections font style / font color / cell background color / pattern are written into the clause (version 14's offsets differ from versions 9 / 12).
     #[test]
     fn clause_style_members_are_read() {
         let mut data = group_var_data(true, &[(TaskField::Cost, false, 3)]);
         let offset = 12;
-        // offset+8=字体序号；offset+9=style（0x01 粗体 / 0x02 斜体 / 0x04 下划线）；
-        // offset+10=字体色（R/G/B + 标志）；offset+22=背景色；offset+34=图案
+// offset+8=font index; offset+9=style (0x01 bold / 0x02 italic / 0x04 underline);
+// offset+10=font color (R/G/B + flags); offset+22=background color; offset+34=pattern
         data[offset + 8] = 1;
         data[offset + 9] = 0x02;
         data[offset + 10] = 0xFF;
@@ -398,10 +398,10 @@ mod tests {
         GroupReader14::new().process(&file, &fixed, &var_data, &font_bases);
 
         let project = file.borrow();
-        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let group = project.get_groups().get(0).expect("should have one group").borrow();
         let clause = &group.get_group_clauses()[0];
 
-        let font = clause.get_font().expect("应有字体样式");
+        let font = clause.get_font().expect("should have font style");
         assert_eq!(font.get_font_base().map(FontBase::get_name), Some("Arial"));
         assert!(!font.get_bold());
         assert!(font.get_italic());
@@ -419,17 +419,17 @@ mod tests {
         assert_eq!(clause.get_pattern(), Some(BackgroundPattern::Dotted));
     }
 
-    /// 数据截断 / 缺失时不 panic。
+/// Do not panic when data is truncated / missing.
     #[test]
     fn malformed_data_is_tolerated() {
-        // 变长数据里没有该 ID
+// the variable data has no such ID
         let fixed = fixed_data(&[group_fixed_record(1, "G")]);
         let (_, var_data) = var_data_with_meta(&[(2, GroupReader14::GROUP_DATA, vec![0u8; 8])]);
         let file = ProjectFile::new();
         GroupReader14::new().process(&file, &fixed, &var_data, &HashMap::new());
         assert!(file.borrow().get_groups().is_empty());
 
-        // 数据不足一条子句：循环 break
+// data is shorter than one clause: break the loop
         let mut data = vec![0u8; 40];
         data[10..12].copy_from_slice(&3u16.to_le_bytes());
         let fixed = fixed_data(&[group_fixed_record(1, "G")]);
@@ -437,11 +437,11 @@ mod tests {
         let file = ProjectFile::new();
         GroupReader14::new().process(&file, &fixed, &var_data, &HashMap::new());
         let project = file.borrow();
-        let group = project.get_groups().get(0).expect("应有一个分组").borrow();
+        let group = project.get_groups().get(0).expect("should have one group").borrow();
         assert!(group.get_group_clauses().is_empty());
     }
 
-    /// 默认构造与 `new` 等价。
+/// The default constructor is equivalent to `new`.
     #[test]
     fn default_matches_new() {
         let _ = GroupReader14::default();

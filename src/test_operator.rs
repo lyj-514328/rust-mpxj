@@ -1,43 +1,43 @@
-//! 对应 Java: `org/mpxj/TestOperator.java`
+//! Corresponds to Java: `org/mpxj/TestOperator.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `TYPE_VALUES = EnumHelper.createTypeArray(TestOperator.class)` | [`TestOperator::ALL`] + [`TestOperator::get_instance`]（无反射：Java 侧该数组按下标 `getValue()` 建表，`0..=13` 连续，`match` 即可等价表达） |
+//! | `TYPE_VALUES = EnumHelper.createTypeArray(TestOperator.class)` | [`TestOperator::ALL`] + [`TestOperator::get_instance`] (no reflection: Java builds that array by index `getValue()`, which is contiguous `0..=13`, so a `match` expresses it equivalently) |
 //! | `public static TestOperator getInstance(int type)` | [`TestOperator::get_instance`] |
-//! | `public static TestOperator getInstance(Number type)` | [`TestOperator::get_instance_optional`]（`null` → `-1` → 回落到 `IS_ANY_VALUE`，与 Java 一致） |
+//! | `public static TestOperator getInstance(Number type)` | [`TestOperator::get_instance_optional`] (`null` → `-1` → falls back to `IS_ANY_VALUE`, consistent with Java) |
 //! | `public int getValue()` | [`MpxjEnum::value`] |
 //! | `public abstract boolean evaluate(Object lhs, Object rhs)` | [`TestOperator::evaluate`] |
 //! | `protected Object getSingleOperand(Object operand)` | [`TestOperator::get_single_operand`] |
 //! | `protected boolean evaluateWithin(Object lhs, Object rhs)` | [`TestOperator::evaluate_within`] |
-//! | `protected int evaluateCompareTo(Object lhs, Object rhs)` | [`TestOperator::evaluate_compare_to`]（返回 `Option<Ordering>`，见下） |
+//! | `protected int evaluateCompareTo(Object lhs, Object rhs)` | [`TestOperator::evaluate_compare_to`] (returns `Option<Ordering>`, see below) |
 //! | `protected boolean evaluateContains(Object lhs, Object rhs)` | [`TestOperator::evaluate_contains`] |
 //! | `protected boolean evaluateContainsExactly(Object lhs, Object rhs)` | [`TestOperator::evaluate_contains_exactly`] |
-//! | `@Override public String toString()`（枚举默认实现） | [`Display`]（输出常量名，如 `"EQUALS"`） |
+//! | `@Override public String toString()` (default enum implementation) | [`Display`] (outputs the constant name, e.g. `"EQUALS"`) |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 1. **`Object` 操作数**：Java 的 `evaluate` / `setRightValue` 用 `Object` 承载
-//!    字符串 / 数值 / 日期 / 工期 / `FieldType` / `GenericCriteriaPrompt`。
-//!    Rust 侧引入 [`Operand`] 作为这组取值（见其说明），`evaluate` 的签名为
-//!    `evaluate(Option<&Operand>, &[Option<Operand>])`：
-//!    * `lhs` 用 `Option` 表达 Java 的 `null`；
-//!    * `rhs` 用切片表达 Java 的「单值 **或** `Object[]`」——
-//!      `GenericCriteria` 侧恒为长度 2 的数组，长度 1 的切片对应 Java 的「非数组单值」
-//!      （`IS_WITHIN` / `IS_NOT_WITHIN` 在非数组时结果为 `false`，与 Java 一致）。
-//! 2. **`compareTo` 的失败语义**：Java 侧 `((Comparable) lhs).compareTo(rhs)` 在类型不兼容时抛
-//!    `ClassCastException`；Rust 侧 [`TestOperator::evaluate_compare_to`] 返回 `Option<Ordering>`，
-//!    不可比较时为 `None`（调用方按 `false` 处理，不 panic）。
-//! 3. **`AND` / `OR`**：Java 侧 `evaluate` 直接抛 `UnsupportedOperationException`
-//!    （这两个常量只作为 `GenericCriteria` 的逻辑组合子使用）；Rust 库代码不 panic，
-//!    故返回 `false`（实际取值路径不会碰到，`GenericCriteria::evaluate` 会先行分流）。
-//! 4. **大小写不敏感比较**：Java 用 `toUpperCase()`（Unicode），Rust 侧同样用
-//!    [`str::to_uppercase`]（Unicode），行为一致。
-//! 5. **二进制操作数**：Java `byte[]` 默认按对象地址字符串化，Rust 用 `Debug` 输出字节；
-//!    筛选表达式不使用 OLE 自定义属性里的二进制值。
+//! 1. **`Object` operands**: Java's `evaluate` / `setRightValue` use `Object` to carry
+//! strings / numbers / dates / durations / `FieldType` / `GenericCriteriaPrompt`.
+//! The Rust side introduces [`Operand`] for this set of values (see its documentation); the signature of `evaluate` is
+//!    `evaluate(Option<&Operand>, &[Option<Operand>])`:
+//! * `lhs` uses `Option` to express Java's `null`;
+//! * `rhs` uses a slice to express Java's "single value **or** `Object[]`" --
+//! on the `GenericCriteria` side it is always an array of length 2; a slice of length 1 corresponds to Java's "non-array single value"
+//! (`IS_WITHIN` / `IS_NOT_WITHIN` yield `false` for a non-array, consistent with Java).
+//! 2. **Failure semantics of `compareTo`**: Java's `((Comparable) lhs).compareTo(rhs)` throws
+//! `ClassCastException` for incompatible types; the Rust side's [`TestOperator::evaluate_compare_to`] returns `Option<Ordering>`,
+//! returning `None` when they are not comparable (the caller treats it as `false`, no panic).
+//! 3. **`AND` / `OR`**: Java's `evaluate` directly throws `UnsupportedOperationException`
+//! (these two constants are used only as logical combinators in `GenericCriteria`); Rust library code does not panic,
+//! so it returns `false` (the actual value path never reaches it; `GenericCriteria::evaluate` branches earlier).
+//! 4. **Case-insensitive comparison**: Java uses `toUpperCase()` (Unicode); the Rust side likewise uses
+//! [`str::to_uppercase`] (Unicode), with identical behavior.
+//! 5. **Binary operands**: Java's `byte[]` is stringified by object address by default; Rust uses `Debug` to output the bytes;
+//! filter expressions do not use binary values from OLE custom properties.
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -47,35 +47,35 @@ use crate::field_value::FieldValue;
 use crate::generic_criteria_prompt::GenericCriteriaPrompt;
 use crate::mpxj_enum::MpxjEnum;
 
-/// 对应 Java 中作为操作数传递的 `Object`。
+/// Corresponds to the `Object` passed as an operand in Java.
 ///
-/// `TestOperator.evaluate(Object lhs, Object rhs)` 与 `GenericCriteria` 的
-/// `Object[] m_definedRightValues` / `Map<GenericCriteriaPrompt, Object>` 都用 `Object`
-/// 承载取值；Rust 侧用本枚举统一表达：
+/// `TestOperator.evaluate(Object lhs, Object rhs)` and `GenericCriteria`'s
+/// `Object[] m_definedRightValues` / `Map<GenericCriteriaPrompt, Object>` all use `Object`
+/// to carry values; the Rust side expresses them uniformly with this enum:
 ///
-/// | Java 取值 | Rust |
+/// | Java value | Rust |
 /// |---|---|
-/// | `FieldType`（符号值） | [`Operand::Field`] |
-/// | `GenericCriteriaPrompt`（提示值） | [`Operand::Prompt`] |
-/// | 字符串 / 数值 / 布尔 / 日期 / 工期 / 费率 | [`Operand::Value`]（承载 [`FieldValue`]） |
+/// | `FieldType` (symbol value) | [`Operand::Field`] |
+/// | `GenericCriteriaPrompt` (prompt value) | [`Operand::Prompt`] |
+/// | String / number / boolean / date / duration / rate | [`Operand::Value`] (carries a [`FieldValue`]) |
 /// | `null` | `Option::None` |
 ///
-/// 符号值与提示值在 `GenericCriteria` 求值前会被解析为具体取值（见
-/// [`crate::generic_criteria::GenericCriteria::evaluate`]）；若它们被直接送入
-/// `evaluate`（Java 侧「只设置提示、未设置符号值」的路径），则与任何取值都不相等，
-/// 与 Java 中 `String.equals(GenericCriteriaPrompt)` 的结果一致。
+/// Symbol values and prompt values are resolved into concrete values before `GenericCriteria` evaluation (see
+/// [`crate::generic_criteria::GenericCriteria::evaluate`]); if they are passed directly into
+/// `evaluate` (the Java path where "only a prompt is set, no symbol value"), they are not equal to any value,
+/// consistent with the result of `String.equals(GenericCriteriaPrompt)` in Java.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
-    /// 对应 Java: 作为操作数的 `FieldType`。
+/// Corresponds to Java: `FieldType` used as an operand.
     Field(FieldKey),
-    /// 对应 Java: 作为操作数的 `GenericCriteriaPrompt`。
+/// Corresponds to Java: `GenericCriteriaPrompt` used as an operand.
     Prompt(GenericCriteriaPrompt),
-    /// 对应 Java: 作为操作数的标量取值（`String` / `Number` / `LocalDateTime` / `Duration` ...）。
+/// Corresponds to Java: a scalar value used as an operand (`String` / `Number` / `LocalDateTime` / `Duration` ...).
     Value(FieldValue),
 }
 
 impl Operand {
-    /// 取具体取值（非 [`Operand::Value`] 时返回 `None`）。
+/// Returns the concrete value (`None` when it is not [`Operand::Value`]).
     pub fn as_value(&self) -> Option<&FieldValue> {
         match self {
             Operand::Value(value) => Some(value),
@@ -83,16 +83,16 @@ impl Operand {
         }
     }
 
-    /// 取字符串取值（Java: `lhs instanceof String`）。
+/// Returns the string value (Java: `lhs instanceof String`).
     pub fn as_string(&self) -> Option<&str> {
         self.as_value().and_then(FieldValue::as_string)
     }
 
-    /// 复刻 Java `Comparable.compareTo` 的比较语义，不可比较时返回 `None`
-    /// （Java 抛 `ClassCastException`）。
+/// Replicates the comparison semantics of Java's `Comparable.compareTo`, returning `None` when they are not comparable
+/// (Java throws `ClassCastException`).
     ///
-    /// 仅同样为具体取值的操作数之间可比较；数值类型不跨类型比较
-    /// （Java 的 `Integer.compareTo(Double)` 会抛 `ClassCastException`）。
+/// Only operands that are likewise concrete values can be compared; numeric types are not compared across types
+/// (Java's `Integer.compareTo(Double)` throws `ClassCastException`).
     pub fn compare_to(&self, other: &Operand) -> Option<Ordering> {
         match (self, other) {
             (Operand::Value(lhs), Operand::Value(rhs)) => compare_field_values(lhs, rhs),
@@ -101,7 +101,7 @@ impl Operand {
     }
 }
 
-/// 比较两个字段取值，不可比较时返回 `None`。
+/// Compares two field values, returning `None` when they are not comparable.
 fn compare_field_values(lhs: &FieldValue, rhs: &FieldValue) -> Option<Ordering> {
     match (lhs, rhs) {
         (FieldValue::Integer(lhs), FieldValue::Integer(rhs)) => Some(lhs.cmp(rhs)),
@@ -113,7 +113,7 @@ fn compare_field_values(lhs: &FieldValue, rhs: &FieldValue) -> Option<Ordering> 
         (FieldValue::Time(lhs), FieldValue::Time(rhs)) => Some(lhs.cmp(rhs)),
         (FieldValue::DateTime(lhs), FieldValue::DateTime(rhs)) => Some(lhs.cmp(rhs)),
         (FieldValue::Duration(lhs), FieldValue::Duration(rhs)) => Some(lhs.cmp(rhs)),
-        // Java 的 `Rate` 未实现 `Comparable`；此处按金额比较（不比较单位），供筛选使用。
+// Java's `Rate` does not implement `Comparable`; compare by amount here (ignoring units) for use in filtering.
         (FieldValue::Rate(lhs), FieldValue::Rate(rhs)) => {
             lhs.get_amount().partial_cmp(&rhs.get_amount())
         }
@@ -122,15 +122,15 @@ fn compare_field_values(lhs: &FieldValue, rhs: &FieldValue) -> Option<Ordering> 
 }
 
 impl From<FieldValue> for Operand {
-    /// 由具体取值构造操作数（Rust 特有便捷入口）。
+/// Constructs an operand from a concrete value (Rust-specific convenience entry point).
     fn from(value: FieldValue) -> Self {
         Operand::Value(value)
     }
 }
 
 impl Display for Operand {
-    /// 复刻 Java 字符串拼接时的取值渲染（`String.valueOf`）；`Operand` 本身不是
-    /// Java 类型，此为 Rust 侧格式化辅助。
+/// Replicates Java's value rendering during string concatenation (`String.valueOf`); `Operand` itself is not a
+/// Java type; this is a Rust-side formatting helper.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Operand::Field(field) => write!(f, "{field}"),
@@ -140,7 +140,7 @@ impl Display for Operand {
     }
 }
 
-/// 按 Java 的 `toString()` 风格渲染字段取值。
+/// Renders a field value in the style of Java's `toString()`.
 fn render_field_value(value: &FieldValue) -> String {
     match value {
         FieldValue::Integer(value) => value.to_string(),
@@ -156,9 +156,9 @@ fn render_field_value(value: &FieldValue) -> String {
         FieldValue::Uuid(value) => value.to_string(),
         FieldValue::TimeUnit(value) => value.to_string(),
         FieldValue::Notes(value) => value.to_string(),
-        // Java 未覆写 `toString()` 的类型（`WorkContour` / 枚举）与集合 / 实体引用型取值：
-        // 本仓约定改用 `Debug` 渲染（见各文件头「Java 未覆写 toString 的类改为 Debug」），
-        // 它们不会出现在筛选表达式的操作数里。
+// Types for which Java does not override `toString()` (`WorkContour` / enums) and collection / entity-reference values:
+// this repository's convention is to render them with `Debug` (see "classes for which Java does not override toString use Debug" in each file header),
+// they do not appear as operands in filter expressions.
         FieldValue::Bytes(_)
         | FieldValue::WorkContour(_)
         | FieldValue::RateSource(_)
@@ -172,7 +172,7 @@ fn render_field_value(value: &FieldValue) -> String {
     }
 }
 
-/// 复刻 Java `Double.toString` 的整数尾缀（`1.0` 而非 `1`）。
+/// Replicates the integer suffix of Java's `Double.toString` (`1.0` rather than `1`).
 fn render_double(value: f64) -> String {
     let text = value.to_string();
     if text.contains('.') || text.contains('e') || text.contains('E') {
@@ -182,47 +182,47 @@ fn render_double(value: f64) -> String {
     }
 }
 
-/// 用于两个操作数之间比较的运算符。
+/// Operators used to compare two operands.
 ///
-/// 对应 Java: `public enum TestOperator implements MpxjEnum`
+/// Corresponds to Java: `public enum TestOperator implements MpxjEnum`
 ///
-/// 常量声明顺序与 `getValue()` 取值同 Java（`0..=13` 连续）。
+/// The constant declaration order and `getValue()` values match Java (contiguous `0..=13`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TestOperator {
-    /// 对应 Java: `IS_ANY_VALUE(0)`
+    /// Corresponds to Java: `IS_ANY_VALUE(0)`
     IsAnyValue = 0,
-    /// 对应 Java: `IS_WITHIN(1)`
+    /// Corresponds to Java: `IS_WITHIN(1)`
     IsWithin = 1,
-    /// 对应 Java: `IS_GREATER_THAN(2)`
+    /// Corresponds to Java: `IS_GREATER_THAN(2)`
     IsGreaterThan = 2,
-    /// 对应 Java: `IS_LESS_THAN(3)`
+    /// Corresponds to Java: `IS_LESS_THAN(3)`
     IsLessThan = 3,
-    /// 对应 Java: `IS_GREATER_THAN_OR_EQUAL_TO(4)`
+    /// Corresponds to Java: `IS_GREATER_THAN_OR_EQUAL_TO(4)`
     IsGreaterThanOrEqualTo = 4,
-    /// 对应 Java: `IS_LESS_THAN_OR_EQUAL_TO(5)`
+    /// Corresponds to Java: `IS_LESS_THAN_OR_EQUAL_TO(5)`
     IsLessThanOrEqualTo = 5,
-    /// 对应 Java: `EQUALS(6)`
+    /// Corresponds to Java: `EQUALS(6)`
     Equals = 6,
-    /// 对应 Java: `DOES_NOT_EQUAL(7)`
+    /// Corresponds to Java: `DOES_NOT_EQUAL(7)`
     DoesNotEqual = 7,
-    /// 对应 Java: `CONTAINS(8)`
+    /// Corresponds to Java: `CONTAINS(8)`
     Contains = 8,
-    /// 对应 Java: `IS_NOT_WITHIN(9)`
+    /// Corresponds to Java: `IS_NOT_WITHIN(9)`
     IsNotWithin = 9,
-    /// 对应 Java: `DOES_NOT_CONTAIN(10)`
+    /// Corresponds to Java: `DOES_NOT_CONTAIN(10)`
     DoesNotContain = 10,
-    /// 对应 Java: `CONTAINS_EXACTLY(11)`
+    /// Corresponds to Java: `CONTAINS_EXACTLY(11)`
     ContainsExactly = 11,
-    /// 对应 Java: `AND(12)`（MPXJ 扩展，非 MS Project 定义）
+/// Corresponds to Java: `AND(12)` (an MPXJ extension, not defined by MS Project)
     And = 12,
-    /// 对应 Java: `OR(13)`（MPXJ 扩展，非 MS Project 定义）
+/// Corresponds to Java: `OR(13)` (an MPXJ extension, not defined by MS Project)
     Or = 13,
 }
 
 impl TestOperator {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `values()`（`EnumHelper.createTypeArray` 依赖它建表）。
+/// Corresponds to Java: `values()` (`EnumHelper.createTypeArray` relies on it to build the table).
     pub const ALL: [TestOperator; 14] = [
         TestOperator::IsAnyValue,
         TestOperator::IsWithin,
@@ -240,12 +240,12 @@ impl TestOperator {
         TestOperator::Or,
     ];
 
-    /// Java 侧 `TYPE_VALUES` 数组长度（`EnumHelper.createTypeArray` 以最大 `getValue() + 1` 建表）。
+/// The length of the `TYPE_VALUES` array on the Java side (`EnumHelper.createTypeArray` builds the table with the maximum `getValue() + 1`).
     const TYPE_VALUES_LEN: i32 = 14;
 
-    /// 根据 int 值取枚举实例，越界回落到 `IS_ANY_VALUE`。
+/// Returns the enum instance for an int value, falling back to `IS_ANY_VALUE` if out of bounds.
     ///
-    /// 对应 Java: `public static TestOperator getInstance(int type)`
+    /// Corresponds to Java: `public static TestOperator getInstance(int type)`
     pub fn get_instance(value: i32) -> TestOperator {
         if !(0..Self::TYPE_VALUES_LEN).contains(&value) {
             return TestOperator::IsAnyValue;
@@ -266,24 +266,24 @@ impl TestOperator {
             11 => TestOperator::ContainsExactly,
             12 => TestOperator::And,
             13 => TestOperator::Or,
-            // Java 侧该数组下标都有对应常量；此处仅为穷尽匹配。
+// On the Java side every index of that array has a corresponding constant; this arm exists only for exhaustive matching.
             _ => TestOperator::IsAnyValue,
         }
     }
 
-    /// 根据可空的 int 值取枚举实例（`null` 等价于 `-1`，回落到 `IS_ANY_VALUE`）。
+/// Returns the enum instance for a nullable int value (`null` is equivalent to `-1`, falling back to `IS_ANY_VALUE`).
     ///
-    /// 对应 Java: `public static TestOperator getInstance(Number type)`
+    /// Corresponds to Java: `public static TestOperator getInstance(Number type)`
     pub fn get_instance_optional(value: Option<i32>) -> TestOperator {
         TestOperator::get_instance(value.unwrap_or(-1))
     }
 
-    /// 按本运算符比较操作数。
+/// Compares operands using this operator.
     ///
-    /// 对应 Java: `public abstract boolean evaluate(Object lhs, Object rhs)`
+    /// Corresponds to Java: `public abstract boolean evaluate(Object lhs, Object rhs)`
     ///
-    /// `rhs` 为切片：长度 1 表示 Java 的非数组单值，长度 ≥ 2 表示 Java 的 `Object[]`
-    /// （`GenericCriteria` 恒传长度 2 的数组）。
+/// `rhs` is a slice: length 1 represents Java's non-array single value, length ≥ 2 represents Java's `Object[]`
+/// (`GenericCriteria` always passes an array of length 2).
     pub fn evaluate(&self, lhs: Option<&Operand>, rhs: &[Option<Operand>]) -> bool {
         match self {
             TestOperator::IsAnyValue => true,
@@ -312,29 +312,29 @@ impl TestOperator {
             TestOperator::IsNotWithin => !self.evaluate_within(lhs, rhs),
             TestOperator::DoesNotContain => !self.evaluate_contains(lhs, rhs),
             TestOperator::ContainsExactly => self.evaluate_contains_exactly(lhs, rhs),
-            // Java 抛 UnsupportedOperationException；Rust 不 panic，返回 false。
+// Java throws UnsupportedOperationException; Rust does not panic and returns false.
             TestOperator::And | TestOperator::Or => false,
         }
     }
 
-    /// 取 RHS 中的单个操作数（Java 的 `Object[]` 取下标 0）。
+/// Returns the single operand in the RHS (Java's `Object[]` takes index 0).
     ///
-    /// 对应 Java: `protected Object getSingleOperand(Object operand)`
+    /// Corresponds to Java: `protected Object getSingleOperand(Object operand)`
     pub fn get_single_operand<'a>(
         &self,
         operand: &'a [Option<Operand>],
     ) -> Option<&'a Operand> {
-        // Java: 若 operand 是 Object[] 取 list[0]，否则取 operand 自身；
-        // 由于非数组单值在 Rust 中以长度 1 的切片表达，两种情况都等价于取首元素。
+// Java: if operand is an Object[] take list[0], otherwise take operand itself;
+// since a non-array single value is expressed as a length-1 slice in Rust, both cases are equivalent to taking the first element.
         operand.first().and_then(Option::as_ref)
     }
 
-    /// 判断 LHS 是否落在 RHS 给出的区间内。
+/// Determines whether the LHS falls within the range given by the RHS.
     ///
-    /// 对应 Java: `protected boolean evaluateWithin(Object lhs, Object rhs)`
+    /// Corresponds to Java: `protected boolean evaluateWithin(Object lhs, Object rhs)`
     ///
-    /// Project 也会尝试翻转后的区间，因此两个方向都接受；`rhs` 长度小于 2
-    /// （Java 中「不是 `Object[]`」）时结果为 `false`。
+/// Project also tries the flipped range, so both directions are accepted; when `rhs` has length less than 2
+/// (in Java, "not an `Object[]`") the result is `false`.
     pub fn evaluate_within(&self, lhs: Option<&Operand>, rhs: &[Option<Operand>]) -> bool {
         if rhs.len() < 2 {
             return false;
@@ -344,7 +344,7 @@ impl TestOperator {
         let second = rhs[1].as_ref();
 
         let Some(lhs) = lhs else {
-            // Project 也尊重 null 相等（例如 NA 日期）
+// Project also honors null equality (e.g. NA dates)
             return first.is_none() || second.is_none();
         };
 
@@ -360,13 +360,13 @@ impl TestOperator {
             || (first != Ordering::Greater && second != Ordering::Less)
     }
 
-    /// 复刻 Java 的 `compareTo` 结果（`lhs` 为 `null` 视为更大，与 Java 的
-    /// `result = 1` 一致）。
+/// Replicates the result of Java's `compareTo` (`lhs` being `null` is treated as greater, consistent with Java's
+/// `result = 1`).
     ///
-    /// 对应 Java: `protected int evaluateCompareTo(Object lhs, Object rhs)`
+    /// Corresponds to Java: `protected int evaluateCompareTo(Object lhs, Object rhs)`
     ///
-    /// Rust 侧返回 `Option<Ordering>`：不可比较时返回 `None`（Java 抛
-    /// `ClassCastException`）。
+/// The Rust side returns `Option<Ordering>`: `None` when they are not comparable (Java throws
+    /// `ClassCastException`).
     pub fn evaluate_compare_to(
         &self,
         lhs: Option<&Operand>,
@@ -382,16 +382,16 @@ impl TestOperator {
         }
     }
 
-    /// 判断 RHS（字符串）是否被包含在 LHS（字符串）中，大小写不敏感。
+/// Determines whether the RHS (string) is contained in the LHS (string), case-insensitively.
     ///
-    /// 对应 Java: `protected boolean evaluateContains(Object lhs, Object rhs)`
+    /// Corresponds to Java: `protected boolean evaluateContains(Object lhs, Object rhs)`
     pub fn evaluate_contains(&self, lhs: Option<&Operand>, rhs: &[Option<Operand>]) -> bool {
         self.contains_with(lhs, rhs, true)
     }
 
-    /// 判断 RHS（字符串）是否被包含在 LHS（字符串）中，大小写敏感。
+/// Determines whether the RHS (string) is contained in the LHS (string), case-sensitively.
     ///
-    /// 对应 Java: `protected boolean evaluateContainsExactly(Object lhs, Object rhs)`
+    /// Corresponds to Java: `protected boolean evaluateContainsExactly(Object lhs, Object rhs)`
     pub fn evaluate_contains_exactly(
         &self,
         lhs: Option<&Operand>,
@@ -400,7 +400,7 @@ impl TestOperator {
         self.contains_with(lhs, rhs, false)
     }
 
-    /// `evaluateContains` / `evaluateContainsExactly` 的公共实现。
+/// Common implementation of `evaluateContains` / `evaluateContainsExactly`.
     fn contains_with(
         &self,
         lhs: Option<&Operand>,
@@ -421,23 +421,23 @@ impl TestOperator {
         }
     }
 
-    /// `evaluate_compare_to` 的 `Option` 版本（供 `evaluate` 内部使用）。
+/// The `Option` version of `evaluate_compare_to` (for internal use by `evaluate`).
     fn compare_result(&self, lhs: Option<&Operand>, rhs: &[Option<Operand>]) -> Option<Ordering> {
         self.evaluate_compare_to(lhs, rhs)
     }
 }
 
 impl MpxjEnum for TestOperator {
-    /// 返回该运算符的 int 表示。
+/// Returns the int representation of this operator.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for TestOperator {
-    /// Java 枚举未覆写 `toString()`，输出常量名（如 `"EQUALS"`）。
+/// The Java enum does not override `toString()`; outputs the constant name (e.g. `"EQUALS"`).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             TestOperator::IsAnyValue => "IS_ANY_VALUE",
@@ -462,12 +462,12 @@ impl Display for TestOperator {
 mod tests {
     use super::*;
 
-    /// 便捷构造：字符串操作数。
+/// Convenience constructor: string operand.
     fn text(value: &str) -> Operand {
         Operand::Value(FieldValue::String(value.to_owned()))
     }
 
-    /// 便捷构造：整数操作数。
+/// Convenience constructor: integer operand.
     fn int(value: i32) -> Operand {
         Operand::Value(FieldValue::Integer(value))
     }
@@ -528,17 +528,17 @@ mod tests {
         assert!(TestOperator::IsGreaterThanOrEqualTo.evaluate(Some(&lhs), &pair));
         assert!(TestOperator::IsLessThanOrEqualTo.evaluate(Some(&lhs), &pair));
 
-        // lhs 为 null 时 Java 的 evaluateCompareTo 返回 1（视为更大）
+// When lhs is null Java's evaluateCompareTo returns 1 (treated as greater)
         assert!(TestOperator::IsGreaterThan.evaluate(None, &pair));
     }
 
     #[test]
     fn compare_operators_return_false_for_incompatible_types() {
-        // Java 抛 ClassCastException；Rust 按 false 处理
+// Java throws ClassCastException; Rust treats it as false
         let pair = [Some(text("abc")), None];
         assert!(!TestOperator::IsGreaterThan.evaluate(Some(&int(1)), &pair));
 
-        // 数值不跨类型比较（Java 的 Integer.compareTo(Double) 抛 ClassCastException）
+// Numeric values are not compared across types (Java's Integer.compareTo(Double) throws ClassCastException)
         let pair = [Some(Operand::Value(FieldValue::Double(1.0))), None];
         assert!(!TestOperator::IsGreaterThan.evaluate(Some(&int(2)), &pair));
     }
@@ -550,20 +550,20 @@ mod tests {
         let pair = [Some(int(1)), Some(int(10))];
         assert!(TestOperator::IsWithin.evaluate(Some(&lhs), &pair));
 
-        // Project 也尝试翻转后的区间
+// Project also tries the flipped range
         let pair = [Some(int(10)), Some(int(1))];
         assert!(TestOperator::IsWithin.evaluate(Some(&lhs), &pair));
 
-        // 越界
+// Out of bounds
         let pair = [Some(int(6)), Some(int(10))];
         assert!(!TestOperator::IsWithin.evaluate(Some(&lhs), &pair));
         assert!(TestOperator::IsNotWithin.evaluate(Some(&lhs), &pair));
 
-        // 非数组单值：结果为 false
+// Non-array single value: the result is false
         let pair = [Some(int(1))];
         assert!(!TestOperator::IsWithin.evaluate(Some(&lhs), &pair));
 
-        // lhs 为 null 时按区间端点是否为 null 判定
+// When lhs is null, decide by whether the range endpoints are null
         let pair = [Some(int(1)), None];
         assert!(TestOperator::IsWithin.evaluate(None, &pair));
         let pair = [Some(int(1)), Some(int(2))];
@@ -580,7 +580,7 @@ mod tests {
         assert!(!TestOperator::Contains.evaluate(Some(&lhs), &[Some(text("xyz")), None]));
         assert!(TestOperator::DoesNotContain.evaluate(Some(&lhs), &[Some(text("xyz")), None]));
 
-        // 非字符串操作数不匹配
+// Non-string operands do not match
         assert!(!TestOperator::Contains.evaluate(Some(&int(1)), &pair));
     }
 
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn and_or_do_not_panic() {
-        // Java 抛 UnsupportedOperationException
+// Java throws UnsupportedOperationException
         assert!(!TestOperator::And.evaluate(Some(&int(1)), &[]));
         assert!(!TestOperator::Or.evaluate(Some(&int(1)), &[]));
     }

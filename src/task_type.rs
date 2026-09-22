@@ -1,36 +1,36 @@
-//! 对应 Java: `org/mpxj/TaskType.java`
+//! Corresponds to Java: `org/mpxj/TaskType.java`
 
-/// 任务类型的枚举。
+/// Enum for task types.
 ///
-/// 对应 Java: `public enum TaskType`
+/// Corresponds to Java: `public enum TaskType`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`
-/// （int ↔ `TaskType` 的映射在 Java 中由 `org.mpxj.mpp.TaskTypeHelper` 等辅助类完成）；
-/// Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// The Java enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`
+/// (the int ↔ `TaskType` mapping is done in Java by helper classes such as `org.mpxj.mpp.TaskTypeHelper`);
+/// the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TaskType {
-    /// 固定单位。
+    /// Fixed units.
     ///
-    /// 对应 Java: `FIXED_UNITS`
+    /// Corresponds to Java: `FIXED_UNITS`
     FixedUnits,
-    /// 固定工期。
+    /// Fixed duration.
     ///
-    /// 对应 Java: `FIXED_DURATION`
+    /// Corresponds to Java: `FIXED_DURATION`
     FixedDuration,
-    /// 固定工时。
+    /// Fixed work.
     ///
-    /// 对应 Java: `FIXED_WORK`
+    /// Corresponds to Java: `FIXED_WORK`
     FixedWork,
-    /// 同时固定工期与单位。
+    /// Fixed duration and units.
     ///
-    /// 对应 Java: `FIXED_DURATION_AND_UNITS`
+    /// Corresponds to Java: `FIXED_DURATION_AND_UNITS`
     FixedDurationAndUnits,
 }
 
 impl TaskType {
-    /// 全部取值，按 Java 声明顺序排列。
+    /// All values, in Java declaration order.
     ///
-    /// 对应 Java: `TaskType.values()`
+    /// Corresponds to Java: `TaskType.values()`
     pub const ALL: [TaskType; 4] = [
         TaskType::FixedUnits,
         TaskType::FixedDuration,
@@ -38,11 +38,11 @@ impl TaskType {
         TaskType::FixedDurationAndUnits,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+    /// Returns the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`TaskType::ALL`] 配套查表，
-    /// 对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+    /// No corresponding method in Java; added on the Rust side to pair with [`TaskType::ALL`]
+    /// for lookups, corresponding to Java's `values()[value]` pattern. Java throws
+    /// `ArrayIndexOutOfBoundsException` out of bounds, while the Rust side returns `None` per this repo's convention.
     pub fn get_instance(value: i32) -> Option<TaskType> {
         usize::try_from(value)
             .ok()

@@ -1,32 +1,34 @@
-//! 对应 Java: `org/mpxj/mpx/ModelUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/ModelUtility.java`
 //!
-//! # 移植取舍（`Object` 字段值）
+//! # Porting trade-offs (`Object` field values)
 //!
-//! Java 的 `isFieldPopulated(FieldType field, Object value)` 接收任意 `Object`，按字段的
-//! `DataType` 强制转换后判断是否为「非默认值」。Rust 侧字段值统一由
-//! [`crate::field_value::FieldValue`] 承载，故入参为 `Option<&FieldValue>`。
+//! Java's `isFieldPopulated(FieldType field, Object value)` accepts any `Object` and, after casting
+//! according to the field's `DataType`, determines whether it is a "non-default value". On the Rust
+//! side field values are uniformly carried by [`crate::field_value::FieldValue`], so the argument is
+//! `Option<&FieldValue>`.
 //!
-//! 类型不匹配时 Java 会抛 `ClassCastException`；Rust 侧不 panic，按「有值即视为已填充」
-//! 处理（与 Java 中 `!(value instanceof X)` 分支的语义一致）。
+//! When the type does not match Java throws a `ClassCastException`; the Rust side does not panic and
+//! treats "having a value" as populated (consistent with the semantics of the `!(value instanceof X)`
+//! branch in Java).
 //!
-//! `DataType::RelationList`：Java 判断 `!((List<Relation>) value).isEmpty()`，Rust 侧对应
-//! [`FieldValue::Relations`]（见 `field_value` 文件头）。
+//! `DataType::RelationList`: Java checks `!((List<Relation>) value).isEmpty()`; on the Rust side this
+//! corresponds to [`FieldValue::Relations`] (see the `field_value` file header).
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::data_type::DataType;
 use crate::field_type::FieldType;
 use crate::field_value::FieldValue;
 
-/// 创建 MPX 任务 / 资源模型的公共代码。
+/// Common code for creating MPX task / resource models.
 ///
-/// 对应 Java: `final class ModelUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class ModelUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct ModelUtility;
 
 impl ModelUtility {
-    /// 判断字段是否被填充了非默认值。
+    /// Determine whether a field is populated with a non-default value.
     ///
-    /// 对应 Java: `public static boolean isFieldPopulated(FieldType field, Object value)`
+    /// Corresponds to Java: `public static boolean isFieldPopulated(FieldType field, Object value)`
     pub fn is_field_populated<F: FieldType>(field: F, value: Option<&FieldValue>) -> bool {
         let Some(value) = value else {
             return false;
@@ -178,7 +180,7 @@ mod tests {
 
     #[test]
     fn relation_list_field_treats_any_value_as_populated() {
-        // 见文件头：`FieldValue` 无法表达关系列表，有值即视为已填充。
+        // See the file header: `FieldValue` cannot express a relation list, so any value is treated as populated.
         assert!(ModelUtility::is_field_populated(
             TaskField::Predecessors,
             Some(&FieldValue::Integer(1))
@@ -187,7 +189,7 @@ mod tests {
 
     #[test]
     fn other_data_types_are_always_populated() {
-        let date = NaiveDate::from_ymd_opt(2024, 5, 1).expect("合法日期");
+        let date = NaiveDate::from_ymd_opt(2024, 5, 1).expect("valid date");
         assert!(ModelUtility::is_field_populated(
             TaskField::Start,
             Some(&FieldValue::Date(date))
@@ -196,7 +198,7 @@ mod tests {
 
     #[test]
     fn mismatched_value_types_are_treated_as_populated() {
-        // Java 会抛 ClassCastException；Rust 侧按「有值即已填充」处理。
+        // Java throws a ClassCastException; the Rust side treats "having a value" as populated.
         assert!(ModelUtility::is_field_populated(
             TaskField::Text1,
             Some(&FieldValue::Integer(1))

@@ -1,37 +1,37 @@
-//! 对应 Java: `org/mpxj/Filter.java`
+//! Corresponds to Java: `org/mpxj/Filter.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | 隐式默认构造方法 | [`Filter::new`] |
+//! | Implicit default constructor | [`Filter::new`] |
 //! | `public void setID(Integer id)` / `public Integer getID()` | [`Filter::set_id`] / [`Filter::get_id`] |
 //! | `public void setName(String name)` / `public String getName()` | [`Filter::set_name`] / [`Filter::get_name`] |
 //! | `public void setShowRelatedSummaryRows(boolean)` / `public boolean getShowRelatedSummaryRows()` | [`Filter::set_show_related_summary_rows`] / [`Filter::get_show_related_summary_rows`] |
 //! | `public void setCriteria(GenericCriteria criteria)` / `public GenericCriteria getCriteria()` | [`Filter::set_criteria`] / [`Filter::get_criteria`] |
 //! | `public boolean isTaskFilter()` / `public void setIsTaskFilter(boolean flag)` | [`Filter::is_task_filter`] / [`Filter::set_is_task_filter`] |
 //! | `public boolean isResourceFilter()` / `public void setIsResourceFilter(boolean flag)` | [`Filter::is_resource_filter`] / [`Filter::set_is_resource_filter`] |
-//! | `public boolean evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)` | [`Filter::evaluate`]（改为泛型 + `Any` 向下转型，见下） |
+//! | `public boolean evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)` | [`Filter::evaluate`] (changed to a generic + `Any` downcast, see below) |
 //! | `public void setPrompts(List<GenericCriteriaPrompt> prompts)` / `public List<GenericCriteriaPrompt> getPrompts()` | [`Filter::set_prompts`] / [`Filter::get_prompts`] |
 //! | `@Override public String toString()` | [`Display`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 1. **`container instanceof Task` → `Any` 向下转型**：Java 在求值失败且开启了
-//!    「显示相关摘要行」时，会判断容器是否为 `Task` 并递归测试其子任务。Rust 的 trait
-//!    对象无法直接向下转型，因此 [`Filter::evaluate`] 改为**泛型**接收 `&C`
-//!    （`C: FieldContainer + 'static`），内部转成 `&dyn Any` 后
-//!    `downcast_ref::<Task>()`，与 Java 的判定等价。调用方传 `&Task`、
-//!    `&Resource`、`&ResourceAssignment` 均可（后两者走「非 Task」分支）。
-//! 2. **`prompts`**：Java 的 `m_prompts` 默认为 `null`，`getPrompts()` 可能返回 `null`；
-//!    Rust 侧用 `Vec<GenericCriteriaPrompt>`（默认空表），[`Filter::get_prompts`] 返回空切片。
-//! 3. **`promptValues`**：Java 允许传 `null`；Rust 侧传空表即可（等价于「查不到应答」）。
-//! 4. **`equals` / `hashCode`**：Java 未覆写（对象同一性）；Rust 侧不实现
-//!    `PartialEq` / `Eq` / `Hash`。
-//! 5. **字段遍历时的借用失败**：递归测试子任务时以 `try_borrow` 取得子任务；
-//!    若子任务已被可变借用（Java 无此情形），该子任务按「不匹配」处理，不 panic。
+//! 1. **`container instanceof Task` → `Any` downcast**: when evaluation fails and "show related summary rows" is enabled, Java checks
+//! whether the container is a `Task` and recursively tests its child tasks. Rust trait
+//! objects cannot be downcast directly, so [`Filter::evaluate`] is changed to accept `&C` **generically**
+//! (`C: FieldContainer + 'static`), converting internally to `&dyn Any` and then
+//! `downcast_ref::<Task>()`, which is equivalent to Java's check. Callers may pass `&Task`,
+//! `&Resource`, or `&ResourceAssignment` (the latter two take the "not a Task" branch).
+//! 2. **`prompts`**: Java's `m_prompts` defaults to `null`, so `getPrompts()` may return `null`;
+//! the Rust side uses `Vec<GenericCriteriaPrompt>` (empty by default), and [`Filter::get_prompts`] returns an empty slice.
+//! 3. **`promptValues`**: Java allows `null`; the Rust side can pass an empty map (equivalent to "no answer found").
+//! 4. **`equals` / `hashCode`**: Java does not override them (object identity); the Rust side does not implement
+//!    `PartialEq` / `Eq` / `Hash`.
+//! 5. **Borrow failure during field traversal**: child tasks are obtained via `try_borrow` when testing recursively;
+//! if a child task is already mutably borrowed (impossible in Java), that child task is treated as "not matching", without panicking.
 
 use std::any::Any;
 use std::fmt::{self, Display, Formatter};
@@ -41,44 +41,44 @@ use crate::generic_criteria::{GenericCriteria, PromptValues};
 use crate::generic_criteria_prompt::GenericCriteriaPrompt;
 use crate::task::Task;
 
-/// 应用于任务视图或资源视图的筛选器。
+/// A filter applied to a task view or resource view.
 ///
-/// 对应 Java: `public final class Filter`
+/// Corresponds to Java: `public final class Filter`
 pub struct Filter {
-    /// 筛选器的唯一 ID。
+/// The filter's unique ID.
     ///
-    /// 对应 Java: `private Integer m_id;`
+    /// Corresponds to Java: `private Integer m_id;`
     m_id: Option<i32>,
-    /// 筛选器名称。
+/// The filter name.
     ///
-    /// 对应 Java: `private String m_name;`
+    /// Corresponds to Java: `private String m_name;`
     m_name: Option<String>,
-    /// 是否为任务筛选器。
+/// Whether this is a task filter.
     ///
-    /// 对应 Java: `private boolean m_isTaskFilter;`
+    /// Corresponds to Java: `private boolean m_isTaskFilter;`
     m_is_task_filter: bool,
-    /// 是否为资源筛选器。
+/// Whether this is a resource filter.
     ///
-    /// 对应 Java: `private boolean m_isResourceFilter;`
+    /// Corresponds to Java: `private boolean m_isResourceFilter;`
     m_is_resource_filter: bool,
-    /// 是否显示相关摘要行。
+/// Whether to show related summary rows.
     ///
-    /// 对应 Java: `private boolean m_showRelatedSummaryRows;`
+    /// Corresponds to Java: `private boolean m_showRelatedSummaryRows;`
     m_show_related_summary_rows: bool,
-    /// 筛选条件。
+/// The filter criteria.
     ///
-    /// 对应 Java: `private GenericCriteria m_criteria;`
+    /// Corresponds to Java: `private GenericCriteria m_criteria;`
     m_criteria: Option<GenericCriteria>,
-    /// 本筛选器需要的提示。
+/// The prompts required by this filter.
     ///
-    /// 对应 Java: `private List<GenericCriteriaPrompt> m_prompts;`
+    /// Corresponds to Java: `private List<GenericCriteriaPrompt> m_prompts;`
     m_prompts: Vec<GenericCriteriaPrompt>,
 }
 
 impl Filter {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: the implicit default constructor (Java declares no explicit constructor).
     pub fn new() -> Self {
         Self {
             m_id: None,
@@ -91,103 +91,103 @@ impl Filter {
         }
     }
 
-    /// 设置筛选器的唯一 ID。
+/// Set the filter's unique ID.
     ///
-    /// 对应 Java: `public void setID(Integer id)`
+    /// Corresponds to Java: `public void setID(Integer id)`
     pub fn set_id(&mut self, id: Option<i32>) {
         self.m_id = id;
     }
 
-    /// 取筛选器的唯一 ID。
+/// Get the filter's unique ID.
     ///
-    /// 对应 Java: `public Integer getID()`
+    /// Corresponds to Java: `public Integer getID()`
     pub fn get_id(&self) -> Option<i32> {
         self.m_id
     }
 
-    /// 设置筛选器名称。
+/// Set the filter name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.m_name = name;
     }
 
-    /// 取筛选器名称。
+/// Get the filter name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.m_name.as_deref()
     }
 
-    /// 设置「显示相关摘要行」标志。
+/// Set the "show related summary rows" flag.
     ///
-    /// 对应 Java: `public void setShowRelatedSummaryRows(boolean showRelatedSummaryRows)`
+    /// Corresponds to Java: `public void setShowRelatedSummaryRows(boolean showRelatedSummaryRows)`
     pub fn set_show_related_summary_rows(&mut self, show_related_summary_rows: bool) {
         self.m_show_related_summary_rows = show_related_summary_rows;
     }
 
-    /// 取「显示相关摘要行」标志。
+/// Get the "show related summary rows" flag.
     ///
-    /// 对应 Java: `public boolean getShowRelatedSummaryRows()`
+    /// Corresponds to Java: `public boolean getShowRelatedSummaryRows()`
     pub fn get_show_related_summary_rows(&self) -> bool {
         self.m_show_related_summary_rows
     }
 
-    /// 设置筛选条件。
+/// Set the filter criteria.
     ///
-    /// 对应 Java: `public void setCriteria(GenericCriteria criteria)`
+    /// Corresponds to Java: `public void setCriteria(GenericCriteria criteria)`
     pub fn set_criteria(&mut self, criteria: Option<GenericCriteria>) {
         self.m_criteria = criteria;
     }
 
-    /// 取筛选条件。
+/// Get the filter criteria.
     ///
-    /// 对应 Java: `public GenericCriteria getCriteria()`
+    /// Corresponds to Java: `public GenericCriteria getCriteria()`
     pub fn get_criteria(&self) -> Option<&GenericCriteria> {
         self.m_criteria.as_ref()
     }
 
-    /// 以可变方式取筛选条件（Rust 特有，便于就地修改条件）。
+/// Get the filter criteria mutably (Rust-specific, to allow in-place modification).
     ///
-    /// 对应 Java: `public GenericCriteria getCriteria()`
+    /// Corresponds to Java: `public GenericCriteria getCriteria()`
     pub fn get_criteria_mut(&mut self) -> Option<&mut GenericCriteria> {
         self.m_criteria.as_mut()
     }
 
-    /// 是否为任务筛选器。
+/// Whether this is a task filter.
     ///
-    /// 对应 Java: `public boolean isTaskFilter()`
+    /// Corresponds to Java: `public boolean isTaskFilter()`
     pub fn is_task_filter(&self) -> bool {
         self.m_is_task_filter
     }
 
-    /// 设置任务筛选器标志。
+/// Set the task filter flag.
     ///
-    /// 对应 Java: `public void setIsTaskFilter(boolean flag)`
+    /// Corresponds to Java: `public void setIsTaskFilter(boolean flag)`
     pub fn set_is_task_filter(&mut self, flag: bool) {
         self.m_is_task_filter = flag;
     }
 
-    /// 是否为资源筛选器。
+/// Whether this is a resource filter.
     ///
-    /// 对应 Java: `public boolean isResourceFilter()`
+    /// Corresponds to Java: `public boolean isResourceFilter()`
     pub fn is_resource_filter(&self) -> bool {
         self.m_is_resource_filter
     }
 
-    /// 设置资源筛选器标志。
+/// Set the resource filter flag.
     ///
-    /// 对应 Java: `public void setIsResourceFilter(boolean flag)`
+    /// Corresponds to Java: `public void setIsResourceFilter(boolean flag)`
     pub fn set_is_resource_filter(&mut self, flag: bool) {
         self.m_is_resource_filter = flag;
     }
 
-    /// 求值：容器的取值满足筛选条件时返回 `true`。
+/// Evaluate: returns `true` when the container's values satisfy the filter criteria.
     ///
-    /// 对应 Java: `public boolean evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)`
+    /// Corresponds to Java: `public boolean evaluate(FieldContainer container, Map<GenericCriteriaPrompt, Object> promptValues)`
     ///
-    /// 无筛选条件时恒为 `true`。条件不满足、但开启了「显示相关摘要行」且容器是 `Task` 时，
-    /// 会递归测试其子任务，任一子任务匹配即返回 `true`。
+/// With no criteria it is always `true`. When the criteria are not satisfied but "show related summary rows" is enabled and the container is a `Task`,
+/// its child tasks are tested recursively, and `true` is returned if any child matches.
     pub fn evaluate<C>(&self, container: &C, prompt_values: &PromptValues) -> bool
     where
         C: FieldContainer + 'static,
@@ -198,7 +198,7 @@ impl Filter {
             result = criteria.evaluate(container, prompt_values);
 
             //
-            // 本行未通过，但它是摘要行且需要包含相关摘要行时，递归测试其子任务
+// This row failed, but if it is a summary row and related summary rows are required, test its child tasks recursively
             //
             if !result && self.m_show_related_summary_rows {
                 let any: &dyn Any = container;
@@ -206,7 +206,7 @@ impl Filter {
                     for child in task.get_child_tasks() {
                         let matched = match child.try_borrow() {
                             Ok(child) => self.evaluate(&*child, prompt_values),
-                            // Java 无此情形；避免重入借用 panic
+// Impossible in Java; avoids a re-entrant borrow panic
                             Err(_) => false,
                         };
 
@@ -222,34 +222,34 @@ impl Filter {
         result
     }
 
-    /// 设置本筛选器需要的提示。
+/// Set the prompts required by this filter.
     ///
-    /// 对应 Java: `public void setPrompts(List<GenericCriteriaPrompt> prompts)`
+    /// Corresponds to Java: `public void setPrompts(List<GenericCriteriaPrompt> prompts)`
     pub fn set_prompts(&mut self, prompts: Vec<GenericCriteriaPrompt>) {
         self.m_prompts = prompts;
     }
 
-    /// 取本筛选器需要的提示。
+/// Get the prompts required by this filter.
     ///
-    /// 对应 Java: `public List<GenericCriteriaPrompt> getPrompts()`
+    /// Corresponds to Java: `public List<GenericCriteriaPrompt> getPrompts()`
     ///
-    /// Java 默认为 `null`；Rust 侧返回空切片。
+/// Java defaults to `null`; the Rust side returns an empty slice.
     pub fn get_prompts(&self) -> &[GenericCriteriaPrompt] {
         &self.m_prompts
     }
 }
 
 impl Default for Filter {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`Filter::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`Filter::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Display for Filter {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 仅在存在筛选条件时输出 `criteria=...` 段。
+/// Outputs the `criteria=...` section only when criteria are present.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut result = format!(
             "[Filter id={} name={} showRelatedSummaryRows={}",
@@ -283,7 +283,7 @@ mod tests {
     use std::collections::HashMap;
     use std::rc::{Rc, Weak};
 
-    /// 测试用的字段容器（非 `Task`，对应 Java 中 `instanceof Task` 为假的路径）。
+/// Field container for tests (not a `Task`, corresponding to the path where `instanceof Task` is false in Java).
     #[derive(Default)]
     struct MockContainer {
         values: HashMap<FieldKey, FieldValue>,
@@ -310,7 +310,7 @@ mod tests {
         fn clear_field_listeners(&mut self) {}
     }
 
-    /// 构造一条「Name 等于 value」的条件。
+/// Build a "Name equals value" criterion.
     fn criteria(value: &str) -> GenericCriteria {
         let mut criteria = GenericCriteria::new(Weak::new());
         criteria.set_left_value(Some(FieldKey::Task(TaskField::Name)));
@@ -390,14 +390,14 @@ mod tests {
         let mut filter = Filter::new();
         filter.set_criteria(Some(criteria("Design")));
 
-        // 未开启「显示相关摘要行」⇒ 摘要行本身不匹配则失败
+// "Show related summary rows" is off ⇒ the summary row itself not matching means failure
         assert!(!filter.evaluate(&*parent.borrow(), &PromptValues::new()));
 
-        // 开启后递归测试子任务
+// When enabled, test child tasks recursively
         filter.set_show_related_summary_rows(true);
         assert!(filter.evaluate(&*parent.borrow(), &PromptValues::new()));
 
-        // 子任务也不匹配时仍然失败
+// Still fails when no child task matches either
         filter.set_criteria(Some(criteria("Build")));
         assert!(!filter.evaluate(&*parent.borrow(), &PromptValues::new()));
     }

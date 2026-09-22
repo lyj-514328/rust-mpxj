@@ -1,27 +1,27 @@
-//! 对应 Java: `org/mpxj/mpp/ViewFactory12.java`
+//! Corresponds to Java: `org/mpxj/mpp/ViewFactory12.java`
 //!
-//! MPP12 文件的视图工厂：按固定数据块中的「拆分视图标志」与「视图类型」决定创建
-//! [`SplitView9`]、`GanttChartView12` 还是 [`GenericView12`]。
+//! View factory for MPP12 files: based on the "split view flag" and "view type" in the fixed data block, decides whether to create
+//! [`SplitView9`], `GanttChartView12` or [`GenericView12`].
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | not used by this class |
 //!
-//! # 继承 / 接口的还原方式
+//! # How inheritance / interfaces are reproduced
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `ViewFactory12 implements ViewFactory` | [`ViewFactory12`] 实现 [`ViewFactory`] trait |
-//! | `createView(ProjectFile, byte[], byte[], Var2Data, Map<Integer, FontBase>) throws IOException` | [`ViewFactory::create_view`]（`&Rc<RefCell<ProjectFile>>`、`&[u8]`、`&HashMap<i32, FontBase>`，返回 `MpxjResult<Rc<RefCell<dyn View>>>`） |
+//! | `ViewFactory12 implements ViewFactory` | [`ViewFactory12`] implements the [`ViewFactory`] trait |
+//! | `createView(ProjectFile, byte[], byte[], Var2Data, Map<Integer, FontBase>) throws IOException` | [`ViewFactory::create_view`] (`&Rc<RefCell<ProjectFile>>`, `&[u8]`, `&HashMap<i32, FontBase>`, returning `MpxjResult<Rc<RefCell<dyn View>>>`) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - 越界读取：Java 对不足 112 / 114 字节的 `fixedData` 调 `ByteArrayHelper.getShort` 会抛
-//!   `ArrayIndexOutOfBoundsException`，Rust 侧取 0（并注释），不 panic。
-//! - 拆分视图分支与 Java 一致地复用 [`SplitView9`]（读取数据类型 1 的属性块），因此它与
-//!   [`GenericView12`]（读取数据类型 6）在属性块类型上不同。
+//! - Out-of-bounds reads: Java throws when calling `ByteArrayHelper.getShort` on `fixedData` with fewer than 112 / 114 bytes
+//! `ArrayIndexOutOfBoundsException`; Rust takes 0 (and comments), without panicking.
+//! - The split view branch reuses [`SplitView9`] just as Java does (reading the data type 1 property block), so it differs from
+//! [`GenericView12`] (which reads data type 6) in the property block type.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -39,41 +39,41 @@ use crate::project_file::ProjectFile;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// 固定数据块中「拆分视图标志」的偏移。
+/// Offset of the "split view flag" in the fixed data block.
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(fixedData, 110)`
+/// Corresponds to Java: `ByteArrayHelper.getShort(fixedData, 110)`
 const SPLIT_VIEW_FLAG_OFFSET: usize = 110;
 
-/// 固定数据块中「视图类型」的偏移。
+/// Offset of the "view type" in the fixed data block.
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(fixedData, 112)`
+/// Corresponds to Java: `ByteArrayHelper.getShort(fixedData, 112)`
 const VIEW_TYPE_OFFSET: usize = 112;
 
-/// MPP12 视图工厂。
+/// MPP12 view factory.
 ///
-/// 对应 Java: `class ViewFactory12 implements ViewFactory`
+/// Corresponds to Java: `class ViewFactory12 implements ViewFactory`
 pub struct ViewFactory12;
 
 impl ViewFactory12 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: implicit default constructor (Java does not explicitly declare a constructor).
     pub fn new() -> Self {
         Self
     }
 }
 
 impl Default for ViewFactory12 {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`ViewFactory12::new`]。
+/// Corresponds to Java: implicit default constructor, equivalent to [`ViewFactory12::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ViewFactory for ViewFactory12 {
-    /// 创建一个视图。
+/// Creates a view.
     ///
-    /// 对应 Java: `@Override public View createView(ProjectFile file, byte[] fixedMeta,
+    /// Corresponds to Java: `@Override public View createView(ProjectFile file, byte[] fixedMeta,
     /// byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases) throws IOException`
     fn create_view(
         &self,
@@ -84,7 +84,7 @@ impl ViewFactory for ViewFactory12 {
         font_bases: &HashMap<i32, FontBase>,
     ) -> MpxjResult<Rc<RefCell<dyn View>>> {
         // Java: int splitViewFlag = ByteArrayHelper.getShort(fixedData, 110);
-        // （Java 在数据不足 112 字节时抛 AIOOBE，Rust 侧取 0）
+// (Java throws AIOOBE when there are fewer than 112 bytes; Rust takes 0)
         let split_view_flag = if fixed_data.len() >= SPLIT_VIEW_FLAG_OFFSET + 2 {
             ByteArrayHelper::get_short(fixed_data, SPLIT_VIEW_FLAG_OFFSET)
         } else {
@@ -99,7 +99,7 @@ impl ViewFactory for ViewFactory12 {
         }
 
         // Java: ViewType type = ViewType.getInstance(ByteArrayHelper.getShort(fixedData, 112));
-        // （Java 在数据不足 114 字节时抛 AIOOBE，Rust 侧取 0，即 ViewType.UNKNOWN）
+// (Java throws AIOOBE when there are fewer than 114 bytes; Rust takes 0, i.e. ViewType.UNKNOWN)
         let type_value = if fixed_data.len() >= VIEW_TYPE_OFFSET + 2 {
             ByteArrayHelper::get_short(fixed_data, VIEW_TYPE_OFFSET)
         } else {
@@ -129,7 +129,7 @@ mod tests {
     use crate::mpp::props_key::PropsKey;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 构造固定数据块，并可指定偏移 110 处的拆分视图标志与偏移 112 处的视图类型。
+/// Constructs the fixed data block, optionally specifying the split view flag at offset 110 and the view type at offset 112.
     fn fixed_data(id: i32, split_view_flag: i32, view_type: i32) -> Vec<u8> {
         let mut data = vec![0u8; 138];
         data[0..4].copy_from_slice(&id.to_le_bytes());
@@ -144,7 +144,7 @@ mod tests {
         data
     }
 
-    /// 构造 UTF-16LE 字符串（含结尾 NUL）。
+/// Constructs a UTF-16LE string (including the trailing NUL).
     fn utf16(value: &str) -> Vec<u8> {
         let mut data = Vec::new();
         for unit in value.encode_utf16() {
@@ -154,7 +154,7 @@ mod tests {
         data
     }
 
-    /// 按 MPP9 的属性块布局构造属性数据（MPP12 的属性块用 `Props12` 解析，但布局兼容）。
+/// Constructs property data using the MPP9 property block layout (MPP12's property block is parsed with `Props12`, but the layout is compatible).
     fn props(entries: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(entries.len() as i16).to_le_bytes());
@@ -172,7 +172,7 @@ mod tests {
         data
     }
 
-    /// 用 `(id, type) → 数据项` 的映射构造 var data 块。
+/// Constructs a var data block from a `(id, type) → data item` map.
     fn var_data(file: &Rc<RefCell<ProjectFile>>, items: &[(i32, i32, Vec<u8>)]) -> Var2Data {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
@@ -197,11 +197,11 @@ mod tests {
             meta.extend_from_slice(&offsets[index].to_le_bytes());
         }
 
-        let meta = VarMeta9::new(&meta).expect("元数据合法");
+        let meta = VarMeta9::new(&meta).expect("valid metadata");
         Var2Data::new(file, Rc::new(meta), &data)
     }
 
-    /// 拆分视图标志为 1 时创建 [`SplitView9`]（读数据类型 1 的属性块）。
+/// Creates [`SplitView9`] when the split view flag is 1 (reads the data type 1 property block).
     #[test]
     fn split_view_flag_creates_split_view() {
         let file = ProjectFile::new();
@@ -224,13 +224,13 @@ mod tests {
 
         let view = ViewFactory12::new()
             .create_view(&file, &[], &data, &var_data, &HashMap::new())
-            .expect("应能创建视图");
+            .expect("should create view");
 
         assert_eq!(view.borrow().get_id(), Some(1));
         assert_eq!(view.borrow().get_table_name(), Some("Entry1"));
     }
 
-    /// 非甘特图类型且未拆分时创建 [`GenericView12`]（读数据类型 6 的属性块）。
+/// Creates [`GenericView12`] when the type is not a Gantt chart and the view is not split (reads the data type 6 property block).
     #[test]
     fn non_gantt_type_creates_generic_view() {
         let file = ProjectFile::new();
@@ -253,13 +253,13 @@ mod tests {
 
         let view = ViewFactory12::new()
             .create_view(&file, &[], &data, &var_data, &HashMap::new())
-            .expect("应能创建视图");
+            .expect("should create view");
 
         assert_eq!(view.borrow().get_table_name(), Some("Entry6"));
         assert_eq!(view.borrow().get_type(), Some(ViewType::TaskSheet));
     }
 
-    /// 固定数据过短时不 panic。
+/// Does not panic when the fixed data is too short.
     #[test]
     fn short_fixed_data_does_not_panic() {
         let file = ProjectFile::new();
@@ -267,7 +267,7 @@ mod tests {
 
         let view = ViewFactory12::new()
             .create_view(&file, &[], &[], &var_data, &HashMap::new())
-            .expect("应能创建视图");
+            .expect("should create view");
 
         assert_eq!(view.borrow().get_id(), Some(0));
         assert_eq!(view.borrow().get_type(), Some(ViewType::Unknown));

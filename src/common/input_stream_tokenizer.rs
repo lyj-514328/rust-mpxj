@@ -1,49 +1,53 @@
-//! 对应 Java: `org/mpxj/common/InputStreamTokenizer.java`
+//! Corresponds to Java: `org/mpxj/common/InputStreamTokenizer.java`
 //!
-//! 与 Java 版语义一致：**按字节读取**，读到的高位字节按 `(char) c` 映射（即 U+0000–U+00FF），
-//! 不做任何字符集解码。MPX 读取正是靠这一点先按字节读出文件头（含代码页字段），
-//! 之后再切换到按字符解码的 tokenizer（见 `MPXReader`）。
+//! Semantics match the Java version: **read by byte**; a high byte read is mapped by `(char) c`
+//! (i.e., U+0000–U+00FF), with no charset decoding. MPX reading relies on exactly this to first
+//! read the file header by byte (including the code page field) and then switch to a
+//! character-decoding tokenizer (see `MPXReader`).
 //!
-//! 移植取舍：
-//! - Java 通过继承 `Tokenizer` 覆写 `protected int read()`；Rust 无继承，本类型**组合**一个
-//!   `Tokenizer<ByteSource<R>>` 并转发其公开方法（父类逻辑与状态完全复用，见各转发方法注释）。
-//! - Java 的 `InputStream.read()` 每次只读一个字节、不做缓冲，因此不会吞掉后续数据；
-//!   Rust 侧同样逐字节读取（`ByteSource::read_byte`），以保证「同一数据源先按字节探测、
-//!   再交给字符解码器」的交接不会丢字节。
-//! - 字节版额外提供 [`InputStreamTokenizer::read_byte`]（`u8`）与
-//!   [`InputStreamTokenizer::get_token_bytes`]（`Vec<u8>`），对应 Java 中
-//!   `InputStream.read()` / `(char) c` 无法表达的原始字节视图。
-//! - `java.io.IOException` → `crate::MpxjError`；回退（Java 的 `m_nextCharacter` / `m_nextToken`）
-//!   由 [`Tokenizer`] 内部字段实现。
+//! Porting trade-offs:
+//! - Java overrides `protected int read()` by inheriting `Tokenizer`; Rust has no inheritance,
+//!   so this type **composes** a `Tokenizer<ByteSource<R>>` and forwards its public methods (the
+//!   base-class logic and state are fully reused, see the comments on each forwarding method).
+//! - Java's `InputStream.read()` reads only one byte at a time and does no buffering, so it does
+//!   not swallow subsequent data; the Rust side likewise reads byte by byte
+//!   (`ByteSource::read_byte`), ensuring the hand-off of "probe the same data source by byte
+//!   first, then hand it to the character decoder" loses no bytes.
+//! - The byte version additionally provides [`InputStreamTokenizer::read_byte`] (`u8`) and
+//!   [`InputStreamTokenizer::get_token_bytes`] (`Vec<u8>`), corresponding to the raw byte view
+//!   that `InputStream.read()` / `(char) c` cannot express in Java.
+//! - `java.io.IOException` → `crate::MpxjError`; pushback (Java's `m_nextCharacter` /
+//!   `m_nextToken`) is implemented by fields inside [`Tokenizer`].
 //!
-//! 未移植的方法：无。
+//! Unported methods: none.
 
 use super::tokenizer::{TT_EOF, TokenSource, Tokenizer};
 use crate::MpxjResult;
 use std::io::Read;
 
-/// 按字节读取的字符来源。
+/// A byte-reading character source.
 ///
-/// 对应 Java: `InputStreamTokenizer` 中覆写的 `protected int read()`。
+/// Corresponds to Java: the `protected int read()` overridden in `InputStreamTokenizer`.
 pub struct ByteSource<R: Read> {
-    /// 字节数据源，对应 Java 的 `InputStream m_stream`
+    /// Byte data source, corresponding to Java's `InputStream m_stream`
     stream: R,
 }
 
 impl<R: Read> ByteSource<R> {
-    /// 构造字节来源。
+    /// Construct a byte source.
     ///
-    /// 对应 Java: `public InputStreamTokenizer(InputStream is)`
+    /// Corresponds to Java: `public InputStreamTokenizer(InputStream is)`
     pub fn new(stream: R) -> Self {
         Self { stream }
     }
 
-    /// 读取下一个字节；数据源结束时返回 `None`。
+    /// Read the next byte; returns `None` at the end of the data source.
     ///
-    /// 对应 Java: `m_stream.read()`（Java 返回 0..=255，数据源结束返回 -1）。
+    /// Corresponds to Java: `m_stream.read()` (Java returns 0..=255 and -1 at the end of the data source).
     ///
-    /// 逐字节读取、不做预读：对应 Java 中 `InputStream.read()` 的行为，
-    /// 保证调用方之后仍可从同一数据源继续读取。
+    /// Reads byte by byte with no read-ahead: corresponding to the behavior of Java's
+    /// `InputStream.read()`, ensuring the caller can still continue reading from the same data
+    /// source afterwards.
     pub fn read_byte(&mut self) -> MpxjResult<Option<u8>> {
         let mut byte = [0u8; 1];
         match self.stream.read(&mut byte)? {
@@ -52,63 +56,65 @@ impl<R: Read> ByteSource<R> {
         }
     }
 
-    /// 取回底层字节数据源。
+    /// Take back the underlying byte data source.
     ///
-    /// 对应 Java: 无此方法（Java 中 `InputStream` 由调用方持有）。
+    /// Corresponds to Java: no such method (in Java the `InputStream` is held by the caller).
     pub fn into_inner(self) -> R {
         self.stream
     }
 }
 
 impl<R: Read> TokenSource for ByteSource<R> {
-    /// 对应 Java: `InputStreamTokenizer` 中覆写的 `protected int read()`
+    /// Corresponds to Java: the `protected int read()` overridden in `InputStreamTokenizer`
     fn read(&mut self) -> MpxjResult<i32> {
         match self.read_byte()? {
-            // 对应 Java: `(char) c`——字节值 0..=255 直接作为字符编码
+            // Corresponds to Java: `(char) c`—the byte value 0..=255 is used directly as the character code
             Some(byte) => Ok(i32::from(byte)),
             None => Ok(TT_EOF),
         }
     }
 }
 
-/// 从 `Read` 按字节读取并分词的 tokenizer。
+/// A tokenizer that reads by byte from a `Read` and tokenizes.
 ///
-/// 对应 Java: `public class InputStreamTokenizer extends Tokenizer`
+/// Corresponds to Java: `public class InputStreamTokenizer extends Tokenizer`
 pub struct InputStreamTokenizer<R: Read> {
-    /// 组合 + 转发：Java 侧为继承 `Tokenizer` 并覆写 `read()`
+    /// Composition + forwarding: in Java this is inheriting `Tokenizer` and overriding `read()`
     inner: Tokenizer<ByteSource<R>>,
 }
 
 impl<R: Read> InputStreamTokenizer<R> {
-    /// 构造 tokenizer。
+    /// Construct a tokenizer.
     ///
-    /// 对应 Java: `public InputStreamTokenizer(InputStream is)`
+    /// Corresponds to Java: `public InputStreamTokenizer(InputStream is)`
     pub fn new(stream: R) -> Self {
         Self {
             inner: Tokenizer::new(ByteSource::new(stream)),
         }
     }
 
-    /// 取回底层数据源。
+    /// Take back the underlying data source.
     ///
-    /// 对应 Java: 无此方法（Java 中 `InputStream` 由调用方持有）；Rust 侧用于「先按字节探测文件头、
-    /// 再按字符解码」的交接。
+    /// Corresponds to Java: no such method (in Java the `InputStream` is held by the caller); the
+    /// Rust side uses it for the hand-off of "probe the file header by byte first, then decode by
+    /// character".
     pub fn into_inner(self) -> R {
         self.inner.into_source().into_inner()
     }
 
-    /// 读取下一个原始字节，数据源结束时返回 `None`。
+    /// Read the next raw byte; returns `None` at the end of the data source.
     ///
-    /// 对应 Java: `protected int read()`（Java 中受 protected 限制，仅子类可用）
+    /// Corresponds to Java: `protected int read()` (protected in Java, available only to subclasses)
     pub fn read_byte(&mut self) -> MpxjResult<Option<u8>> {
         self.inner.source_mut().read_byte()
     }
 
-    /// 以字节形式取回最后一个 token 的内容。
+    /// Get the content of the last token in byte form.
     ///
-    /// 对应 Java: 无此方法（Java 的 `getToken()` 已把字节转成字符）。
+    /// Corresponds to Java: no such method (Java's `getToken()` has already converted the bytes to characters).
     ///
-    /// 字节来源写入缓冲区的每个字符都在 U+0000–U+00FF 范围内，因此转回字节无损。
+    /// Every character written to the buffer by the byte source is in the range U+0000–U+00FF, so
+    /// converting back to bytes is lossless.
     pub fn get_token_bytes(&self) -> Vec<u8> {
         self.inner
             .get_token()
@@ -117,38 +123,38 @@ impl<R: Read> InputStreamTokenizer<R> {
             .collect()
     }
 
-    /// 对应 Java: `public int nextToken() throws IOException`
+    /// Corresponds to Java: `public int nextToken() throws IOException`
     pub fn next_token(&mut self) -> MpxjResult<i32> {
         self.inner.next_token()
     }
 
-    /// 对应 Java: `public String getToken()`
+    /// Corresponds to Java: `public String getToken()`
     pub fn get_token(&self) -> &str {
         self.inner.get_token()
     }
 
-    /// 对应 Java: `public int getType()`
+    /// Corresponds to Java: `public int getType()`
     pub fn get_type(&self) -> i32 {
         self.inner.get_type()
     }
 
-    /// 对应 Java: `public void setDelimiter(char delimiter)`
+    /// Corresponds to Java: `public void setDelimiter(char delimiter)`
     pub fn set_delimiter(&mut self, delimiter: char) {
         self.inner.set_delimiter(delimiter);
     }
 
-    /// 对应 Java: 无此方法（`m_delimiter` 为私有字段）
+    /// Corresponds to Java: no such method (`m_delimiter` is a private field)
     pub fn get_delimiter(&self) -> char {
         self.inner.get_delimiter()
     }
 
-    /// 对应 Java: `public static final int TT_EOL = '\n'`
+    /// Corresponds to Java: `public static final int TT_EOL = '\n'`
     pub const TT_EOL: i32 = super::tokenizer::TT_EOL;
 
-    /// 对应 Java: `public static final int TT_EOF = -1`
+    /// Corresponds to Java: `public static final int TT_EOF = -1`
     pub const TT_EOF: i32 = super::tokenizer::TT_EOF;
 
-    /// 对应 Java: `public static final int TT_WORD = -3`
+    /// Corresponds to Java: `public static final int TT_WORD = -3`
     pub const TT_WORD: i32 = super::tokenizer::TT_WORD;
 }
 
@@ -162,11 +168,11 @@ mod tests {
         InputStreamTokenizer::new(Cursor::new(bytes.to_vec()))
     }
 
-    /// 读取全部 token，返回 (类型, 文本) 列表。
+    /// Read all tokens and return a list of (type, text).
     fn read_all(tk: &mut InputStreamTokenizer<Cursor<Vec<u8>>>) -> Vec<(i32, String)> {
         let mut result = Vec::new();
         loop {
-            let token_type = tk.next_token().expect("内存数据源不会失败");
+            let token_type = tk.next_token().expect("in-memory data source never fails");
             result.push((token_type, tk.get_token().to_string()));
             if token_type == TT_EOF {
                 break;
@@ -177,7 +183,7 @@ mod tests {
 
     #[test]
     fn reads_bytes_without_decoding() {
-        // 0xE9 在 CP1252 中是 é，但字节版不做解码，直接得到 U+00E9
+        // 0xE9 is é in CP1252, but the byte version does no decoding and directly yields U+00E9
         let mut tk = source(&[b'A', b',', 0xE9, b'\n']);
         let tokens = read_all(&mut tk);
         assert_eq!(
@@ -260,8 +266,8 @@ mod tests {
 
     #[test]
     fn does_not_read_ahead_of_the_current_record() {
-        // 与 MPXReader 的用法一致：文件头记录读完（含行结束符）后，
-        // 剩余字节必须仍然留在数据源中，供后续的字符解码器读取
+        // Consistent with MPXReader's usage: after the file-header record is fully read (including the line terminator),
+        // the remaining bytes must still be left in the data source for the subsequent character decoder to read
         let mut tk = source(b"A,B\nrest of file");
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "A");

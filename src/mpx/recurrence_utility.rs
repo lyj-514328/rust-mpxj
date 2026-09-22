@@ -1,21 +1,24 @@
-//! 对应 Java: `org/mpxj/mpx/RecurrenceUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/RecurrenceUtility.java`
 //!
-//! # 移植取舍（`RecurringTask` 接口）
+//! # Porting trade-offs (`RecurringTask` interface)
 //!
-//! Java 的 `getDurationUnits(RecurringTask)` 与 `getDays(RecurringTask)` 接收
-//! `org.mpxj.RecurringTask`（提供 `getDuration()` 与 `getWeeklyDay()`）。
-//! 本 crate 的 [`crate::recurring_task::RecurringTask`] 位于模型层，读取链路不使用这两个
-//! 方法（Java 侧的使用方是 `MPXWriter`，未移植），故按 Java 的**取值**而非对象拆参：
+//! Java's `getDurationUnits(RecurringTask)` and `getDays(RecurringTask)` take
+//! `org.mpxj.RecurringTask` (which provides `getDuration()` and `getWeeklyDay()`).
+//! This crate's [`crate::recurring_task::RecurringTask`] lives in the model layer, and the read
+//! path does not use these two methods (the Java-side consumer is `MPXWriter`, which is not
+//! ported), so the parameters are split by Java's **values** rather than by object:
 //!
-//! - `getDurationUnits` 改为直接接收工期（`Option<Duration>`），对应 Java 中
-//!   `recurrence.getDuration()` 的取值结果；
-//! - `getDays` 改为接收 [`RecurringData`]（即 `RecurringTask` 的父类部分），
-//!   其 `get_weekly_day` 提供与 Java `RecurringTask.getWeeklyDay()` 相同的信息。
+//! - `getDurationUnits` instead takes the duration directly (`Option<Duration>`), corresponding
+//!   to the value of `recurrence.getDuration()` in Java;
+//! - `getDays` instead takes [`RecurringData`] (that is, the base-class part of `RecurringTask`),
+//!   whose `get_weekly_day` provides the same information as Java's `RecurringTask.getWeeklyDay()`.
 //!
-//! 其余方法均与 Java 逐一对应；Java 抛异常的分支（`NumberFormatException`、
-//! `DateTimeException`、`ArrayIndexOutOfBoundsException`）在 Rust 侧改为返回 `None`。
+//! All other methods correspond one-to-one with Java; the branches where Java throws exceptions
+//! (`NumberFormatException`, `DateTimeException`, `ArrayIndexOutOfBoundsException`) return `None`
+//! on the Rust side.
 //!
-//! 未移植的成员：无（含常量 `RECURRING_TASK_DAY_MASKS` 与全部私有静态映射表）。
+//! Skipped Java methods/members: none (including the `RECURRING_TASK_DAY_MASKS` constant and all
+//! private static maps).
 
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -26,15 +29,15 @@ use crate::recurrence_type::RecurrenceType;
 use crate::recurring_data::RecurringData;
 use crate::time_unit::TimeUnit;
 
-/// 管理 MPX 文件中重复（周期）任务相关数据的工具方法。
+/// Utility methods for managing recurring (periodic) task data in MPX files.
 ///
-/// 对应 Java: `final class RecurrenceUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class RecurrenceUtility` (a private constructor prevents instantiation; the Rust side uses a fieldless type).
 pub struct RecurrenceUtility;
 
 impl RecurrenceUtility {
-    /// MPX 记录中日期位图与 `DayOfWeekHelper.getValue`（周日 = 1 … 周六 = 7）对应的掩码表。
+    /// Mask table for date bitmaps in MPX records, corresponding to `DayOfWeekHelper.getValue` (Sunday = 1 … Saturday = 7).
     ///
-    /// 对应 Java: `public static final int[] RECURRING_TASK_DAY_MASKS`
+    /// Corresponds to Java: `public static final int[] RECURRING_TASK_DAY_MASKS`
     pub const RECURRING_TASK_DAY_MASKS: [i32; 8] = [
         0x00,
         0x40, // Sunday
@@ -46,11 +49,11 @@ impl RecurrenceUtility {
         0x01, // Saturday
     ];
 
-    /// 把 MPX 记录里的「工期值 + 单位整数」转换为 `Duration` 实例。
+    /// Convert the "duration value + units integer" from an MPX record into a `Duration` instance.
     ///
-    /// 对应 Java: `public static Duration getDuration(ProjectProperties properties, Integer durationValue, Integer unitsValue)`
+    /// Corresponds to Java: `public static Duration getDuration(ProjectProperties properties, Integer durationValue, Integer unitsValue)`
     ///
-    /// 工期在 MPX 记录中以分钟表示，单位由 `unitsValue` 指定；`null` 工期返回 `None`。
+    /// In an MPX record the duration is expressed in minutes and the units are given by `unitsValue`; a `null` duration returns `None`.
     pub fn get_duration(
         properties: &ProjectProperties,
         duration_value: Option<i32>,
@@ -69,9 +72,9 @@ impl RecurrenceUtility {
         }
     }
 
-    /// 把 `Duration` 实例转换为可以直接写入 MPX 文件的整数分钟值。
+    /// Convert a `Duration` instance into an integer minute value that can be written directly to an MPX file.
     ///
-    /// 对应 Java: `public static Integer getDurationValue(ProjectProperties properties, Duration duration)`
+    /// Corresponds to Java: `public static Integer getDurationValue(ProjectProperties properties, Duration duration)`
     pub fn get_duration_value(
         properties: &ProjectProperties,
         duration: Option<Duration>,
@@ -89,22 +92,22 @@ impl RecurrenceUtility {
         Some(duration.get_duration() as i32)
     }
 
-    /// 把工期单位转换为适合写入 MPX 文件的整数值。
+    /// Convert duration units into an integer value suitable for writing to an MPX file.
     ///
-    /// 对应 Java: `public static Integer getDurationUnits(RecurringTask recurrence)`
+    /// Corresponds to Java: `public static Integer getDurationUnits(RecurringTask recurrence)`
     ///
-    /// 取舍见文件头：Java 从 `RecurringTask.getDuration()` 取工期，Rust 侧直接接收工期。
-    /// 单位不在私有映射表 `DURATION_UNITS`（天 / 周 / 小时 / 分钟）中时返回 `None`。
+    /// See the file header for the trade-off: Java obtains the duration from `RecurringTask.getDuration()`, while the Rust side takes the duration directly.
+    /// Returns `None` when the units are not in the private `DURATION_UNITS` map (days / weeks / hours / minutes).
     pub fn get_duration_units(duration: Option<Duration>) -> Option<i32> {
         let duration = duration?;
         duration_units_value(duration.get_units())
     }
 
-    /// 把 MPX 记录中重复任务的单位整数转换为 `TimeUnit`，无法识别时回落为「天」。
+    /// Convert the units integer of a recurring task in an MPX record into a `TimeUnit`, falling back to days when unrecognized.
     ///
-    /// 对应 Java: `private static TimeUnit getDurationUnits(Integer value)`
+    /// Corresponds to Java: `private static TimeUnit getDurationUnits(Integer value)`
     ///
-    /// Java 侧与 [`RecurrenceUtility::get_duration_units`] 构成重载，Rust 无法重载，故加后缀区分。
+    /// On the Java side this overloads [`RecurrenceUtility::get_duration_units`]; Rust does not support overloading, so a suffix distinguishes them.
     fn get_duration_units_from_value(value: Option<i32>) -> TimeUnit {
         let result = value
             .and_then(|index| usize::try_from(index).ok())
@@ -114,9 +117,9 @@ impl RecurrenceUtility {
         result.unwrap_or(TimeUnit::Days)
     }
 
-    /// 把 MPX 文件中的重复类型整数转换为 `RecurrenceType`，无法识别时返回 `None`。
+    /// Convert a recurrence type integer from an MPX file into a `RecurrenceType`, returning `None` when unrecognized.
     ///
-    /// 对应 Java: `public static RecurrenceType getRecurrenceType(Integer value)`
+    /// Corresponds to Java: `public static RecurrenceType getRecurrenceType(Integer value)`
     pub fn get_recurrence_type(value: Option<i32>) -> Option<RecurrenceType> {
         match value? {
             1 => Some(RecurrenceType::Daily),
@@ -127,9 +130,9 @@ impl RecurrenceUtility {
         }
     }
 
-    /// 把 `RecurrenceType` 转换为 MPX 文件中的重复类型整数，`None` 返回 `None`。
+    /// Convert a `RecurrenceType` into the recurrence type integer used in MPX files, with `None` returning `None`.
     ///
-    /// 对应 Java: `public static Integer getRecurrenceValue(RecurrenceType value)`
+    /// Corresponds to Java: `public static Integer getRecurrenceValue(RecurrenceType value)`
     pub fn get_recurrence_value(value: Option<RecurrenceType>) -> Option<i32> {
         match value? {
             RecurrenceType::Daily => Some(1),
@@ -139,22 +142,22 @@ impl RecurrenceUtility {
         }
     }
 
-    /// 把「星期几」位图的字符串形式转换为整数位图。
+    /// Convert the string form of a day-of-week bitmap into an integer bitmap.
     ///
-    /// 对应 Java: `public static Integer getDays(String days)`
+    /// Corresponds to Java: `public static Integer getDays(String days)`
     ///
-    /// 首字符为最高位（`Integer.parseInt(days, 2)` 的语义）。Java 对非法输入抛
-    /// `NumberFormatException`，Rust 侧返回 `None`。
+    /// The first character is the most significant bit (the semantics of `Integer.parseInt(days, 2)`). Java throws
+    /// `NumberFormatException` for invalid input, whereas the Rust side returns `None`.
     pub fn get_days_from_string(days: Option<&str>) -> Option<i32> {
         days.and_then(|days| i32::from_str_radix(days, 2).ok())
     }
 
-    /// 把按周重复的星期几转换为位图字符串。
+    /// Convert the days of a weekly recurrence into a bitmap string.
     ///
-    /// 对应 Java: `public static String getDays(RecurringTask task)`
+    /// Corresponds to Java: `public static String getDays(RecurringTask task)`
     ///
-    /// 顺序取自 [`DayOfWeekHelper::ORDERED_DAYS`]（周日 → 周六），即首字符为周日。
-    /// 取舍见文件头：Java 从 `RecurringTask.getWeeklyDay()` 取值，Rust 侧接收 [`RecurringData`]。
+    /// The order comes from [`DayOfWeekHelper::ORDERED_DAYS`] (Sunday → Saturday), so the first character is Sunday.
+    /// See the file header for the trade-off: Java takes the value from `RecurringTask.getWeeklyDay()`, while the Rust side takes a [`RecurringData`].
     pub fn get_days(data: &RecurringData) -> String {
         let mut result = String::new();
         for day in DayOfWeekHelper::ORDERED_DAYS {
@@ -163,21 +166,21 @@ impl RecurrenceUtility {
         result
     }
 
-    /// 把 MPX 的「星期几」序号转换为 [`Weekday`]，序号 0（Java 侧为 `null`）返回 `None`。
+    /// Convert an MPX day-of-week index into a [`Weekday`]; index 0 (`null` on the Java side) returns `None`.
     ///
-    /// 对应 Java: `public static DayOfWeek getDay(Integer day)`
+    /// Corresponds to Java: `public static DayOfWeek getDay(Integer day)`
     ///
-    /// Java 对越界序号抛 `ArrayIndexOutOfBoundsException`，Rust 侧返回 `None`。
+    /// Java throws `ArrayIndexOutOfBoundsException` for an out-of-bounds index, whereas the Rust side returns `None`.
     pub fn get_day(day: Option<i32>) -> Option<Weekday> {
         let index = usize::try_from(day?).ok()?;
         DAY_ARRAY.get(index).copied().flatten()
     }
 
-    /// 把 [`Weekday`] 转换为 MPX 的「星期几」序号（周一 = 1 … 周日 = 7）。
+    /// Convert a [`Weekday`] into an MPX day-of-week index (Monday = 1 … Sunday = 7).
     ///
-    /// 对应 Java: `public static Integer getDay(DayOfWeek day)`
+    /// Corresponds to Java: `public static Integer getDay(DayOfWeek day)`
     ///
-    /// Java 侧与 [`RecurrenceUtility::get_day`] 构成重载，Rust 无法重载，故加后缀区分。
+    /// On the Java side this overloads [`RecurrenceUtility::get_day`]; Rust does not support overloading, so a suffix distinguishes them.
     pub fn get_day_index(day: Option<Weekday>) -> Option<i32> {
         match day? {
             Weekday::Mon => Some(1),
@@ -190,12 +193,12 @@ impl RecurrenceUtility {
         }
     }
 
-    /// 取「按年、绝对日期」重复的日期（年份取自重复的起始日期）。
+    /// Return the date for a "yearly, absolute date" recurrence (the year comes from the recurrence's start date).
     ///
-    /// 对应 Java: `public static LocalDate getYearlyAbsoluteAsDate(RecurringData data)`
+    /// Corresponds to Java: `public static LocalDate getYearlyAbsoluteAsDate(RecurringData data)`
     ///
-    /// 缺少月/日/起始日期任一值时返回 `None`；Java 的 `LocalDate.of` 对非法日期抛
-    /// `DateTimeException`，Rust 侧返回 `None`。
+    /// Returns `None` when any of month/day/start date is missing; Java's `LocalDate.of` throws
+    /// `DateTimeException` for an invalid date, whereas the Rust side returns `None`.
     pub fn get_yearly_absolute_as_date(data: &RecurringData) -> Option<NaiveDate> {
         let yearly_absolute_day = data.get_day_number()?;
         let yearly_absolute_month = data.get_month_number()?;
@@ -209,9 +212,9 @@ impl RecurrenceUtility {
     }
 }
 
-/// 重复任务记录中工期单位整数到 `TimeUnit` 的映射表。
+/// Map from the duration units integer in a recurring task record to a `TimeUnit`.
 ///
-/// 对应 Java: `private static final TimeUnit[] DURATION_UNITS`
+/// Corresponds to Java: `private static final TimeUnit[] DURATION_UNITS`
 const DURATION_UNITS: [TimeUnit; 4] = [
     TimeUnit::Days,
     TimeUnit::Weeks,
@@ -219,9 +222,9 @@ const DURATION_UNITS: [TimeUnit; 4] = [
     TimeUnit::Minutes,
 ];
 
-/// `TimeUnit` 到重复任务记录中工期单位整数的反向映射。
+/// Reverse map from a `TimeUnit` to the duration units integer in a recurring task record.
 ///
-/// 对应 Java: `private static final Map<TimeUnit, Integer> UNITS_MAP`（由 `DURATION_UNITS` 静态块建立）
+/// Corresponds to Java: `private static final Map<TimeUnit, Integer> UNITS_MAP` (built by a `DURATION_UNITS` static block)
 fn duration_units_value(units: TimeUnit) -> Option<i32> {
     DURATION_UNITS
         .iter()
@@ -229,9 +232,9 @@ fn duration_units_value(units: TimeUnit) -> Option<i32> {
         .map(|index| index as i32)
 }
 
-/// MPX 星期几序号到 [`Weekday`] 的映射表（下标 0 对应 Java 的 `null`）。
+/// Map from an MPX day-of-week index to a [`Weekday`] (index 0 corresponds to Java's `null`).
 ///
-/// 对应 Java: `private static final DayOfWeek[] DAY_ARRAY`
+/// Corresponds to Java: `private static final DayOfWeek[] DAY_ARRAY`
 const DAY_ARRAY: [Option<Weekday>; 8] = [
     None,
     Some(Weekday::Mon),
@@ -251,10 +254,10 @@ mod tests {
     use super::*;
     use crate::project_file::ProjectFile;
 
-    /// 构造一个用于测试的项目属性：每天 480 分钟、每周 2400 分钟、每月 20 天。
+    /// Build a project properties instance for testing: 480 minutes per day, 2400 minutes per week, 20 days per month.
     ///
-    /// 时间单位默认值属于 Java 的「始终计算字段」，实际存放在父文件的项目上下文里，
-    /// 因此必须保留父文件（弱引用），并把文件对象一并返回给调用方持有。
+    /// The time-unit defaults belong to Java's "always calculated fields" and are actually stored in the parent file's project context,
+    /// so the parent file must be kept (a weak reference) and the file object returned alongside it for the caller to hold.
     fn properties() -> (Rc<RefCell<ProjectFile>>, ProjectProperties) {
         let file = ProjectFile::new();
         let mut properties = ProjectProperties::new(Rc::downgrade(&file));
@@ -267,7 +270,7 @@ mod tests {
     #[test]
     fn duration_round_trips_through_mpx_values() {
         let (_file, properties) = properties();
-        // (MPX 单位整数, 期望单位)
+        // (MPX units integer, expected units)
         let cases = [
             (0, TimeUnit::Days),
             (1, TimeUnit::Weeks),
@@ -276,22 +279,22 @@ mod tests {
         ];
 
         for (units_value, units) in cases {
-            // MPX 值 → 模型值
+            // MPX value -> model value
             let duration =
                 RecurrenceUtility::get_duration(&properties, Some(480), Some(units_value))
-                    .expect("工期值非空");
+                    .expect("duration value is not null");
             assert_eq!(duration.get_units(), units);
 
-            // 模型值 → MPX 值 → 模型值
+            // model value -> MPX value -> model value
             let value = RecurrenceUtility::get_duration_value(&properties, Some(duration))
-                .expect("工期非空");
+                .expect("duration is not null");
             let units_index = RecurrenceUtility::get_duration_units(Some(duration))
-                .expect("单位应可映射为 MPX 整数");
+                .expect("units should map to an MPX integer");
             assert_eq!(units_index, units_value);
 
             let round_tripped =
                 RecurrenceUtility::get_duration(&properties, Some(value), Some(units_index))
-                    .expect("工期值非空");
+                    .expect("duration value is not null");
             assert_eq!(round_tripped.get_units(), units);
             assert_eq!(round_tripped, duration);
         }
@@ -337,10 +340,10 @@ mod tests {
     #[test]
     fn duration_units_default_to_days() {
         let (_file, properties) = properties();
-        // 未知 / 越界 / 缺失的单位整数都回落为「天」（工期值本身仍会按分钟 → 天换算）
+        // Unknown / out-of-bounds / missing units integers all fall back to days (the duration value itself is still converted from minutes to days)
         for units_value in [None, Some(-1), Some(4), Some(100)] {
             let duration = RecurrenceUtility::get_duration(&properties, Some(1), units_value)
-                .expect("工期值非空");
+                .expect("duration value is not null");
             assert_eq!(duration.get_units(), TimeUnit::Days);
             assert!(Duration::duration_value_equals(
                 duration.get_duration(),
@@ -351,7 +354,7 @@ mod tests {
 
     #[test]
     fn duration_units_without_mpx_representation_return_none() {
-        // Java: UNITS_MAP 中只有天 / 周 / 小时 / 分钟
+        // Java: UNITS_MAP contains only days / weeks / hours / minutes
         for units in [
             TimeUnit::Months,
             TimeUnit::Years,
@@ -369,7 +372,7 @@ mod tests {
     fn recurrence_type_round_trips() {
         for recurrence_type in RecurrenceType::ALL {
             let value = RecurrenceUtility::get_recurrence_value(Some(recurrence_type))
-                .expect("重复类型应可映射为 MPX 整数");
+                .expect("recurrence type should map to an MPX integer");
             assert_eq!(
                 RecurrenceUtility::get_recurrence_type(Some(value)),
                 Some(recurrence_type)
@@ -391,13 +394,13 @@ mod tests {
         data.set_weekly_day(Weekday::Sun, true);
         data.set_weekly_day(Weekday::Sat, true);
 
-        // 模型值 → MPX 值：首字符为周日
+        // model value -> MPX value: the first character is Sunday
         let days = RecurrenceUtility::get_days(&data);
         assert_eq!(days, "1000001");
 
-        // MPX 值 → 模型值
+        // MPX value -> model value
         let bitmap = RecurrenceUtility::get_days_from_string(Some(days.as_str()))
-            .expect("合法二进制位图");
+            .expect("valid binary bitmap");
         assert_eq!(bitmap, 0b1000001);
 
         let mut round_tripped = RecurringData::new();
@@ -416,7 +419,7 @@ mod tests {
         let data = RecurringData::new();
         assert_eq!(RecurrenceUtility::get_days(&data), "0000000");
         assert_eq!(RecurrenceUtility::get_days_from_string(Some("0000000")), Some(0));
-        // Java: Integer.parseInt 对 null 与非法输入的处理（NPE -> none / NumberFormatException）
+        // Java: Integer.parseInt handling of null and invalid input (NPE -> none / NumberFormatException)
         assert_eq!(RecurrenceUtility::get_days_from_string(None), None);
         assert_eq!(RecurrenceUtility::get_days_from_string(Some("")), None);
         assert_eq!(RecurrenceUtility::get_days_from_string(Some("1010120")), None);
@@ -442,9 +445,9 @@ mod tests {
 
     #[test]
     fn day_values_handle_out_of_range_and_missing_values() {
-        // Java: DAY_ARRAY[0] 为 null
+        // Java: DAY_ARRAY[0] is null
         assert_eq!(RecurrenceUtility::get_day(Some(0)), None);
-        // Java: 抛 ArrayIndexOutOfBoundsException
+        // Java: throws ArrayIndexOutOfBoundsException
         assert_eq!(RecurrenceUtility::get_day(Some(8)), None);
         assert_eq!(RecurrenceUtility::get_day(Some(-1)), None);
         assert_eq!(RecurrenceUtility::get_day(None), None);
@@ -455,7 +458,7 @@ mod tests {
     fn yearly_absolute_date_uses_start_date_year() {
         let mut data = RecurringData::new();
         data.set_start_date(Some(
-            NaiveDate::from_ymd_opt(2024, 5, 1).expect("合法日期"),
+            NaiveDate::from_ymd_opt(2024, 5, 1).expect("valid date"),
         ));
         data.set_day_number(Some(10));
         data.set_month_number(Some(6));
@@ -468,7 +471,7 @@ mod tests {
 
     #[test]
     fn yearly_absolute_date_requires_all_components() {
-        let start_date = NaiveDate::from_ymd_opt(2024, 5, 1).expect("合法日期");
+        let start_date = NaiveDate::from_ymd_opt(2024, 5, 1).expect("valid date");
 
         let mut data = RecurringData::new();
         data.set_start_date(Some(start_date));
@@ -479,7 +482,7 @@ mod tests {
         data.set_month_number(Some(6));
         assert_eq!(RecurrenceUtility::get_yearly_absolute_as_date(&data), None);
 
-        // Java: LocalDate.of 对非法日期抛 DateTimeException
+        // Java: LocalDate.of throws DateTimeException for an invalid date
         let mut data = RecurringData::new();
         data.set_start_date(Some(start_date));
         data.set_day_number(Some(31));

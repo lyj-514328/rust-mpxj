@@ -1,25 +1,25 @@
-//! 对应 Java: `org/mpxj/View.java`
+//! Corresponds to Java: `org/mpxj/View.java`
 //!
-//! 未移植的 Java 方法：无（本接口的 5 个方法均已翻译）。
+//! Unported Java methods: none (all 5 methods of this interface have been translated).
 //!
-//! 跳过/未移植的 Java 机制：反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`
-//! 均未使用。
+//! Skipped / unported Java mechanisms: reflection, JDBC, XML/JAXB, GUI, `javax.*`, `Serializable`
+//! are all unused.
 //!
-//! # 接口的还原方式
+//! # How the interface is restored
 //!
-//! Java 的 `public interface View` 在 Rust 侧还原为 [`View`] trait，5 个方法逐一对应。
+//! Java's `public interface View` is restored as the [`View`] trait on the Rust side, with the 5 methods corresponding one by one.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **实现类**：Java 的实现类位于 `org.mpxj.mpp`（`MPPView` 等），本 crate 已在 `src/mpp/`
-//!   落地全部实现类（`AbstractView` / `AbstractMppView` / `GanttChartView` / `GenericView` /
-//!   `View8` / `SplitView9` 等，均 `impl View`）；本 trait 只提供契约，其余使用方
-//!   （如 `ViewContainer` 的测试替身）也自行实现。
-//! - **可空返回**：Java 的实现允许返回 `null`，Rust 侧用 `Option` 表达；
-//!   名称类返回值用 `Option<&str>`（避免字符串拷贝）。
-//! - **`getTable()`**：Java 返回 `Table` 引用；Rust 侧返回
-//!   `Option<Rc<RefCell<Table>>>`，与本 crate 容器持有的表格实例共享同一份数据
-//!   （见 [`crate::table_container::TableContainer`]）。
+//! - **Implementing classes**: Java's implementing classes are in `org.mpxj.mpp` (`MPPView` etc.); this crate has already placed all
+//! implementing classes under `src/mpp/` (`AbstractView` / `AbstractMppView` / `GanttChartView` / `GenericView` /
+//! `View8` / `SplitView9` etc., all `impl View`); this trait only provides the contract, and other consumers
+//! (such as the test double for `ViewContainer`) implement it themselves as well.
+//! - **Nullable returns**: Java's implementations allow returning `null`, expressed with `Option` on the Rust side;
+//! name-like return values use `Option<&str>` (avoiding string copies).
+//! - **`getTable()`**: Java returns a `Table` reference; the Rust side returns
+//! `Option<Rc<RefCell<Table>>>`, sharing the same data as the table instance held by this crate's container
+//! (see [`crate::table_container::TableContainer`]).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,35 +27,35 @@ use std::rc::Rc;
 use crate::table::Table;
 use crate::view_type::ViewType;
 
-/// MS Project 文件中的视图（甘特图、资源工作表等）。
+/// A view in an MS Project file (Gantt chart, resource sheet, etc.).
 ///
-/// 对应 Java: `public interface View`
+/// Corresponds to Java: `public interface View`
 ///
-/// 视图数据在用户首次查看该视图时才会写入文件；未查看过的视图在 MPP 文件中没有信息。
+/// View data is written to the file only when the user first views that view; views that have never been viewed have no information in the MPP file.
 pub trait View {
-    /// 取视图标识（不代表视图类型）。
+/// Get the view ID (does not represent the view type).
     ///
-    /// 对应 Java: `Integer getID()`
+    /// Corresponds to Java: `Integer getID()`
     fn get_id(&self) -> Option<i32>;
 
-    /// 取视图名称（MPXJ 已剥离内部使用的 `&` 快捷键标记）。
+/// Get the view name (MPXJ has stripped the internal `&` shortcut marker).
     ///
-    /// 对应 Java: `String getName()`
+    /// Corresponds to Java: `String getName()`
     fn get_name(&self) -> Option<&str>;
 
-    /// 取视图类型。
+/// Get the view type.
     ///
-    /// 对应 Java: `ViewType getType()`
+    /// Corresponds to Java: `ViewType getType()`
     fn get_type(&self) -> Option<ViewType>;
 
-    /// 取视图中表格部分的名称。
+/// Get the name of the table part of the view.
     ///
-    /// 对应 Java: `String getTableName()`
+    /// Corresponds to Java: `String getTableName()`
     fn get_table_name(&self) -> Option<&str>;
 
-    /// 取视图中表格部分对应的 [`Table`] 实例。
+/// Get the [`Table`] instance corresponding to the table part of the view.
     ///
-    /// 对应 Java: `Table getTable()`
+    /// Corresponds to Java: `Table getTable()`
     fn get_table(&self) -> Option<Rc<RefCell<Table>>>;
 }
 
@@ -63,7 +63,7 @@ pub trait View {
 mod tests {
     use super::*;
 
-    /// 测试用视图：验证 trait 的契约可被实现（对应 Java 中 `MPPView` 等实现类的位置）。
+/// Test view: verifies that the trait contract can be implemented (corresponding to the place of implementing classes such as `MPPView` in Java).
     struct MockView {
         id: Option<i32>,
         name: Option<String>,

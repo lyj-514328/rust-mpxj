@@ -1,15 +1,15 @@
-//! 对应 Java: `org/mpxj/ProjectEntityContainer.java`
+//! Corresponds to Java: `org/mpxj/ProjectEntityContainer.java`
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `removed(T)` 通过当前 unique ID 删除索引 | 按 `Rc` 身份删除索引 | 日历调用 `remove()` 时可能仍被可变借用，不能反向读取其 unique ID；索引被其它同号元素覆盖时保留该元素 |
-//! | `fixUniqueIdClashes()` 从提供者取序列 | 另有传入真实序列的重载 | 容器在 `ProjectContext` 可变借用期间无法经适配器再次借用上下文 |
+//! | `removed(T)` removes the index entry via the current unique ID | Removes the index entry by `Rc` identity | A calendar may still be mutably borrowed when `remove()` is called, so its unique ID cannot be read back; when the index was overwritten by another element with the same ID, that element is retained |
+//! | `fixUniqueIdClashes()` obtains the sequence from the provider | A separate overload takes the real sequence | While the container holds a mutable borrow of `ProjectContext`, it cannot borrow the context again through the adapter |
 //!
-//! # 跳过的 Java 成员 + 原因
+//! # Skipped Java members + reasons
 //!
-//! 无。
+//! None.
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -23,74 +23,81 @@ use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUnique
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 项目实体容器的公共实现：存储、迭代与按 unique ID 查找。
+/// Common implementation of a project entity container: storage, iteration, and lookup by unique ID.
 ///
-/// 对应 Java:
+/// Corresponds to Java:
 /// `public abstract class ProjectEntityContainer<T extends ProjectEntityWithUniqueID> extends ListWithCallbacks<T>`
 ///
-/// # 继承体系的还原方式
+/// # Reproducing the Inheritance Hierarchy
 ///
-/// Java 用「继承 `ListWithCallbacks` + 覆写 `added` / `removed`」实现本类。Rust 没有继承，
-/// 本类改为**组合 + 回调字段**：
+/// Java implements this class with "inherit `ListWithCallbacks` + override `added` / `removed`".
+/// Rust has no inheritance, so this class uses **composition + callback fields** instead:
 ///
 /// | Java | Rust |
 /// |---|---|
-/// | `extends ListWithCallbacks<T>` | 内部持有 [`ListWithCallbacks<Rc<RefCell<T>>>`] 字段 |
-/// | `protected void added(T element)` 覆写 | [`ListWithCallbacks::set_added_callback`] 注册的闭包 |
-/// | `protected void removed(T element)` 覆写 | [`ListWithCallbacks::set_removed_callback`] 注册的闭包 |
-/// | `private final Map<Integer, T> m_uniqueIDMap` | `Rc<RefCell<HashMap<i32, Rc<RefCell<T>>>>>`，与回调闭包共享 |
+/// | `extends ListWithCallbacks<T>` | Internally holds a [`ListWithCallbacks<Rc<RefCell<T>>>`] field |
+/// | `protected void added(T element)` override | Closure registered via [`ListWithCallbacks::set_added_callback`] |
+/// | `protected void removed(T element)` override | Closure registered via [`ListWithCallbacks::set_removed_callback`] |
+/// | `private final Map<Integer, T> m_uniqueIDMap` | `Rc<RefCell<HashMap<i32, Rc<RefCell<T>>>>>`, shared with the callback closures |
 /// | `private final List<ProjectEntityWithMutableUniqueID> m_uniqueIDClashList` | `Rc<RefCell<Vec<Rc<RefCell<T>>>>>` |
 ///
-/// 后续的 `ProjectEntityWithIDContainer` 等子类**无法**在 Rust 中继承本类，改为
-/// 组合一个本类实例并转发方法（见
-/// [`crate::project_entity_with_id_container::ProjectEntityWithIDContainer`]）。
+/// Subsequent subclasses such as `ProjectEntityWithIDContainer` **cannot** inherit this class in
+/// Rust, so they compose an instance of it and forward methods (see
+/// [`crate::project_entity_with_id_container::ProjectEntityWithIDContainer`]).
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - **元素引用模型**：Java 的列表与映射共享同一批对象引用，`fixUniqueIdClashes` 等
-///   方法就地修改元素。Rust 侧用 `Rc<RefCell<T>>` 表达这种共享与内部可变性（符合
-///   「共享实体用 `Rc<RefCell<T>>`」的约定），因此 `get` / `iter` 返回的是 `Rc` 句柄。
-/// - **元素类型约束**：Java 声明 `T extends ProjectEntityWithUniqueID`，但
-///   `fixUniqueIdClashes` 内部用 `instanceof` 判断元素是否可变。Rust 侧结构体本身不带
-///   约束，[`fix_unique_id_clashes`](ProjectEntityContainer::fix_unique_id_clashes) 用
-///   **方法级** `where T: ProjectEntityWithMutableUniqueID` 等价地表达这一检查：对
-///   unique ID 不可变的实体（如 `WorkContour`），冲突列表永远为空，该方法也不会被调用。
-/// - **`null` 键**：Java 的 `Map<Integer, T>` 允许 `null` 键（`added` / `removed` 对
-///   无 unique ID 的元素会使用它）。Rust 侧映射键为 `i32`，此时直接跳过（等价于「查不到」）。
-/// - **`element.getClass()`**：Java 用元素的运行时类型取序号生成器；Rust 侧用
-///   `TypeId::of::<T>()`（容器元素类型即元素类型）。
-/// - **`firstUniqueID()`**：Java 为 `protected` 且可被 `TaskContainer` 覆写；Rust 侧提供
-///   返回基类默认值 1 的公开方法 [`first_unique_id`](ProjectEntityContainer::first_unique_id)。
+/// - **Element reference model**: Java's list and map share the same object references, and
+///   methods such as `fixUniqueIdClashes` modify elements in place. The Rust side expresses this
+///   sharing and interior mutability with `Rc<RefCell<T>>` (following the convention "shared
+///   entities use `Rc<RefCell<T>>`"), so `get` / `iter` return `Rc` handles.
+/// - **Element type constraint**: Java declares `T extends ProjectEntityWithUniqueID`, but
+///   `fixUniqueIdClashes` internally uses `instanceof` to determine whether an element is
+///   mutable. The Rust struct itself carries no constraint;
+///   [`fix_unique_id_clashes`](ProjectEntityContainer::fix_unique_id_clashes) expresses this
+///   check equivalently with a **method-level** `where T: ProjectEntityWithMutableUniqueID`:
+///   for entities with an immutable unique ID (such as `WorkContour`), the clash list is always
+///   empty and the method is never called.
+/// - **`null` key**: Java's `Map<Integer, T>` allows a `null` key (`added` / `removed` use it
+///   for elements without a unique ID). The Rust map key is `i32`, so such elements are skipped
+///   (equivalent to "not found").
+/// - **`element.getClass()`**: Java uses the element's runtime type to obtain the sequence
+///   generator; the Rust side uses `TypeId::of::<T>()` (the container element type is the
+///   element type).
+/// - **`firstUniqueID()`**: In Java it is `protected` and can be overridden by `TaskContainer`;
+///   the Rust side provides a public method
+///   [`first_unique_id`](ProjectEntityContainer::first_unique_id) returning the base-class
+///   default of 1.
 ///
-/// 被跳过的 Java 机制：无（`Serializable` 等未在本类中使用）。
+/// Skipped Java mechanisms: none (`Serializable` etc. are not used in this class).
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub struct ProjectEntityContainer<T> {
-    /// 列表内容与增减回调。
+    /// List contents and add/remove callbacks.
     ///
-    /// 对应 Java: `ListWithCallbacks<T>` 基类继承而来的列表存储与 `added` / `removed` 钩子。
+    /// Corresponds to Java: the list storage and `added` / `removed` hooks inherited from the `ListWithCallbacks<T>` base class.
     list: ListWithCallbacks<Rc<RefCell<T>>>,
-    /// 序号生成器提供者。
+    /// Sequence generator provider.
     ///
-    /// 对应 Java: `protected final UniqueIdObjectSequenceProvider m_sequenceProvider;`
+    /// Corresponds to Java: `protected final UniqueIdObjectSequenceProvider m_sequenceProvider;`
     sequence_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>,
-    /// unique ID → 实体的索引。
+    /// unique ID → entity index.
     ///
-    /// 对应 Java: `private final Map<Integer, T> m_uniqueIDMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, T> m_uniqueIDMap = new HashMap<>();`
     unique_id_map: Rc<RefCell<HashMap<i32, Rc<RefCell<T>>>>>,
-    /// 出现 unique ID 冲突的实体列表。
+    /// List of entities with unique ID clashes.
     ///
-    /// 对应 Java: `private final List<ProjectEntityWithMutableUniqueID> m_uniqueIDClashList = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<ProjectEntityWithMutableUniqueID> m_uniqueIDClashList = new ArrayList<>();`
     unique_id_clash_list: Rc<RefCell<Vec<Rc<RefCell<T>>>>>,
 }
 
 impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public ProjectEntityContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public ProjectEntityContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// 构造时会把 `added` / `removed` 回调注册进内部列表，与 Java 中由子类覆写这两个钩子
-    /// 的效果一致。
+    /// The constructor registers the `added` / `removed` callbacks into the internal list,
+    /// matching the effect of a subclass overriding these two hooks in Java.
     pub fn new(sequence_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>) -> Self {
         let unique_id_map: Rc<RefCell<HashMap<i32, Rc<RefCell<T>>>>> =
             Rc::new(RefCell::new(HashMap::new()));
@@ -111,14 +118,14 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
                 let current_element = map.try_borrow().ok()
                     .and_then(|map| map.get(&unique_id).cloned());
                 if let Some(current_element) = current_element {
-                    // Java: 同一个实例重复加入不视为冲突
+                    // Java: re-adding the same instance is not treated as a clash
                     if Rc::ptr_eq(&current_element, element) {
                         return;
                     }
 
                     // Java: `if (currentElement instanceof ProjectEntityWithMutableUniqueID)`
-                    // 记录冲突候选；对 unique ID 不可变的元素类型，冲突列表不会被消费
-                    // （见 `fix_unique_id_clashes` 的方法级约束）。
+                    // Record the clash candidate; for element types with an immutable unique ID, the clash list is
+                    // never consumed (see the method-level constraint of `fix_unique_id_clashes`).
                     if let Ok(mut clashes) = clash_list.try_borrow_mut() {
                         clashes.push(Rc::clone(element));
                     }
@@ -134,8 +141,8 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         {
             let map = Rc::clone(&unique_id_map);
             list.set_removed_callback(Some(Box::new(move |element: &Rc<RefCell<T>>| {
-                // 日历可在其 `remove()` 持有可变借用时触发此回调。
-                // 直接按元素身份移除，无需重入借用实体。
+                // A calendar may trigger this callback while holding a mutable borrow in its `remove()`.
+                // Remove by element identity directly, with no need to re-enter and borrow the entity.
                 if let Ok(mut map) = map.try_borrow_mut() {
                     map.retain(|_, candidate| !Rc::ptr_eq(candidate, element));
                 }
@@ -150,115 +157,116 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         }
     }
 
-    /// 取序号生成器提供者。
+    /// Return the sequence generator provider.
     ///
-    /// 对应 Java: `public UniqueIdObjectSequenceProvider getSequenceProvider()`
+    /// Corresponds to Java: `public UniqueIdObjectSequenceProvider getSequenceProvider()`
     pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
         Rc::clone(&self.sequence_provider)
     }
 
-    /// 重排 unique ID 时使用的第一个值。
+    /// The first value used when renumbering unique IDs.
     ///
-    /// 对应 Java: `protected int firstUniqueID()`
+    /// Corresponds to Java: `protected int firstUniqueID()`
     ///
-    /// Java 侧被 `TaskContainer` 覆写（任务 0 存在时从 0 开始）；Rust 侧由各容器自行决定，
-    /// 本方法提供基类默认值。
+    /// On the Java side it is overridden by `TaskContainer` (starting from 0 when task 0 exists);
+    /// on the Rust side each container decides for itself, and this method provides the base-class
+    /// default.
     pub fn first_unique_id(&self) -> i32 {
         1
     }
 
-    /// 按 unique ID 查找实体，找不到时返回 `None`。
+    /// Find an entity by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public T getByUniqueID(Integer id)`
+    /// Corresponds to Java: `public T getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<T>>> {
         let id = id?;
         self.unique_id_map.borrow().get(&id).cloned()
     }
 
-    /// 追加实体。
+    /// Append an entity.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`（经 `added` 钩子更新 unique ID 索引）。
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)` (updates the unique ID index via the `added` hook).
     pub fn add(&mut self, element: Rc<RefCell<T>>) {
         self.list.add(element);
     }
 
-    /// 在指定下标插入实体。
+    /// Insert an entity at the given index.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     ///
-    /// 越界返回 `false`。
+    /// Returns `false` when out of bounds.
     pub fn add_at(&mut self, index: usize, element: Rc<RefCell<T>>) -> bool {
         self.list.add_at(index, element)
     }
 
-    /// 替换指定下标的实体，返回被替换掉的旧实体。
+    /// Replace the entity at the given index and return the old entity that was replaced.
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     ///
-    /// 越界返回 `None`。
+    /// Returns `None` when out of bounds.
     ///
-    /// 与 Java 一致：替换**不会**更新 unique ID 索引（Java 的
-    /// `ProjectEntityContainer` 只覆写了 `added` / `removed` 两个钩子，没有覆写
-    /// `replaced`），需要同步索引时由调用方显式使用
-    /// [`update_unique_id`](ProjectEntityContainer::update_unique_id)。
+    /// Consistent with Java: replacement does **not** update the unique ID index (Java's
+    /// `ProjectEntityContainer` overrides only the two hooks `added` / `removed`, not `replaced`);
+    /// when the index needs to be synchronized, the caller must explicitly use
+    /// [`update_unique_id`](ProjectEntityContainer::update_unique_id).
     pub fn set(&mut self, index: usize, element: Rc<RefCell<T>>) -> Option<Rc<RefCell<T>>> {
         self.list.set(index, element)
     }
 
-    /// 移除指定下标的实体并返回它。
+    /// Remove the entity at the given index and return it.
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     ///
-    /// 越界返回 `None`。
+    /// Returns `None` when out of bounds.
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<T>>> {
         self.list.remove(index)
     }
 
-    /// 清空容器（不触发 `removed` 回调，与 Java 一致）。
+    /// Clear the container (does not trigger the `removed` callback, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.list.clear();
     }
 
-    /// 按下标取实体。
+    /// Return the entity at the given index.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<T>>> {
         self.list.get(index).cloned()
     }
 
-    /// 实体个数。
+    /// Number of entities.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.list.len()
     }
 
-    /// 容器是否为空。
+    /// Whether the container is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
-    /// 迭代容器内的实体。
+    /// Iterate over the entities in the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<T>>> {
         self.list.iter()
     }
 
-    /// 以切片形式访问容器内的实体。
+    /// Access the entities in the container as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+    /// Corresponds to Java: `ListWithCallbacks`'s list view.
     pub fn as_slice(&self) -> &[Rc<RefCell<T>>] {
         self.list.as_slice()
     }
 
-    /// 按实体自身的顺序就地排序（不触发回调，见 [`ListWithCallbacks`] 的说明）。
+    /// Sort in place by the entities' own ordering (does not trigger callbacks; see the docs of [`ListWithCallbacks`]).
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.renumberIDs()` 中的 `Collections.sort(this)`
+    /// Corresponds to Java: `Collections.sort(this)` in `ProjectEntityWithIDContainer.renumberIDs()`
     pub fn sort(&mut self)
     where
         T: Ord,
@@ -266,12 +274,13 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         self.list.sort();
     }
 
-    /// 更新 unique ID 索引：元素换用新的 unique ID 时调用。
+    /// Update the unique ID index: called when an element switches to a new unique ID.
     ///
-    /// 对应 Java: `public void updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `public void updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     ///
-    /// Java 侧 `newUniqueID` 为 `null` 时会写入 `null` 键；Rust 侧的 `i32` 键无法表示，
-    /// 此时只移除旧键、不建立新键（等价于「查不到」）。
+    /// On the Java side a `null` `newUniqueID` writes a `null` key; the Rust `i32` key cannot
+    /// express it, so only the old key is removed and no new key is created (equivalent to "not
+    /// found").
     pub fn update_unique_id(
         &mut self,
         element: &Rc<RefCell<T>>,
@@ -308,13 +317,13 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
             .sync(Some(new_unique_id));
     }
 
-    /// 为所有出现 unique ID 冲突的实体重新分配 unique ID。
+    /// Reassign unique IDs for all entities with unique ID clashes.
     ///
-    /// 对应 Java: `public void fixUniqueIdClashes()`
+    /// Corresponds to Java: `public void fixUniqueIdClashes()`
     ///
-    /// 只有 unique ID 可变的实体才可能产生冲突，因此本方法带
-    /// `where T: ProjectEntityWithMutableUniqueID` 约束 —— 这等价于 Java 中通过
-    /// `instanceof ProjectEntityWithMutableUniqueID` 做的运行时判断。
+    /// Only entities with a mutable unique ID can produce clashes, so this method carries the
+    /// `where T: ProjectEntityWithMutableUniqueID` constraint — equivalent to the runtime check
+    /// done in Java via `instanceof ProjectEntityWithMutableUniqueID`.
     pub fn fix_unique_id_clashes(&mut self)
     where
         T: ProjectEntityWithMutableUniqueID,
@@ -326,10 +335,11 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         self.fix_unique_id_clashes_with_sequence(sequence);
     }
 
-    /// 使用父上下文已取得的序列修复冲突。
+    /// Fix clashes using the sequence already obtained from the parent context.
     ///
-    /// 对应 Java: `fixUniqueIdClashes()`；Rust 的日历容器在持有上下文可变借用时
-    /// 无法让序号提供者再次借用同一上下文，故由调用者传入真实序列。
+    /// Corresponds to Java: `fixUniqueIdClashes()`; the Rust calendar container cannot have the
+    /// sequence provider borrow the same context again while it holds a mutable borrow of the
+    /// context, so the caller passes in the real sequence.
     pub fn fix_unique_id_clashes_with_sequence(&mut self, sequence: Rc<ObjectSequence>)
     where
         T: ProjectEntityWithMutableUniqueID,
@@ -355,10 +365,11 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
         }
     }
 
-    /// 从当前元素重建 unique ID 索引与冲突列表。
+    /// Rebuild the unique ID index and clash list from the current elements.
     ///
-    /// 对应 Java: `added(T)` 的逐元素索引行为；Rust 的日历 setter 遇到上下文
-    /// 重入借用时无法回调容器，修复冲突前需补齐那段索引变化。
+    /// Corresponds to Java: the per-element indexing behavior of `added(T)`; when a Rust calendar
+    /// setter hits a re-entrant borrow of the context it cannot call back into the container, so
+    /// that indexing change must be filled in before fixing clashes.
     pub fn rebuild_unique_id_index(&mut self) {
         let (Ok(mut map), Ok(mut clashes)) = (
             self.unique_id_map.try_borrow_mut(),
@@ -384,8 +395,8 @@ impl<T: ProjectEntityWithUniqueID + 'static> ProjectEntityContainer<T> {
 }
 
 impl<T: Debug> Debug for ProjectEntityContainer<T> {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出列表与 unique ID 索引，忽略无法 `Debug` 的
-    /// 序号生成器提供者。
+    /// Java does not override `toString()`; the Rust side outputs the list and unique ID index,
+    /// ignoring the sequence generator provider that is not `Debug`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectEntityContainer")
             .field("list", &self.list)
@@ -400,7 +411,7 @@ mod tests {
     use crate::common::object_sequence::ObjectSequence;
     use std::collections::HashMap as StdHashMap;
 
-    /// 测试用实体：unique ID 可读可写。
+    /// Test entity: unique ID is readable and writable.
     #[derive(Debug, PartialEq, Eq)]
     struct Entity {
         unique_id: Option<i32>,
@@ -418,7 +429,7 @@ mod tests {
         }
     }
 
-    /// 测试用序号生成器提供者，行为与 Java 的 `ProjectContext` 一致。
+    /// Test sequence generator provider whose behavior matches Java's `ProjectContext`.
     #[derive(Default)]
     struct TestProvider {
         sequences: StdHashMap<TypeId, Rc<ObjectSequence>>,
@@ -434,7 +445,7 @@ mod tests {
         }
     }
 
-    /// 构造一个带测试用提供者的容器。
+    /// Construct a container with a test provider.
     fn container() -> (
         ProjectEntityContainer<Entity>,
         Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>,
@@ -444,7 +455,7 @@ mod tests {
         (ProjectEntityContainer::new(Rc::clone(&provider)), provider)
     }
 
-    /// 构造一个实体。
+    /// Construct an entity.
     fn entity(unique_id: Option<i32>) -> Rc<RefCell<Entity>> {
         Rc::new(RefCell::new(Entity { unique_id }))
     }
@@ -463,7 +474,7 @@ mod tests {
         assert_eq!(container.iter().count(), 2);
         assert_eq!(container.as_slice().len(), 2);
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(5)).expect("已索引"),
+            &container.get_by_unique_id(Some(5)).expect("is indexed"),
             &first
         ));
         assert!(container.get_by_unique_id(Some(7)).is_none());
@@ -484,7 +495,7 @@ mod tests {
         let (mut container, _) = container();
         container.add(entity(Some(5)));
 
-        let removed = container.remove(0).expect("下标 0 存在");
+        let removed = container.remove(0).expect("index 0 exists");
         assert_eq!(removed.borrow().get_unique_id(), Some(5));
         assert!(container.get_by_unique_id(Some(5)).is_none());
     }
@@ -499,11 +510,11 @@ mod tests {
 
         assert_eq!(container.len(), 2);
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(5)).expect("已索引"),
+            &container.get_by_unique_id(Some(5)).expect("is indexed"),
             &first
         ));
 
-        // 同一个实例重复加入不会进入冲突列表
+        // Re-adding the same instance does not enter the clash list
         container.fix_unique_id_clashes();
         assert_eq!(first.borrow().get_unique_id(), Some(5));
     }
@@ -517,28 +528,28 @@ mod tests {
         container.add(Rc::clone(&first));
         container.add(Rc::clone(&second));
 
-        // 冲突时后者覆盖索引
+        // On a clash the latter overwrites the index
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(5)).expect("已索引"),
+            &container.get_by_unique_id(Some(5)).expect("is indexed"),
             &second
         ));
 
-        // 修复冲突：冲突者从序列取新值（序列从 1 开始）
+        // Fix the clash: the clashing entity takes a new value from the sequence (which starts at 1)
         container.fix_unique_id_clashes();
         assert_eq!(second.borrow().get_unique_id(), Some(1));
         assert_eq!(first.borrow().get_unique_id(), Some(5));
 
-        // 索引被重建
+        // The index is rebuilt
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已索引"),
+            &container.get_by_unique_id(Some(1)).expect("is indexed"),
             &second
         ));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(5)).expect("已索引"),
+            &container.get_by_unique_id(Some(5)).expect("is indexed"),
             &first
         ));
 
-        // 序列已推进
+        // The sequence has advanced
         assert_eq!(
             provider
                 .borrow_mut()
@@ -555,7 +566,7 @@ mod tests {
 
         container.fix_unique_id_clashes();
 
-        // 序列未被消耗
+        // The sequence was not consumed
         assert_eq!(
             provider
                 .borrow_mut()
@@ -575,11 +586,11 @@ mod tests {
 
         assert!(container.get_by_unique_id(Some(5)).is_none());
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(9)).expect("已索引"),
+            &container.get_by_unique_id(Some(9)).expect("is indexed"),
             &first
         ));
 
-        // Java: 序号生成器与新的 unique ID 同步
+        // Java: the sequence generator is synchronized with the new unique ID
         assert_eq!(
             provider
                 .borrow_mut()
@@ -597,18 +608,18 @@ mod tests {
         container.add(Rc::clone(&first));
         container.add(Rc::clone(&second));
 
-        // second 改用与 first 相同的 unique ID
+        // second switches to the same unique ID as first
         container.update_unique_id(&second, Some(2), Some(1));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已索引"),
+            &container.get_by_unique_id(Some(1)).expect("is indexed"),
             &second
         ));
 
-        // 修复后 second 取序列中的下一个值（1 已被占用后同步为 2）
+        // After fixing, second takes the next value in the sequence (synchronized to 2 after 1 was taken)
         container.fix_unique_id_clashes();
         assert_eq!(second.borrow().get_unique_id(), Some(2));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已索引"),
+            &container.get_by_unique_id(Some(1)).expect("is indexed"),
             &first
         ));
     }
@@ -629,25 +640,25 @@ mod tests {
     fn list_operations_keep_the_index_in_sync() {
         let (mut container, _) = container();
 
-        // add_at 插入并建立索引
+        // add_at inserts and creates the index entry
         assert!(container.add_at(0, entity(Some(1))));
         assert!(!container.add_at(2, entity(Some(3))));
         assert_eq!(container.len(), 1);
         assert!(container.get_by_unique_id(Some(1)).is_some());
 
-        // set 替换元素：与 Java 一致，unique ID 索引**不会**随之更新
-        // （Java 中 `ProjectEntityContainer` 只覆写了 `added` / `removed`）
+        // set replaces an element: consistent with Java, the unique ID index is **not** updated
+        // (`ProjectEntityContainer` in Java overrides only `added` / `removed`)
         let replacement = entity(Some(2));
-        let old = container.set(0, Rc::clone(&replacement)).expect("下标 0 存在");
+        let old = container.set(0, Rc::clone(&replacement)).expect("index 0 exists");
         assert_eq!(old.borrow().get_unique_id(), Some(1));
         assert!(container.get_by_unique_id(Some(2)).is_none());
         assert!(container.get_by_unique_id(Some(1)).is_some());
         assert!(Rc::ptr_eq(
-            &container.get(0).expect("下标 0 存在"),
+            &container.get(0).expect("index 0 exists"),
             &replacement
         ));
 
-        // clear 不触发 removed 回调，索引保留旧内容（与 Java 的 clear 实现一致）
+        // clear does not trigger the removed callback, so the index keeps its old contents (consistent with Java's clear implementation)
         container.clear();
         assert!(container.is_empty());
         assert!(container.get_by_unique_id(Some(1)).is_some());

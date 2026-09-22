@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/mpp/TimescaleUnitsHelper.java`
+//! Corresponds to Java: `org/mpxj/mpp/TimescaleUnitsHelper.java`
 //!
-//! 把 MS Project 文件中表示时间刻度单位（timescale units）的整数换算成
-//! `org.mpxj.TimescaleUnits`。
+//! Convert the integer representing timescale units in an MS Project file into
+//! `org.mpxj.TimescaleUnits`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `class TimescaleUnitsHelper`（包级可见） | `pub struct TimescaleUnitsHelper` + 关联函数 | Java 侧只有静态方法、无实例状态；Rust 侧用无字段结构体表达（本仓惯例） |
-//! | `private static final TimescaleUnits[] TYPE_VALUES`（10 项） | [`crate::timescale_units::TimescaleUnits::ALL`] | Java 的表元素与 `TimescaleUnits` 的 10 个枚举常量一一对应且顺序相同，故 Rust 侧直接复用 `ALL`，不再复制一份表 |
-//! | `type += 1; if (type < 0 \|\| type > TYPE_VALUES.length) return TimescaleUnits.NONE;` | 同样的判断，越界返回 `TimescaleUnits::None` | Java 的 `int` 加法会静默回绕，Rust 侧用 `wrapping_add` 保持一致 |
-//! | `return TYPE_VALUES[type];` 在 `type == TYPE_VALUES.length`（即入参 9）时会抛 `ArrayIndexOutOfBoundsException`（Java 的判断写成了 `>` 而不是 `>=`，属既有缺陷） | 返回 `TimescaleUnits::None` | Rust 侧不 panic（本仓约定），按「越界回落到 NONE」处理并在此注明 |
+//! | `class TimescaleUnitsHelper` (package-visible) | `pub struct TimescaleUnitsHelper` + associated functions | Java has only static methods and no instance state; the Rust side expresses this with a field-less struct (convention in this repo) |
+//! | `private static final TimescaleUnits[] TYPE_VALUES` (10 entries) | [`crate::timescale_units::TimescaleUnits::ALL`] | Java's table elements correspond one-to-one with the 10 enum constants of `TimescaleUnits` and in the same order, so the Rust side reuses `ALL` directly instead of duplicating the table |
+//! | `type += 1; if (type < 0 \|\| type > TYPE_VALUES.length) return TimescaleUnits.NONE;` | The same check; returns `TimescaleUnits::None` when out of bounds | Java's `int` addition wraps around silently, so the Rust side uses `wrapping_add` to stay consistent |
+//! | `return TYPE_VALUES[type];` throws `ArrayIndexOutOfBoundsException` when `type == TYPE_VALUES.length` (that is, input 9) (Java's check was written as `>` instead of `>=`, a pre-existing defect) | Returns `TimescaleUnits::None` | The Rust side does not panic (convention in this repo); it handles this as "out of bounds falls back to NONE" and notes it here |
 //!
-//! 未移植 / 跳过：无（JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` 等机制本类未使用）。
+//! Not ported / skipped: none (this class does not use mechanisms such as JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`).
 
 use crate::timescale_units::TimescaleUnits;
 
-/// 时间刻度单位的换算工具。
+/// Conversion utility for timescale units.
 ///
-/// 对应 Java: `class TimescaleUnitsHelper`
+/// Corresponds to Java: `class TimescaleUnitsHelper`
 pub struct TimescaleUnitsHelper;
 
 impl TimescaleUnitsHelper {
-    /// 按 MS Project 的整数值取时间刻度单位。
+/// Return the timescale unit for an MS Project integer value.
     ///
-    /// 对应 Java: `public static TimescaleUnits getInstance(int type)`
+    /// Corresponds to Java: `public static TimescaleUnits getInstance(int type)`
     ///
-    /// Java 的写法是先 `type += 1` 再查表，因此文件中的 0 对应 `MINUTES`、
-    /// 8 对应 `YEARS`；越界（含负数）回落到 `NONE`。
+/// Java first does `type += 1` and then looks up the table, so 0 in the file corresponds to `MINUTES`,
+/// and 8 corresponds to `YEARS`; out-of-bounds values (including negatives) fall back to `NONE`.
     pub fn get_instance(type_value: i32) -> TimescaleUnits {
-        // Java: type += 1（int 加法会回绕，Rust 侧显式用 wrapping_add 保持同样的行为）
+// Java: type += 1 (int addition wraps around; the Rust side explicitly uses wrapping_add to preserve the same behavior)
         let index = type_value.wrapping_add(1);
 
         // Java: if (type < 0 || type > TYPE_VALUES.length) { return TimescaleUnits.NONE; }
@@ -38,9 +38,9 @@ impl TimescaleUnitsHelper {
         }
 
         // Java: return TYPE_VALUES[type];
-        // 其中 index == TYPE_VALUES.length（入参 9）在 Java 中会抛
-        // ArrayIndexOutOfBoundsException（判断写成 `>` 而非 `>=` 的既有缺陷），
-        // Rust 侧按「越界回落 NONE」处理，不 panic。
+// Note that index == TYPE_VALUES.length (input 9) throws in Java
+// ArrayIndexOutOfBoundsException (a pre-existing defect where the check was written as `>` rather than `>=`),
+// while the Rust side handles it as "out of bounds falls back to NONE" and does not panic.
         TimescaleUnits::ALL
             .get(index as usize)
             .copied()
@@ -52,7 +52,7 @@ impl TimescaleUnitsHelper {
 mod tests {
     use super::*;
 
-    /// 文件中的 0..8 依次映射到 MINUTES..YEARS（Java 侧先 `type += 1`）。
+/// 0..8 in the file map in order to MINUTES..YEARS (Java first does `type += 1`).
     #[test]
     fn maps_mpp_values_to_timescale_units() {
         let cases = [
@@ -71,24 +71,24 @@ mod tests {
             assert_eq!(
                 TimescaleUnitsHelper::get_instance(value),
                 expected,
-                "MPP 单位值 {value}"
+                "MPP units value {value}"
             );
         }
     }
 
-    /// 越界（含负数）回落到 NONE。
+/// Out-of-bounds values (including negatives) fall back to NONE.
     #[test]
     fn out_of_range_falls_back_to_none() {
         for value in [-1, -2, -100, 10, 11, 1000, i32::MAX, i32::MIN] {
             assert_eq!(
                 TimescaleUnitsHelper::get_instance(value),
                 TimescaleUnits::None,
-                "越界值 {value}"
+                "out-of-range value {value}"
             );
         }
     }
 
-    /// 入参 9 在 Java 中会抛 `ArrayIndexOutOfBoundsException`；Rust 侧返回 NONE。
+/// Input 9 throws `ArrayIndexOutOfBoundsException` in Java; the Rust side returns NONE.
     #[test]
     fn java_array_index_bug_does_not_panic() {
         assert_eq!(

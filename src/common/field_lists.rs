@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/common/FieldLists.java`
+//! Corresponds to Java: `org/mpxj/common/FieldLists.java`
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -8,30 +8,33 @@ use crate::field_key::FieldKey;
 use crate::resource_field::ResourceField;
 use crate::task_field::TaskField;
 
-/// 字段按逻辑分组后的集合。
+/// Collections of fields grouped logically.
 ///
-/// 对应 Java: `public final class FieldLists`
+/// Corresponds to Java: `public final class FieldLists`
 ///
-/// 移植说明：
-/// - Java 的 `List<FieldType>` 中 `FieldType` 是接口，可同时容纳 `TaskField`、
-///   `ResourceField`、`AssignmentField` 等不同枚举；Rust 侧用 [`FieldKey`] 承载，
-///   `FieldKey` 正是这五个枚举的统一载体，语义与 Java 的 `FieldType` 接口等价。
-/// - Java 的 `TaskFieldLists` / `ResourceFieldLists` / `AssignmentFieldLists` 都是独立类，
-///   与 `FieldLists` 之间没有继承关系，前者只是被本类引用常量，因此 Rust 侧同样保持独立，
-///   不需要组合 + 转发。
-/// - Java 的 `Set<FieldType> CUSTOM_FIELDS_SET` 由 `new HashSet<>(CUSTOM_FIELDS)` 构造；
-///   Rust 的 `HashSet` 无法在 `const` 上下文构造，因此改为惰性初始化并按引用返回的
-///   [`FieldLists::custom_fields_set`]（与本 crate 内既有的 `OnceLock` 写法一致）。
+/// Porting notes:
+/// - In Java `FieldType` inside `List<FieldType>` is an interface that can hold different enums
+///   such as `TaskField`, `ResourceField` and `AssignmentField` at the same time; the Rust side
+///   carries them as [`FieldKey`], which is exactly the unified carrier for these five enums and
+///   is semantically equivalent to the Java `FieldType` interface.
+/// - Java's `TaskFieldLists` / `ResourceFieldLists` / `AssignmentFieldLists` are all independent
+///   classes with no inheritance relationship to `FieldLists`; the former are only referenced as
+///   constants by this class, so the Rust side likewise keeps them independent and needs no
+///   composition + forwarding.
+/// - Java's `Set<FieldType> CUSTOM_FIELDS_SET` is constructed by `new HashSet<>(CUSTOM_FIELDS)`;
+///   a Rust `HashSet` cannot be constructed in a `const` context, so it is changed to the lazily
+///   initialized [`FieldLists::custom_fields_set`] returned by reference (consistent with the
+///   existing `OnceLock` style in this crate).
 ///
-/// 未移植的成员：无。
+/// Skipped Java members: none.
 pub struct FieldLists;
 
 impl FieldLists {
-    /// 对应 Java: `public static final List<FieldType> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<FieldType> CUSTOM_FIELDS`
     ///
-    /// Java 由 `TaskFieldLists.CUSTOM_FIELDS`、`ResourceFieldLists.CUSTOM_FIELDS`、
-    /// `AssignmentFieldLists.CUSTOM_FIELDS` 三个列表依次 `flatMap` 而成；
-    /// 此处按同一顺序展开为常量。
+    /// Java builds this by `flatMap`-ing the three lists `TaskFieldLists.CUSTOM_FIELDS`,
+    /// `ResourceFieldLists.CUSTOM_FIELDS` and `AssignmentFieldLists.CUSTOM_FIELDS` in turn;
+    /// here it is expanded into a constant in the same order.
     pub const CUSTOM_FIELDS: &'static [FieldKey] = &[
         FieldKey::Task(TaskField::Text1),
         FieldKey::Task(TaskField::Text2),
@@ -904,10 +907,10 @@ impl FieldLists {
         FieldKey::Assignment(AssignmentField::EnterpriseResourceMultiValue29),
     ];
 
-    /// 对应 Java: `public static final Set<FieldType> CUSTOM_FIELDS_SET`
+    /// Corresponds to Java: `public static final Set<FieldType> CUSTOM_FIELDS_SET`
     ///
-    /// Java 是 `new HashSet<>(CUSTOM_FIELDS)`；Rust 的 `HashSet` 不能作 `const`，
-    /// 这里惰性构造一次后按引用返回。
+    /// Java uses `new HashSet<>(CUSTOM_FIELDS)`; a Rust `HashSet` cannot be `const`,
+    /// so it is lazily constructed once here and returned by reference.
     pub fn custom_fields_set() -> &'static HashSet<FieldKey> {
         static SET: OnceLock<HashSet<FieldKey>> = OnceLock::new();
         SET.get_or_init(|| Self::CUSTOM_FIELDS.iter().copied().collect())
@@ -928,11 +931,11 @@ mod tests {
         assert_eq!(TaskFieldLists::CUSTOM_FIELDS.len(), 280);
         assert_eq!(ResourceFieldLists::CUSTOM_FIELDS.len(), 280);
         assert_eq!(AssignmentFieldLists::CUSTOM_FIELDS.len(), 309);
-        // TaskFieldLists 在 FieldLists::CUSTOM_FIELDS 中的起始下标为 0
+        // The start index of TaskFieldLists in FieldLists::CUSTOM_FIELDS is 0
         assert_eq!(FieldLists::CUSTOM_FIELDS[0], FieldKey::Task(TaskField::Text1));
-        // ResourceFieldLists 在 FieldLists::CUSTOM_FIELDS 中的起始下标为 280
+        // The start index of ResourceFieldLists in FieldLists::CUSTOM_FIELDS is 280
         assert_eq!(FieldLists::CUSTOM_FIELDS[280], FieldKey::Resource(ResourceField::Text1));
-        // AssignmentFieldLists 在 FieldLists::CUSTOM_FIELDS 中的起始下标为 560
+        // The start index of AssignmentFieldLists in FieldLists::CUSTOM_FIELDS is 560
         assert_eq!(FieldLists::CUSTOM_FIELDS[560], FieldKey::Assignment(AssignmentField::Text1));
         assert_eq!(FieldLists::CUSTOM_FIELDS[868], FieldKey::Assignment(AssignmentField::EnterpriseResourceMultiValue29));
         assert_eq!(FieldLists::CUSTOM_FIELDS[0].name(), "TEXT1");

@@ -1,3 +1,3 @@
-//! 对应 Java: `org/mpxj/cpm` 包
+//! Corresponds to Java: `org/mpxj/cpm` package
 
 pub mod microsoft_slack_calculator;

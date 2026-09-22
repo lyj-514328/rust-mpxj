@@ -1,44 +1,44 @@
-//! 对应 Java: `org/mpxj/mpp/CompObj.java`
+//! Corresponds to Java: `org/mpxj/mpp/CompObj.java`
 //!
-//! 读取 OLE 复合文档中的 `\1CompObj` 流。这是 OLE 的「复合文档信息」块，
-//! 其中我们能够解读的部分给出了**创建该文档的应用程序名、版本与文件格式标识**，
-//! `MPPReader` 正是靠 [`CompObj::get_file_format`] 返回的字符串（例如
-//! `Microsoft.Project.9`）选择对应的变体 reader。
+//! Reads the `\1CompObj` stream in an OLE compound document. This is OLE's "compound document information" block,
+//! the part of which we can interpret gives the **application name, version and file format identifier of the application that created the document**,
+//! and `MPPReader` selects the matching variant reader precisely by the string returned by [`CompObj::get_file_format`] (for example
+//! `Microsoft.Project.9`).
 //!
-//! 流的布局（Java 构造方法逐字对应，MPP 小端）：
+//! Stream layout (corresponds word-for-word to the Java constructor, MPP little-endian):
 //!
 //! ```text
-//! byte[28]  跳过（InputStreamHelper.skip(is, 28)）
-//! int       applicationName 长度（含结尾的 0 字节）
-//! byte[]    applicationName（UTF-8/ASCII，末尾 1 字节为 0）
-//! --- 仅当 applicationName != "Microsoft Project 4.0" 时存在 ---
-//! int       fileFormat 长度（含结尾的 0 字节；<= 0 表示到此结束）
-//! byte[]    fileFormat（末尾 1 字节为 0）
-//! int       applicationID 长度（含结尾的 0 字节；<= 0 表示没有）
-//! byte[]    applicationID（末尾 1 字节为 0）
+//! byte[28]  skipped (InputStreamHelper.skip(is, 28))
+//! int       applicationName length (including the trailing 0 byte)
+//! byte[]    applicationName (UTF-8/ASCII, with the last byte being 0)
+//! --- present only when applicationName != "Microsoft Project 4.0" ---
+//! int       fileFormat length (including the trailing 0 byte; <= 0 means it ends here)
+//! byte[]    fileFormat (last byte is 0)
+//! int       applicationID length (including the trailing 0 byte; <= 0 means absent)
+//! byte[]    applicationID (last byte is 0)
 //! ```
 //!
-//! # 继承的还原
+//! # Inheritance emulation
 //!
-//! Java: `final class CompObj extends MPPComponent`。Rust 无继承，`MPPComponent` 已按项目
-//! 约定退化为独立工具类型（见 [`crate::mpp::mpp_component`]），本类直接调用它的
-//! [`MPPComponent::read_int`] / [`MPPComponent::read_byte_array`] 按游标顺序读取。
+//! Java: `final class CompObj extends MPPComponent`. Rust has no inheritance; `MPPComponent` has, per the project
+//! convention, degenerated into a standalone utility type (see [`crate::mpp::mpp_component`]); this class directly calls its
+//! [`MPPComponent::read_int`] / [`MPPComponent::read_byte_array`] to read in cursor order.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `CompObj(InputStream is) throws IOException` | `CompObj::new(&[u8]) -> MpxjResult<CompObj>` | 按约定 `InputStream` → `&[u8]`；读不满所需字节（Java 抛 `EOFException`）→ `MpxjError`（消息沿用 `InputStreamHelper.read` 的原文） |
-//! | `length <= 0` 时 `new String(bytes, 0, length - 1)` 抛 `StringIndexOutOfBoundsException` / `NegativeArraySizeException` | 同样返回 `Err` | 遵循「库代码不 panic」约定 |
-//! | `new String(byte[])` 使用平台默认字符集 | UTF-8 容错解码（同 `fix_defer_fix.rs` 的处理） | CompObj 里的字符串实际都是 ASCII |
-//! | `Pattern.compile("Microsoft.Project.(\\d+)\\.0")` + `Matcher.matches()` | 私有函数 [`parse_application_version`] 手工实现该模式 | 约定不新增依赖，不引入 regex crate；数字超出 `int` 时 Java 抛 `NumberFormatException`，Rust 返回 `None` |
-//! | `getApplicationVersion()` 返回 `Integer`（可空） | `Option<i32>` | —— |
-//! | `getApplicationID()` / `getFileFormat()` 返回 `String`（可空） | `Option<&str>` | —— |
-//! | `toString()` | `Display` | Java 源码里该字符串**缺少收尾的 `]`**，此处 1:1 保留；可空字段按 Java 字符串拼接的语义渲染为 `null` |
+//! | `CompObj(InputStream is) throws IOException` | `CompObj::new(&[u8]) -> MpxjResult<CompObj>` | Per convention `InputStream` → `&[u8]`; failing to read the required bytes (Java throws `EOFException`) → `MpxjError` (message reuses the original text from `InputStreamHelper.read`) |
+//! | When `length <= 0`, `new String(bytes, 0, length - 1)` throws `StringIndexOutOfBoundsException` / `NegativeArraySizeException` | Likewise returns `Err` | Follows the "library code must not panic" convention |
+//! | `new String(byte[])` uses the platform default charset | Forgiving UTF-8 decoding (the same handling as `fix_defer_fix.rs`) | The strings in CompObj are in fact all ASCII |
+//! | `Pattern.compile("Microsoft.Project.(\\d+)\\.0")` + `Matcher.matches()` | The private function [`parse_application_version`] implements this pattern by hand | Convention: no new dependencies, no regex crate; when the number exceeds `int`, Java throws `NumberFormatException` while Rust returns `None` |
+//! | `getApplicationVersion()` returns `Integer` (nullable) | `Option<i32>` | —— |
+//! | `getApplicationID()` / `getFileFormat()` return `String` (nullable) | `Option<&str>` | —— |
+//! | `toString()` | `Display` | In the Java source the string **is missing the closing `]`**, which is preserved 1:1 here; nullable fields are rendered as `null` following the semantics of Java string concatenation |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -46,45 +46,45 @@ use crate::mpp::mpp_component::MPPComponent;
 use crate::mpp::props::read_error;
 use crate::mpxj_exception::MpxjResult;
 
-/// `Microsoft Project 4.0` 的文件格式标识是硬编码的（Java 构造方法里的特例分支）。
+/// The file format identifier for `Microsoft Project 4.0` is hard-coded (a special-case branch in the Java constructor).
 const APPLICATION_NAME_MPP4: &str = "Microsoft Project 4.0";
-/// 对应 Java: 特例分支中赋给 `m_fileFormat` 的常量。
+/// Corresponds to Java: the constant assigned to `m_fileFormat` in the special-case branch.
 const FILE_FORMAT_MPP4: &str = "MSProject.MPP4";
-/// 对应 Java: 特例分支中赋给 `m_applicationID` 的常量。
+/// Corresponds to Java: the constant assigned to `m_applicationID` in the special-case branch.
 const APPLICATION_ID_MPP4: &str = "MSProject.Project.4";
 
-/// 对应 Java 字段 `private static final Pattern PATTERN` 的模式前缀。
+/// Corresponds to Java field `private static final Pattern PATTERN`: the pattern prefix.
 const PATTERN_APPLICATION: &str = "Microsoft";
-/// 对应 Java 字段 `private static final Pattern PATTERN` 的模式主体。
+/// Corresponds to Java field `private static final Pattern PATTERN`: the pattern body.
 const PATTERN_PROJECT: &str = "Project";
 
-/// OLE 复合文档的 `\1CompObj` 流。
+/// The `\1CompObj` stream of an OLE compound document.
 ///
-/// 对应 Java: `final class CompObj extends MPPComponent`
+/// Corresponds to Java: `final class CompObj extends MPPComponent`
 ///
-/// Java 侧没有 `equals` / `hashCode`（即按引用比较），Rust 侧同样不实现
-/// `PartialEq` / `Eq`；`Debug` 只为便于调试输出。
+/// The Java side has no `equals` / `hashCode` (i.e. it compares by reference), and the Rust side likewise does not implement
+/// `PartialEq` / `Eq`; `Debug` exists only to aid debug output.
 #[derive(Debug)]
 pub struct CompObj {
-    /// 对应 Java: `private final String m_applicationName`
+    /// Corresponds to Java: `private final String m_applicationName`
     m_application_name: String,
-    /// 对应 Java: `private Integer m_applicationVersion`
+    /// Corresponds to Java: `private Integer m_applicationVersion`
     m_application_version: Option<i32>,
-    /// 对应 Java: `private String m_applicationID`
+    /// Corresponds to Java: `private String m_applicationID`
     m_application_id: Option<String>,
-    /// 对应 Java: `private String m_fileFormat`
+    /// Corresponds to Java: `private String m_fileFormat`
     m_file_format: Option<String>,
 }
 
 impl CompObj {
-    /// 构造方法：读取并解析整个 `\1CompObj` 流。
+/// Constructor: read and parse the entire `\1CompObj` stream.
     ///
-    /// 对应 Java: `CompObj(InputStream is) throws IOException`
+    /// Corresponds to Java: `CompObj(InputStream is) throws IOException`
     pub fn new(data: &[u8]) -> MpxjResult<Self> {
         let mut position = 0usize;
 
         // Java: InputStreamHelper.skip(is, 28);
-        // （Java 在跳过失败时抛 IOException；Rust 侧直接定位，后续读取会返回 Err）
+// (Java throws IOException when the skip fails; the Rust side seeks directly, and subsequent reads return Err)
         position = (position + 28).min(data.len());
 
         // Java: length = readInt(is); m_applicationName = new String(readByteArray(is, length), 0, length - 1);
@@ -123,40 +123,40 @@ impl CompObj {
         })
     }
 
-    /// 取创建该文档的应用程序名。
+/// Get the application name that created the document.
     ///
-    /// 对应 Java: `public String getApplicationName()`
+    /// Corresponds to Java: `public String getApplicationName()`
     pub fn get_application_name(&self) -> &str {
         &self.m_application_name
     }
 
-    /// 取应用程序版本（由应用程序名按 `Microsoft.Project.(\d+).0` 解析而来）。
+/// Get the application version (parsed from the application name using `Microsoft.Project.(\d+).0`).
     ///
-    /// 对应 Java: `public Integer getApplicationVersion()`
+    /// Corresponds to Java: `public Integer getApplicationVersion()`
     pub fn get_application_version(&self) -> Option<i32> {
         self.m_application_version
     }
 
-    /// 取应用程序标识。
+/// Get the application ID.
     ///
-    /// 对应 Java: `public String getApplicationID()`
+    /// Corresponds to Java: `public String getApplicationID()`
     pub fn get_application_id(&self) -> Option<&str> {
         self.m_application_id.as_deref()
     }
 
-    /// 取文件格式标识（`MPPReader` 用它选择变体 reader）。
+/// Get the file format identifier (`MPPReader` uses it to select the variant reader).
     ///
-    /// 对应 Java: `public String getFileFormat()`
+    /// Corresponds to Java: `public String getFileFormat()`
     pub fn get_file_format(&self) -> Option<&str> {
         self.m_file_format.as_deref()
     }
 }
 
 impl Display for CompObj {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 源码为 `"[CompObj applicationName=" + ... + " fileFormat=" + m_fileFormat`，
-    /// 结尾没有 `]`（1:1 保留该细节）。
+/// The Java source is `"[CompObj applicationName=" + ... + " fileFormat=" + m_fileFormat`,
+/// with no `]` at the end (this detail is preserved 1:1).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -168,12 +168,12 @@ impl Display for CompObj {
     }
 }
 
-/// 读取「长度含结尾 0 字节」的字符串。
+/// Read a string whose "length includes the trailing 0 byte".
 ///
-/// 对应 Java: `new String(readByteArray(is, length), 0, length - 1)`
+/// Corresponds to Java: `new String(readByteArray(is, length), 0, length - 1)`
 ///
-/// Java 在 `length <= 0` 时抛 `StringIndexOutOfBoundsException`（`length == 0`）或
-/// `NegativeArraySizeException`（`length < 0`），Rust 侧返回 `Err`（不 panic）。
+/// Java throws `StringIndexOutOfBoundsException` (`length == 0`) or
+/// `NegativeArraySizeException` (`length < 0`) when `length <= 0`; the Rust side returns `Err` (no panic).
 fn read_string(data: &[u8], position: &mut usize, length: i32) -> MpxjResult<String> {
     if length < 1 {
         return Err(read_error());
@@ -182,35 +182,35 @@ fn read_string(data: &[u8], position: &mut usize, length: i32) -> MpxjResult<Str
     let bytes = MPPComponent::read_byte_array(data, position, length as usize)
         .ok_or_else(read_error)?;
 
-    // Java: new String(bytes, 0, length - 1) —— 去掉结尾的 0 字节；平台默认字符集按 UTF-8 容错解码
+// Java: new String(bytes, 0, length - 1) -- drop the trailing 0 byte; the platform default charset is decoded as forgiving UTF-8
     Ok(String::from_utf8_lossy(&bytes[..bytes.len() - 1]).into_owned())
 }
 
-/// 按 `Microsoft.Project.(\d+)\.0` 全串匹配应用程序名并取出版本号。
+/// Match the application name against `Microsoft.Project.(\d+)\.0` as a whole and extract the version number.
 ///
-/// 对应 Java: `PATTERN`（`Pattern.compile("Microsoft.Project.(\\d+)\\.0")`）配合
-/// `Matcher.matches()`（**全串**匹配）与 `Integer.valueOf(matcher.group(1))`。
+/// Corresponds to Java: `PATTERN` (`Pattern.compile("Microsoft.Project.(\\d+)\\.0")`) together with
+/// `Matcher.matches()` (**whole-string** matching) and `Integer.valueOf(matcher.group(1))`.
 ///
-/// 模式中的 `.` 在 Java 正则里表示任意字符，这里同样只跳过 1 个字符做匹配。
-/// 版本号可解析成 `int` 时返回 `Some`，否则返回 `None`（Java 抛 `NumberFormatException`）。
+/// The `.` in the pattern means any character in a Java regex; here too a match simply skips one character.
+/// Return `Some` when the version number parses as an `int`, otherwise `None` (Java throws `NumberFormatException`).
 fn parse_application_version(application_name: &str) -> Option<i32> {
-    // 按 Java 的 char（UTF-16 码元）语义逐个字符处理
+// Process characters one by one with Java's char (UTF-16 code unit) semantics
     let chars: Vec<char> = application_name.chars().collect();
     let mut index = 0usize;
 
-    // "Microsoft" + 任意 1 个字符
+// "Microsoft" + any 1 character
     if !matches_at(&chars, index, PATTERN_APPLICATION) {
         return None;
     }
     index += PATTERN_APPLICATION.chars().count() + 1;
 
-    // "Project" + 任意 1 个字符
+// "Project" + any 1 character
     if !matches_at(&chars, index, PATTERN_PROJECT) {
         return None;
     }
     index += PATTERN_PROJECT.chars().count() + 1;
 
-    // (\d+)：至少 1 位数字
+// (\d+): at least 1 digit
     let digits_start = index;
     while index < chars.len() && chars[index].is_ascii_digit() {
         index += 1;
@@ -219,7 +219,7 @@ fn parse_application_version(application_name: &str) -> Option<i32> {
         return None;
     }
 
-    // 结尾必须正好是 ".0"
+// The ending must be exactly ".0"
     if index + 2 != chars.len() || chars[index] != '.' || chars[index + 1] != '0' {
         return None;
     }
@@ -228,9 +228,9 @@ fn parse_application_version(application_name: &str) -> Option<i32> {
     digits.parse::<i32>().ok()
 }
 
-/// 判断 `chars[offset..]` 是否以 `expected` 开头。
+/// Determine whether `chars[offset..]` starts with `expected`.
 ///
-/// Java 的 `Matcher` 在字符不足时判为「不匹配」而非抛异常。
+/// Java's `Matcher` treats insufficient characters as "no match" rather than throwing.
 fn matches_at(chars: &[char], offset: usize, expected: &str) -> bool {
     let expected: Vec<char> = expected.chars().collect();
     match chars.get(offset..offset + expected.len()) {
@@ -239,7 +239,7 @@ fn matches_at(chars: &[char], offset: usize, expected: &str) -> bool {
     }
 }
 
-/// 按 Java 字符串拼接的语义渲染可空字符串：`null` → `"null"`。
+/// Render a nullable string following the semantics of Java string concatenation: `null` → `"null"`.
 fn java_nullable(value: Option<&str>) -> &str {
     value.unwrap_or("null")
 }
@@ -253,9 +253,9 @@ mod tests {
 
     use crate::mpp::ole::PoifsFileSystem;
 
-    /// 在复合文档里写一个 `\1CompObj` 流，模拟真实的 MPP 文件布局。
+/// Write a `\1CompObj` stream into a compound document to simulate the real MPP file layout.
     ///
-    /// 对应 Java `MPPReader`：`root.getEntryNames().contains("\1CompObj")` 后再取该流。
+/// Corresponds to Java `MPPReader`: after `root.getEntryNames().contains("\1CompObj")`, retrieve that stream.
     fn compound_file_with_comp_obj(payload: &[u8]) -> Vec<u8> {
         let mut file = CompoundFile::create(Cursor::new(Vec::new())).unwrap();
         file.create_stream("/\u{1}CompObj")
@@ -265,7 +265,7 @@ mod tests {
         file.into_inner().into_inner()
     }
 
-    /// 按 CompObj 的布局拼出一段流数据。
+/// Assemble a stream's data according to the CompObj layout.
     fn comp_obj_payload(
         application_name: &str,
         file_format: Option<&str>,
@@ -285,14 +285,14 @@ mod tests {
         data
     }
 
-    /// 追加「长度（含结尾 0 字节）+ 内容 + 0 字节」。
+/// Append "length (including the trailing 0 byte) + content + 0 byte".
     fn append_string(data: &mut Vec<u8>, value: &str) {
         data.extend_from_slice(&((value.len() + 1) as i32).to_le_bytes());
         data.extend_from_slice(value.as_bytes());
         data.push(0);
     }
 
-    /// 从手工构造的复合文档里读出 `\1CompObj` 并解析。
+/// Read `\1CompObj` from a hand-built compound document and parse it.
     fn parse_from_compound_file(payload: &[u8]) -> CompObj {
         let bytes = compound_file_with_comp_obj(payload);
         let fs = PoifsFileSystem::new(Cursor::new(bytes)).unwrap();
@@ -301,10 +301,10 @@ mod tests {
 
         let document = root
             .get_document("\u{1}CompObj")
-            .expect("应能找到 \\1CompObj 流");
+            .expect("should find \\1CompObj stream");
 
-        // 对应 Java: new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")))
-        CompObj::new(&document.get_data()).expect("应能解析 CompObj")
+        // Corresponds to Java: new CompObj(new DocumentInputStream((DocumentEntry) root.getEntry("\1CompObj")))
+        CompObj::new(&document.get_data()).expect("should parse CompObj")
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn mpp4_format_is_hard_coded() {
-        // Java: applicationName == "Microsoft Project 4.0" 时不再读取后续字段
+// Java: when applicationName == "Microsoft Project 4.0", the subsequent fields are no longer read
         let comp_obj = parse_from_compound_file(&comp_obj_payload(
             "Microsoft Project 4.0",
             None,
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn absent_optional_fields_stay_none() {
-        // fileFormat 长度为 0：Java 的 `if (length > 0)` 不成立，两个字段都为 null
+// fileFormat length is 0: Java's `if (length > 0)` is false and both fields are null
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Microsoft Project 9.0");
         payload.extend_from_slice(&0i32.to_le_bytes());
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(comp_obj.get_file_format(), None);
         assert_eq!(comp_obj.get_application_id(), None);
 
-        // fileFormat 存在但 applicationID 的长度为 0
+// fileFormat is present but the applicationID length is 0
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Microsoft Project 9.0");
         append_string(&mut payload, "MSProject.MPP9");
@@ -363,7 +363,7 @@ mod tests {
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Not Microsoft Project");
         append_string(&mut payload, "MSProject.MPP9");
-        // applicationID 的长度为 0
+// The applicationID length is 0
         payload.extend_from_slice(&0i32.to_le_bytes());
 
         let comp_obj = parse_from_compound_file(&payload);
@@ -375,35 +375,35 @@ mod tests {
 
     #[test]
     fn version_pattern_requires_the_full_match() {
-        // 全串匹配：结尾不是 ".0" 时不取版本号
+// Whole-string match: the version number is not taken when the ending is not ".0"
         assert_eq!(parse_application_version("Microsoft Project 14.1"), None);
         assert_eq!(parse_application_version("Microsoft Project 14.0x"), None);
         assert_eq!(parse_application_version("xMicrosoft Project 14.0"), None);
-        // `Microsoft.Project.` 里的 `.` 可匹配任意字符（Java 正则的 `.`）
+// The `.` in `Microsoft.Project.` can match any character (Java regex `.`)
         assert_eq!(parse_application_version("Microsoft-Project-14.0"), Some(14));
-        // 没有数字
+// No digits
         assert_eq!(parse_application_version("Microsoft Project .0"), None);
-        // 超出 int 范围：Java 抛 NumberFormatException，Rust 返回 None
+// Out of int range: Java throws NumberFormatException, Rust returns None
         assert_eq!(parse_application_version("Microsoft Project 99999999999.0"), None);
     }
 
     #[test]
     fn truncated_stream_returns_error() {
-        // 空流：Java 在 skip/read 阶段抛 EOFException
+// Empty stream: Java throws EOFException during the skip/read phase
         assert!(CompObj::new(&[]).is_err());
-        // 只有 28 字节，读不到 applicationName 长度
+// Only 28 bytes, so the applicationName length cannot be read
         assert!(CompObj::new(&[0u8; 28]).is_err());
-        // applicationName 长度声明为 10 但内容不足
+// The applicationName length is declared as 10 but the content is insufficient
         let mut payload = vec![0u8; 28];
         payload.extend_from_slice(&10i32.to_le_bytes());
         payload.extend_from_slice(b"abc");
         assert!(CompObj::new(&payload).is_err());
-        // applicationName 长度为 0：Java 抛 StringIndexOutOfBoundsException
+// applicationName length is 0: Java throws StringIndexOutOfBoundsException
         let mut payload = vec![0u8; 28];
         payload.extend_from_slice(&0i32.to_le_bytes());
         assert!(CompObj::new(&payload).is_err());
 
-        // fileFormat 之后流就结束了：Java 在读 applicationID 长度时抛 EOFException
+// The stream ends right after fileFormat: Java throws EOFException when reading the applicationID length
         let mut payload = vec![0u8; 28];
         append_string(&mut payload, "Microsoft Project 9.0");
         append_string(&mut payload, "MSProject.MPP9");
@@ -418,13 +418,13 @@ mod tests {
             Some("MSProject.Project.9"),
         ));
 
-        // Java 源码的 toString 末尾没有 "]"
+// The toString in the Java source has no "]" at the end
         assert_eq!(
             comp_obj.to_string(),
             "[CompObj applicationName=Microsoft Project 14.0 applicationID=MSProject.Project.9 fileFormat=MSProject.MPP14"
         );
 
-        // 可空字段按 Java 字符串拼接的语义渲染为 "null"
+// Nullable fields are rendered as "null" following the semantics of Java string concatenation
         let comp_obj = parse_from_compound_file(&comp_obj_payload(
             "Microsoft Project 4.0",
             None,

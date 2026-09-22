@@ -1,36 +1,36 @@
-//! 对应 Java: `org/mpxj/ScheduleFrom.java`
+//! Corresponds to Java: `org/mpxj/ScheduleFrom.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 「排程起始方向」的枚举。
+/// Enum for the scheduling start direction.
 ///
-/// 对应 Java: `public enum ScheduleFrom implements MpxjEnum`
+/// Corresponds to Java: `public enum ScheduleFrom implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`ScheduleFrom::ALL`] 加
-/// [`ScheduleFrom::get_instance`] 的 `match`。
+/// In Java, `EnumHelper.createTypeArray` builds the int → enum array via reflection;
+/// the Rust side does not use reflection and instead uses [`ScheduleFrom::ALL`] plus
+/// the `match` in [`ScheduleFrom::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ScheduleFrom {
-    /// 从开始日期排程。
+    /// Schedule from the start date.
     ///
-    /// 对应 Java: `START(0)`
+    /// Corresponds to Java: `START(0)`
     Start = 0,
-    /// 从完成日期排程。
+    /// Schedule from the finish date.
     ///
-    /// 对应 Java: `FINISH(1)`
+    /// Corresponds to Java: `FINISH(1)`
     Finish = 1,
 }
 
 impl ScheduleFrom {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, sorted ascending by int value.
     ///
-    /// 对应 Java: `private static final ScheduleFrom[] TYPE_VALUES`（不含反射部分）。
+    /// Corresponds to Java: `private static final ScheduleFrom[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [ScheduleFrom; 2] = [ScheduleFrom::Start, ScheduleFrom::Finish];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `START`。
+    /// Returns the enum instance for the given int value, falling back to `START` when out of bounds.
     ///
-    /// 对应 Java: `public static ScheduleFrom getInstance(int type)`
+    /// Corresponds to Java: `public static ScheduleFrom getInstance(int type)`
     pub fn get_instance(value: i32) -> ScheduleFrom {
         match value {
             0 => ScheduleFrom::Start,
@@ -40,27 +40,27 @@ impl ScheduleFrom {
         }
     }
 
-    /// 对应 Java: `public static ScheduleFrom getInstance(Number type)`
+    /// Corresponds to Java: `public static ScheduleFrom getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `START`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `START`.
     pub fn get_instance_optional(value: Option<i32>) -> ScheduleFrom {
         ScheduleFrom::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for ScheduleFrom {
-    /// 返回该枚举关联的 int 值。
+    /// Returns the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for ScheduleFrom {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `Integer.toString(m_value)`，即 int 值的十进制字符串。
+    /// Java returns `Integer.toString(m_value)`, i.e. the decimal string of the int value.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", *self as i32)
     }

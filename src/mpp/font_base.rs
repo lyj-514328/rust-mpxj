@@ -1,75 +1,75 @@
-//! 对应 Java: `org/mpxj/mpp/FontBase.java`
+//! Corresponds to Java: `org/mpxj/mpp/FontBase.java`
 //!
-//! MS Project 的标准字体定义分成两部分：基础字体（名称 + 字号）与施加其上的样式
-//! （颜色 / 粗体 / 斜体 …）。本类表示其中的**基础字体**信息。
+//! MS Project's standard font definition is split into two parts: the base font (name + size) and the styles applied to it
+//! (color / bold / italic ...). This class represents the **base font** information.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public class FontBase` | 结构体 [`FontBase`] | 1:1 移植 |
-//! | `FontBase(Integer index, String name, int size)` | [`FontBase::new`]（`index: Option<i32>`、`name: String`、`size: i32`） | Java 的 `Integer` 可能为 `null` → `Option<i32>`；`name` 在本仓的三处构造点（`MPP9Reader` / `MPP12Reader` / `MPP14Reader` 的字体表解析）都传入非空串，故 Rust 侧按非可空的 `String` 处理（Java 侧理论上可传 `null`，但没有调用点这样做） |
-//! | `String getName()` | `&str` | 借用返回，语义与 Java 相同 |
-//! | `Integer getIndex()` | `Option<i32>` | 「`null` → `Option<T>`」约定；Java 侧它常被当作 `Map` 的 key 使用（`m_fontBases.put(fontBase.getIndex(), fontBase)`） |
-//! | `toString()` | `Display` | 输出格式与 Java 完全一致：`[FontBase name=... size=...]` |
+//! | `public class FontBase` | struct [`FontBase`] | 1:1 port |
+//! | `FontBase(Integer index, String name, int size)` | [`FontBase::new`] (`index: Option<i32>`, `name: String`, `size: i32`) | Java's `Integer` may be `null` → `Option<i32>`; `name` is passed a non-null string at all three construction sites in this repo (`MPP9Reader` / `MPP12Reader` / `MPP14Reader` font table parsing), so the Rust side treats it as a non-nullable `String` (the Java side could theoretically pass `null`, but no call site does) |
+//! | `String getName()` | `&str` | Borrowed return, semantics identical to Java |
+//! | `Integer getIndex()` | `Option<i32>` | The "`null` → `Option<T>`" convention; on the Java side it is often used as a `Map` key (`m_fontBases.put(fontBase.getIndex(), fontBase)`) |
+//! | `toString()` | `Display` | Output format is exactly the same as Java: `[FontBase name=... size=...]` |
 //!
-//! 未移植 / 跳过：无（JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` 等机制本类未使用）。
+//! Not ported / skipped: none (this class does not use mechanisms such as JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`).
 
 use std::fmt::{self, Display, Formatter};
 
-/// 基础字体（名称 + 字号）。
+/// Base font (name + size).
 ///
-/// 对应 Java: `public class FontBase`
+/// Corresponds to Java: `public class FontBase`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontBase {
-    /// 该字体在文件字体表中的序号。
+/// The index of this font in the file's font table.
     ///
-    /// 对应 Java: `private final Integer m_index`
+    /// Corresponds to Java: `private final Integer m_index`
     index: Option<i32>,
-    /// 字体名。
+/// Font name.
     ///
-    /// 对应 Java: `private final String m_name`
+    /// Corresponds to Java: `private final String m_name`
     name: String,
-    /// 字号。
+/// Font size.
     ///
-    /// 对应 Java: `private final int m_size`
+    /// Corresponds to Java: `private final int m_size`
     size: i32,
 }
 
 impl FontBase {
-    /// 构造函数。
+/// Constructor.
     ///
-    /// 对应 Java: `public FontBase(Integer index, String name, int size)`
+    /// Corresponds to Java: `public FontBase(Integer index, String name, int size)`
     pub fn new(index: Option<i32>, name: String, size: i32) -> FontBase {
         FontBase { index, name, size }
     }
 
-    /// 取字体名。
+/// Get the font name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &str {
         &self.name
     }
 
-    /// 取字号。
+/// Get the font size.
     ///
-    /// 对应 Java: `public int getSize()`
+    /// Corresponds to Java: `public int getSize()`
     pub fn get_size(&self) -> i32 {
         self.size
     }
 
-    /// 取该基础字体在文件中的序号。
+/// Get the index of this base font in the file.
     ///
-    /// 对应 Java: `public Integer getIndex()`
+    /// Corresponds to Java: `public Integer getIndex()`
     pub fn get_index(&self) -> Option<i32> {
         self.index
     }
 }
 
 impl Display for FontBase {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 只输出名称与字号（不输出序号）。
+/// Java outputs only the name and size (not the index).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[FontBase name={} size={}]", self.name, self.size)
     }
@@ -79,7 +79,7 @@ impl Display for FontBase {
 mod tests {
     use super::*;
 
-    /// getter 与 Java 一致。
+/// The getter matches Java.
     #[test]
     fn accessors_match_java() {
         let font = FontBase::new(Some(3), "Arial".to_owned(), 12);
@@ -88,21 +88,21 @@ mod tests {
         assert_eq!(font.get_index(), Some(3));
     }
 
-    /// `index` 可以为 `None`（Java 的 `Integer` 可为 null）。
+/// `index` may be `None` (Java's `Integer` may be null).
     #[test]
     fn index_may_be_missing() {
         let font = FontBase::new(None, "Arial".to_owned(), 12);
         assert_eq!(font.get_index(), None);
     }
 
-    /// toString 格式与 Java 一致。
+/// The toString format matches Java.
     #[test]
     fn to_string_matches_java() {
         let font = FontBase::new(Some(0), "Arial".to_owned(), 10);
         assert_eq!(font.to_string(), "[FontBase name=Arial size=10]");
     }
 
-    /// 空名称不 panic（Java 的 `getUnicodeString` 不会返回 null，但可能返回空串）。
+/// An empty name does not panic (Java's `getUnicodeString` never returns null, but may return an empty string).
     #[test]
     fn empty_name_is_allowed() {
         let font = FontBase::new(None, String::new(), 0);

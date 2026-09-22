@@ -1,8 +1,8 @@
-//! 对应 Java: `org/mpxj/EventManager.java`
+//! Corresponds to Java: `org/mpxj/EventManager.java`
 //!
-//! 项目文件读写时产生的事件的订阅中心。
+//! Subscription hub for events generated during project file reading and writing.
 //!
-//! # Java → Rust 方法对照
+//! # Java -> Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
@@ -18,47 +18,47 @@
 //! | `public void fireCalendarWrittenEvent(ProjectCalendar calendar)` | [`EventManager::fire_calendar_written_event`] |
 //! | `public void addProjectListener(ProjectListener listener)` | [`EventManager::add_project_listener`] |
 //! | `public void addProjectListeners(List<ProjectListener> listeners)` | [`EventManager::add_project_listeners`] |
-//! | `public void removeProjectListener(ProjectListener listener)` | [`EventManager::clear_project_listeners`]（签名不同，见下） |
-//! | `private List<ProjectListener> m_projectListeners;` | 字段 `project_listeners: Vec<Box<dyn ProjectListener>>` |
+//! | `public void removeProjectListener(ProjectListener listener)` | [`EventManager::clear_project_listeners`] (different signature, see below) |
+//! | `private List<ProjectListener> m_projectListeners;` | field `project_listeners: Vec<Box<dyn ProjectListener>>` |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **存储去掉「未初始化」状态**：Java 的 `m_projectListeners` 初始为 `null`，各 `fire*`
-//!   与 `add` / `remove` 都要判空；Rust 侧用始终存在的 `Vec<Box<dyn ProjectListener>>`
-//!   （Java 的 `List` → `Vec`），因此所有判空分支消失，空列表自然就是空操作。
-//! - **`removeProjectListener` → [`EventManager::clear_project_listeners`]**：Java 的
-//!   `List.remove(Object)` 按 `equals`（本处即引用身份）移除指定的那一个监听器。
-//!   **真实阻塞原因**（非「依赖未落地」）：
-//!   1. [`EventManager::add_project_listener`] 以 `Box<dyn ProjectListener>` **按值**接收监听器，
-//!      注册者拿不回句柄；`dyn ProjectListener` 也不实现相等性，故无法表达「按身份移除」。
-//!   2. 该签名与存储形态由既有的读取器接口固定：`crate::reader::project_reader::ProjectReader`
-//!      的 `add_project_listener(Box<dyn ProjectListener>)`（`reader/abstract_project_reader.rs`、
-//!      `mpp/mpp_reader.rs`、`mpx/mpx_reader.rs` 的实现与 `mpp/constraint_factory.rs` 的调用点）
-//!      都按 `Box` 传递。
-//!   3. 本仓已有 `SharedProjectListener`（`reader/abstract_project_reader.rs`，
-//!      `Rc<RefCell<Box<dyn ProjectListener>>>` + `Rc::ptr_eq`）可表达身份，但它的内部 `Rc`
-//!      是私有字段、没有暴露相等性访问器 —— 本文件无法据此
-//!      实现 `ptr_eq` 比较；若为此在 `EventManager` 内另造一份同形态句柄，则与
-//!      `SharedProjectListener` 形成两份并行实现（本工程明令避免的做法）。
-//!   因此这里保留**清空全部监听器**这一语义明确的操作；需要移除单个监听器时，由调用方改为
-//!   重建 `EventManager` 或收紧注册范围。
-//! - **`fire_*` / 注册方法取 `&mut self`**：监听器方法取 `&mut self`（见
-//!   [`crate::listener::project_listener::ProjectListener`]），遍历监听器列表需要可变借用，
-//!   故这些方法都是 `&mut self`。对 [`crate::project_context::ProjectContext`] 而言要经
-//!   `get_event_manager_mut()` 取得可变引用。
-//! - **实体参数用共享句柄**：Java 传实体引用，Rust 侧统一为 `&Rc<RefCell<..>>`，
-//!   理由见 [`crate::listener::project_listener`] 文件头。
-//! - **未做 `mem::take` 换出监听器列表**：本类型只在 `&mut self` 下遍历监听器，监听器回调
-//!   拿不到本 `EventManager`，不存在「回调中再次 `fire_*`」造成 Rust 别名冲突的可能，因此
-//!   直接 `for listener in &mut self.project_listeners` 遍历即可；若将来把 `EventManager`
-//!   放进 `Rc<RefCell<..>>` 并在回调中重入，冲突会发生在 `RefCell` 外层借用（运行时 panic），
-//!   需要调用方自行 `mem::take` 后再重入，本类型无法在内部规避。
+//! - **Storage drops the "uninitialized" state**: Java's `m_projectListeners` starts as `null`, and every `fire*`
+//! plus `add` / `remove` must null-check; the Rust side uses an always-present `Vec<Box<dyn ProjectListener>>`
+//! (Java's `List` -> `Vec`), so all null-check branches disappear and an empty list is naturally a no-op.
+//! - **`removeProjectListener` -> [`EventManager::clear_project_listeners`]**: Java's
+//! `List.remove(Object)` removes the specified single listener by `equals` (here, by reference identity).
+//! **The real blocking reason** (not "dependencies not in place"):
+//! 1. [`EventManager::add_project_listener`] accepts a listener by `Box<dyn ProjectListener>` **by value**,
+//! so the registrant cannot get the handle back; `dyn ProjectListener` also does not implement equality, so "remove by identity" cannot be expressed.
+//! 2. That signature and storage shape are fixed by the existing reader interface: `crate::reader::project_reader::ProjectReader`
+//! 's `add_project_listener(Box<dyn ProjectListener>)` (`reader/abstract_project_reader.rs`,
+//! the implementations in `mpp/mpp_reader.rs`, `mpx/mpx_reader.rs` and the call site in `mpp/constraint_factory.rs`)
+//! all pass by `Box`.
+//! 3. This repo already has `SharedProjectListener` (`reader/abstract_project_reader.rs`,
+//! `Rc<RefCell<Box<dyn ProjectListener>>>` + `Rc::ptr_eq`) which can express identity, but its internal `Rc`
+//! is a private field with no exposed equality accessor -- this file cannot
+//! implement a `ptr_eq` comparison from it; creating another same-shaped handle inside `EventManager` for this would
+//! form two parallel implementations with `SharedProjectListener` (a practice this project explicitly avoids).
+//! Therefore this keeps the semantically clear operation of **clearing all listeners**; when a single listener needs to be removed, the caller should instead
+//! rebuild the `EventManager` or narrow the registration scope.
+//! - **`fire_*` / registration methods take `&mut self`**: listener methods take `&mut self` (see
+//! [`crate::listener::project_listener::ProjectListener`]), iterating over the listener list requires a mutable borrow,
+//! so these methods are all `&mut self`. For [`crate::project_context::ProjectContext`], a mutable reference must be obtained via
+//! `get_event_manager_mut()`.
+//! - **Entity parameters use shared handles**: Java passes entity references; the Rust side uniformly uses `&Rc<RefCell<..>>`,
+//! for the reason see the file header of [`crate::listener::project_listener`].
+//! - **No `mem::take` to swap out the listener list**: this type only iterates listeners under `&mut self`, and a listener callback
+//! cannot obtain this `EventManager`, so there is no possibility of a Rust aliasing conflict from "calling `fire_*` again inside a callback"; hence
+//! simply iterating with `for listener in &mut self.project_listeners` is enough; if in the future `EventManager`
+//! is placed in an `Rc<RefCell<..>>` and re-entered from a callback, the conflict will occur in the outer `RefCell` borrow (a runtime panic),
+//! and the caller must `mem::take` itself before re-entering; this type cannot avoid it internally.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 本类未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 无对应代码 |
+//! | This class does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | No corresponding code |
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -70,147 +70,147 @@ use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
 use crate::task::Task;
 
-/// 提供项目文件读写事件的订阅能力。
+/// Provides subscription capability for project file read/write events.
 ///
-/// 对应 Java: `public class EventManager`
+/// Corresponds to Java: `public class EventManager`
 pub struct EventManager {
-    /// 对应 Java 字段 `private List<ProjectListener> m_projectListeners;`
+    /// Corresponds to Java field `private List<ProjectListener> m_projectListeners;`
     ///
-    /// Java 用 `List`，Rust 用 `Vec<Box<dyn ProjectListener>>`（Java 的 `List` → `Vec`）。
+/// Java uses `List`, Rust uses `Vec<Box<dyn ProjectListener>>` (Java's `List` -> `Vec`).
     project_listeners: Vec<Box<dyn ProjectListener>>,
 }
 
 impl Default for EventManager {
-    /// 对应 Java: `EventManager` 的隐式无参构造方法。
+/// Corresponds to Java: `EventManager`'s implicit no-argument constructor.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl EventManager {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `EventManager` 的隐式无参构造方法（`m_projectListeners` 为 `null`；
-    /// Rust 侧为空 `Vec`，语义等价，见文件头）。
+/// Corresponds to Java: `EventManager`'s implicit no-argument constructor (`m_projectListeners` is `null`;
+/// on the Rust side an empty `Vec`, semantically equivalent, see the file header).
     pub fn new() -> Self {
         Self {
             project_listeners: Vec::new(),
         }
     }
 
-    /// 通知监听器：已从项目文件中读入一个任务。
+/// Notify listeners: a task has been read from the project file.
     ///
-    /// 对应 Java: `public void fireTaskReadEvent(Task task)`
+    /// Corresponds to Java: `public void fireTaskReadEvent(Task task)`
     pub fn fire_task_read_event(&mut self, task: &Rc<RefCell<Task>>) {
         for listener in &mut self.project_listeners {
             listener.task_read(task);
         }
     }
 
-    /// 通知监听器：已将任务写出到项目文件。
+/// Notify listeners: a task has been written to the project file.
     ///
-    /// 对应 Java: `public void fireTaskWrittenEvent(Task task)`
+    /// Corresponds to Java: `public void fireTaskWrittenEvent(Task task)`
     pub fn fire_task_written_event(&mut self, task: &Rc<RefCell<Task>>) {
         for listener in &mut self.project_listeners {
             listener.task_written(task);
         }
     }
 
-    /// 通知监听器：已从项目文件中读入一个资源。
+/// Notify listeners: a resource has been read from the project file.
     ///
-    /// 对应 Java: `public void fireResourceReadEvent(Resource resource)`
+    /// Corresponds to Java: `public void fireResourceReadEvent(Resource resource)`
     pub fn fire_resource_read_event(&mut self, resource: &Rc<RefCell<Resource>>) {
         for listener in &mut self.project_listeners {
             listener.resource_read(resource);
         }
     }
 
-    /// 通知监听器：已将资源写出到项目文件。
+/// Notify listeners: a resource has been written to the project file.
     ///
-    /// 对应 Java: `public void fireResourceWrittenEvent(Resource resource)`
+    /// Corresponds to Java: `public void fireResourceWrittenEvent(Resource resource)`
     pub fn fire_resource_written_event(&mut self, resource: &Rc<RefCell<Resource>>) {
         for listener in &mut self.project_listeners {
             listener.resource_written(resource);
         }
     }
 
-    /// 通知监听器：已从项目文件中读入一个日历。
+/// Notify listeners: a calendar has been read from the project file.
     ///
-    /// 对应 Java: `public void fireCalendarReadEvent(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void fireCalendarReadEvent(ProjectCalendar calendar)`
     pub fn fire_calendar_read_event(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         for listener in &mut self.project_listeners {
             listener.calendar_read(calendar);
         }
     }
 
-    /// 通知监听器：已从项目文件中读入一个资源分配。
+/// Notify listeners: a resource assignment has been read from the project file.
     ///
-    /// 对应 Java: `public void fireAssignmentReadEvent(ResourceAssignment resourceAssignment)`
+    /// Corresponds to Java: `public void fireAssignmentReadEvent(ResourceAssignment resourceAssignment)`
     pub fn fire_assignment_read_event(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
         for listener in &mut self.project_listeners {
             listener.assignment_read(assignment);
         }
     }
 
-    /// 通知监听器：已将资源分配写出到项目文件。
+/// Notify listeners: a resource assignment has been written to the project file.
     ///
-    /// 对应 Java: `public void fireAssignmentWrittenEvent(ResourceAssignment resourceAssignment)`
+    /// Corresponds to Java: `public void fireAssignmentWrittenEvent(ResourceAssignment resourceAssignment)`
     pub fn fire_assignment_written_event(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
         for listener in &mut self.project_listeners {
             listener.assignment_written(assignment);
         }
     }
 
-    /// 通知监听器：已从项目文件中读入一个关系。
+/// Notify listeners: a relation has been read from the project file.
     ///
-    /// 对应 Java: `public void fireRelationReadEvent(Relation relation)`
+    /// Corresponds to Java: `public void fireRelationReadEvent(Relation relation)`
     pub fn fire_relation_read_event(&mut self, relation: &Rc<RefCell<Relation>>) {
         for listener in &mut self.project_listeners {
             listener.relation_read(relation);
         }
     }
 
-    /// 通知监听器：已将关系写出到项目文件。
+/// Notify listeners: a relation has been written to the project file.
     ///
-    /// 对应 Java: `public void fireRelationWrittenEvent(Relation relation)`
+    /// Corresponds to Java: `public void fireRelationWrittenEvent(Relation relation)`
     pub fn fire_relation_written_event(&mut self, relation: &Rc<RefCell<Relation>>) {
         for listener in &mut self.project_listeners {
             listener.relation_written(relation);
         }
     }
 
-    /// 通知监听器：已将日历写出到项目文件。
+/// Notify listeners: a calendar has been written to the project file.
     ///
-    /// 对应 Java: `public void fireCalendarWrittenEvent(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void fireCalendarWrittenEvent(ProjectCalendar calendar)`
     pub fn fire_calendar_written_event(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         for listener in &mut self.project_listeners {
             listener.calendar_written(calendar);
         }
     }
 
-    /// 注册一个监听器。
+/// Register a listener.
     ///
-    /// 对应 Java: `public void addProjectListener(ProjectListener listener)`
+    /// Corresponds to Java: `public void addProjectListener(ProjectListener listener)`
     pub fn add_project_listener(&mut self, listener: Box<dyn ProjectListener>) {
         self.project_listeners.push(listener);
     }
 
-    /// 注册一批监听器（按给定顺序逐个追加）。
+/// Register a batch of listeners (appended one by one in the given order).
     ///
-    /// 对应 Java: `public void addProjectListeners(List<ProjectListener> listeners)`
+    /// Corresponds to Java: `public void addProjectListeners(List<ProjectListener> listeners)`
     ///
-    /// Java 会判 `listeners != null`；Rust 的参数是 `Vec`，不存在空引用，空 `Vec` 即空操作。
+/// Java checks `listeners != null`; the Rust parameter is a `Vec`, there is no null reference, and an empty `Vec` is a no-op.
     pub fn add_project_listeners(&mut self, listeners: Vec<Box<dyn ProjectListener>>) {
         for listener in listeners {
             self.add_project_listener(listener);
         }
     }
 
-    /// 清空全部监听器。
+/// Clear all listeners.
     ///
-    /// 对应 Java: `public void removeProjectListener(ProjectListener listener)`
+    /// Corresponds to Java: `public void removeProjectListener(ProjectListener listener)`
     ///
-    /// Java 按身份移除指定监听器，Rust 无法表达该语义（原因见文件头），改为清空全部。
+/// Java removes the specified listener by identity; Rust cannot express that semantic (reason in the file header), so it clears all instead.
     pub fn clear_project_listeners(&mut self) {
         self.project_listeners.clear();
     }
@@ -223,7 +223,7 @@ mod tests {
     use crate::relation::Builder as RelationBuilder;
     use std::rc::Weak;
 
-    /// 事件记录器：把收到的事件名按顺序写入共享日志。
+/// Event recorder: writes received event names in order into a shared log.
     type EventLog = Rc<RefCell<Vec<&'static str>>>;
 
     struct Recorder {
@@ -231,7 +231,7 @@ mod tests {
     }
 
     impl Recorder {
-        /// 返回监听器与其事件日志（日志与监听器共享同一 `Rc`）。
+/// Returns the listener and its event log (the log shares the same `Rc` as the listener).
         fn shared() -> (Self, EventLog) {
             let log: EventLog = Rc::new(RefCell::new(Vec::new()));
             (Self { log: log.clone() }, log)
@@ -284,7 +284,7 @@ mod tests {
         }
     }
 
-    /// 回调里改写实体字段的监听器，用于验证共享句柄可写。
+/// A listener that rewrites entity fields in its callback, to verify that the shared handle is writable.
     struct TaskIdSetter;
 
     impl ProjectListener for TaskIdSetter {
@@ -311,7 +311,7 @@ mod tests {
         fn relation_written(&mut self, _relation: &Rc<RefCell<Relation>>) {}
     }
 
-    /// Java 中 `fire*` 的书写顺序。
+/// The order in which `fire*` are written in Java.
     const ALL_EVENTS: [&str; 10] = [
         "task_read",
         "task_written",
@@ -345,7 +345,7 @@ mod tests {
         Rc::new(RefCell::new(ProjectCalendar::new(Weak::new(), false)))
     }
 
-    /// 依次触发 Java 中定义的全部 10 个事件。
+/// Fire all 10 events defined in Java in sequence.
     fn fire_all(manager: &mut EventManager) {
         manager.fire_task_read_event(&task());
         manager.fire_task_written_event(&task());
@@ -387,7 +387,7 @@ mod tests {
         let (second, second_log) = Recorder::shared();
 
         manager.add_project_listeners(vec![Box::new(first), Box::new(second)]);
-        // 空集合等价于 Java 的 null（都是空操作）
+// An empty collection is equivalent to Java's null (both are no-ops)
         manager.add_project_listeners(Vec::new());
 
         manager.fire_task_read_event(&task());
@@ -413,7 +413,7 @@ mod tests {
         let mut manager = EventManager::new();
         manager.add_project_listener(Box::new(DefaultProjectListener::new()));
 
-        // 不 panic 即通过：默认实现不做任何事
+// Passing means not panicking: the default implementation does nothing
         fire_all(&mut manager);
     }
 

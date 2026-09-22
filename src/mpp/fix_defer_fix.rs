@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/FixDeferFix.java`
+//! Corresponds to Java: `org/mpxj/mpp/FixDeferFix.java`
 //!
-//! 表示 Microsoft Project 98 文件格式里的一块变长数据项。数据以「块链」的形式存放：
-//! 每个块头部是 4 字节的「下一个块偏移」，`-1` 表示链尾；`getByteArray` 会顺着链把
-//! 一条数据项的所有分片拼回一个连续数组。
+//! Represents a variable-length data item in the Microsoft Project 98 file format. The data is stored as a "block chain":
+//! each block header is a 4-byte "next block offset", with `-1` marking the end of the chain; `getByteArray` follows the chain to
+//! reassemble all fragments of a data item into one contiguous array.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `MPPUtility.getByteArray` 越界抛异常 | `None` / 结束转储 | 先验证边界，再调用同一工具类 |
+//! | `MPPUtility.getByteArray` throws on out-of-bounds | `None` / abort dump | validate bounds first, then call the same utility class |
 //!
-//! # 跳过的 Java 成员 + 原因
+//! # Skipped Java members + reason
 //!
-//! 无。
+//! None.
 //!
-//! 移植取舍：
-//! - Java 的构造方法接收 `InputStream`，Rust 侧按约定改为 `&[u8]`，并保存为 `Vec<u8>`
-//!   （Java 的 `InputStreamHelper.readAvailable` 本身就会复制一份数据，语义一致）。
-//! - `MPPUtility.getByteArray` 在 Rust 侧需先校验范围，以便将 Java 的越界异常
-//!   退化为 `None`；通过范围校验后复用 [`crate::mpp::mpp_utility::MPPUtility`]。
-//! - Java 抛数组越界异常的地方（`ByteArrayHelper.getInt` / `MPPUtility.getByteArray`）在
-//!   Rust 侧返回 `None`，绝不 panic。
-//! - Java 的 `new String(byte[])` 使用平台默认字符集，Rust 侧按 UTF-8 容错解码；
-//!   `MPPUtility.getUnicodeString` 按 UTF-16LE 解码（经 `encoding_rs`）。
-//! - Java 的 `TreeSet<Integer>` 对应 `BTreeSet<i32>`；`toString()` 对应 [`Display`]，
-//!   其中 Java 遇到越界会抛异常，Rust 侧改为立即结束转储。
-//! - 未涉及反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`。
+//! Porting trade-offs:
+//! - The Java constructor takes an `InputStream`; by convention the Rust side changes this to `&[u8]` and stores it as `Vec<u8>`
+//! (Java's `InputStreamHelper.readAvailable` already copies the data, so the semantics match).
+//! - `MPPUtility.getByteArray` must validate the range first on the Rust side, so that Java's out-of-bounds exception
+//! degrades gracefully to `None`; once the range check passes, reuse [`crate::mpp::mpp_utility::MPPUtility`].
+//! - Where Java throws an array out-of-bounds exception (`ByteArrayHelper.getInt` / `MPPUtility.getByteArray`), the
+//! Rust side returns `None` and never panics.
+//! - Java's `new String(byte[])` uses the platform default charset; the Rust side decodes leniently as UTF-8;
+//! `MPPUtility.getUnicodeString` decodes as UTF-16LE (via `encoding_rs`).
+//! - Java's `TreeSet<Integer>` corresponds to `BTreeSet<i32>`; `toString()` corresponds to [`Display`],
+//! where Java throws on out-of-bounds, while the Rust side aborts the dump immediately.
+//! - Does not involve reflection, JDBC, XML/JAXB, GUI, `javax.*`, or `Serializable`.
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
@@ -33,30 +33,30 @@ use std::fmt::{Display, Formatter};
 use crate::common::byte_array_helper::ByteArrayHelper;
 use crate::mpp::mpp_utility::MPPUtility;
 
-/// `FixDeferFix` 块：MPP98 格式中的变长数据块。
+/// `FixDeferFix` block: a variable-length data block in the MPP98 format.
 ///
-/// 对应 Java: `final class FixDeferFix extends MPPComponent`
+/// Corresponds to Java: `final class FixDeferFix extends MPPComponent`
 pub struct FixDeferFix {
-    /// 整个数据块。
+/// The entire data block.
     ///
-    /// 对应 Java: `private final byte[] m_data`
+    /// Corresponds to Java: `private final byte[] m_data`
     data: Vec<u8>,
 }
 
-/// [`FixDeferFix`] 的 `to_string` 遍历中单次迭代的结果。
+/// The result of a single iteration in [`FixDeferFix`]'s `to_string` traversal.
 enum DumpOutcome {
-    /// 对应 Java 的 `continue`：跳过当前偏移。
+/// Corresponds to Java's `continue`: skip the current offset.
     Skip,
-    /// 成功解析出的一块数据。
+/// A data block successfully parsed.
     Emit(Vec<u8>),
-    /// 对应 Java 在越界等处抛出的异常：停止转储。
+/// Corresponds to the exception Java throws on out-of-bounds etc.: abort the dump.
     Abort,
 }
 
 impl FixDeferFix {
-    /// 构造方法。数据块整体读入。
+/// Constructor. Reads the entire data block.
     ///
-    /// 对应 Java: `FixDeferFix(InputStream is)`
+    /// Corresponds to Java: `FixDeferFix(InputStream is)`
     pub fn new(data: &[u8]) -> Self {
         // Java: m_data = InputStreamHelper.readAvailable(is)
         Self {
@@ -64,9 +64,9 @@ impl FixDeferFix {
         }
     }
 
-    /// 取从 `offset` 开始的一条数据项（可能跨多个块）。
+/// Get the data item starting at `offset` (may span multiple blocks).
     ///
-    /// 对应 Java: `public byte[] getByteArray(int offset)`
+    /// Corresponds to Java: `public byte[] getByteArray(int offset)`
     pub fn get_byte_array(&self, offset: i32) -> Option<Vec<u8>> {
         let data = &self.data;
 
@@ -77,7 +77,7 @@ impl FixDeferFix {
 
         let mut offset = offset;
 
-        // Java: ByteArrayHelper.getInt(m_data, offset)，越界抛数组越界异常；Rust 侧返回 None
+// Java: ByteArrayHelper.getInt(m_data, offset), throws an array out-of-bounds exception; the Rust side returns None
         let mut next_block_offset = read_int(data, offset)?;
         offset += 4;
 
@@ -89,7 +89,7 @@ impl FixDeferFix {
             return None;
         }
 
-        // 除首个块外的每个块可承载的数据长度
+// Data length each block other than the first can carry
         let mut block_remaining_size = 28i32;
 
         if next_block_offset != -1 || item_size <= block_remaining_size {
@@ -122,28 +122,28 @@ impl FixDeferFix {
         }
     }
 
-    /// 取指定偏移处的字符串。
+/// Get the string at the specified offset.
     ///
-    /// 对应 Java: `public String getString(int offset)`
+    /// Corresponds to Java: `public String getString(int offset)`
     pub fn get_string(&self, offset: i32) -> Option<String> {
         let data = self.get_byte_array(offset)?;
-        // Java: new String(data) 使用平台默认字符集；Rust 侧按 UTF-8 容错解码
+// Java: new String(data) uses the platform default charset; the Rust side decodes leniently as UTF-8
         Some(String::from_utf8_lossy(&data).into_owned())
     }
 
-    /// 取指定偏移处的 Unicode（UTF-16LE）字符串。
+/// Get the Unicode (UTF-16LE) string at the specified offset.
     ///
-    /// 对应 Java: `public String getUnicodeString(int offset)`
+    /// Corresponds to Java: `public String getUnicodeString(int offset)`
     pub fn get_unicode_string(&self, offset: i32) -> Option<String> {
         let data = self.get_byte_array(offset)?;
         Some(MPPUtility::get_unicode_string(&data, 0))
     }
 
-    /// 从 `file_offset` 开始走一遍块链，返回该偏移处数据块的内容。
+/// Walk the block chain starting at `file_offset` and return the contents of the data block at that offset.
     ///
-    /// 对应 Java: `FixDeferFix#toString()` 里 while 循环的循环体；Java 抛异常的地方
-    /// 返回 [`DumpOutcome::Abort`]（Rust 侧不 panic），Java 的 `continue` 对应
-    /// [`DumpOutcome::Skip`]，成功解析出数据对应 [`DumpOutcome::Emit`]。
+/// Corresponds to Java: the loop body of the while loop in `FixDeferFix#toString()`; where Java throws,
+/// return [`DumpOutcome::Abort`] (the Rust side does not panic); Java's `continue` corresponds to
+/// [`DumpOutcome::Skip`], and successfully parsed data corresponds to [`DumpOutcome::Emit`].
     fn dump_block(
         &self,
         file_offset: &mut i32,
@@ -173,7 +173,7 @@ impl FixDeferFix {
             return DumpOutcome::Skip;
         }
 
-        // Java: buffer = new byte[itemSize]，itemSize 为负时抛 NegativeArraySizeException
+// Java: buffer = new byte[itemSize], throws NegativeArraySizeException when itemSize is negative
         if item_size < 0 {
             *file_offset = file_offset_value;
             return DumpOutcome::Abort;
@@ -184,7 +184,7 @@ impl FixDeferFix {
         let mut buffer_offset = 0i32;
 
         while next_block_offset != -1 {
-            // Java: MPPUtility.getByteArray(...)，越界抛异常
+// Java: MPPUtility.getByteArray(...), throws on out-of-bounds
             if copy_bytes(
                 data,
                 file_offset_value,
@@ -208,7 +208,7 @@ impl FixDeferFix {
             }
 
             if !read.insert(file_offset_value) {
-                // Java: fileOffset = available 后继续循环，接着就会在 getByteArray 中越界抛异常
+// Java: after fileOffset = available the loop continues, and then getByteArray throws out-of-bounds
                 *file_offset = file_offset_value;
                 return DumpOutcome::Abort;
             }
@@ -250,7 +250,7 @@ impl FixDeferFix {
     }
 }
 
-/// 转储块的调试视图（对应 Java 的 `toString()`，仅供调试使用）。
+/// Debug view of the dump block (corresponds to Java's `toString()`, for debugging only).
 impl Display for FixDeferFix {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "BEGIN FixDeferFix")?;
@@ -258,7 +258,7 @@ impl Display for FixDeferFix {
         // Java: int available = m_data.length
         let available = self.data.len() as i32;
 
-        // Java: 跳过 4 字节头部
+// Java: skip the 4-byte header
         let mut file_offset = 4i32;
         let mut skipped: BTreeSet<i32> = BTreeSet::new();
         let mut read: BTreeSet<i32> = BTreeSet::new();
@@ -298,10 +298,10 @@ impl Display for FixDeferFix {
     }
 }
 
-/// 从 `data[offset..offset+4]` 读取一个小端 int。
+/// Read a little-endian int from `data[offset..offset+4]`.
 ///
-/// 对应 Java: `ByteArrayHelper.getInt(byte[], int)`（Java 越界抛
-/// `ArrayIndexOutOfBoundsException`，Rust 侧返回 `None`）。
+/// Corresponds to Java: `ByteArrayHelper.getInt(byte[], int)` (Java throws on out-of-bounds
+/// `ArrayIndexOutOfBoundsException`; the Rust side returns `None`).
 fn read_int(data: &[u8], offset: i32) -> Option<i32> {
     if offset < 0 {
         return None;
@@ -312,10 +312,10 @@ fn read_int(data: &[u8], offset: i32) -> Option<i32> {
     data.get(start..end).map(|bytes| ByteArrayHelper::get_int(bytes, 0))
 }
 
-/// 把 `data[offset..offset+size]` 复制到 `dest[dest_offset..]`。
+/// Copy `data[offset..offset+size]` to `dest[dest_offset..]`.
 ///
-/// 对应 Java: `MPPUtility.getByteArray(byte[] data, int offset, int size, byte[] buffer, int bufferOffset)`
-/// （Java 由 `System.arraycopy` 检查边界并抛异常，Rust 侧返回 `None`）。
+/// Corresponds to Java: `MPPUtility.getByteArray(byte[] data, int offset, int size, byte[] buffer, int bufferOffset)`
+/// (Java checks bounds via `System.arraycopy` and throws; the Rust side returns `None`).
 fn copy_bytes(
     data: &[u8],
     offset: i32,
@@ -343,12 +343,12 @@ fn copy_bytes(
 mod tests {
     use super::*;
 
-    /// 写入小端 int。
+/// Write a little-endian int.
     fn write_int(data: &mut [u8], offset: usize, value: i32) {
         data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
 
-    /// 单块数据：nextBlockOffset = -1，itemSize = 28，其后 28 字节为数据。
+/// Single-block data: nextBlockOffset = -1, itemSize = 28, followed by 28 bytes of data.
     fn build_single_block_stream() -> Vec<u8> {
         let mut data = vec![0u8; 40];
         write_int(&mut data, 4, -1);
@@ -361,7 +361,7 @@ mod tests {
         data
     }
 
-    /// 单块：整条数据都在第一个块里。
+/// Single block: the whole data item is in the first block.
     #[test]
     fn reads_single_block() {
         let data = build_single_block_stream();
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(result.as_slice(), &data[12..40]);
     }
 
-    /// 跨块：第一块 28 字节，链到第二个块再取 12 字节，拼成 40 字节。
+/// Cross-block: the first block has 28 bytes, chains to the second block to take 12 more bytes, forming 40 bytes.
     #[test]
     fn reads_linked_blocks() {
         let mut data = vec![0u8; 56];
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(&result[28..40], &[0xBB_u8; 12]);
     }
 
-    /// 偏移非法或数据块不完整时返回 None。
+/// Return None when the offset is invalid or the data block is incomplete.
     #[test]
     fn invalid_offsets_return_none() {
         let data = build_single_block_stream();
@@ -409,14 +409,14 @@ mod tests {
         assert!(fix_defer.get_byte_array(1000).is_none());
         assert!(fix_defer.get_string(0).is_none());
 
-        // itemSize 不小于数据块长度 => None
+// itemSize is not less than the data block length => None
         let mut clipped = vec![0u8; 40];
         write_int(&mut clipped, 4, -1);
         write_int(&mut clipped, 8, 40);
         assert!(FixDeferFix::new(&clipped).get_byte_array(4).is_none());
     }
 
-    /// 空数据块返回 None。
+/// Return None for an empty data block.
     #[test]
     fn empty_block_returns_none() {
         let fix_defer = FixDeferFix::new(&[]);
@@ -426,7 +426,7 @@ mod tests {
         assert!(fix_defer.get_unicode_string(4).is_none());
     }
 
-    /// 单字节字符串。
+/// Single-byte string.
     #[test]
     fn reads_ascii_string() {
         let mut data = vec![0u8; 17];
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(fix_defer.get_string(4), Some("hello".to_string()));
     }
 
-    /// UTF-16LE 字符串：遇到双字节 0 结束。
+/// UTF-16LE string: terminated by a two-byte 0.
     #[test]
     fn reads_unicode_string() {
         let mut data = vec![0u8; 40];
@@ -450,7 +450,7 @@ mod tests {
         assert_eq!(fix_defer.get_unicode_string(4), Some("Hi".to_string()));
     }
 
-    /// Display 输出块头与每块数据的十六进制转储。
+/// Display outputs the block header and a hex dump of each block's data.
     #[test]
     fn display_dumps_block() {
         let mut data = vec![0u8; 17];
@@ -464,14 +464,14 @@ mod tests {
         assert!(text.ends_with("END FixDeferFix\n\n"));
     }
 
-    /// Display 中 nextBlockOffset = -1 且 itemSize > 28 的块会被整体跳过。
+/// In Display, a block with nextBlockOffset = -1 and itemSize > 28 is skipped entirely.
     #[test]
     fn display_skips_oversized_tail_block() {
         let mut data = vec![0u8; 60];
-        // 第一个块：next = -1 且 itemSize = 100 > 28 => 跳过
+// First block: next = -1 and itemSize = 100 > 28 => skipped
         write_int(&mut data, 4, -1);
         write_int(&mut data, 8, 100);
-        // 第二个块：next = -1，itemSize = 4，数据 "ABCD"
+// Second block: next = -1, itemSize = 4, data "ABCD"
         write_int(&mut data, 40, -1);
         write_int(&mut data, 44, 4);
         data[48..52].copy_from_slice(b"ABCD");

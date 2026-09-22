@@ -1,63 +1,63 @@
-//! 对应 Java: `org/mpxj/Table.java`
+//! Corresponds to Java: `org/mpxj/Table.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | 隐式默认构造方法 | [`Table::new`] |
+//! | implicit default constructor | [`Table::new`] |
 //! | `public int getID()` / `public void setID(int id)` | [`Table::get_id`] / [`Table::set_id`] |
 //! | `public String getName()` / `public void setName(String name)` | [`Table::get_name`] / [`Table::set_name`] |
 //! | `public boolean getResourceFlag()` / `public void setResourceFlag(boolean flag)` | [`Table::get_resource_flag`] / [`Table::set_resource_flag`] |
 //! | `public void addColumn(Column column)` | [`Table::add_column`] |
-//! | `public List<Column> getColumns()` | [`Table::get_columns`]（不可变切片）与 [`Table::get_columns_mut`]（对应 Java 返回的可变列表） |
+//! | `public List<Column> getColumns()` | [`Table::get_columns`] (immutable slice) and [`Table::get_columns_mut`] (corresponds to the mutable list returned by Java) |
 //! | `@Override public String toString()` | [`Display`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **列的持有方式**：Java 的 `ArrayList<Column> m_columns` 直接持有列对象；Rust 侧同样按值
-//!   持有 `Vec<Column>`（`Column` 只回指父项目，不回指 `Table`，不会形成 `Rc` 循环）。
-//!   Java 的 `getColumns()` 返回列表本身（调用方可直接 `add`），Rust 侧按本 crate 的既有
-//!   约定拆成 [`Table::get_columns`]（只读视图）与 [`Table::get_columns_mut`]（可变列表）。
-//! - **`name`**：Java 允许 `null`，Rust 侧用 `Option<String>`；[`Display`] 把 `None`
-//!   渲染为 `"null"`，与 Java 字符串拼接一致。
-//! - **`equals` / `hashCode`**：Java 未覆写（对象同一性）；Rust 侧不实现 `PartialEq` / `Eq` / `Hash`。
+//! - **How columns are held**: Java's `ArrayList<Column> m_columns` holds column objects directly; Rust likewise holds
+//! a `Vec<Column>` by value (`Column` only refers back to the parent project, not to `Table`, so no `Rc` cycle is formed).
+//! Java's `getColumns()` returns the list itself (callers can `add` to it directly); Rust follows this crate's existing
+//! convention of splitting it into [`Table::get_columns`] (read-only view) and [`Table::get_columns_mut`] (mutable list).
+//! - **`name`**: Java allows `null`; Rust uses `Option<String>`; [`Display`] renders `None`
+//! as `"null"`, matching Java string concatenation.
+//! - **`equals` / `hashCode`**: not overridden in Java (object identity); Rust does not implement `PartialEq` / `Eq` / `Hash`.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::column::Column;
 
-/// MPP 文件中的表格定义。
+/// Table definition in an MPP file.
 ///
-/// 对应 Java: `public final class Table`
+/// Corresponds to Java: `public final class Table`
 ///
-/// MS Project 中大量信息以表格形式呈现，本类描述表格的属性（id、名称、任务表还是资源表、
-/// 列定义），例如标准甘特图左侧表格的属性即由此定义。
+/// Much information in MS Project is presented in tables; this class describes a table's attributes (id, name, whether it is a task or resource table,
+/// column definitions); for example, the attributes of the standard Gantt chart's left-hand table are defined by this.
 #[derive(Debug)]
 pub struct Table {
-    /// 表格在本文件中的唯一标识（不代表表格类型）。
+/// Unique ID of the table within this file (does not denote the table type).
     ///
-    /// 对应 Java: `private int m_id;`
+    /// Corresponds to Java: `private int m_id;`
     m_id: i32,
-    /// 表格名称（MPXJ 已剥离内部使用的 `&` 快捷键标记）。
+/// Table name (MPXJ has already stripped the internal `&` accelerator marker).
     ///
-    /// 对应 Java: `private String m_name;`
+    /// Corresponds to Java: `private String m_name;`
     m_name: Option<String>,
-    /// 资源表标志：`false` 表示任务表，`true` 表示资源表。
+/// Resource table flag: `false` means a task table, `true` means a resource table.
     ///
-    /// 对应 Java: `private boolean m_resourceFlag;`
+    /// Corresponds to Java: `private boolean m_resourceFlag;`
     m_resource_flag: bool,
-    /// 表格的列定义。
+/// Column definitions of the table.
     ///
-    /// 对应 Java: `private final ArrayList<Column> m_columns = new ArrayList<>();`
+    /// Corresponds to Java: `private final ArrayList<Column> m_columns = new ArrayList<>();`
     m_columns: Vec<Column>,
 }
 
 impl Table {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: implicit default constructor (Java does not explicitly declare a constructor).
     pub fn new() -> Self {
         Self {
             m_id: 0,
@@ -67,81 +67,81 @@ impl Table {
         }
     }
 
-    /// 取表格标识。
+/// Gets the table ID.
     ///
-    /// 对应 Java: `public int getID()`
+    /// Corresponds to Java: `public int getID()`
     pub fn get_id(&self) -> i32 {
         self.m_id
     }
 
-    /// 设置表格标识。
+/// Sets the table ID.
     ///
-    /// 对应 Java: `public void setID(int id)`
+    /// Corresponds to Java: `public void setID(int id)`
     pub fn set_id(&mut self, id: i32) {
         self.m_id = id;
     }
 
-    /// 取表格名称。
+/// Gets the table name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.m_name.as_deref()
     }
 
-    /// 设置表格名称。
+/// Sets the table name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.m_name = name;
     }
 
-    /// 取资源表标志（`true` 表示资源数据，`false` 表示任务数据）。
+/// Gets the resource table flag (`true` means resource data, `false` means task data).
     ///
-    /// 对应 Java: `public boolean getResourceFlag()`
+    /// Corresponds to Java: `public boolean getResourceFlag()`
     pub fn get_resource_flag(&self) -> bool {
         self.m_resource_flag
     }
 
-    /// 设置资源表标志。
+/// Sets the resource table flag.
     ///
-    /// 对应 Java: `public void setResourceFlag(boolean flag)`
+    /// Corresponds to Java: `public void setResourceFlag(boolean flag)`
     pub fn set_resource_flag(&mut self, flag: bool) {
         self.m_resource_flag = flag;
     }
 
-    /// 向表格追加一列。
+/// Appends a column to the table.
     ///
-    /// 对应 Java: `public void addColumn(Column column)`
+    /// Corresponds to Java: `public void addColumn(Column column)`
     pub fn add_column(&mut self, column: Column) {
         self.m_columns.push(column);
     }
 
-    /// 取表格的列定义。
+/// Gets the column definitions of the table.
     ///
-    /// 对应 Java: `public List<Column> getColumns()`
+    /// Corresponds to Java: `public List<Column> getColumns()`
     pub fn get_columns(&self) -> &[Column] {
         &self.m_columns
     }
 
-    /// 以可变方式取表格的列定义（对应 Java 中 `getColumns()` 返回的可变列表）。
+/// Gets the column definitions of the table as mutable (corresponds to the mutable list returned by `getColumns()` in Java).
     ///
-    /// 对应 Java: `public List<Column> getColumns()`
+    /// Corresponds to Java: `public List<Column> getColumns()`
     pub fn get_columns_mut(&mut self) -> &mut Vec<Column> {
         &mut self.m_columns
     }
 }
 
 impl Default for Table {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`Table::new`]。
+/// Corresponds to Java: implicit default constructor, equivalent to [`Table::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Display for Table {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 与 Java 一致地输出尾随换行（Java 用 `pw.println`）。
+/// Emits a trailing newline as Java does (Java uses `pw.println`).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -194,7 +194,7 @@ mod tests {
 
         assert_eq!(table.get_columns().len(), 1);
 
-        // Java 的 getColumns() 返回可变列表
+// Java's getColumns() returns a mutable list
         table
             .get_columns_mut()
             .push(Column::new(Weak::new()));

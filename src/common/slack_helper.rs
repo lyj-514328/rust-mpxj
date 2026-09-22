@@ -1,26 +1,27 @@
-//! 对应 Java: `org/mpxj/common/SlackHelper.java`
+//! Corresponds to Java: `org/mpxj/common/SlackHelper.java`
 
 use crate::duration::Duration;
 use crate::task::Task;
 
-/// 计算 slack（时差）值的辅助方法。
+/// Utility methods for computing slack values.
 ///
-/// 对应 Java: `public final class SlackHelper`
+/// Corresponds to Java: `public final class SlackHelper`
 ///
-/// 移植说明：
-/// - Java 通过 setter 就地修改 `Task`，Rust 侧对应 `&mut Task`。
-/// - Java 把同一个 `Duration` 对象同时赋给多个字段；Rust 侧 `Duration` 是可 `Copy` 的值类型，
-///   可以直接重复传入。
-/// - 依赖 `org.mpxj.Duration` 与 `org.mpxj.Task`，在 Rust 侧对应 [`crate::duration::Duration`]
-///   与 [`crate::task::Task`]。
+/// Porting notes:
+/// - Java modifies the `Task` in place through setters, which corresponds to `&mut Task` on the
+///   Rust side.
+/// - Java assigns the same `Duration` object to multiple fields at once; the Rust `Duration` is a
+///   `Copy` value type, so it can simply be passed repeatedly.
+/// - Depends on `org.mpxj.Duration` and `org.mpxj.Task`, which correspond on the Rust side to
+///   [`crate::duration::Duration`] and [`crate::task::Task`].
 ///
-/// 未移植的方法：无。
+/// Skipped Java methods: none.
 pub struct SlackHelper;
 
 impl SlackHelper {
-    /// 对应 Java: `public static void inferSlack(Task task)`
+    /// Corresponds to Java: `public static void inferSlack(Task task)`
     ///
-    /// 已知总时差时，推断并写入开始 / 完成时差。
+    /// When total slack is known, infers and writes the start / finish slack.
     pub fn infer_slack(task: &mut Task) {
         let Some(total_slack) = task.get_total_slack() else {
             return;

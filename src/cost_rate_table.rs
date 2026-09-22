@@ -1,89 +1,89 @@
-//! 对应 Java: `org/mpxj/CostRateTable.java`
+//! Corresponds to Java: `org/mpxj/CostRateTable.java`
 
 use chrono::NaiveDateTime;
 
 use crate::cost_rate_table_entry::CostRateTableEntry;
 use crate::local_date_time_range::LocalDateTimeRange;
 
-/// 资源的成本费率表。
+/// Cost rate table for a resource.
 ///
-/// 对应 Java: `public class CostRateTable extends ArrayList<CostRateTableEntry>`
+/// Corresponds to Java: `public class CostRateTable extends ArrayList<CostRateTableEntry>`
 ///
-/// 移植说明：Java 侧继承 `ArrayList<CostRateTableEntry>`；Rust 侧改为持有
-/// `Vec<CostRateTableEntry>` 的独立容器，并只提供翻译所需的集合操作（长度、按下标
-/// 取元素、追加、迭代）。
+/// Porting notes: the Java side extends `ArrayList<CostRateTableEntry>`; the Rust side instead holds
+/// `Vec<CostRateTableEntry>` in a standalone container, and provides only the collection operations needed for translation (length,
+/// indexing, append, iterate).
 ///
-/// 未移植的 Java 方法：无（`ArrayList` 继承而来的方法不计入本类翻译范围）。
+/// Skipped Java methods: none (methods inherited from `ArrayList` are not counted as part of this class's translation scope).
 #[derive(Debug, Default)]
 pub struct CostRateTable {
-    /// 表内的成本费率行。
+/// The cost rate rows in the table.
     ///
-    /// 对应 Java: `ArrayList<CostRateTableEntry>` 的内部存储。
+/// Corresponds to Java: internal storage of `ArrayList<CostRateTableEntry>`.
     entries: Vec<CostRateTableEntry>,
 }
 
 impl CostRateTable {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `ArrayList<CostRateTableEntry>` 的默认构造方法。
+/// Corresponds to Java: the default constructor of `ArrayList<CostRateTableEntry>`.
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
         }
     }
 
-    /// 由已有行构造表。
+/// Build a table from existing rows.
     ///
-    /// 对应 Java: `ArrayList<CostRateTableEntry>(Collection<? extends CostRateTableEntry> c)`。
+    /// Corresponds to Java: `ArrayList<CostRateTableEntry>(Collection<? extends CostRateTableEntry> c)`.
     pub fn from_entries(entries: Vec<CostRateTableEntry>) -> Self {
         Self { entries }
     }
 
-    /// 追加一行。
+/// Append a row.
     ///
-    /// 对应 Java: `ArrayList.add(E element)`。
+    /// Corresponds to Java: `ArrayList.add(E element)`.
     pub fn add(&mut self, entry: CostRateTableEntry) {
         self.entries.push(entry);
     }
 
-    /// 按下标取行；越界返回 `None`（Java 抛 `IndexOutOfBoundsException`）。
+/// Get a row by index; returns `None` when out of bounds (Java throws `IndexOutOfBoundsException`).
     ///
-    /// 对应 Java: `ArrayList.get(int index)`。
+    /// Corresponds to Java: `ArrayList.get(int index)`.
     pub fn get(&self, index: usize) -> Option<&CostRateTableEntry> {
         self.entries.get(index)
     }
 
-    /// 行数。
+/// Number of rows.
     ///
-    /// 对应 Java: `ArrayList.size()`。
+    /// Corresponds to Java: `ArrayList.size()`.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// 是否为空表。
+/// Whether the table is empty.
     ///
-    /// 对应 Java: `ArrayList.isEmpty()`。
+    /// Corresponds to Java: `ArrayList.isEmpty()`.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// 迭代表内各行。
+/// Iterate the rows in the table.
     ///
-    /// 对应 Java: `ArrayList.iterator()`。
+    /// Corresponds to Java: `ArrayList.iterator()`.
     pub fn iter(&self) -> std::slice::Iter<'_, CostRateTableEntry> {
         self.entries.iter()
     }
 
-    /// 以切片形式访问表内各行。
+/// Access the rows in the table as a slice.
     ///
-    /// 对应 Java: `ArrayList` 的列表视图。
+/// Corresponds to Java: the list view of `ArrayList`.
     pub fn as_slice(&self) -> &[CostRateTableEntry] {
         &self.entries
     }
 
-    /// 取与给定日期区间相交的表行。
+/// Get the table rows that intersect the given date range.
     ///
-    /// 对应 Java: `public List<CostRateTableEntry> getEntriesByRange(LocalDateTimeRange range)`
+    /// Corresponds to Java: `public List<CostRateTableEntry> getEntriesByRange(LocalDateTimeRange range)`
     pub fn get_entries_by_range(&self, range: &LocalDateTimeRange) -> Vec<&CostRateTableEntry> {
         self.entries
             .iter()
@@ -91,11 +91,11 @@ impl CostRateTable {
             .collect()
     }
 
-    /// 取在给定日期生效的表行。
+/// Get the table row in effect on the given date.
     ///
-    /// 对应 Java: `public CostRateTableEntry getEntryByDate(LocalDateTime date)`
+    /// Corresponds to Java: `public CostRateTableEntry getEntryByDate(LocalDateTime date)`
     ///
-    /// Java 侧对结束日期为 `null` 的行会抛 NPE；Rust 侧跳过结束日期缺失的行。
+/// The Java side throws an NPE for rows with a `null` end date; the Rust side skips rows with a missing end date.
     pub fn get_entry_by_date(&self, date: NaiveDateTime) -> Option<&CostRateTableEntry> {
         let mut result = None;
 
@@ -109,9 +109,9 @@ impl CostRateTable {
         result
     }
 
-    /// 取在给定日期生效的表行下标，找不到时返回 `-1`。
+/// Get the index of the table row in effect on the given date, returning `-1` when not found.
     ///
-    /// 对应 Java: `public int getIndexByDate(LocalDateTime date)`
+    /// Corresponds to Java: `public int getIndexByDate(LocalDateTime date)`
     pub fn get_index_by_date(&self, date: NaiveDateTime) -> i32 {
         let mut result = -1;
         let mut index = 0;
@@ -127,16 +127,16 @@ impl CostRateTable {
         result
     }
 
-    /// 判断表中是否存在非零费率行。
+/// Determine whether the table contains any row with a non-zero rate.
     ///
-    /// 对应 Java: `public boolean tableIsPopulated()`
+    /// Corresponds to Java: `public boolean tableIsPopulated()`
     pub fn table_is_populated(&self) -> bool {
         !(self.entries.is_empty() || (self.entries.len() == 1 && self.all_entries_are_default()))
     }
 
-    /// 判断所有费率是否都为 0。
+/// Determine whether all rates are 0.
     ///
-    /// 对应 Java: `private boolean allEntriesAreDefault()`
+    /// Corresponds to Java: `private boolean allEntriesAreDefault()`
     fn all_entries_are_default(&self) -> bool {
         for entry in &self.entries {
             for rate_index in 0..CostRateTableEntry::MAX_RATES {
@@ -152,9 +152,9 @@ impl CostRateTable {
         true
     }
 
-    /// 成本费率表数量上限。
+/// Maximum number of cost rate tables.
     ///
-    /// 对应 Java: `public static final int MAX_TABLES = 5;`
+    /// Corresponds to Java: `public static final int MAX_TABLES = 5;`
     pub const MAX_TABLES: i32 = 5;
 }
 
@@ -165,15 +165,15 @@ mod tests {
     use crate::time_unit::TimeUnit;
     use chrono::{NaiveDate, NaiveTime};
 
-    /// 构造测试用日期时间。
+/// Build a date-time for tests.
     fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         NaiveDateTime::new(
-            NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
-            NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间"),
+            NaiveDate::from_ymd_opt(year, month, day).expect("valid date"),
+            NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time"),
         )
     }
 
-    /// 构造一条成本费率行。
+/// Build a cost rate row.
     fn entry(
         start: NaiveDateTime,
         end: Option<NaiveDateTime>,
@@ -191,7 +191,7 @@ mod tests {
         )
     }
 
-    /// 构造一段 1 月 / 2 月两行的成本费率表。
+/// Build a cost rate table with two rows for January / February.
     fn sample_table() -> CostRateTable {
         CostRateTable::from_entries(vec![
             entry(
@@ -232,7 +232,7 @@ mod tests {
     fn get_entries_by_range_filters_intersecting_entries() {
         let table = sample_table();
 
-        // 只与 1 月行相交
+// Intersects only the January row
         let range = LocalDateTimeRange::new(
             Some(date_time(2024, 1, 15, 0, 0)),
             Some(date_time(2024, 1, 20, 0, 0)),
@@ -244,14 +244,14 @@ mod tests {
             Rate::new(100.0, TimeUnit::Hours)
         );
 
-        // 跨越两行
+// Spans both rows
         let range = LocalDateTimeRange::new(
             Some(date_time(2024, 1, 15, 0, 0)),
             Some(date_time(2024, 2, 15, 0, 0)),
         );
         assert_eq!(table.get_entries_by_range(&range).len(), 2);
 
-        // 与任何行都不相交
+// Does not intersect any row
         let range = LocalDateTimeRange::new(
             Some(date_time(2025, 1, 15, 0, 0)),
             Some(date_time(2025, 2, 15, 0, 0)),
@@ -277,27 +277,27 @@ mod tests {
         );
         assert_eq!(table.get_index_by_date(date_time(2024, 2, 15, 9, 0)), 1);
 
-        // 晚于所有行
+// Later than all rows
         assert!(table.get_entry_by_date(date_time(2025, 1, 15, 9, 0)).is_none());
         assert_eq!(table.get_index_by_date(date_time(2025, 1, 15, 9, 0)), -1);
     }
 
     #[test]
     fn table_is_populated_detects_default_only_table() {
-        // 空表不算已填充
+// An empty table is not considered populated
         assert!(!CostRateTable::new().table_is_populated());
 
-        // 只有一行且费率全为 0 -> 未填充
+// Only one row with all rates zero -> not populated
         let mut table = CostRateTable::new();
         table.add(entry(date_time(2024, 1, 1, 8, 0), None, 0.0, 0.0));
         assert!(!table.table_is_populated());
 
-        // 只有一行但存在非零费率 -> 已填充
+// Only one row but with a non-zero rate -> populated
         let mut table = CostRateTable::new();
         table.add(entry(date_time(2024, 1, 1, 8, 0), None, 100.0, 0.0));
         assert!(table.table_is_populated());
 
-        // 多行 -> 已填充
+// Multiple rows -> populated
         assert!(sample_table().table_is_populated());
     }
 }

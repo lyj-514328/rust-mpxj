@@ -1,29 +1,29 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStyleFactoryCommon.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStyleFactoryCommon.java`
 //!
-//! 读取 MPP9 / MPP12 文件中的甘特图条形样式。
+//! Read Gantt bar styles from MPP9 / MPP12 files.
 //!
-//! # 数据布局（与 Java 保持一致）
+//! # Data layout (consistent with Java)
 //!
-//! - 默认样式：优先取 `ALTERNATE_STYLE_DATA`（起始字节 812 处为样式条数），
-//!   否则退回 `STYLE_DATA`（起始字节 1162）；样式名集中放在记录区之后，
-//!   每条记录 58 字节。
-//! - 例外样式：`BAR_EXCEPTION_STYLES`，每条记录 38 字节（`len / 38` 即条数）。
+//! - Default styles: prefer `ALTERNATE_STYLE_DATA` (the style count is at byte 812),
+//! otherwise fall back to `STYLE_DATA` (start byte 1162); the style names are collected after the record area,
+//! each record is 58 bytes.
+//! - Exception styles: `BAR_EXCEPTION_STYLES`, each record is 38 bytes (`len / 38` gives the count).
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `GanttBarStyleFactoryCommon implements GanttBarStyleFactory` | 本类型同时提供**固有方法**与 [`GanttBarStyleFactory`] 实现 | 固有方法便于按 Java 的写法直接调用（无需 `use` trait），trait 实现只是转发 |
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本工程约定 |
-//! | `Props props`（基类） | `&Props` | `Props9/12/14` 在 Rust 侧是「组合 + `Deref`」实现的独立类型，`&Props9` 等会经 `Deref` 自动强转成 `&Props`，故签名与 Java 一致（详见 `gantt_bar_style_factory` 模块说明） |
-//! | `byte[]` 下标读取（如 `barStyleData[styleOffset + 1]`） | 私有函数 [`java_byte`] | Java 的 `byte` **有符号**：`ColorType` / 枚举查找都按有符号值解释，且 `% 21`、`/ 21` 也对有符号值取模整除；Rust 侧用 `u8 as i8 as i32` 保留该语义（越界时 Java 抛异常，Rust 返回 0） |
-//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java 越界抛 `ArrayIndexOutOfBoundsException`，Rust 返回 0（见 `abstract_calendar_factory`） |
-//! | `new GanttBarStyle[barStyleData[countOffset]]` | `usize::from(data[count_offset])` | Java 用**有符号** `byte` 作数组长度，取值 ≥ 0x80 时抛 `NegativeArraySizeException`；Rust 按无符号字节处理（不 panic） |
-//! | `FieldTypeHelper.getInstance(file, id)` | 同名方法，返回 `Option<MppFieldType>` | 未识别的字段号 Java 返回占位对象，Rust 返回 `None`（见 `field_type_helper`） |
-//! | `style.addShowForTasks(enumValue)` | `if let Some(..)` | Java 侧 `getInstance` 可能返回 `null` 并在此抛 `NullPointerException`（例如取反型下标 68 / 72 / 73），Rust 侧跳过该位（不 panic） |
-//! | `Collections` / 数组 | `Vec` | 集合类型映射 |
+//! | `GanttBarStyleFactoryCommon implements GanttBarStyleFactory` | This type provides both **inherent methods** and a [`GanttBarStyleFactory`] implementation | The inherent methods allow calling directly in the Java style (without `use`ing the trait), and the trait implementation only forwards |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | Project convention |
+//! | `Props props` (base class) | `&Props` | `Props9/12/14` are distinct types on the Rust side implemented via "composition + `Deref`"; `&Props9` and so on auto-coerce to `&Props` through `Deref`, so the signature matches Java (see the `gantt_bar_style_factory` module notes) |
+//! | `byte[]` indexed reads (e.g. `barStyleData[styleOffset + 1]`) | Private function [`java_byte`] | Java's `byte` is **signed**: `ColorType` / enum lookups interpret it as a signed value, and `% 21`, `/ 21` also take modulo/divide on the signed value; the Rust side preserves this with `u8 as i8 as i32` (Java throws on out of bounds, Rust returns 0) |
+//! | `ByteArrayHelper.getShort/getInt` | `get_short_safe` / `get_int_safe` | Java throws `ArrayIndexOutOfBoundsException` on out of bounds; Rust returns 0 (see `abstract_calendar_factory`) |
+//! | `new GanttBarStyle[barStyleData[countOffset]]` | `usize::from(data[count_offset])` | Java uses a **signed** `byte` as the array length and throws `NegativeArraySizeException` when the value is >= 0x80; Rust treats it as an unsigned byte (no panic) |
+//! | `FieldTypeHelper.getInstance(file, id)` | A same-named method returning `Option<MppFieldType>` | For an unrecognized field number Java returns a placeholder object; Rust returns `None` (see `field_type_helper`) |
+//! | `style.addShowForTasks(enumValue)` | `if let Some(..)` | Java's `getInstance` may return `null` and throw `NullPointerException` here (for example for the negated indices 68 / 72 / 73); the Rust side skips that bit (no panic) |
+//! | `Collections` / arrays | `Vec` | Collection type mapping |
 //!
-//! 跳过的 Java 成员：无（注释掉的 `System.out.println` 调试输出按项目约定不移植）。
+//! Skipped Java members: none (the commented-out `System.out.println` debug output is not ported per project convention).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -44,43 +44,43 @@ use crate::mpp::props::Props;
 use crate::mpp::props_key::PropsKey;
 use crate::project_file::ProjectFile;
 
-/// 默认样式的记录长度。
+/// Record length of the default styles.
 ///
-/// 对应 Java: `styleOffset += 58;`
+/// Corresponds to Java: `styleOffset += 58;`
 const STYLE_RECORD_SIZE: usize = 58;
 
-/// 例外样式的记录长度。
+/// Record length of the exception styles.
 ///
-/// 对应 Java: `offset += 38;`
+/// Corresponds to Java: `offset += 38;`
 const EXCEPTION_RECORD_SIZE: usize = 38;
 
-/// 取反型判据的起始值（`GanttBarShowForTasks.NOT_NORMAL`）。
+/// Start value of the negated criteria (`GanttBarShowForTasks.NOT_NORMAL`).
 ///
-/// 对应 Java: `GanttBarShowForTasks.NOT_NORMAL`
+/// Corresponds to Java: `GanttBarShowForTasks.NOT_NORMAL`
 const NOT_NORMAL_VALUE: i32 = 64;
 
-/// 读取 MPP9 / MPP12 甘特图条形样式的工厂。
+/// Factory for reading MPP9 / MPP12 Gantt bar styles.
 ///
-/// 对应 Java: `final class GanttBarStyleFactoryCommon implements GanttBarStyleFactory`
+/// Corresponds to Java: `final class GanttBarStyleFactoryCommon implements GanttBarStyleFactory`
 pub struct GanttBarStyleFactoryCommon;
 
 impl GanttBarStyleFactoryCommon {
-    /// 构造工厂。
+/// Construct the factory.
     ///
-    /// 对应 Java 的隐式默认构造方法 `GanttBarStyleFactoryCommon()`
+/// Corresponds to Java's implicit default constructor `GanttBarStyleFactoryCommon()`
     pub fn new() -> GanttBarStyleFactoryCommon {
         GanttBarStyleFactoryCommon
     }
 
-    /// 读取默认的甘特图条形样式集合。
+/// Read the default Gantt bar style collection.
     ///
-    /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
     pub fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
         props: &Props,
     ) -> Vec<GanttBarStyle> {
-        // Java: int countOffset = 812; 取得 ALTERNATE_STYLE_DATA；取不到则改取 STYLE_DATA，countOffset = 1162
+// Java: int countOffset = 812; obtain ALTERNATE_STYLE_DATA; if unavailable, use STYLE_DATA instead and countOffset = 1162
         let mut count_offset = 812;
         let mut bar_style_data = props.get_byte_array(PropsKey::AlternateStyleData);
         if bar_style_data.is_none() {
@@ -93,7 +93,7 @@ impl GanttBarStyleFactoryCommon {
             return Vec::new();
         };
 
-        // Java: int count = barStyleData[countOffset];（有符号 byte 作数组长度，见文件头说明）
+// Java: int count = barStyleData[countOffset]; (a signed byte used as the array length, see the file header)
         let count = usize::from(data.get(count_offset).copied().unwrap_or(0));
         let mut style_offset = count_offset + 28;
         let mut name_offset = style_offset + (count * STYLE_RECORD_SIZE);
@@ -192,9 +192,9 @@ impl GanttBarStyleFactoryCommon {
         result
     }
 
-    /// 读取单任务例外条形样式集合。
+/// Read the single-task exception bar style collection.
     ///
-    /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
     pub fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -287,9 +287,9 @@ impl Default for GanttBarStyleFactoryCommon {
 }
 
 impl GanttBarStyleFactory for GanttBarStyleFactoryCommon {
-    /// 转发 [`GanttBarStyleFactoryCommon::process_default_styles`]。
+/// Forward [`GanttBarStyleFactoryCommon::process_default_styles`].
     ///
-    /// 对应 Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `@Override public GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
     fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -298,9 +298,9 @@ impl GanttBarStyleFactory for GanttBarStyleFactoryCommon {
         GanttBarStyleFactoryCommon::process_default_styles(self, file, props)
     }
 
-    /// 转发 [`GanttBarStyleFactoryCommon::process_exception_styles`]。
+/// Forward [`GanttBarStyleFactoryCommon::process_exception_styles`].
     ///
-    /// 对应 Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `@Override public GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
     fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -310,31 +310,31 @@ impl GanttBarStyleFactory for GanttBarStyleFactoryCommon {
     }
 }
 
-/// 按 Java 的**有符号** `byte` 语义读取一个字节，越界时返回 0。
+/// Read one byte with Java's **signed** `byte` semantics; return 0 when out of bounds.
 ///
-/// Java 里 `barData[offset]` 的类型是 `byte`，参与 `%` / `/` 与 `ColorType` 查表时
-/// 会先符号扩展到 `int`（例如 `0xE7` → `-25`）；Rust 的 `u8` 无符号，故此处显式转换。
+/// In Java the type of `barData[offset]` is `byte`; when participating in `%` / `/` and `ColorType` lookups
+/// it is first sign-extended to `int` (for example `0xE7` -> `-25`); Rust's `u8` is unsigned, so an explicit conversion is done here.
 fn java_byte(data: &[u8], offset: usize) -> i32 {
-    // Java 越界抛 ArrayIndexOutOfBoundsException；Rust 侧返回 0
+// Java throws ArrayIndexOutOfBoundsException on out of bounds; the Rust side returns 0
     i32::from(*data.get(offset).unwrap_or(&0) as i8)
 }
 
-/// 读取颜色序号并映射成颜色。
+/// Read the color index and map it to a color.
 ///
-/// 对应 Java: `ColorType.getInstance(barData[offset]).getColor()`
+/// Corresponds to Java: `ColorType.getInstance(barData[offset]).getColor()`
 ///
-/// `ColorType.AUTOMATIC` 在 Java 中返回 `null`，Rust 侧为 `None`。
+/// `ColorType.AUTOMATIC` returns `null` in Java and is `None` on the Rust side.
 fn color_from_byte(data: &[u8], offset: usize) -> Option<Color> {
     ColorType::get_instance(java_byte(data, offset)).get_color()
 }
 
-/// 从标志位中提取「显示于」判据。
+/// Extract the "show for" criteria from the flag bits.
 ///
-/// 对应 Java: `private void extractFlags(GanttBarStyle style, GanttBarShowForTasks baseCriteria, long flagValue)`
+/// Corresponds to Java: `private void extractFlags(GanttBarStyle style, GanttBarShowForTasks baseCriteria, long flagValue)`
 ///
-/// `base_value` 为 Java 的 `baseCriteria.getValue()`；MSP 只用到低 48 位。
-/// Java 在查到 `null`（如取反型的 68 / 72 / 73）时会抛 `NullPointerException`，
-/// Rust 侧跳过该位，不 panic。
+/// `base_value` is Java's `baseCriteria.getValue()`; MSP uses only the low 48 bits.
+/// Java throws `NullPointerException` when it finds `null` (such as the negated 68 / 72 / 73),
+/// and the Rust side skips that bit without panicking.
 fn extract_flags(style: &mut GanttBarStyle, base_value: i32, flag_value: i64) {
     let mut index = 0;
     let mut flag = 0x0001i64;
@@ -360,11 +360,11 @@ mod tests {
     use crate::mpp::props::Props;
     use crate::task_field::TaskField;
 
-    /// 默认样式记录区之前的头部长度（`countOffset + 28`）。
+/// Length of the header before the default style record area (`countOffset + 28`).
     const STYLE_DATA_OFFSET: usize = 812;
     const STYLE_DATA_STYLE_OFFSET: usize = STYLE_DATA_OFFSET + 28;
 
-    /// 构造 `ALTERNATE_STYLE_DATA`：条数字节 + 若干 58 字节记录 + 样式名区。
+/// Construct `ALTERNATE_STYLE_DATA`: count byte + several 58-byte records + style name area.
     fn alternate_style_data(records: &[[u8; STYLE_RECORD_SIZE]], names: &[&str]) -> Vec<u8> {
         let mut data = vec![0u8; STYLE_DATA_STYLE_OFFSET];
         data[STYLE_DATA_OFFSET] = records.len() as u8;
@@ -381,7 +381,7 @@ mod tests {
         data
     }
 
-    /// UTF-16LE 编码（不含结尾 NUL）。
+/// UTF-16LE encoding (without the trailing NUL).
     fn utf16le(text: &str) -> Vec<u8> {
         let mut result = Vec::new();
         for unit in text.encode_utf16() {
@@ -418,11 +418,11 @@ mod tests {
         record[4] = 21 + 1; // start shape = index 1、start type = index 1
         record[5] = 0; // start color = BLACK
         record[6] = 6 % 21; // end shape = RIGHTARROW、end type = SOLID
-        record[7] = 16; // end color = AUTOMATIC（Java 返回 null）
+        record[7] = 16; // end color = AUTOMATIC（Java returns null）
         record[8..12].copy_from_slice(&(MPPTaskField::TASK_FIELD_BASE | 14).to_le_bytes());
         record[12..16].copy_from_slice(&(MPPTaskField::TASK_FIELD_BASE | 35).to_le_bytes());
-        record[16] = 0x01; // NORMAL 标志位
-        record[24] = 0x02; // NOT_MILESTONE 标志位
+        record[16] = 0x01; // NORMAL flag bit
+        record[24] = 0x02; // NOT_MILESTONE flag bit
         record[32] = 1; // row = 2
         record[34..38].copy_from_slice(&(MPPTaskField::TASK_FIELD_BASE | 14).to_le_bytes());
         record[56..58].copy_from_slice(&9u16.to_le_bytes());
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(style.get_start_color(), Some(Color::new(0, 0, 0)));
         assert_eq!(style.get_end_shape(), Some(GanttBarStartEndShape::RightArrow));
         assert_eq!(style.get_end_type(), Some(GanttBarStartEndType::Solid));
-        // AUTOMATIC 在 Java 中为 null
+// AUTOMATIC is null in Java
         assert_eq!(style.get_end_color(), None);
         assert_eq!(
             style.get_from_field().and_then(|field| field.as_builtin()),
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn style_data_falls_back_when_alternate_is_missing() {
-        // 走 STYLE_DATA 分支：条数字节在 1162
+// Takes the STYLE_DATA branch: the count byte is at 1162
         let mut data = vec![0u8; 1162 + 28 + STYLE_RECORD_SIZE + 8];
         data[1162] = 1;
         data[1162 + 28] = 2; // middle shape = TOPTHINROUNDED
@@ -491,13 +491,13 @@ mod tests {
             styles[0].get_middle_shape(),
             Some(GanttBarMiddleShape::TopThinRounded)
         );
-        // 名字区在记录之后，全 0 → 空串
+// The name area is after the records; all zeros -> empty string
         assert_eq!(styles[0].get_name(), Some(""));
     }
 
     #[test]
     fn signed_byte_semantics_are_preserved() {
-        // 0xE7 = -25（Java 的有符号 byte）：-25 % 21 = -1（越界 → NONE）、-25 / 21 = -1（→ SOLID）
+// 0xE7 = -25 (Java's signed byte): -25 % 21 = -1 (out of bounds -> NONE), -25 / 21 = -1 (-> SOLID)
         let mut record = [0u8; STYLE_RECORD_SIZE];
         record[4] = 0xE7;
 
@@ -545,13 +545,13 @@ mod tests {
             style.get_left_text().and_then(|field| field.as_builtin()),
             Some(FieldKey::Task(TaskField::Name))
         );
-        // 缺省记录未覆盖的字段
+// Fields not covered by the default record
         assert!(style.get_top_text().is_none());
     }
 
     #[test]
     fn trailing_partial_exception_record_is_ignored() {
-        // 37 字节不足一条记录：Java 的 len / 38 = 0，Rust 同样不产生条目
+// 37 bytes is less than one record: Java's len / 38 = 0, and Rust likewise produces no entry
         let props = props_with(PropsKey::BarExceptionStyles, vec![0u8; 37]);
         let styles = GanttBarStyleFactoryCommon::new().process_exception_styles(&file(), &props);
         assert!(styles.is_empty());
@@ -562,7 +562,7 @@ mod tests {
         let file = file();
         let factory = GanttBarStyleFactoryCommon::new();
 
-        // 条数声明为 2，但数据不足 → 各字段按 0 处理（Java 抛数组越界），不 panic
+// The count is declared as 2 but the data is insufficient -> fields are treated as 0 (Java throws an array out of bounds); do not panic
         let mut data = vec![0u8; STYLE_DATA_STYLE_OFFSET + 10];
         data[STYLE_DATA_OFFSET] = 2;
         let props = props_with(PropsKey::AlternateStyleData, data);

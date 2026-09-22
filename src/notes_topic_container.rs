@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/NotesTopicContainer.java`
+//! Corresponds to Java: `org/mpxj/NotesTopicContainer.java`
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -7,56 +7,56 @@ use crate::notes_topic::NotesTopic;
 use crate::project_entity_container::ProjectEntityContainer;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 当前项目可用的注释主题（notes topic）集合。
+/// Collection of note topics available to the current project.
 ///
-/// 对应 Java: `public class NotesTopicContainer extends ProjectEntityContainer<NotesTopic>`
+/// Corresponds to Java: `public class NotesTopicContainer extends ProjectEntityContainer<NotesTopic>`
 ///
-/// # 继承体系的还原方式：组合 + 转发
+/// # How the inheritance hierarchy is reproduced: composition + forwarding
 ///
-/// Rust 没有继承，无法让本类「是」[`ProjectEntityContainer`]，因此改为组合一个
-/// `ProjectEntityContainer<NotesTopic>` 并转发其公开行为（`add` / `get` /
-/// `get_by_unique_id` / `iter` 等）。Java 中本类只声明了构造方法与 `getDefaultTopic()`，
-/// 其余方法都继承自 `ProjectEntityContainer`，因此这些转发方法即「继承而来的方法」。
+/// Rust has no inheritance, so this class cannot "be" a [`ProjectEntityContainer`]; instead it composes one
+/// `ProjectEntityContainer<NotesTopic>` and forwards its public behavior (`add` / `get` /
+/// `get_by_unique_id` / `iter`, etc.). In Java this class only declares the constructor and `getDefaultTopic()`,
+/// and all other methods are inherited from `ProjectEntityContainer`, so these forwarded methods are the "inherited methods".
 ///
-/// # 对相关模块的依赖
+/// # Dependencies on related modules
 ///
-/// Java 的 `NotesTopic implements ProjectEntityWithUniqueID`，`src/notes_topic.rs` 已提供对应的
-/// `impl`，本文件因此可以直接使用 `ProjectEntityContainer<NotesTopic>`。
+/// Java's `NotesTopic implements ProjectEntityWithUniqueID`; `src/notes_topic.rs` already provides the corresponding
+/// `impl`, so this file can directly use `ProjectEntityContainer<NotesTopic>`.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - `getDefaultTopic()` 内部用 [`NotesTopic::default_topic`]（对应 Java 的静态常量
-///   `NotesTopic.DEFAULT`）构造默认主题；Java 返回的是同一个静态实例，而
-///   `NotesTopic::default_topic()` 每次返回**新建的值**（与该模块的既有约定一致），
-///   因此重复调用会返回值相等但非同一 `Rc` 的实例；容器中只会加入一次。
-/// - **未**转发 `fixUniqueIdClashes()`：Java 中只有 unique ID 可变的实体会进入冲突列表，
-///   而 `NotesTopic` 的 unique ID 是 `final`，冲突列表恒为空。
+/// - `getDefaultTopic()` internally uses [`NotesTopic::default_topic`] (corresponding to Java's static constant
+/// `NotesTopic.DEFAULT`) to construct the default topic; Java returns the same static instance, whereas
+/// `NotesTopic::default_topic()` returns a **newly created value** each time (consistent with the module's existing convention),
+/// so repeated calls return equal values that are not the same `Rc`; the container only adds it once.
+/// - **Does not** forward `fixUniqueIdClashes()`: in Java only entities whose unique ID can change enter the clash list,
+/// and `NotesTopic`'s unique ID is `final`, so the clash list is always empty.
 ///
-/// 被跳过的 Java 代码：`fixUniqueIdClashes()`（见上）。
+/// Skipped Java code: `fixUniqueIdClashes()` (see above).
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub struct NotesTopicContainer {
-    /// 基类容器。
+/// Base class container.
     ///
-    /// 对应 Java 的 `extends ProjectEntityContainer<NotesTopic>`。
+/// Corresponds to Java's `extends ProjectEntityContainer<NotesTopic>`.
     container: ProjectEntityContainer<NotesTopic>,
 }
 
 impl NotesTopicContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public NotesTopicContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public NotesTopicContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     pub fn new(sequence_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>) -> Self {
         Self {
             container: ProjectEntityContainer::new(sequence_provider),
         }
     }
 
-    /// 取默认主题，容器中还没有该 unique ID 时先加入再返回。
+/// Get the default topic; if the container does not yet have that unique ID, add it first and then return it.
     ///
-    /// 对应 Java: `public NotesTopic getDefaultTopic()`
+    /// Corresponds to Java: `public NotesTopic getDefaultTopic()`
     ///
-    /// Java 的实现：
+/// Java's implementation:
     /// ```text
     /// if (getByUniqueID(NotesTopic.DEFAULT.getUniqueID()) == null) { add(NotesTopic.DEFAULT); }
     /// return NotesTopic.DEFAULT;
@@ -72,44 +72,44 @@ impl NotesTopicContainer {
         default_topic
     }
 
-    /// 取序号生成器提供者。
+/// Get the sequence generator provider.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getSequenceProvider()`
+    /// Corresponds to Java: `ProjectEntityContainer.getSequenceProvider()`
     pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
         self.container.get_sequence_provider()
     }
 
-    /// 重排 unique ID 时使用的第一个值。
+/// First value used when renumbering unique IDs.
     ///
-    /// 对应 Java: `ProjectEntityContainer.firstUniqueID()`
+    /// Corresponds to Java: `ProjectEntityContainer.firstUniqueID()`
     pub fn first_unique_id(&self) -> i32 {
         self.container.first_unique_id()
     }
 
-    /// 追加一个注释主题。
+/// Append a note topic.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)`
     pub fn add(&mut self, element: Rc<RefCell<NotesTopic>>) {
         self.container.add(element);
     }
 
-    /// 在指定下标插入注释主题（越界返回 `false`）。
+/// Insert a note topic at the given index (returns `false` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     pub fn add_at(&mut self, index: usize, element: Rc<RefCell<NotesTopic>>) -> bool {
         self.container.add_at(index, element)
     }
 
-    /// 按下标取注释主题。
+/// Get a note topic by index.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<NotesTopic>>> {
         self.container.get(index)
     }
 
-    /// 替换指定下标的注释主题（越界返回 `None`）。
+/// Replace the note topic at the given index (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(
         &mut self,
         index: usize,
@@ -118,23 +118,23 @@ impl NotesTopicContainer {
         self.container.set(index, element)
     }
 
-    /// 移除指定下标的注释主题（越界返回 `None`）。
+/// Remove the note topic at the given index (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<NotesTopic>>> {
         self.container.remove(index)
     }
 
-    /// 按 unique ID 取注释主题。
+/// Get a note topic by unique ID.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<NotesTopic>>> {
         self.container.get_by_unique_id(id)
     }
 
-    /// 更新 unique ID 索引。
+/// Update the unique ID index.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     pub fn update_unique_id(
         &mut self,
         element: &Rc<RefCell<NotesTopic>>,
@@ -145,37 +145,37 @@ impl NotesTopicContainer {
             .update_unique_id(element, old_unique_id, new_unique_id);
     }
 
-    /// 注释主题个数。
+/// Number of note topics.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.container.len()
     }
 
-    /// 容器是否为空。
+/// Whether the container is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.container.is_empty()
     }
 
-    /// 迭代容器内的注释主题。
+/// Iterate over the note topics in the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<NotesTopic>>> {
         self.container.iter()
     }
 
-    /// 以切片形式访问容器内容。
+/// Access the container contents as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the list view of `ListWithCallbacks`.
     pub fn as_slice(&self) -> &[Rc<RefCell<NotesTopic>>] {
         self.container.as_slice()
     }
 
-    /// 清空容器（不触发 `removed` 回调，与 Java 一致）。
+/// Clear the container (does not trigger the `removed` callback, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.container.clear();
     }
@@ -189,7 +189,7 @@ mod tests {
     use std::any::TypeId;
     use std::collections::HashMap;
 
-    /// 测试用序号生成器提供者。
+/// Sequence generator provider for tests.
     #[derive(Default)]
     struct TestProvider {
         sequences: HashMap<TypeId, Rc<ObjectSequence>>,
@@ -205,7 +205,7 @@ mod tests {
         }
     }
 
-    /// 构造一个容器。
+/// Construct a container.
     fn container() -> NotesTopicContainer {
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(TestProvider::default()));
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(first.borrow().get_name(), Some("Notes"));
         assert_eq!(container.len(), 1);
 
-        // 再次调用不会重复加入（Java 的 `getByUniqueID(DEFAULT.getUniqueID()) == null` 判断）
+// A second call does not add it again (Java's `getByUniqueID(DEFAULT.getUniqueID()) == null` check)
         let second = container.get_default_topic();
         assert_eq!(container.len(), 1);
         assert_eq!(*second.borrow(), *first.borrow());
@@ -238,23 +238,23 @@ mod tests {
         assert_eq!(container.iter().count(), 1);
         assert_eq!(container.as_slice().len(), 1);
         assert_eq!(container.first_unique_id(), 1);
-        assert!(Rc::ptr_eq(&container.get(0).expect("下标 0 存在"), &topic));
+        assert!(Rc::ptr_eq(&container.get(0).expect("index 0 exists"), &topic));
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已索引"),
+            &container.get_by_unique_id(Some(1)).expect("indexed"),
             &topic
         ));
         assert!(container.get_by_unique_id(Some(2)).is_none());
         assert!(container.get_by_unique_id(None).is_none());
 
-        // add_at 越界
+// add_at out of bounds
         assert!(!container.add_at(
             5,
             Rc::new(RefCell::new(NotesTopic::default_topic()))
         ));
         assert_eq!(container.len(), 1);
 
-        // remove 后索引同步清理
-        let removed = container.remove(0).expect("下标存在");
+// The index is cleaned up in sync after remove
+        let removed = container.remove(0).expect("index exists");
         assert_eq!(removed.borrow().get_unique_id(), Some(1));
         assert!(container.is_empty());
         assert!(container.get_by_unique_id(Some(1)).is_none());

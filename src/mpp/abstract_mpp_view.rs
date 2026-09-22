@@ -1,26 +1,26 @@
-//! 对应 Java: `org/mpxj/mpp/AbstractMppView.java`
+//! Corresponds to Java: `org/mpxj/mpp/AbstractMppView.java`
 //!
-//! 所有 MPP 视图的公共基类。Java 侧本类只提供一个构造方法（把 `parent` 交给 `AbstractView`），
-//! 没有任何自有状态与行为。
+//! Common base class for all MPP views. On the Java side this class only provides a constructor (which passes `parent` to `AbstractView`),
+//! with no state or behavior of its own.
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # How inheritance is reproduced: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `AbstractMppView extends AbstractView` | [`AbstractMppView`] **持有**一个 [`AbstractView`]，并把 `View` 的 5 个方法与 4 个 setter 逐个转发（见各自的 `对应 Java:` 注释） |
+//! | `AbstractMppView extends AbstractView` | [`AbstractMppView`] **holds** an [`AbstractView`] and forwards the 5 `View` methods and 4 setters one by one (see each `Corresponds to Java:` comment) |
 //! | `public AbstractMppView(ProjectFile parent)` | [`AbstractMppView::new`] |
-//! | `parent` 由 `AbstractView` 持有 | 同 [`AbstractView`]（`Weak<RefCell<ProjectFile>>`，避免 `Rc` 循环） |
+//! | `parent` is held by `AbstractView` | Same as [`AbstractView`] (`Weak<RefCell<ProjectFile>>`, avoiding an `Rc` cycle) |
 //!
-//! 与 Java 的差异：Java 的 `m_file` / `m_id` / `m_name` / `m_type` / `m_tableName` 是
-//! `AbstractView` 的 protected 字段，子类（`View8`、`GenericView`）直接读写；Rust 侧改由
-//! [`AbstractMppView::set_id`] 等 setter 与 [`AbstractMppView::as_abstract_view`]（需要底层
-//! 实例时）表达。
+//! Differences from Java: Java's `m_file` / `m_id` / `m_name` / `m_type` / `m_tableName` are
+//! protected fields of `AbstractView`, read and written directly by subclasses (`View8`, `GenericView`); the Rust side instead expresses them via
+//! setters such as [`AbstractMppView::set_id`] and [`AbstractMppView::as_abstract_view`] (when the underlying
+//! instance is needed).
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -32,18 +32,18 @@ use crate::table::Table;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// 所有 MPP 视图的公共基类。
+/// Common base class for all MPP views.
 ///
-/// 对应 Java: `public abstract class AbstractMppView extends AbstractView`
+/// Corresponds to Java: `public abstract class AbstractMppView extends AbstractView`
 pub struct AbstractMppView {
-    /// 对应 Java: `extends AbstractView`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends AbstractView` (Rust uses composition instead of inheritance)
     view: AbstractView,
 }
 
 impl AbstractMppView {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public AbstractMppView(ProjectFile parent)`
+    /// Corresponds to Java: `public AbstractMppView(ProjectFile parent)`
     ///
     /// Java: `super(parent);`
     pub fn new(parent: &Rc<RefCell<ProjectFile>>) -> Self {
@@ -52,85 +52,85 @@ impl AbstractMppView {
         }
     }
 
-    /// 取父项目文件。
+/// Get the parent project file.
     ///
-    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+/// Corresponds to Java: `AbstractView.m_file` (protected field)
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.view.get_file()
     }
 
-    /// 设置视图 ID。
+/// Set the view ID.
     ///
-    /// 对应 Java: `AbstractView.m_id`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_id` (assignment to a protected field)
     pub fn set_id(&mut self, id: Option<i32>) {
         self.view.set_id(id);
     }
 
-    /// 设置视图名称。
+/// Set the view name.
     ///
-    /// 对应 Java: `AbstractView.m_name`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_name` (assignment to a protected field)
     pub fn set_name(&mut self, name: Option<String>) {
         self.view.set_name(name);
     }
 
-    /// 设置视图类型。
+/// Set the view type.
     ///
-    /// 对应 Java: `AbstractView.m_type`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_type` (assignment to a protected field)
     pub fn set_type(&mut self, type_: Option<ViewType>) {
         self.view.set_type(type_);
     }
 
-    /// 设置视图中表格部分的名称。
+/// Set the name of the table part of the view.
     ///
-    /// 对应 Java: `AbstractView.m_tableName`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_tableName` (assignment to a protected field)
     pub fn set_table_name(&mut self, table_name: Option<String>) {
         self.view.set_table_name(table_name);
     }
 
-    /// 取内部持有的基类实例。
+/// Get the internally held base class instance.
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达，需要访问基类实例时用本方法。
+/// Rust-specific: Java inheritance is expressed by composition on the Rust side; use this method when the base class instance is needed.
     pub fn as_abstract_view(&self) -> &AbstractView {
         &self.view
     }
 
-    /// 取内部持有的基类实例（可变）。
+/// Get the internally held base class instance (mutable).
     ///
-    /// Rust 特有：见 [`AbstractMppView::as_abstract_view`]。
+/// Rust-specific: see [`AbstractMppView::as_abstract_view`].
     pub fn as_abstract_view_mut(&mut self) -> &mut AbstractView {
         &mut self.view
     }
 }
 
 impl View for AbstractMppView {
-    /// 对应 Java: `AbstractView.getID()`（继承）
+/// Corresponds to Java: `AbstractView.getID()` (inherited)
     fn get_id(&self) -> Option<i32> {
         self.view.get_id()
     }
 
-    /// 对应 Java: `AbstractView.getName()`（继承）
+/// Corresponds to Java: `AbstractView.getName()` (inherited)
     fn get_name(&self) -> Option<&str> {
         self.view.get_name()
     }
 
-    /// 对应 Java: `AbstractView.getType()`（继承）
+/// Corresponds to Java: `AbstractView.getType()` (inherited)
     fn get_type(&self) -> Option<ViewType> {
         self.view.get_type()
     }
 
-    /// 对应 Java: `AbstractView.getTableName()`（继承）
+/// Corresponds to Java: `AbstractView.getTableName()` (inherited)
     fn get_table_name(&self) -> Option<&str> {
         self.view.get_table_name()
     }
 
-    /// 对应 Java: `AbstractView.getTable()`（继承）
+/// Corresponds to Java: `AbstractView.getTable()` (inherited)
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
 }
 
 impl Display for AbstractMppView {
-    /// 对应 Java: `AbstractView.toString()`（本类未覆写）
+/// Corresponds to Java: `AbstractView.toString()` (not overridden by this class)
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.view, f)
     }
@@ -140,7 +140,7 @@ impl Display for AbstractMppView {
 mod tests {
     use super::*;
 
-    /// 构造一个带「Entry」表的项目文件。
+/// Construct a project file with an "Entry" table.
     fn file_with_table() -> Rc<RefCell<ProjectFile>> {
         let file = ProjectFile::new();
         let mut table = Table::new();
@@ -151,7 +151,7 @@ mod tests {
         file
     }
 
-    /// setter / getter 与 `toString()` 全部转发给内部基类实例。
+/// Setters / getters and `toString()` are all forwarded to the internal base class instance.
     #[test]
     fn forwards_to_abstract_view() {
         let file = file_with_table();
@@ -172,7 +172,7 @@ mod tests {
         );
     }
 
-    /// `as_abstract_view_mut` 与转发方法操作的是同一个实例。
+/// `as_abstract_view_mut` and the forwarding methods operate on the same instance.
     #[test]
     fn exposes_inner_abstract_view() {
         let file = file_with_table();
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(view.get_id(), Some(9));
     }
 
-    /// 未设置名称/类型时 `toString()` 渲染 `null` 且不 panic。
+/// When no name/type is set, `toString()` renders `null` and does not panic.
     #[test]
     fn empty_view_is_supported() {
         let file = file_with_table();

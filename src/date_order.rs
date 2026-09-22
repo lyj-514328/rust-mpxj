@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/DateOrder.java`
+//! Corresponds to Java: `org/mpxj/DateOrder.java`
 
 use crate::mpxj_enum::MpxjEnum;
 use std::fmt::{self, Display, Formatter};
 
-/// 日期书写顺序（月日年 / 日月年 / 年月日）。
+/// Date writing order (month-day-year / day-month-year / year-month-day).
 ///
-/// 对应 Java: `public enum DateOrder implements MpxjEnum`
+/// Corresponds to Java: `public enum DateOrder implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(DateOrder.class)` 生成查找表：数组长度为 3，
-/// 取值 0..2 恰好填满，因此 `getInstance` 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(DateOrder.class)` builds the lookup table: the array length is 3,
+/// and the values 0..2 fill it exactly, so `getInstance` never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateOrder {
-    /// 对应 Java: `MDY(0)`
+    /// Corresponds to Java: `MDY(0)`
     Mdy = 0,
-    /// 对应 Java: `DMY(1)`
+    /// Corresponds to Java: `DMY(1)`
     Dmy = 1,
-    /// 对应 Java: `YMD(2)`
+    /// Corresponds to Java: `YMD(2)`
     Ymd = 2,
 }
 
 impl DateOrder {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final DateOrder[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final DateOrder[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [DateOrder; 3] = [DateOrder::Mdy, DateOrder::Dmy, DateOrder::Ymd];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `MDY`。
+    /// Returns the enum instance for the given int value, falling back to `MDY` when out of bounds.
     ///
-    /// 对应 Java: `public static DateOrder getInstance(int type)`
+    /// Corresponds to Java: `public static DateOrder getInstance(int type)`
     pub fn get_instance(value: i32) -> DateOrder {
         match value {
             0 => DateOrder::Mdy,
@@ -38,23 +38,23 @@ impl DateOrder {
         }
     }
 
-    /// 对应 Java: `public static DateOrder getInstance(Number type)`
+    /// Corresponds to Java: `public static DateOrder getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `MDY`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `MDY`.
     pub fn get_instance_optional(value: Option<i32>) -> DateOrder {
         DateOrder::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for DateOrder {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for DateOrder {
-    /// 对应 Java: `@Override public String toString()`，即 `Integer.toString(m_value)`。
+    /// Corresponds to Java: `@Override public String toString()`, i.e. `Integer.toString(m_value)`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.value())
     }

@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/ProjectEntityWithUniqueID.java`
+//! Corresponds to Java: `org/mpxj/ProjectEntityWithUniqueID.java`
 
-/// 具有 unique ID 标识的实体。
+/// Entity identified by a unique ID.
 ///
-/// 对应 Java: `public interface ProjectEntityWithUniqueID`
+/// Corresponds to Java: `public interface ProjectEntityWithUniqueID`
 ///
-/// Java 的接口继承关系在 Rust 中用 trait 的 supertrait 表达：
+/// Java's interface inheritance is expressed in Rust with trait supertraits:
 ///
 /// ```text
 /// ProjectEntityWithID            extends ProjectEntityWithMutableUniqueID
 /// ProjectEntityWithMutableUniqueID extends ProjectEntityWithUniqueID
 /// ```
 ///
-/// 因此实现 [`crate::project_entity_with_id::ProjectEntityWithID`] 的实体自动满足
-/// [`crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID`] 与
-/// 本 trait。
+/// Therefore an entity implementing [`crate::project_entity_with_id::ProjectEntityWithID`]
+/// automatically satisfies [`crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID`]
+/// and this trait.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 的 `getUniqueID()` 返回可空的 `Integer`，Rust 侧为 `Option<i32>`。
+/// Java's `getUniqueID()` returns a nullable `Integer`; the Rust side is `Option<i32>`.
 ///
-/// 被跳过的 Java 机制：无。
+/// Skipped Java mechanisms: none.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub trait ProjectEntityWithUniqueID {
-    /// 取实体的 unique ID。
+    /// Return the entity's unique ID.
     ///
-    /// 对应 Java: `Integer getUniqueID()`
+    /// Corresponds to Java: `Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32>;
 }
 
@@ -33,7 +33,7 @@ pub trait ProjectEntityWithUniqueID {
 mod tests {
     use super::*;
 
-    /// 测试用实体：只实现 unique ID 读取。
+    /// Test entity: implements only unique ID reading.
     struct Entity {
         unique_id: Option<i32>,
     }

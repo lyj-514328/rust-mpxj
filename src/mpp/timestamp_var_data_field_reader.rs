@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/mpp/TimestampVarDataFieldReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/TimestampVarDataFieldReader.java`
 //!
-//! [`VarDataFieldReader`] 的实现：从变长数据块中读一个时间戳字段。
+//! Implementation of [`VarDataFieldReader`]: reads a timestamp field from a variable-length data block.
 //!
-//! # 继承的还原
+//! # Restoring inheritance
 //!
-//! Java: `class TimestampVarDataFieldReader extends VarDataFieldReader`。
-//! Rust 侧按约定：接口（抽象类）→ trait，实现类 → 独立结构体 + `impl`。
+//! Java: `class TimestampVarDataFieldReader extends VarDataFieldReader`.
+//! By convention the Rust side maps: interface (abstract class) -> trait, implementation class -> standalone struct + `impl`.
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `TimestampVarDataFieldReader extends VarDataFieldReader` | [`TimestampVarDataFieldReader`] 实现 [`VarDataFieldReader`] |
-//! | `private final CustomFieldContainer m_customFields`（继承自基类） | 结构体自持 `custom_fields` 字段，经 [`VarDataFieldReader::get_custom_fields`] 暴露 |
+//! | `TimestampVarDataFieldReader extends VarDataFieldReader` | [`TimestampVarDataFieldReader`] implements [`VarDataFieldReader`] |
+//! | `private final CustomFieldContainer m_customFields` (inherited from the base class) | the struct holds a `custom_fields` field itself, exposed via [`VarDataFieldReader::get_custom_fields`] |
 //! | `public TimestampVarDataFieldReader(CustomFieldContainer)` | [`TimestampVarDataFieldReader::new`] |
 //! | `protected Object readValue(...)` | [`VarDataFieldReader::read_value`] |
 //! | `protected Object coerceValue(Object)` | [`VarDataFieldReader::coerce_value`] |
-//! | `private Object getRawTimestampValue(Var2Data, Integer, Integer)` | 私有方法 `TimestampVarDataFieldReader::get_raw_timestamp_value` |
+//! | `private Object getRawTimestampValue(Var2Data, Integer, Integer)` | private method `TimestampVarDataFieldReader::get_raw_timestamp_value` |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `Object` 返回值 | `Option<FieldValue>` | Java 的 `getRawTimestampValue` 可能返回 `String`（512 字节分支）或 `LocalDateTime`；Rust 侧分别对应 `FieldValue::String` / `FieldValue::DateTime`，null → `None` |
-//! | `MPPUtility.getTimestamp(data, 0)` | [`MPPUtility::get_timestamp`] | 返回 `Option<NaiveDateTime>`（天数为 NA 等情形 Java 返回 null） |
-//! | `MPPUtility.getUnicodeString(data, 0)` | [`MPPUtility::get_unicode_string`] | 返回 `String`（Java 对空数据返回 `""`） |
-//! | `value instanceof LocalDateTime` | 匹配 `FieldValue::DateTime` | 严格性与 Java 一致：`java.time.LocalDate`（Rust 的 `FieldValue::Date`）不通过 |
+//! | `Object` return value | `Option<FieldValue>` | Java's `getRawTimestampValue` may return a `String` (512-byte branch) or a `LocalDateTime`; the Rust side maps these to `FieldValue::String` / `FieldValue::DateTime` respectively, null -> `None` |
+//! | `MPPUtility.getTimestamp(data, 0)` | [`MPPUtility::get_timestamp`] | returns `Option<NaiveDateTime>` (Java returns null when the day count is NA, etc.) |
+//! | `MPPUtility.getUnicodeString(data, 0)` | [`MPPUtility::get_unicode_string`] | returns `String` (Java returns `""` for empty data) |
+//! | `value instanceof LocalDateTime` | matches `FieldValue::DateTime` | strictness matches Java: `java.time.LocalDate` (Rust's `FieldValue::Date`) does not pass |
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -38,30 +38,30 @@ use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::var2_data::Var2Data;
 use crate::mpp::var_data_field_reader::VarDataFieldReader;
 
-/// 从变长数据块中读时间戳字段。
+/// Read a timestamp field from a variable-length data block.
 ///
-/// 对应 Java: `class TimestampVarDataFieldReader extends VarDataFieldReader`
+/// Corresponds to Java: `class TimestampVarDataFieldReader extends VarDataFieldReader`
 pub struct TimestampVarDataFieldReader {
-    /// 自定义字段容器。
+/// Custom field container.
     ///
-    /// 对应 Java 字段（继承自基类）: `private final CustomFieldContainer m_customFields`
+/// Corresponds to Java field (inherited from the base class): `private final CustomFieldContainer m_customFields`
     custom_fields: Rc<RefCell<CustomFieldContainer>>,
 }
 
 impl TimestampVarDataFieldReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public TimestampVarDataFieldReader(CustomFieldContainer customFields)`
+    /// Corresponds to Java: `public TimestampVarDataFieldReader(CustomFieldContainer customFields)`
     pub fn new(custom_fields: Rc<RefCell<CustomFieldContainer>>) -> Self {
         Self { custom_fields }
     }
 
-    /// 从变长数据块中读取原始时间戳值。
+/// Read the raw timestamp value from a variable-length data block.
     ///
-    /// 对应 Java: `private Object getRawTimestampValue(Var2Data varData, Integer id, Integer type)`
+    /// Corresponds to Java: `private Object getRawTimestampValue(Var2Data varData, Integer id, Integer type)`
     ///
-    /// 512 字节的数据项按 UTF-16LE 字符串解码（Java 原样保留该分支），
-    /// 其余数据项长度不小于 4 时按「时间 + 天数」组合时间戳解码。
+/// A 512-byte data item is decoded as a UTF-16LE string (Java keeps this branch as-is),
+/// while other data items of length at least 4 are decoded as a combined "time + day count" timestamp.
     fn get_raw_timestamp_value(
         &self,
         var_data: &Var2Data,
@@ -79,21 +79,21 @@ impl TimestampVarDataFieldReader {
             // Java: result = MPPUtility.getTimestamp(data, 0);
             MPPUtility::get_timestamp(&data, 0).map(FieldValue::DateTime)
         } else {
-            // Java: 长度不足 4 时 result 保持 null
+// Java: result stays null when the length is less than 4
             None
         }
     }
 }
 
 impl VarDataFieldReader for TimestampVarDataFieldReader {
-    /// 对应 Java: `public CustomFieldContainer getCustomFields()`（Rust 特有访问器，见 trait 说明）
+/// Corresponds to Java: `public CustomFieldContainer getCustomFields()` (Rust-specific accessor, see the trait documentation)
     fn get_custom_fields(&self) -> &Rc<RefCell<CustomFieldContainer>> {
         &self.custom_fields
     }
 
-    /// 读取时间戳数据项。
+/// Read the timestamp data item.
     ///
-    /// 对应 Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
+    /// Corresponds to Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
     fn read_value(
         &self,
         var_data: &Var2Data,
@@ -104,9 +104,9 @@ impl VarDataFieldReader for TimestampVarDataFieldReader {
         self.get_raw_timestamp_value(var_data, id, type_)
     }
 
-    /// 只接受 `LocalDateTime` 取值；其他类型返回 `None`（Java 返回 null）。
+/// Accepts only `LocalDateTime` values; other types return `None` (Java returns null).
     ///
-    /// 对应 Java: `@Override protected Object coerceValue(Object value)`
+    /// Corresponds to Java: `@Override protected Object coerceValue(Object value)`
     fn coerce_value(&self, value: Option<&FieldValue>) -> Option<FieldValue> {
         // Java: if (value instanceof LocalDateTime) { return value; } return null;
         match value? {
@@ -125,23 +125,23 @@ mod tests {
     use crate::custom_field_lookup_table::CustomFieldValueItem;
     use chrono::{Days, NaiveDate, NaiveTime};
 
-    /// 数据项类型（测试里统一使用）。
+/// Data item type (used consistently in tests).
     const TYPE: i32 = 0x12;
 
-    /// 时间戳数据项的期望值：1983-12-31 + 1000 天。
+/// Expected value of the timestamp data item: 1983-12-31 + 1000 days.
     fn expected_timestamp() -> chrono::NaiveDateTime {
         let date = NaiveDate::from_ymd_opt(1983, 12, 31)
             .and_then(|epoch| epoch.checked_add_days(Days::new(1000)))
-            .expect("日期可计算");
-        chrono::NaiveDateTime::new(date, NaiveTime::from_hms_opt(0, 0, 0).expect("合法时间"))
+            .expect("date can be computed");
+        chrono::NaiveDateTime::new(date, NaiveTime::from_hms_opt(0, 0, 0).expect("valid time"))
     }
 
-    /// 「时间（十分之一分钟，2 字节）+ 天数（2 字节）」形式的时间戳数据项。
+/// A timestamp data item in the form "time (tenths of a minute, 2 bytes) + day count (2 bytes)".
     fn timestamp_data() -> Vec<u8> {
         vec![0x00, 0x00, 0xE8, 0x03]
     }
 
-    /// 读取「时间 + 天数」形式的时间戳数据项。
+/// Read a timestamp data item in the "time + day count" form.
     #[test]
     fn reads_timestamp_value() {
         let var_data = var_data(&[(1, TYPE, timestamp_data())]);
@@ -155,11 +155,11 @@ mod tests {
         );
     }
 
-    /// 512 字节的数据项按 UTF-16LE 字符串解码（Java 的特殊分支）。
+/// A 512-byte data item is decoded as a UTF-16LE string (Java's special branch).
     #[test]
     fn reads_512_byte_value_as_string() {
         let mut data = vec![0u8; 512];
-        // "A" 的 UTF-16LE 表示，其余为 0（第一个双 0 字节对即字符串结尾）
+// UTF-16LE representation of "A", with the rest zero (the first double 0 byte pair marks the end of the string)
         data[0] = 0x41;
 
         let var_data = var_data(&[(1, TYPE, data)]);
@@ -173,10 +173,10 @@ mod tests {
         );
     }
 
-    /// 天数表示 NA（65535）时按 Java 规则返回 `None`（null）。
+/// When the day count is NA (65535) returns `None` (null) per Java rules.
     #[test]
     fn na_day_count_returns_none() {
-        // 时间 = 0，天数 = 65535
+// time = 0, day count = 65535
         let var_data = var_data(&[(1, TYPE, vec![0x00, 0x00, 0xFF, 0xFF])]);
         let reader = TimestampVarDataFieldReader::new(container_with_item(
             CustomFieldValueItem::new(1),
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(reader.read_value(&var_data, Some(1), Some(TYPE)), None);
     }
 
-    /// 数据项缺失或长度不足 4 字节时返回 `None`（Java 保持 null）。
+/// Returns `None` when the data item is missing or shorter than 4 bytes (Java keeps null).
     #[test]
     fn missing_or_short_data_returns_none() {
         let var_data = var_data(&[
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(reader.read_value(&var_data, Some(3), Some(TYPE)), None);
     }
 
-    /// 取值列表分支：取值项里的 `LocalDateTime` 通过收敛后原样返回。
+/// Value list branch: a `LocalDateTime` in a value item passes coercion and is returned as-is.
     #[test]
     fn value_list_item_is_coerced_to_date_time() {
         let mut item = CustomFieldValueItem::new(11);
@@ -223,7 +223,7 @@ mod tests {
         );
     }
 
-    /// `coerce_value`：仅 `LocalDateTime` 取值通过（`LocalDate` 不通过，与 Java 的 `instanceof` 一致）。
+/// `coerce_value`: only `LocalDateTime` values pass (`LocalDate` does not, consistent with Java's `instanceof`).
     #[test]
     fn coerce_value_accepts_date_time_only() {
         let reader = TimestampVarDataFieldReader::new(container_with_item(
@@ -236,7 +236,7 @@ mod tests {
         );
         assert_eq!(
             reader.coerce_value(Some(&FieldValue::Date(
-                NaiveDate::from_ymd_opt(2024, 5, 1).expect("合法日期")
+                NaiveDate::from_ymd_opt(2024, 5, 1).expect("valid date")
             ))),
             None
         );

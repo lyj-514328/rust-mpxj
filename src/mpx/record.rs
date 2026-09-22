@@ -1,51 +1,55 @@
-//! 对应 Java: `org/mpxj/mpx/Record.java`
+//! Corresponds to Java: `org/mpxj/mpx/Record.java`
 //!
-//! 本类表示 MPX 文件中的一条记录：由 [`Tokenizer`] 读出的一行被切分成字段数组，
-//! 再通过一组按序号取值的访问器把 MPX 文本转换成统一模型的值。
+//! This class represents one record in an MPX file: a line read by [`Tokenizer`] is split into a
+//! field array, and a set of index-based accessors convert the MPX text into unified-model values.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! 1. **构造入口**：Java 的 `Record(ProjectFile, Locale, Tokenizer, MPXJFormats)` 在构造时
-//!    读完一条记录，并把 `MPXJFormats` / `Locale` 存为字段。Rust 侧把「读取一行」的入参
-//!    `Tokenizer<S>` 只作为 [`Record::new`] 的参数（读完即不再持有），避免把分词器的泛型参数
-//!    传染给所有 `Record` 使用方；`MPXJFormats` 与 `MpxLocale` 则照 Java 存为字段
-//!    （`Record` 因此带上一个借用生命周期）。另提供 [`Record::from_fields`]，
-//!    供调用方直接以已切分好的字段数组构造记录（Java 无此入口，Rust 侧新增，
-//!    便于上游复用切分结果与编写单元测试）。
-//! 2. **字段数组**：Java 的 `String[] m_fields` → `Vec<Option<String>>`。Java 的访问器统一写成
-//!    `field < m_fields.length && !m_fields[field].isEmpty()`：越界与空串都落到「字段不存在」的
-//!    返回值（`null`、默认枚举值或 `false`），只有 `getString` 会把空串原样返回；Rust 侧保持
-//!    一致，并由 [`Record::field`] / [`Record::non_empty_field`] 两个私有方法集中表达该判断。
-//!    另注：Java 对负数下标会抛 `ArrayIndexOutOfBoundsException`（负数一定小于 length），
-//!    Rust 侧统一按「字段不存在」处理并返回 `None`。Java 在没有任何字段时 `m_fields` 保持
-//!    `null`（访问会 NPE），Rust 侧为空 `Vec`，[`Record::get_length`] 返回 0。
-//!    字段数组的三种状态分别是：
-//!    - 下标越界 → 「字段不存在」；
-//!    - 元素为 `None` → 「字段为 `null`」（Java 的 `String[]` 元素理论可为 null）；
-//!    - 元素为 `Some("")` → 「字段存在但为空」。
-//! 3. **异常**：Java 声明 `throws MPXJException` 的成员（构造方法、`getFloat`、`getRate`、
-//!    `getCurrency`、`getPercentage`、`getDuration`、`getUnits`）在 Rust 侧返回
-//!    [`MpxjResult`]，解析失败的文本与 Java 的 `MPXJException` 消息一致；Java 未声明的运行时
-//!    异常（`NumberFormatException`、`DateTimeParseException`）在 Rust 侧不抛异常，
-//!    按各方法注释回落到 `None` 或默认值（与同包 `NumberHelper` / `DurationUtility` 的
-//!    处理方式一致：Java 抛 `NumberFormatException` 的方法在那里也返回 `None`/0）。
-//! 4. **类型映射**：`java.util.Locale` → [`MpxLocale`]；`Number` → `f64`（见 `number_helper`
-//!    的取舍）；`LocalDateTime` → [`chrono::NaiveDateTime`]，`LocalTime` → [`chrono::NaiveTime`]。
-//!    注意 `org.mpxj.Duration`（工期）是 [`crate::duration::Duration`]，与 `java.time.Duration`
-//!    无关。
-//! 5. **`MPXJFormats` 接口**：Java 通过 `m_formats.getDecimalFormat().parse(...)` 之类的
-//!    `NumberFormat` 取值，并通过 `parseDate` / `parseDateTime` / `parseTime` 解析日期时间
-//!    （解析失败由 Java 的 `ParseException` / `DateTimeParseException` 表达）。本文件把对
-//!    `MPXJFormats` 的全部调用集中在文件末尾的 `parse_*` 私有函数里：日期时间用
-//!    `parse_date` / `parse_date_time` / `parse_time`（入参为 `&str`）；数字用
-//!    `get_decimal_format()` / `get_currency_format()` / `get_percentage_decimal_format()` /
-//!    `get_units_decimal_format()` 返回的 `MPXJNumberFormat`（其 `parse` 入参为 `Option<&str>`）。
-//! 6. `equals` / `hashCode`：Java 的 `Record` 未覆写，故 Rust 侧不实现 `PartialEq` / `Eq` / `Hash`；
-//!    `toString()` 对应 [`Display`]（复刻 `Arrays.toString` 的输出）。
-//! 7. `getLength()` 在 Java 中返回 `int`，Rust 侧返回 `usize`（即 `Vec` 的长度）。
+//! 1. **Construction entry point**: Java's `Record(ProjectFile, Locale, Tokenizer, MPXJFormats)` reads
+//!    one record during construction and stores `MPXJFormats` / `Locale` as fields. Rust passes the
+//!    "read one line" input `Tokenizer<S>` only as a parameter of [`Record::new`] (it is not held after
+//!    reading), avoiding infecting every `Record` user with the tokenizer's generic parameter;
+//!    `MPXJFormats` and `MpxLocale` are stored as fields as in Java (so `Record` carries a borrow
+//!    lifetime). [`Record::from_fields`] is also provided so callers can construct a record directly
+//!    from an already-split field array (no such entry point in Java; added on the Rust side to let
+//!    upstream reuse the split result and to ease unit testing).
+//! 2. **Field array**: Java's `String[] m_fields` → `Vec<Option<String>>`. Java's accessors are all
+//!    written as `field < m_fields.length && !m_fields[field].isEmpty()`: out of bounds and empty
+//!    strings both fall into the "field does not exist" return value (`null`, a default enum value or
+//!    `false`), and only `getString` returns an empty string as-is; Rust keeps this consistent and
+//!    centralizes the check in the two private methods [`Record::field`] / [`Record::non_empty_field`].
+//!    Note also that Java throws `ArrayIndexOutOfBoundsException` for a negative index (a negative is
+//!    always less than length), while Rust uniformly treats it as "field does not exist" and returns
+//!    `None`. When there are no fields, Java keeps `m_fields` as `null` (accessing it NPEs); Rust uses
+//!    an empty `Vec`, and [`Record::get_length`] returns 0. The three states of the field array are:
+//!    - index out of bounds → "field does not exist";
+//!    - element is `None` → "field is `null`" (Java's `String[]` elements can theoretically be null);
+//!    - element is `Some("")` → "field exists but is empty".
+//! 3. **Exceptions**: members for which Java declares `throws MPXJException` (the constructor,
+//!    `getFloat`, `getRate`, `getCurrency`, `getPercentage`, `getDuration`, `getUnits`) return
+//!    [`MpxjResult`] on the Rust side, with parse-failure text matching Java's `MPXJException` message;
+//!    runtime exceptions Java does not declare (`NumberFormatException`, `DateTimeParseException`) are
+//!    not thrown on the Rust side, and fall back to `None` or a default value as described in each
+//!    method's comments (consistent with `NumberHelper` / `DurationUtility` in the same package, where
+//!    methods that throw `NumberFormatException` in Java also return `None`/0).
+//! 4. **Type mapping**: `java.util.Locale` → [`MpxLocale`]; `Number` → `f64` (see the trade-offs in
+//!    `number_helper`); `LocalDateTime` → [`chrono::NaiveDateTime`], `LocalTime` → [`chrono::NaiveTime`].
+//!    Note that `org.mpxj.Duration` (a work duration) is [`crate::duration::Duration`], unrelated to
+//!    `java.time.Duration`.
+//! 5. **`MPXJFormats` interface**: Java reads values through `NumberFormat` objects such as
+//!    `m_formats.getDecimalFormat().parse(...)` and parses date-times through `parseDate` /
+//!    `parseDateTime` / `parseTime` (parse failures are expressed by Java's `ParseException` /
+//!    `DateTimeParseException`). This file centralizes all `MPXJFormats` calls in the private `parse_*`
+//!    functions at the end of the file: date-times use `parse_date` / `parse_date_time` / `parse_time`
+//!    (taking `&str`); numbers use the `MPXJNumberFormat` returned by `get_decimal_format()` /
+//!    `get_currency_format()` / `get_percentage_decimal_format()` / `get_units_decimal_format()`
+//!    (whose `parse` takes `Option<&str>`).
+//! 6. `equals` / `hashCode`: Java's `Record` does not override them, so Rust does not implement
+//!    `PartialEq` / `Eq` / `Hash`; `toString()` corresponds to [`Display`] (reproducing `Arrays.toString`'s output).
+//! 7. `getLength()` returns `int` in Java and `usize` in Rust (the `Vec` length).
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
-//! 未移植的成员：无。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -75,52 +79,52 @@ use crate::schedule_from::ScheduleFrom;
 use crate::time_unit::TimeUnit;
 use crate::{MpxjError, MpxjResult};
 
-/// MPX 文件中的一条记录。
+/// One record in an MPX file.
 ///
-/// 对应 Java: `final class Record`
+/// Corresponds to Java: `final class Record`
 pub struct Record<'a> {
-    /// 目标区域设置。
+    /// Target locale.
     ///
-    /// 对应 Java: `private final Locale m_locale;`
+    /// Corresponds to Java: `private final Locale m_locale;`
     m_locale: MpxLocale,
-    /// 解析数据时用到的格式集合。
+    /// Format collection used when parsing data.
     ///
-    /// 对应 Java: `private final MPXJFormats m_formats;`
+    /// Corresponds to Java: `private final MPXJFormats m_formats;`
     ///
-    /// 取舍：Java 的 `MPXJFormats` 由上层 `MpxReader` 持有并跨记录复用，Rust 侧同样只借用，
-    /// 因此 `Record` 带上生命周期参数。
+    /// Trade-off: Java's `MPXJFormats` is held by the upper-level `MpxReader` and reused across records;
+    /// Rust likewise only borrows it, so `Record` carries a lifetime parameter.
     m_formats: &'a MPXJFormats,
-    /// 当前记录号；无法解析（或为文件创建记录的 `PX`）时为 `None`。
+    /// Current record number; `None` when it cannot be parsed (or when it is the file creation record `PX`).
     ///
-    /// 对应 Java: `private Integer m_recordNumber;`
+    /// Corresponds to Java: `private Integer m_recordNumber;`
     m_record_number: Option<i32>,
-    /// 字段数据。
+    /// Field data.
     ///
-    /// 对应 Java: `private String[] m_fields;`（三种状态的约定见文件头第 2 条）
+    /// Corresponds to Java: `private String[] m_fields;` (see item 2 of the file header for the three-state convention)
     m_fields: Vec<Option<String>>,
 }
 
 impl<'a> Record<'a> {
-    /// 构造记录：从分词器读取一条记录并切分字段。
+    /// Construct a record: read one record from the tokenizer and split its fields.
     ///
-    /// 对应 Java: `Record(ProjectFile file, Locale locale, Tokenizer tk, MPXJFormats formats) throws MPXJException`
+    /// Corresponds to Java: `Record(ProjectFile file, Locale locale, Tokenizer tk, MPXJFormats formats) throws MPXJException`
     ///
-    /// `file` 仅用于在记录号无法解析时登记「被忽略的错误」（对应 Java 的
-    /// `file.addIgnoredError(ex)`），Java 的 `ProjectFile` 句柄在本 crate 中是
-    /// `Rc<RefCell<ProjectFile>>`，故这里同样以该句柄传入。
+    /// `file` is used only to register an "ignored error" when the record number cannot be parsed
+    /// (corresponding to Java's `file.addIgnoredError(ex)`). Java's `ProjectFile` handle in this crate is
+    /// `Rc<RefCell<ProjectFile>>`, so the same handle is passed in here.
     pub fn new<S: TokenSource>(
         file: &Rc<RefCell<ProjectFile>>,
         locale: MpxLocale,
         tokenizer: &mut Tokenizer<S>,
         formats: &'a MPXJFormats,
     ) -> MpxjResult<Record<'a>> {
-        // 对应 Java:
+        // Corresponds to Java:
         // try { ... } catch (IOException ex) { throw new MPXJException(MPXJException.INVALID_RECORD, ex); }
-        // Java 的 catch 覆盖整个构造过程（含 setRecordNumber），Rust 侧只把可能失败的读取包起来，
-        // 因为 setRecordNumber 不再产生错误（解析失败改为登记被忽略的错误）。
+        // Java's catch covers the whole construction (including setRecordNumber); Rust only wraps the read
+        // that can fail, because setRecordNumber no longer produces errors (parse failures are recorded as ignored errors instead).
         let mut fields: Vec<Option<String>> = Vec::new();
 
-        // 对应 Java: while (tk.nextToken() == Tokenizer.TT_WORD) { list.add(tk.getToken()); }
+        // Corresponds to Java: while (tk.nextToken() == Tokenizer.TT_WORD) { list.add(tk.getToken()); }
         loop {
             let token_type = tokenizer
                 .next_token()
@@ -133,7 +137,7 @@ impl<'a> Record<'a> {
             fields.push(Some(tokenizer.get_token().to_owned()));
         }
 
-        // 对应 Java:
+        // Corresponds to Java:
         // if (!list.isEmpty()) { setRecordNumber(file, list); m_fields = list.toArray(new String[0]); }
         let record_number = if fields.is_empty() {
             None
@@ -149,14 +153,15 @@ impl<'a> Record<'a> {
         })
     }
 
-    /// 便捷构造入口：以已切分好的字段数组构造记录。
+    /// Convenience construction entry point: build a record from an already-split field array.
     ///
-    /// 对应 Java: 无此构造方法（Java 只能从 `Tokenizer` 构造）。
+    /// Corresponds to Java: no such constructor (Java can only construct from a `Tokenizer`).
     ///
-    /// Rust 侧新增：调用方若已把一行切分成字段（或需要在没有 `Tokenizer` 的场景下构造记录），
-    /// 可直接使用本方法。字段数组的三种状态约定见文件头第 2 条：下标越界表示「字段不存在」，
-    /// 元素 `None` 表示「字段为 `null`」，`Some("")` 表示「字段存在但为空」。
-    /// 注意与 Java 构造方法不同，本方法**不会**从字段数组里弹出记录号。
+    /// Added on the Rust side: when the caller has already split a line into fields (or needs to build a
+    /// record without a `Tokenizer`), this method can be used directly. See item 2 of the file header for
+    /// the three-state convention of the field array: an index out of bounds means "field does not exist",
+    /// an element `None` means "field is `null`", and `Some("")` means "field exists but is empty".
+    /// Note that, unlike Java's constructor, this method does **not** pop the record number from the field array.
     pub fn from_fields(
         locale: MpxLocale,
         formats: &'a MPXJFormats,
@@ -171,31 +176,32 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// 弹出记录号并校验其为合法整数。
+    /// Pop the record number and validate that it is a legal integer.
     ///
-    /// 对应 Java: `private void setRecordNumber(ProjectFile file, List<String> list)`
+    /// Corresponds to Java: `private void setRecordNumber(ProjectFile file, List<String> list)`
     ///
-    /// Java 侧是实例方法但没有用到实例状态，Rust 侧改为关联函数，返回值即 `m_recordNumber`。
-    /// 记录号被弹出后不再留在字段数组里（与 Java 的 `list.remove(0)` 一致）。
+    /// It is an instance method in Java but does not use instance state; Rust makes it an associated
+    /// function returning `m_recordNumber`. After being popped, the record number no longer remains in the
+    /// field array (consistent with Java's `list.remove(0)`).
     fn set_record_number(
         file: &Rc<RefCell<ProjectFile>>,
         list: &mut Vec<Option<String>>,
     ) -> Option<i32> {
-        // Java 侧由调用方保证非空（`if (!list.isEmpty())`），这里保留同样的前置条件
+        // The caller guarantees non-emptiness on the Java side (`if (!list.isEmpty())`); the same precondition is kept here
         if list.is_empty() {
             return None;
         }
 
-        // 对应 Java: String number = list.remove(0);
+        // Corresponds to Java: String number = list.remove(0);
         let number = list.remove(0);
 
         let Some(text) = number else {
-            // Java: Integer.valueOf(null) 抛 NumberFormatException，同样被 catch 并登记
+            // Java: Integer.valueOf(null) throws NumberFormatException, also caught and recorded
             ignore_number_format_error(file, "null");
             return None;
         };
 
-        // 对应 Java: 读取文件创建记录时预期是 `PX`，不做整数解析
+        // Corresponds to Java: the file creation record is expected to be `PX`, no integer parsing is done
         if text == "PX" {
             return None;
         }
@@ -203,39 +209,41 @@ impl<'a> Record<'a> {
         match text.parse::<i32>() {
             Ok(value) => Some(value),
             Err(_) => {
-                // 对应 Java: catch (NumberFormatException ex) { file.addIgnoredError(ex); }
-                // 此时记录号保持 null，调用方会整条跳过该记录。
+                // Corresponds to Java: catch (NumberFormatException ex) { file.addIgnoredError(ex); }
+                // The record number stays null here, and the caller skips the whole record.
                 ignore_number_format_error(file, &text);
                 None
             }
         }
     }
 
-    /// 取该记录的记录号。
+    /// Get the record number of this record.
     ///
-    /// 对应 Java: `public Integer getRecordNumber()`
+    /// Corresponds to Java: `public Integer getRecordNumber()`
     ///
-    /// 记录号不是合法整数（或该记录是文件创建记录 `PX`）时返回 `None`（Java 返回 `null`）。
+    /// Returns `None` when the record number is not a legal integer (or the record is the file creation record `PX`) (Java returns `null`).
     pub fn get_record_number(&self) -> Option<i32> {
         self.m_record_number
     }
 
-    /// 取本记录使用的格式集合（Rust 特有入口）。
+    /// Get the format collection used by this record (Rust-specific entry point).
     ///
-    /// 对应 Java: 无此方法 —— Java 的 `MPXReader` 直接访问成员 `m_formats`，而 Rust 侧
-    /// `MPXReader` 不持有格式集合（见其文件头差异第 1 条），需要格式对象的调用点
-    /// （如 `DurationUtility.getInstance(field, m_formats.getDurationDecimalFormat(), locale)`）
-    /// 改为经本方法取回。
+    /// Corresponds to Java: no such method — Java's `MPXReader` accesses the member `m_formats` directly,
+    /// whereas on the Rust side `MPXReader` does not hold the format collection (see item 1 of its
+    /// file-header differences), so call sites that need a format object (e.g.
+    /// `DurationUtility.getInstance(field, m_formats.getDurationDecimalFormat(), locale)`) retrieve it
+    /// through this method instead.
     pub fn get_formats(&self) -> &'a MPXJFormats {
         self.m_formats
     }
 
-    /// 取指定序号字段的文本内容。
+    /// Get the text content of the field at the given index.
     ///
-    /// 对应 Java: `public String getString(int field)`
+    /// Corresponds to Java: `public String getString(int field)`
     ///
-    /// 字段不存在时返回 `None`（Java 返回 `null`）；字段存在时把备注文本中的换行占位符
-    /// [`MPXConstants::EOL_PLACEHOLDER`] 还原成换行符。字段存在但为空串时返回 `Some("")`。
+    /// Returns `None` when the field does not exist (Java returns `null`); when it exists, the newline
+    /// placeholder [`MPXConstants::EOL_PLACEHOLDER`] in note text is restored to a newline. Returns
+    /// `Some("")` when the field exists but is empty.
     pub fn get_string(&self, field: i32) -> Option<String> {
         let text = self.field(field)?;
 
@@ -246,25 +254,25 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// 取指定序号字段的首字符。
+    /// Get the first character of the field at the given index.
     ///
-    /// 对应 Java: `public Character getCharacter(int field)`
+    /// Corresponds to Java: `public Character getCharacter(int field)`
     ///
-    /// 字段不存在或为空串时返回 `None`（Java 返回 `null`）。
-    /// Java 的 `charAt(0)` 取的是一个 UTF-16 码元，Rust 侧取第一个 Unicode 标量值
-    /// （增补平面字符在 Java 中是代理项对的两半，在 Rust 中是单个 `char`）。
+    /// Returns `None` when the field does not exist or is empty (Java returns `null`).
+    /// Java's `charAt(0)` takes a UTF-16 code unit; Rust takes the first Unicode scalar value
+    /// (supplementary-plane characters are the two halves of a surrogate pair in Java and a single `char` in Rust).
     pub fn get_character(&self, field: i32) -> Option<char> {
         self.non_empty_field(field)?.chars().next()
     }
 
-    /// 取指定序号字段的小数值。
+    /// Get the floating-point value of the field at the given index.
     ///
-    /// 对应 Java: `public Number getFloat(int field) throws MPXJException`
+    /// Corresponds to Java: `public Number getFloat(int field) throws MPXJException`
     ///
-    /// Java 用 `m_formats.getDecimalFormat().parse(...)` 解析（整数输入会得到 `Long`），
-    /// Rust 侧按 `number_helper` 的约定统一为 `f64`。
-    /// 字段不存在或为空串 → `Ok(None)`（Java 返回 `null`）；
-    /// 解析失败 → `Err`（Java 抛 `ParseException` 并转成 `MPXJException("Failed to parse float")`）。
+    /// Java parses with `m_formats.getDecimalFormat().parse(...)` (integer input yields a `Long`),
+    /// while Rust unifies to `f64` per the `number_helper` convention.
+    /// Field does not exist or is empty → `Ok(None)` (Java returns `null`);
+    /// parse failure → `Err` (Java throws `ParseException` and converts it to `MPXJException("Failed to parse float")`).
     pub fn get_float(&self, field: i32) -> MpxjResult<Option<f64>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
@@ -275,79 +283,79 @@ impl<'a> Record<'a> {
             .ok_or_else(|| MpxjError::new("Failed to parse float"))
     }
 
-    /// 取指定序号字段的整数值。
+    /// Get the integer value of the field at the given index.
     ///
-    /// 对应 Java: `public Integer getInteger(int field)`
+    /// Corresponds to Java: `public Integer getInteger(int field)`
     ///
-    /// 字段不存在或为空串 → `None`（Java 返回 `null`）；内容不是合法整数时 Java 抛
-    /// `NumberFormatException`（未声明），Rust 侧同样返回 `None`（见文件头第 3 条）。
+    /// Field does not exist or is empty → `None` (Java returns `null`); when the content is not a legal
+    /// integer, Java throws `NumberFormatException` (undeclared), and Rust likewise returns `None` (see item 3 of the file header).
     pub fn get_integer(&self, field: i32) -> Option<i32> {
         NumberHelper::parse_integer(self.non_empty_field(field))
     }
 
-    /// 取指定序号字段的日期时间值。
+    /// Get the date-time value of the field at the given index.
     ///
-    /// 对应 Java: `public LocalDateTime getDateTime(int field)`
+    /// Corresponds to Java: `public LocalDateTime getDateTime(int field)`
     ///
-    /// 字段不存在、为空串，或文本等于格式集合的「空值文本」（如 `NA`）时返回 `None`
-    /// （Java 返回 `null`）；文本无法解析时 Java 抛 `DateTimeParseException`，
-    /// Rust 侧同样返回 `None`。
+    /// Returns `None` when the field does not exist, is empty, or its text equals the format collection's
+    /// "null text" (e.g. `NA`) (Java returns `null`); when the text cannot be parsed, Java throws
+    /// `DateTimeParseException`, and Rust likewise returns `None`.
     pub fn get_date_time(&self, field: i32) -> Option<NaiveDateTime> {
         parse_date_time(self.m_formats, self.non_empty_field(field)?)
     }
 
-    /// 取指定序号字段的日期值（时间为当天零点）。
+    /// Get the date value of the field at the given index (time is midnight of that day).
     ///
-    /// 对应 Java: `public LocalDateTime getDate(int field)`
+    /// Corresponds to Java: `public LocalDateTime getDate(int field)`
     ///
-    /// 缺失/空值/无法解析的处理同 [`Record::get_date_time`]。
+    /// Missing / empty / unparsable values are handled the same as in [`Record::get_date_time`].
     pub fn get_date(&self, field: i32) -> Option<NaiveDateTime> {
         parse_date(self.m_formats, self.non_empty_field(field)?)
     }
 
-    /// 取指定序号字段的时间值。
+    /// Get the time value of the field at the given index.
     ///
-    /// 对应 Java: `public LocalTime getTime(int field)`
+    /// Corresponds to Java: `public LocalTime getTime(int field)`
     ///
-    /// 缺失/空值/无法解析的处理同 [`Record::get_date_time`]。
+    /// Missing / empty / unparsable values are handled the same as in [`Record::get_date_time`].
     pub fn get_time(&self, field: i32) -> Option<NaiveTime> {
         parse_time(self.m_formats, self.non_empty_field(field)?)
     }
 
-    /// 取指定序号字段的「0/1 布尔值」。
+    /// Get the "0/1 boolean" of the field at the given index.
     ///
-    /// 对应 Java: `public boolean getNumericBoolean(int field)`
+    /// Corresponds to Java: `public boolean getNumericBoolean(int field)`
     ///
-    /// Java 用 `Integer.parseInt(value) == 1`：字段不存在或为空串时为 `false`；
-    /// 内容不是合法整数时 Java 抛 `NumberFormatException`（未声明），Rust 侧回落到 `false`。
+    /// Java uses `Integer.parseInt(value) == 1`: `false` when the field does not exist or is empty;
+    /// when the content is not a legal integer, Java throws `NumberFormatException` (undeclared), and Rust falls back to `false`.
     pub fn get_numeric_boolean(&self, field: i32) -> bool {
         NumberHelper::parse_integer(self.non_empty_field(field)) == Some(1)
     }
 
-    /// 取指定序号字段的费率值（如 `$10/h`）。
+    /// Get the rate value of the field at the given index (e.g. `$10/h`).
     ///
-    /// 对应 Java: `public Rate getRate(int field) throws MPXJException`
+    /// Corresponds to Java: `public Rate getRate(int field) throws MPXJException`
     ///
-    /// 字段不存在或为空串 → `Ok(None)`（Java 返回 `null`）；
-    /// 金额部分解析失败 → `Err("Failed to parse rate")`（Java 由 `ParseException` 转换）；
-    /// 单位无法识别 → `Err(INVALID_TIME_UNIT + " " + units)`，对应 `TimeUnitUtility`
-    /// 抛出的 `MPXJException`——它不在 Java 的 `catch (ParseException)` 覆盖范围内，同样向外传播。
+    /// Field does not exist or is empty → `Ok(None)` (Java returns `null`);
+    /// amount part fails to parse → `Err("Failed to parse rate")` (converted from Java's `ParseException`);
+    /// units unrecognized → `Err(INVALID_TIME_UNIT + " " + units)`, corresponding to the `MPXJException`
+    /// thrown by `TimeUnitUtility` — it is not covered by Java's `catch (ParseException)` and propagates outward as well.
     pub fn get_rate(&self, field: i32) -> MpxjResult<Option<Rate>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
         };
 
-        // 对应 Java: int index = rate.indexOf('/');
+        // Corresponds to Java: int index = rate.indexOf('/');
         match text.find('/') {
             None => {
-                // Java: 没有 `/` 时整个字段都是金额，单位固定为「小时」
+                // Java: without `/` the whole field is an amount and the units are fixed to "hours"
                 let amount = parse_currency(self.m_formats, text)
                     .ok_or_else(|| MpxjError::new("Failed to parse rate"))?;
                 Ok(Some(Rate::new(amount, TimeUnit::Hours)))
             }
             Some(index) => {
-                // 对应 Java: rate.substring(0, index) / rate.substring(index + 1)
-                // `/` 是 ASCII 字符，`find` 返回的字节下标可直接用于切片
+                // Corresponds to Java: rate.substring(0, index) / rate.substring(index + 1)
+                // `/` is an ASCII character, so the byte index returned by `find` can be used directly for slicing
                 let amount = parse_currency(self.m_formats, &text[..index])
                     .ok_or_else(|| MpxjError::new("Failed to parse rate"))?;
                 let units_text = &text[index + 1..];
@@ -364,11 +372,11 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// 取指定序号字段的金额值。
+    /// Get the amount value of the field at the given index.
     ///
-    /// 对应 Java: `public Number getCurrency(int field) throws MPXJException`
+    /// Corresponds to Java: `public Number getCurrency(int field) throws MPXJException`
     ///
-    /// 字段不存在或为空串 → `Ok(None)`；解析失败 → `Err("Failed to parse currency")`。
+    /// Field does not exist or is empty → `Ok(None)`; parse failure → `Err("Failed to parse currency")`.
     pub fn get_currency(&self, field: i32) -> MpxjResult<Option<f64>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
@@ -379,11 +387,11 @@ impl<'a> Record<'a> {
             .ok_or_else(|| MpxjError::new("Failed to parse currency"))
     }
 
-    /// 取指定序号字段的百分比值。
+    /// Get the percentage value of the field at the given index.
     ///
-    /// 对应 Java: `public Number getPercentage(int field) throws MPXJException`
+    /// Corresponds to Java: `public Number getPercentage(int field) throws MPXJException`
     ///
-    /// 字段不存在或为空串 → `Ok(None)`；解析失败 → `Err("Failed to parse percentage")`。
+    /// Field does not exist or is empty → `Ok(None)`; parse failure → `Err("Failed to parse percentage")`.
     pub fn get_percentage(&self, field: i32) -> MpxjResult<Option<f64>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
@@ -394,14 +402,14 @@ impl<'a> Record<'a> {
             .ok_or_else(|| MpxjError::new("Failed to parse percentage"))
     }
 
-    /// 取指定序号字段的工期值。
+    /// Get the duration value of the field at the given index.
     ///
-    /// 对应 Java: `public Duration getDuration(int field) throws MPXJException`
+    /// Corresponds to Java: `public Duration getDuration(int field) throws MPXJException`
     ///
-    /// 字段不存在或为空串 → `Ok(None)`（Java 返回 `null`）。Java 声明 `throws MPXJException`
-    /// （`DurationUtility` 在数字解析失败或单位无法识别时抛出），Rust 侧的
-    /// [`DurationUtility::get_instance`] 把这些失败折叠为 `None`（见该模块文件头），
-    /// 因此本方法目前不会返回 `Err`；保留 [`MpxjResult`] 以对齐 Java 声明。
+    /// Field does not exist or is empty → `Ok(None)` (Java returns `null`). Java declares `throws MPXJException`
+    /// (thrown by `DurationUtility` when the number fails to parse or the units are unrecognized); on the
+    /// Rust side [`DurationUtility::get_instance`] folds these failures into `None` (see that module's
+    /// header), so this method currently never returns `Err`; [`MpxjResult`] is kept to align with the Java declaration.
     pub fn get_duration(&self, field: i32) -> MpxjResult<Option<Duration>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
@@ -414,11 +422,11 @@ impl<'a> Record<'a> {
         ))
     }
 
-    /// 取指定序号字段的「单位数」值（解析结果乘以 100）。
+    /// Get the "units" value of the field at the given index (parse result multiplied by 100).
     ///
-    /// 对应 Java: `public Number getUnits(int field) throws MPXJException`
+    /// Corresponds to Java: `public Number getUnits(int field) throws MPXJException`
     ///
-    /// 字段不存在或为空串 → `Ok(None)`；解析失败 → `Err("Failed to parse units")`。
+    /// Field does not exist or is empty → `Ok(None)`; parse failure → `Err("Failed to parse units")`.
     pub fn get_units(&self, field: i32) -> MpxjResult<Option<f64>> {
         let Some(text) = self.non_empty_field(field) else {
             return Ok(None);
@@ -429,73 +437,73 @@ impl<'a> Record<'a> {
             .ok_or_else(|| MpxjError::new("Failed to parse units"))
     }
 
-    /// 取指定序号字段的时间单位。
+    /// Get the time unit of the field at the given index.
     ///
-    /// 对应 Java: `public TimeUnit getTimeUnit(int field)`
+    /// Corresponds to Java: `public TimeUnit getTimeUnit(int field)`
     ///
-    /// 字段不存在或为空串 → `TimeUnit::Days`（Java 的默认值）；内容不是合法整数时 Java 抛
-    /// `NumberFormatException`，Rust 侧同样回落到默认值（`TimeUnit::get_instance` 对越界值
-    /// 也回落到 `DAYS`，与 Java 的默认值一致）。
+    /// Field does not exist or is empty → `TimeUnit::Days` (Java's default); when the content is not a
+    /// legal integer, Java throws `NumberFormatException`, and Rust likewise falls back to the default
+    /// (`TimeUnit::get_instance` also falls back to `DAYS` for out-of-range values, matching Java's default).
     pub fn get_time_unit(&self, field: i32) -> TimeUnit {
         TimeUnit::get_instance_optional(NumberHelper::parse_integer(self.non_empty_field(field)))
     }
 
-    /// 取指定序号字段的时间格式（12/24 小时制）。
+    /// Get the time format (12/24-hour) of the field at the given index.
     ///
-    /// 对应 Java: `public ProjectTimeFormat getTimeFormat(int field)`
+    /// Corresponds to Java: `public ProjectTimeFormat getTimeFormat(int field)`
     ///
-    /// 字段不存在或为空串 → `ProjectTimeFormat::TwelveHour`（Java 的默认值）；
-    /// 内容不是合法整数时 Java 抛 `NumberFormatException`，Rust 侧回落到默认值。
+    /// Field does not exist or is empty → `ProjectTimeFormat::TwelveHour` (Java's default);
+    /// when the content is not a legal integer, Java throws `NumberFormatException`, and Rust falls back to the default.
     pub fn get_time_format(&self, field: i32) -> ProjectTimeFormat {
         ProjectTimeFormat::get_instance_optional(NumberHelper::parse_integer(
             self.non_empty_field(field),
         ))
     }
 
-    /// 取指定序号字段的「排程起始方向」。
+    /// Get the "schedule-from direction" of the field at the given index.
     ///
-    /// 对应 Java: `public ScheduleFrom getScheduleFrom(int field)`
+    /// Corresponds to Java: `public ScheduleFrom getScheduleFrom(int field)`
     ///
-    /// 字段不存在或为空串 → `ScheduleFrom::Start`（Java 的默认值）；内容不是合法整数时
-    /// Java 抛 `NumberFormatException`，Rust 侧回落到默认值。
+    /// Field does not exist or is empty → `ScheduleFrom::Start` (Java's default); when the content is not
+    /// a legal integer, Java throws `NumberFormatException`, and Rust falls back to the default.
     pub fn get_schedule_from(&self, field: i32) -> ScheduleFrom {
         ScheduleFrom::get_instance_optional(NumberHelper::parse_integer(
             self.non_empty_field(field),
         ))
     }
 
-    /// 取指定序号字段的日期书写顺序。
+    /// Get the date writing order of the field at the given index.
     ///
-    /// 对应 Java: `public DateOrder getDateOrder(int field)`
+    /// Corresponds to Java: `public DateOrder getDateOrder(int field)`
     ///
-    /// 字段不存在或为空串 → `DateOrder::Mdy`（Java 的默认值）；内容不是合法整数时 Java 抛
-    /// `NumberFormatException`，Rust 侧回落到默认值。
+    /// Field does not exist or is empty → `DateOrder::Mdy` (Java's default); when the content is not a
+    /// legal integer, Java throws `NumberFormatException`, and Rust falls back to the default.
     pub fn get_date_order(&self, field: i32) -> DateOrder {
         DateOrder::get_instance_optional(NumberHelper::parse_integer(self.non_empty_field(field)))
     }
 
-    /// 取指定序号字段的货币符号位置。
+    /// Get the currency symbol position of the field at the given index.
     ///
-    /// 对应 Java: `public CurrencySymbolPosition getCurrencySymbolPosition(int field)`
+    /// Corresponds to Java: `public CurrencySymbolPosition getCurrencySymbolPosition(int field)`
     ///
-    /// 字段不存在或为空串 → `CurrencySymbolPosition::Before`（Java 的默认值）；内容不是合法
-    /// 整数时 Java 抛 `NumberFormatException`，Rust 侧回落到默认值。
-    /// `CurrencySymbolPosition` 没有 `getInstance(Number)` 重载（见该模块），故这里显式传入
-    /// `-1` 走 `getInstance` 的越界回落分支。
+    /// Field does not exist or is empty → `CurrencySymbolPosition::Before` (Java's default); when the
+    /// content is not a legal integer, Java throws `NumberFormatException`, and Rust falls back to the
+    /// default. `CurrencySymbolPosition` has no `getInstance(Number)` overload (see that module), so `-1`
+    /// is passed explicitly here to take `getInstance`'s out-of-range fallback branch.
     pub fn get_currency_symbol_position(&self, field: i32) -> CurrencySymbolPosition {
         CurrencySymbolPosition::get_instance(
             NumberHelper::parse_integer(self.non_empty_field(field)).unwrap_or(-1),
         )
     }
 
-    /// 取指定序号字段的日期格式。
+    /// Get the date format of the field at the given index.
     ///
-    /// 对应 Java: `public ProjectDateFormat getDateFormat(int field)`
+    /// Corresponds to Java: `public ProjectDateFormat getDateFormat(int field)`
     ///
-    /// 字段不存在或为空串 → `ProjectDateFormat::DdMmYy`（Java 的 `DD_MM_YY`）；
-    /// 注意这与 `ProjectDateFormat::getInstance` 的越界回落值（`DD_MM_YYYY`）不同，
-    /// 因此缺失时单独给出默认值。内容不是合法整数时 Java 抛 `NumberFormatException`，
-    /// Rust 侧回落到 `getInstance` 的越界分支。
+    /// Field does not exist or is empty → `ProjectDateFormat::DdMmYy` (Java's `DD_MM_YY`);
+    /// note this differs from `ProjectDateFormat::getInstance`'s out-of-range fallback (`DD_MM_YYYY`),
+    /// so the default is given separately when missing. When the content is not a legal integer, Java
+    /// throws `NumberFormatException`, and Rust falls back to `getInstance`'s out-of-range branch.
     pub fn get_date_format(&self, field: i32) -> ProjectDateFormat {
         match self.non_empty_field(field) {
             Some(text) => {
@@ -506,39 +514,39 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// 取指定序号字段的代码页。
+    /// Get the code page of the field at the given index.
     ///
-    /// 对应 Java: `public CodePage getCodePage(int field)`
+    /// Corresponds to Java: `public CodePage getCodePage(int field)`
     ///
-    /// 字段不存在或为空串时 Java 调用 `CodePage.getInstance(null)`，即回落到 `ANSI`；
-    /// Rust 侧由 [`CodePage::get_instance_optional`] 表达同一语义。
+    /// When the field does not exist or is empty, Java calls `CodePage.getInstance(null)`, i.e. falls back
+    /// to `ANSI`; Rust expresses the same semantics via [`CodePage::get_instance_optional`].
     pub fn get_code_page(&self, field: i32) -> CodePage {
         CodePage::get_instance_optional(self.non_empty_field(field))
     }
 
-    /// 取指定序号字段的成本计提方式。
+    /// Get the cost accrual method of the field at the given index.
     ///
-    /// 对应 Java: `public AccrueType getAccrueType(int field)`
+    /// Corresponds to Java: `public AccrueType getAccrueType(int field)`
     ///
-    /// 字段不存在或为空串 → `None`（Java 返回 `null`）；`AccrueTypeUtility` 本身不会返回
-    /// `null`（无法识别时回落为 `PRORATED`）。
+    /// Field does not exist or is empty → `None` (Java returns `null`); `AccrueTypeUtility` itself never
+    /// returns `null` (it falls back to `PRORATED` when unrecognized).
     pub fn get_accrue_type(&self, field: i32) -> Option<AccrueType> {
         let text = self.non_empty_field(field)?;
         Some(AccrueTypeUtility::get_instance(Some(text), self.m_locale))
     }
 
-    /// 取指定序号字段的布尔值。
+    /// Get the boolean value of the field at the given index.
     ///
-    /// 对应 Java: `public Boolean getBoolean(int field, String falseText)`
+    /// Corresponds to Java: `public Boolean getBoolean(int field, String falseText)`
     ///
-    /// 字段不存在或为空串 → `None`（Java 返回 `null`）。`"0"` / `"1"` 按 Java 的兼容分支
-    /// 直接映射为 `false` / `true`，其余值与 `falseText` 做大小写不敏感比较：
-    /// 等于 `falseText` 为 `false`，否则为 `true`。`falseText` 为 `None` 时 Java 的
-    /// `equalsIgnoreCase(null)` 恒为 `false`，即结果为 `true`。
+    /// Field does not exist or is empty → `None` (Java returns `null`). `"0"` / `"1"` are mapped directly
+    /// to `false` / `true` via Java's compatibility branch, and other values are compared
+    /// case-insensitively with `falseText`: equal to `falseText` is `false`, otherwise `true`. When
+    /// `falseText` is `None`, Java's `equalsIgnoreCase(null)` is always `false`, so the result is `true`.
     pub fn get_boolean(&self, field: i32, false_text: Option<&str>) -> Option<bool> {
         let value = self.non_empty_field(field)?;
 
-        // 对应 Java: 处理常见的非标准 true/false 值
+        // Corresponds to Java: handle the common non-standard true/false values
         if value == "0" {
             return Some(false);
         }
@@ -547,18 +555,18 @@ impl<'a> Record<'a> {
             return Some(true);
         }
 
-        // 对应 Java: Boolean.valueOf(!value.equalsIgnoreCase(falseText))
+        // Corresponds to Java: Boolean.valueOf(!value.equalsIgnoreCase(falseText))
         Some(!equals_ignore_case(value, false_text))
     }
 
-    /// 取指定序号字段的日期类型（工作日 / 非工作日 / 默认）。
+    /// Get the day type (working / non-working / default) of the field at the given index.
     ///
-    /// 对应 Java: `public DayType getDayType(int field)`
+    /// Corresponds to Java: `public DayType getDayType(int field)`
     ///
-    /// 字段不存在或为空串 → `DayType::Default`（Java 的默认值）；注意这与
-    /// `DayType::getInstance` 的越界回落值（`NON_WORKING`）不同，因此缺失时单独给出默认值。
-    /// 内容不是合法整数时 Java 抛 `NumberFormatException`，Rust 侧回落到 `getInstance`
-    /// 的越界分支。
+    /// Field does not exist or is empty → `DayType::Default` (Java's default); note this differs from
+    /// `DayType::getInstance`'s out-of-range fallback (`NON_WORKING`), so the default is given separately
+    /// when missing. When the content is not a legal integer, Java throws `NumberFormatException`, and
+    /// Rust falls back to `getInstance`'s out-of-range branch.
     pub fn get_day_type(&self, field: i32) -> DayType {
         match self.non_empty_field(field) {
             Some(text) => DayType::get_instance_optional(NumberHelper::parse_integer(Some(text))),
@@ -567,22 +575,22 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// 取该记录的字段个数。
+    /// Get the number of fields in this record.
     ///
-    /// 对应 Java: `public int getLength()`
+    /// Corresponds to Java: `public int getLength()`
     ///
-    /// 取舍：Java 返回 `int`，Rust 侧返回 `usize`（`Vec` 的长度）。
-    /// Java 在没有任何字段时 `m_fields` 为 `null`，此处返回 0（见文件头第 2 条）。
+    /// Trade-off: Java returns `int`, Rust returns `usize` (the `Vec` length).
+    /// Java's `m_fields` is `null` when there are no fields; this returns 0 (see item 2 of the file header).
     pub fn get_length(&self) -> usize {
         self.m_fields.len()
     }
 
-    /// 取指定序号字段的原始文本。
+    /// Get the raw text of the field at the given index.
     ///
-    /// 对应 Java: 各访问器中反复出现的 `field < m_fields.length ? m_fields[field] : null`
+    /// Corresponds to Java: the `field < m_fields.length ? m_fields[field] : null` that recurs in the accessors
     ///
-    /// `None` 表示「字段不存在」：序号越界（含负数，Java 对负数会抛
-    /// `ArrayIndexOutOfBoundsException`），或该位置为 `null`。
+    /// `None` means "field does not exist": the index is out of bounds (including negative, for which Java
+    /// throws `ArrayIndexOutOfBoundsException`), or that position is `null`.
     fn field(&self, field: i32) -> Option<&str> {
         if field < 0 {
             return None;
@@ -591,22 +599,22 @@ impl<'a> Record<'a> {
         self.m_fields.get(field as usize)?.as_deref()
     }
 
-    /// 取指定序号字段的原始文本，且要求其非空。
+    /// Get the raw text of the field at the given index, requiring it to be non-empty.
     ///
-    /// 对应 Java: 各访问器中反复出现的
+    /// Corresponds to Java: the expression that recurs in the accessors
     /// `(field < m_fields.length) && (!m_fields[field].isEmpty())`
     ///
-    /// 字段为 `null` 时 Java 会在 `isEmpty()` 处抛 `NullPointerException`，
-    /// Rust 侧与「空串」同样视为不满足条件。
+    /// When the field is `null`, Java throws `NullPointerException` at `isEmpty()`, and Rust likewise
+    /// treats it like an "empty string" as not satisfying the condition.
     fn non_empty_field(&self, field: i32) -> Option<&str> {
         self.field(field).filter(|text| !text.is_empty())
     }
 }
 
 impl Display for Record<'_> {
-    /// 对应 Java: `@Override public String toString()`，即 `Arrays.toString(m_fields)`。
+    /// Corresponds to Java: `@Override public String toString()`, i.e. `Arrays.toString(m_fields)`.
     ///
-    /// Java 对 `null` 元素输出 `null`（不带引号），Rust 侧对 `None` 元素同样输出 `null`。
+    /// Java outputs `null` (without quotes) for `null` elements; Rust likewise outputs `null` for `None` elements.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str("[")?;
 
@@ -625,53 +633,53 @@ impl Display for Record<'_> {
     }
 }
 
-/// 登记「记录号无法解析」这一被忽略的错误。
+/// Record the "record number cannot be parsed" ignored error.
 ///
-/// 对应 Java: `catch (NumberFormatException ex) { file.addIgnoredError(ex); }` 中的异常消息
-/// （`new NumberFormatException("For input string: \"" + number + "\"")` 的 `getMessage()`）。
+/// Corresponds to Java: the exception message in `catch (NumberFormatException ex) { file.addIgnoredError(ex); }`
+/// (the `getMessage()` of `new NumberFormatException("For input string: \"" + number + "\"")`).
 fn ignore_number_format_error(file: &Rc<RefCell<ProjectFile>>, text: &str) {
     file.borrow_mut()
         .add_ignored_error(MpxjError::new(format!("For input string: \"{text}\"")));
 }
 
-/// 对应 Java: `m_formats.getDecimalFormat().parse(value)`（见文件头第 5 条）。
+/// Corresponds to Java: `m_formats.getDecimalFormat().parse(value)` (see item 5 of the file header).
 ///
-/// `MPXJNumberFormat::parse` 的入参是 `Option<&str>`（Java 的 `null` / 空串都不解析），
-/// 传入的文本已由各访问器过滤掉「字段不存在或为空」的情况。
+/// `MPXJNumberFormat::parse` takes `Option<&str>` (Java parses neither `null` nor an empty string),
+/// and the passed text has already had the "field does not exist or is empty" cases filtered out by the accessors.
 fn parse_decimal(formats: &MPXJFormats, value: &str) -> Option<f64> {
     formats.get_decimal_format().parse(Some(value))
 }
 
-/// 对应 Java: `m_formats.getCurrencyFormat().parse(value)`（见文件头第 5 条）。
+/// Corresponds to Java: `m_formats.getCurrencyFormat().parse(value)` (see item 5 of the file header).
 fn parse_currency(formats: &MPXJFormats, value: &str) -> Option<f64> {
     formats.get_currency_format().parse(Some(value))
 }
 
-/// 对应 Java: `m_formats.getPercentageDecimalFormat().parse(value)`（见文件头第 5 条）。
+/// Corresponds to Java: `m_formats.getPercentageDecimalFormat().parse(value)` (see item 5 of the file header).
 fn parse_percentage(formats: &MPXJFormats, value: &str) -> Option<f64> {
     formats.get_percentage_decimal_format().parse(Some(value))
 }
 
-/// 对应 Java: `m_formats.getUnitsDecimalFormat().parse(value)`（见文件头第 5 条）。
+/// Corresponds to Java: `m_formats.getUnitsDecimalFormat().parse(value)` (see item 5 of the file header).
 fn parse_units(formats: &MPXJFormats, value: &str) -> Option<f64> {
     formats.get_units_decimal_format().parse(Some(value))
 }
 
-/// 对应 Java: `m_formats.parseDate(value)`。
+/// Corresponds to Java: `m_formats.parseDate(value)`.
 ///
-/// Java 在文本等于空值文本（如 `NA`）时返回 `null`，Rust 侧为 `None`。
+/// Java returns `null` when the text equals the null text (e.g. `NA`); Rust returns `None`.
 fn parse_date(formats: &MPXJFormats, value: &str) -> Option<NaiveDateTime> {
     formats.parse_date(value)
 }
 
-/// 对应 Java: `m_formats.parseDateTime(value)`。
+/// Corresponds to Java: `m_formats.parseDateTime(value)`.
 ///
-/// Java 在文本等于空值文本（如 `NA`）时返回 `null`，Rust 侧为 `None`。
+/// Java returns `null` when the text equals the null text (e.g. `NA`); Rust returns `None`.
 fn parse_date_time(formats: &MPXJFormats, value: &str) -> Option<NaiveDateTime> {
     formats.parse_date_time(value)
 }
 
-/// 对应 Java: `m_formats.parseTime(value)`。
+/// Corresponds to Java: `m_formats.parseTime(value)`.
 fn parse_time(formats: &MPXJFormats, value: &str) -> Option<NaiveTime> {
     formats.parse_time(value)
 }
@@ -684,33 +692,34 @@ mod tests {
 
     use super::*;
 
-    /// 一条待测记录及其依赖的工程文件与解析格式。
+    /// A record under test together with the project file and parse formats it depends on.
     ///
-    /// `Record` 借用 `MPXJFormats`，把两者放进同一个结构体可以避免测试里到处传借用。
+    /// `Record` borrows `MPXJFormats`; putting both in the same struct avoids passing borrows around throughout the tests.
     struct Fixture {
         file: Rc<RefCell<ProjectFile>>,
         formats: MPXJFormats,
     }
 
     impl Fixture {
-        /// 构造测试夹具。
+        /// Construct the test fixture.
         ///
-        /// 空的 `ProjectFile` 的默认属性就是 MPX 的英文默认值（`/` 作日期分隔符、
-        /// `$` 作货币符号、小数分隔符 `.` 等），与 `LocaleUtility.setLocale(En)` 的结果一致。
+        /// An empty `ProjectFile`'s default properties are exactly MPX's English defaults (`/` as the date
+        /// separator, `$` as the currency symbol, `.` as the decimal separator, etc.), matching the result of
+        /// `LocaleUtility.setLocale(En)`.
         fn new() -> Self {
             let file = ProjectFile::new();
             let formats = MPXJFormats::new(MpxLocale::En, "NA", Rc::downgrade(&file));
             Self { file, formats }
         }
 
-        /// 按 MPX 文件中一行的文本构造记录：引号包裹、空字段、相邻分隔符都交给分词器处理。
+        /// Construct a record from one line of MPX text: quoting, empty fields, and adjacent separators are all handled by the tokenizer.
         fn record(&self, line: &str) -> Record<'_> {
             let mut tokenizer = Tokenizer::from_chars(Cursor::new(line.as_bytes().to_vec()));
             Record::new(&self.file, MpxLocale::En, &mut tokenizer, &self.formats)
-                .expect("内存数据源不会导致读取失败")
+                .expect("in-memory data source cannot fail to read")
         }
 
-        /// 取当前登记的被忽略错误消息。
+        /// Get the currently recorded ignored error messages.
         fn ignored_errors(&self) -> Vec<String> {
             self.file
                 .borrow()
@@ -723,9 +732,9 @@ mod tests {
 
     fn date(year: i32, month: u32, day: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(year, month, day)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(0, 0, 0)
-            .expect("合法时间")
+            .expect("valid time")
     }
 
     #[test]
@@ -734,7 +743,7 @@ mod tests {
         let record = fixture.record("70,1,Task\r\n");
 
         assert_eq!(record.get_record_number(), Some(70));
-        // 记录号已从字段数组中移除，因此下标 0 是原来的第 2 个字段
+        // The record number has been removed from the field array, so index 0 is the original second field
         assert_eq!(record.get_length(), 2);
         assert_eq!(record.get_string(0).as_deref(), Some("1"));
         assert_eq!(record.get_string(1).as_deref(), Some("Task"));
@@ -773,7 +782,7 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("\r\n");
 
-        // Java 此时 `m_fields` 仍为 null（访问会 NPE），Rust 侧为空字段数组
+        // At this point Java's `m_fields` is still null (accessing it NPEs); Rust uses an empty field array
         assert_eq!(record.get_record_number(), None);
         assert_eq!(record.get_length(), 0);
         assert_eq!(record.get_string(0), None);
@@ -786,21 +795,21 @@ mod tests {
     #[test]
     fn trailing_empty_fields_are_present_but_empty() {
         let fixture = Fixture::new();
-        // 记录号 + 一个空字段 + 一个普通字段
-        // 注意：被分隔符包围的空字段会由分词器产生空 token（与 Java 的 Tokenizer 一致），
-        // 而「行尾最后一个空字段」不会产生 token——行尾就是 TT_EOL。
+        // Record number + one empty field + one ordinary field
+        // Note: an empty field surrounded by delimiters produces an empty token in the tokenizer (consistent with Java's Tokenizer),
+        // whereas "the last empty field at the end of a line" produces no token — the end of line is TT_EOL.
         let record = fixture.record("70,,x\r\n");
 
         assert_eq!(record.get_length(), 2);
-        // 「字段存在但为空」：getString 返回空串
+        // "Field exists but is empty": getString returns an empty string
         assert_eq!(record.get_string(0).as_deref(), Some(""));
         assert_eq!(record.get_string(1).as_deref(), Some("x"));
-        // 「字段不存在」：越界返回 None
+        // "Field does not exist": out of bounds returns None
         assert_eq!(record.get_string(2), None);
-        // 空字段在数值/枚举/布尔访问器上与缺失字段表现一致
+        // An empty field behaves like a missing field for numeric/enum/boolean accessors
         assert_eq!(record.get_integer(0), None);
         assert_eq!(record.get_character(0), None);
-        assert_eq!(record.get_float(0).expect("空字段不报错"), None);
+        assert_eq!(record.get_float(0).expect("empty field does not error"), None);
         assert_eq!(record.get_date(0), None);
         assert_eq!(record.get_accrue_type(0), None);
         assert_eq!(record.get_boolean(0, Some("No")), None);
@@ -830,23 +839,23 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,\"1.5\",\"42\"\r\n");
 
-        assert_eq!(record.get_float(0).expect("解析成功"), Some(1.5));
+        assert_eq!(record.get_float(0).expect("parses successfully"), Some(1.5));
         assert_eq!(record.get_integer(1), Some(42));
     }
 
     #[test]
     fn eol_placeholder_is_converted_to_a_newline() {
         let fixture = Fixture::new();
-        // 备注文本里的 \u{7F} 代表换行；记录号被弹出后该字段的下标是 1
+        // \u{7F} in note text represents a newline; after the record number is popped, this field's index is 1
         let record = fixture.record("71,1,line1\u{7F}line2\r\n");
 
         assert_eq!(record.get_string(1).as_deref(), Some("line1\nline2"));
-        // getCharacter 取的是首字符，不做占位符替换
+        // getCharacter takes the first character and does not do placeholder replacement
         assert_eq!(record.get_character(1), Some('l'));
-        // 其余访问器按原文处理（含占位符）
+        // The other accessors handle the raw text (including the placeholder)
         assert_eq!(record.get_integer(0), Some(1));
         assert_eq!(record.get_string(2), None);
-        // 未含占位符的字段保持原样
+        // Fields without the placeholder are kept as-is
         assert_eq!(record.get_string(0).as_deref(), Some("1"));
     }
 
@@ -855,7 +864,7 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,,abc\r\n");
 
-        // 空字段与越界字段都返回 None
+        // Empty fields and out-of-bounds fields both return None
         assert_eq!(record.get_character(0), None);
         assert_eq!(record.get_character(1), Some('a'));
         assert_eq!(record.get_character(2), None);
@@ -867,16 +876,16 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,1\r\n");
 
-        // Java 对负数下标抛 ArrayIndexOutOfBoundsException，Rust 侧统一按缺失处理
+        // Java throws ArrayIndexOutOfBoundsException for a negative index; Rust uniformly treats it as missing
         assert_eq!(record.get_string(-1), None);
         assert_eq!(record.get_string(1), None);
         assert_eq!(record.get_character(-1), None);
-        assert_eq!(record.get_float(-1).expect("缺失不报错"), None);
-        assert_eq!(record.get_rate(-1).expect("缺失不报错"), None);
-        assert_eq!(record.get_currency(-1).expect("缺失不报错"), None);
-        assert_eq!(record.get_percentage(-1).expect("缺失不报错"), None);
-        assert_eq!(record.get_duration(-1).expect("缺失不报错"), None);
-        assert_eq!(record.get_units(-1).expect("缺失不报错"), None);
+        assert_eq!(record.get_float(-1).expect("missing field does not error"), None);
+        assert_eq!(record.get_rate(-1).expect("missing field does not error"), None);
+        assert_eq!(record.get_currency(-1).expect("missing field does not error"), None);
+        assert_eq!(record.get_percentage(-1).expect("missing field does not error"), None);
+        assert_eq!(record.get_duration(-1).expect("missing field does not error"), None);
+        assert_eq!(record.get_units(-1).expect("missing field does not error"), None);
         assert_eq!(record.get_date(-1), None);
         assert_eq!(record.get_date_time(-1), None);
         assert_eq!(record.get_time(-1), None);
@@ -895,11 +904,11 @@ mod tests {
         assert_eq!(record.get_integer(1), Some(1));
         assert_eq!(record.get_integer(2), Some(0));
         assert_eq!(record.get_integer(3), Some(-3));
-        // 非整数内容：Java 抛 NumberFormatException，Rust 侧返回 None
+        // Non-integer content: Java throws NumberFormatException, Rust returns None
         assert_eq!(record.get_integer(4), None);
-        // 空字段
+        // Empty field
         assert_eq!(record.get_integer(5), None);
-        // 前导空白：Java 的 Integer.valueOf 不接受，Rust 的 parse 同样不接受
+        // Leading whitespace: Java's Integer.valueOf rejects it, and Rust's parse likewise rejects it
         assert_eq!(record.get_integer(6), None);
 
         assert!(record.get_numeric_boolean(1));
@@ -913,11 +922,11 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,1.5,$1.50,25,50\r\n");
 
-        assert_eq!(record.get_float(0).expect("解析成功"), Some(1.5));
-        assert_eq!(record.get_currency(1).expect("解析成功"), Some(1.5));
-        assert_eq!(record.get_percentage(2).expect("解析成功"), Some(25.0));
-        // Java: 单位数解析结果乘以 100
-        assert_eq!(record.get_units(3).expect("解析成功"), Some(5000.0));
+        assert_eq!(record.get_float(0).expect("parses successfully"), Some(1.5));
+        assert_eq!(record.get_currency(1).expect("parses successfully"), Some(1.5));
+        assert_eq!(record.get_percentage(2).expect("parses successfully"), Some(25.0));
+        // Java: the units parse result is multiplied by 100
+        assert_eq!(record.get_units(3).expect("parses successfully"), Some(5000.0));
     }
 
     #[test]
@@ -925,21 +934,21 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,abc,abc,abc,abc\r\n");
 
-        // Java: 抛 MPXJException("Failed to parse ...")
+        // Java: throws MPXJException("Failed to parse ...")
         assert_eq!(
-            record.get_float(0).expect_err("应当报错").message(),
+            record.get_float(0).expect_err("should error").message(),
             "Failed to parse float"
         );
         assert_eq!(
-            record.get_currency(1).expect_err("应当报错").message(),
+            record.get_currency(1).expect_err("should error").message(),
             "Failed to parse currency"
         );
         assert_eq!(
-            record.get_percentage(2).expect_err("应当报错").message(),
+            record.get_percentage(2).expect_err("should error").message(),
             "Failed to parse percentage"
         );
         assert_eq!(
-            record.get_units(3).expect_err("应当报错").message(),
+            record.get_units(3).expect_err("should error").message(),
             "Failed to parse units"
         );
     }
@@ -950,16 +959,16 @@ mod tests {
         let record = fixture.record("70,$10.00/h,$10.00,10.00/d\r\n");
 
         assert_eq!(
-            record.get_rate(0).expect("解析成功"),
+            record.get_rate(0).expect("parses successfully"),
             Some(Rate::new(10.0, TimeUnit::Hours))
         );
-        // 没有 `/` 时单位固定为小时
+        // Without `/` the units are fixed to hours
         assert_eq!(
-            record.get_rate(1).expect("解析成功"),
+            record.get_rate(1).expect("parses successfully"),
             Some(Rate::new(10.0, TimeUnit::Hours))
         );
         assert_eq!(
-            record.get_rate(2).expect("解析成功"),
+            record.get_rate(2).expect("parses successfully"),
             Some(Rate::new(10.0, TimeUnit::Days))
         );
     }
@@ -967,19 +976,19 @@ mod tests {
     #[test]
     fn rate_accessor_reports_failures() {
         let fixture = Fixture::new();
-        // 金额非法 / 单位无法识别 / 金额为空
+        // Invalid amount / unrecognized units / empty amount
         let record = fixture.record("70,abc/h,$10.00/x,/h\r\n");
 
         assert_eq!(
-            record.get_rate(0).expect_err("应当报错").message(),
+            record.get_rate(0).expect_err("should error").message(),
             "Failed to parse rate"
         );
         assert_eq!(
-            record.get_rate(1).expect_err("应当报错").message(),
+            record.get_rate(1).expect_err("should error").message(),
             format!("{} x", MpxjError::INVALID_TIME_UNIT)
         );
         assert_eq!(
-            record.get_rate(2).expect_err("应当报错").message(),
+            record.get_rate(2).expect_err("should error").message(),
             "Failed to parse rate"
         );
     }
@@ -990,18 +999,18 @@ mod tests {
         let record = fixture.record("70,8h,2,xyz,NA\r\n");
 
         assert_eq!(
-            record.get_duration(0).expect("解析不报错"),
+            record.get_duration(0).expect("parsing does not error"),
             Some(Duration::get_instance(8.0, TimeUnit::Hours))
         );
-        // 没有单位后缀时按天处理（兼容 MPX3）
+        // Without a units suffix, treat as days (MPX3 compatibility)
         assert_eq!(
-            record.get_duration(1).expect("解析不报错"),
+            record.get_duration(1).expect("parsing does not error"),
             Some(Duration::get_instance(2.0, TimeUnit::Days))
         );
-        // 无法解析的值：DurationUtility 折叠为 None（见该模块文件头）
-        assert_eq!(record.get_duration(2).expect("解析不报错"), None);
-        // 空值文本 `NA` 不是合法工期
-        assert_eq!(record.get_duration(3).expect("解析不报错"), None);
+        // Unparsable value: DurationUtility folds it into None (see that module's header)
+        assert_eq!(record.get_duration(2).expect("parsing does not error"), None);
+        // The null text `NA` is not a legal duration
+        assert_eq!(record.get_duration(3).expect("parsing does not error"), None);
     }
 
     #[test]
@@ -1009,24 +1018,24 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,01/02/2024,01/02/2024 13:30,13:30,NA,xyz\r\n");
 
-        // 英文默认格式：DMY + `/` 分隔符（DD_MM_YYYY）
+        // English default format: DMY + `/` separator (DD_MM_YYYY)
         assert_eq!(record.get_date(0), Some(date(2024, 2, 1)));
         assert_eq!(
             record.get_date_time(1),
             Some(
                 NaiveDate::from_ymd_opt(2024, 2, 1)
-                    .expect("合法日期")
+                    .expect("valid date")
                     .and_hms_opt(13, 30, 0)
-                    .expect("合法时间")
+                    .expect("valid time")
             )
         );
         assert_eq!(
             record.get_time(2),
             NaiveTime::from_hms_opt(13, 30, 0)
         );
-        // 「空值文本」按 Java 语义返回 None
+        // "Null text" returns None per Java semantics
         assert_eq!(record.get_date(3), None);
-        // 无法解析的文本：Java 抛 DateTimeParseException，Rust 侧返回 None
+        // Unparsable text: Java throws DateTimeParseException, Rust returns None
         assert_eq!(record.get_date(4), None);
         assert_eq!(record.get_time(4), None);
         assert_eq!(record.get_date_time(4), None);
@@ -1038,7 +1047,7 @@ mod tests {
         let record = fixture.record("70\r\n");
 
         assert_eq!(record.get_length(), 0);
-        // Java 的默认值
+        // Java's default
         assert_eq!(record.get_time_unit(0), TimeUnit::Days);
         assert_eq!(record.get_time_format(0), ProjectTimeFormat::TwelveHour);
         assert_eq!(record.get_schedule_from(0), ScheduleFrom::Start);
@@ -1077,7 +1086,7 @@ mod tests {
         let fixture = Fixture::new();
         let record = fixture.record("70,abc,abc\r\n");
 
-        // Java 抛 NumberFormatException；Rust 侧回落到各自 getInstance 的越界分支
+        // Java throws NumberFormatException; Rust falls back to each getInstance's out-of-range branch
         assert_eq!(record.get_time_unit(0), TimeUnit::Days);
         assert_eq!(record.get_time_format(0), ProjectTimeFormat::TwelveHour);
         assert_eq!(record.get_date_order(0), DateOrder::Mdy);
@@ -1097,10 +1106,10 @@ mod tests {
         assert_eq!(record.get_boolean(0, Some("No")), Some(false));
         assert_eq!(record.get_boolean(1, Some("No")), Some(true));
         assert_eq!(record.get_boolean(2, Some("No")), Some(false));
-        // 与 falseText 的大小写不敏感比较
+        // Case-insensitive comparison with falseText
         assert_eq!(record.get_boolean(3, Some("No")), Some(true));
         assert_eq!(record.get_boolean(4, Some("No")), Some(true));
-        // Java: equalsIgnoreCase(null) 恒为 false，故结果为 true
+        // Java: equalsIgnoreCase(null) is always false, so the result is true
         assert_eq!(record.get_boolean(4, None), Some(true));
     }
 
@@ -1122,7 +1131,7 @@ mod tests {
             vec![Some("1".to_owned()), None, Some(String::new())],
         );
 
-        // Java Arrays.toString 对 null 元素输出 `null`，对空串输出 ``
+        // Java Arrays.toString outputs `null` for null elements and `` for empty strings
         assert_eq!(record.to_string(), "[1, null, ]");
     }
 
@@ -1138,7 +1147,7 @@ mod tests {
 
         assert_eq!(record.get_record_number(), Some(70));
         assert_eq!(record.get_length(), 2);
-        // 元素为 None 的字段与「字段不存在」表现一致（Java 的 String[] 元素可为 null）
+        // A field whose element is None behaves like "field does not exist" (Java's String[] elements may be null)
         assert_eq!(record.get_string(0), None);
         assert_eq!(record.get_character(0), None);
         assert_eq!(record.get_integer(0), None);

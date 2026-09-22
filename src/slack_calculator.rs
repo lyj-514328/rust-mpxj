@@ -1,41 +1,42 @@
-//! 对应 Java: `org/mpxj/SlackCalculator.java`
+//! Corresponds to Java: `org/mpxj/SlackCalculator.java`
 //!
-//! # 依赖说明
+//! # Dependency Notes
 //!
-//! 本 trait 的参数类型 `Task`（[`crate::task::Task`]）已落地；本文件只按 `&Task`
-//! 引用使用它，不依赖其具体方法。
+//! The `Task` parameter type of this trait ([`crate::task::Task`]) has landed; this file only
+//! uses it by `&Task` reference and does not depend on its concrete methods.
 
 use crate::duration::Duration;
 use crate::task::Task;
 
-/// 为 project 提供 slack（时差）计算的策略接口。
+/// Strategy interface providing slack calculation for a project.
 ///
-/// 对应 Java: `public interface SlackCalculator`
+/// Corresponds to Java: `public interface SlackCalculator`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 的 `Task` 是可变对象引用；Rust 侧各方法只读取任务数据，故参数为 `&Task`
-///   （与 `crate::common::slack_helper::SlackHelper::infer_slack` 的用法保持一致）。
-/// - Java 的返回类型 `Duration` 允许为 `null`，Rust 侧对应 `Option<Duration>`。
+/// - Java's `Task` is a mutable object reference; each method on the Rust side only reads task
+///   data, so the parameter is `&Task` (consistent with the usage in
+///   `crate::common::slack_helper::SlackHelper::infer_slack`).
+/// - Java's return type `Duration` may be `null`; the Rust side uses `Option<Duration>`.
 pub trait SlackCalculator {
-    /// 计算任务的开始浮动时间（start slack）。
+    /// Calculate the task's start slack.
     ///
-    /// 对应 Java: `Duration calculateStartSlack(Task task)`
+    /// Corresponds to Java: `Duration calculateStartSlack(Task task)`
     fn calculate_start_slack(&self, task: &Task) -> Option<Duration>;
 
-    /// 计算任务的完成浮动时间（finish slack）。
+    /// Calculate the task's finish slack.
     ///
-    /// 对应 Java: `Duration calculateFinishSlack(Task task)`
+    /// Corresponds to Java: `Duration calculateFinishSlack(Task task)`
     fn calculate_finish_slack(&self, task: &Task) -> Option<Duration>;
 
-    /// 计算任务的自由浮动时间（free slack）。
+    /// Calculate the task's free slack.
     ///
-    /// 对应 Java: `Duration calculateFreeSlack(Task task)`
+    /// Corresponds to Java: `Duration calculateFreeSlack(Task task)`
     fn calculate_free_slack(&self, task: &Task) -> Option<Duration>;
 
-    /// 计算任务的总浮动时间（total slack）。
+    /// Calculate the task's total slack.
     ///
-    /// 对应 Java: `Duration calculateTotalSlack(Task task)`
+    /// Corresponds to Java: `Duration calculateTotalSlack(Task task)`
     fn calculate_total_slack(&self, task: &Task) -> Option<Duration>;
 }
 
@@ -44,7 +45,7 @@ mod tests {
     use super::*;
     use crate::time_unit::TimeUnit;
 
-    /// 返回固定常量的 mock 实现，用于验证 trait 形状。
+    /// A mock implementation returning constant values, used to verify the trait shape.
     struct ConstantCalculator;
 
     impl SlackCalculator for ConstantCalculator {
@@ -80,7 +81,7 @@ mod tests {
         );
         assert_eq!(calculator.calculate_total_slack(&task), None);
 
-        // trait 对象分发
+        // Trait object dispatch
         let dynamic: &dyn SlackCalculator = &ConstantCalculator;
         assert_eq!(
             dynamic.calculate_finish_slack(&task),

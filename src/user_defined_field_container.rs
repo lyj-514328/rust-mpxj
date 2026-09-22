@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/UserDefinedFieldContainer.java`
+//! Corresponds to Java: `org/mpxj/UserDefinedFieldContainer.java`
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -8,64 +8,64 @@ use std::rc::Rc;
 use crate::field_type_class::FieldTypeClass;
 use crate::user_defined_field::UserDefinedField;
 
-/// 管理某个项目下的全部用户自定义字段。
+/// Manages all user-defined fields under a project.
 ///
-/// 对应 Java: `public class UserDefinedFieldContainer implements Collection<UserDefinedField>`
+/// Corresponds to Java: `public class UserDefinedFieldContainer implements Collection<UserDefinedField>`
 ///
-/// # 结构取舍
+/// # Structural trade-offs
 ///
-/// - Java 构造方法接收 `CustomFieldContainer` 并保存为 `m_customFields`，但它只在
-///   `remove` 中使用：`m_customFields.remove((UserDefinedField) o)`。Rust 侧
-///   [`crate::custom_field_container::CustomFieldContainer`] 以 `FieldKey` 为键，而
-///   `FieldKey` 没有「用户自定义字段」变体，这个方法调用无法表达，因此 Rust 侧**不保存**
-///   该引用，构造方法无参数。
-/// - Java 实现的是 `Collection<UserDefinedField>`；Rust 侧提供等价的 `iter` / `size` /
-///   `is_empty` / `add` / `remove` / `clear` / `contains` 等方法，不实现 `std::iter::Extend`
-///   等 Rust 集合 trait（Java 的 `addAll` / `removeAll` / `retainAll` 本身就直接抛
-///   `UnsupportedOperationException`）。
+/// - The Java constructor takes a `CustomFieldContainer` and stores it as `m_customFields`, but it is only used in
+/// `remove`: `m_customFields.remove((UserDefinedField) o)`. On the Rust side,
+/// [`crate::custom_field_container::CustomFieldContainer`] uses `FieldKey` as its key, and
+/// `FieldKey` has no "user-defined field" variant, so this method call cannot be expressed; therefore the Rust side **does not store**
+/// that reference, and the constructor takes no parameters.
+/// - Java implements `Collection<UserDefinedField>`; the Rust side provides equivalent `iter` / `size` /
+/// `is_empty` / `add` / `remove` / `clear` / `contains` and other methods, and does not implement `std::iter::Extend`
+/// and other Rust collection traits (Java's `addAll` / `removeAll` / `retainAll` themselves just throw
+///   `UnsupportedOperationException`).
 ///
-/// # 与 Java 一致的行为（含 Java 中疑似缺陷的部分）
+/// # Behavior consistent with Java (including parts that appear to be defects in Java)
 ///
-/// 本类刻意复刻 Java 的行为，包括以下两点：
+/// This class deliberately replicates Java's behavior, including the following two points:
 ///
-/// - `remove` 只从 `m_uniqueIDMap` 中移除：Java 的实现是
-///   `m_taskFields.remove(o)`，传入的是**对象**而非键，而这三个映射的键是 `Integer`，
-///   因此永远匹配不到、实际不产生任何效果。
-/// - `clear` 只清空四个分类映射，**不**清空 `m_uniqueIDMap`，因此 `clear()` 之后
-///   `size()` 仍可能非 0。
+/// - `remove` only removes from `m_uniqueIDMap`: Java's implementation is
+/// `m_taskFields.remove(o)`, passing an **object** rather than a key, while the keys of these three maps are `Integer`,
+/// so it never matches and has no actual effect.
+/// - `clear` clears only the four category maps and does **not** clear `m_uniqueIDMap`, so after `clear()`
+/// `size()` may still be non-zero.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - 映射值为 `Rc<RefCell<UserDefinedField>>`（共享 + 后续可变），Java 直接持有对象引用。
-/// - `getOrCreate*` 的 `Function<Integer, UserDefinedField>` 参数 → `impl FnOnce(i32) -> UserDefinedField`。
-/// - `toArray()` → [`to_vec`](UserDefinedFieldContainer::to_vec)；`iterator()` → [`iter`](UserDefinedFieldContainer::iter)。
+/// - Map values are `Rc<RefCell<UserDefinedField>>` (shared + later mutable); Java holds object references directly.
+/// - The `Function<Integer, UserDefinedField>` parameter of `getOrCreate*` → `impl FnOnce(i32) -> UserDefinedField`.
+/// - `toArray()` → [`to_vec`](UserDefinedFieldContainer::to_vec);`iterator()` → [`iter`](UserDefinedFieldContainer::iter).
 ///
-/// 被跳过的 Java 方法：`addAll` / `removeAll` / `retainAll`（Java 直接抛
-/// `UnsupportedOperationException`）、`forEach` / `spliterator`（Java 集合协议，Rust 侧由
-/// `iter()` 组合实现）、`toArray(T[] a)`（Java 泛型数组机制）、
-/// `m_customFields.remove(...)` 调用（见上）。
+/// Skipped Java methods: `addAll` / `removeAll` / `retainAll` (Java throws
+/// `UnsupportedOperationException` directly), `forEach` / `spliterator` (Java collection protocol; on the Rust side these are
+/// implemented compositionally with `iter()`), `toArray(T[] a)` (Java's generic array mechanism),
+/// and the `m_customFields.remove(...)` call (see above).
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub struct UserDefinedFieldContainer {
-    /// 任务用户自定义字段。
+/// Task user-defined fields.
     ///
-    /// 对应 Java: `private final Map<Integer, UserDefinedField> m_taskFields = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, UserDefinedField> m_taskFields = new HashMap<>();`
     m_task_fields: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
-    /// 资源用户自定义字段。
+/// Resource user-defined fields.
     ///
-    /// 对应 Java: `private final Map<Integer, UserDefinedField> m_resourceFields = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, UserDefinedField> m_resourceFields = new HashMap<>();`
     m_resource_fields: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
-    /// 资源分配用户自定义字段。
+/// Resource assignment user-defined fields.
     ///
-    /// 对应 Java: `private final Map<Integer, UserDefinedField> m_assignmentFields = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, UserDefinedField> m_assignmentFields = new HashMap<>();`
     m_assignment_fields: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
-    /// 项目用户自定义字段。
+/// Project user-defined fields.
     ///
-    /// 对应 Java: `private final Map<Integer, UserDefinedField> m_projectFields = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, UserDefinedField> m_projectFields = new HashMap<>();`
     m_project_fields: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
-    /// 全部用户自定义字段（按 unique ID）。
+/// All user-defined fields (by unique ID).
     ///
-    /// 对应 Java: `private final Map<Integer, UserDefinedField> m_uniqueIDMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, UserDefinedField> m_uniqueIDMap = new HashMap<>();`
     m_unique_id_map: HashMap<i32, Rc<RefCell<UserDefinedField>>>,
 }
 
@@ -76,11 +76,11 @@ impl Default for UserDefinedFieldContainer {
 }
 
 impl UserDefinedFieldContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public UserDefinedFieldContainer(CustomFieldContainer customFields)`
+    /// Corresponds to Java: `public UserDefinedFieldContainer(CustomFieldContainer customFields)`
     ///
-    /// 见类型说明：Rust 侧不保存 `customFields` 引用。
+/// See the type description: the Rust side does not store the `customFields` reference.
     pub fn new() -> Self {
         Self {
             m_task_fields: HashMap::new(),
@@ -91,26 +91,26 @@ impl UserDefinedFieldContainer {
         }
     }
 
-    /// 迭代全部用户自定义字段。
+/// Iterates over all user-defined fields.
     ///
-    /// 对应 Java: `@Override public Iterator<UserDefinedField> iterator()`
+    /// Corresponds to Java: `@Override public Iterator<UserDefinedField> iterator()`
     pub fn iter(&self) -> impl Iterator<Item = &Rc<RefCell<UserDefinedField>>> {
         self.m_unique_id_map.values()
     }
 
-    /// 以 `Vec` 形式返回全部用户自定义字段。
+/// Returns all user-defined fields as a `Vec`.
     ///
-    /// 对应 Java: `@Override public Object[] toArray()`
+    /// Corresponds to Java: `@Override public Object[] toArray()`
     pub fn to_vec(&self) -> Vec<Rc<RefCell<UserDefinedField>>> {
         self.m_unique_id_map.values().cloned().collect()
     }
 
-    /// 添加一个用户自定义字段。
+/// Adds a user-defined field.
     ///
-    /// 对应 Java: `@Override public boolean add(UserDefinedField field)`
+    /// Corresponds to Java: `@Override public boolean add(UserDefinedField field)`
     ///
-    /// 字段的实体类型不是 TASK / RESOURCE / ASSIGNMENT / PROJECT 时返回 `false`
-    /// （Java 对 `Constraint` 等类型返回 `false`，因为 `getMapFromFieldTypeClass` 返回 `null`）。
+/// Returns `false` when the field's entity type is not TASK / RESOURCE / ASSIGNMENT / PROJECT
+/// (Java returns `false` for types such as `Constraint`, because `getMapFromFieldTypeClass` returns `null`).
     pub fn add(&mut self, field: Rc<RefCell<UserDefinedField>>) -> bool {
         let unique_id = field.borrow().get_unique_id();
 
@@ -125,7 +125,7 @@ impl UserDefinedFieldContainer {
         true
     }
 
-    /// 按实体类型取对应的分类映射（Java 的 `getMapFromFieldTypeClass`）。
+/// Gets the corresponding category map by entity type (Java's `getMapFromFieldTypeClass`).
     fn map_from_field_type_class(
         &mut self,
         field: &UserDefinedField,
@@ -139,42 +139,42 @@ impl UserDefinedFieldContainer {
         }
     }
 
-    /// 移除一个用户自定义字段。
+/// Removes a user-defined field.
     ///
-    /// 对应 Java: `@Override public boolean remove(Object o)`
+    /// Corresponds to Java: `@Override public boolean remove(Object o)`
     ///
-    /// 与 Java 一致：只从 `m_uniqueIDMap` 中移除（Java 中另外三行的 `remove(o)` 传入对象
-    /// 而非键，永远匹配不到），返回值表示 `m_uniqueIDMap` 中是否存在该映射。
-    /// 另外，Java 还会调用 `m_customFields.remove(...)`；该调用无法用 `FieldKey` 表达，
-    /// 见类型说明。
+/// Consistent with Java: only removes from `m_uniqueIDMap` (the `remove(o)` on the other three lines in Java passes an object
+/// rather than a key, so it never matches); the return value indicates whether that mapping exists in `m_uniqueIDMap`.
+/// In addition, Java also calls `m_customFields.remove(...)`; that call cannot be expressed with `FieldKey`,
+/// see the type description.
     pub fn remove(&mut self, field: &UserDefinedField) -> bool {
         self.m_unique_id_map
             .remove(&field.get_unique_id())
             .is_some()
     }
 
-    /// 判断是否包含指定的用户自定义字段。
+/// Determines whether the specified user-defined field is contained.
     ///
-    /// 对应 Java: `@Override public boolean contains(Object o)`
+    /// Corresponds to Java: `@Override public boolean contains(Object o)`
     ///
-    /// Java 用 `m_uniqueIDMap.containsValue(o)`；`UserDefinedField` 的相等性由 unique ID
-    /// 决定，因此等价于按键判断。
+/// Java uses `m_uniqueIDMap.containsValue(o)`; `UserDefinedField` equality is determined by unique ID,
+/// so it is equivalent to a key-based check.
     pub fn contains(&self, field: &UserDefinedField) -> bool {
         self.m_unique_id_map.contains_key(&field.get_unique_id())
     }
 
-    /// 判断是否包含给定的全部用户自定义字段。
+/// Determines whether all the given user-defined fields are contained.
     ///
-    /// 对应 Java: `@Override public boolean containsAll(Collection<?> c)`
+    /// Corresponds to Java: `@Override public boolean containsAll(Collection<?> c)`
     pub fn contains_all(&self, fields: &[UserDefinedField]) -> bool {
         fields.iter().all(|field| self.contains(field))
     }
 
-    /// 清空四个分类映射。
+/// Clears the four category maps.
     ///
-    /// 对应 Java: `@Override public void clear()`
+    /// Corresponds to Java: `@Override public void clear()`
     ///
-    /// 与 Java 一致：**不**清空 `m_uniqueIDMap`，见类型说明。
+/// Consistent with Java: does **not** clear `m_uniqueIDMap`, see the type description.
     pub fn clear(&mut self) {
         self.m_task_fields.clear();
         self.m_resource_fields.clear();
@@ -182,51 +182,51 @@ impl UserDefinedFieldContainer {
         self.m_project_fields.clear();
     }
 
-    /// 用户自定义字段个数。
+/// The number of user-defined fields.
     ///
-    /// 对应 Java: `@Override public int size()`
+    /// Corresponds to Java: `@Override public int size()`
     pub fn size(&self) -> usize {
         self.m_unique_id_map.len()
     }
 
-    /// 是否没有任何用户自定义字段。
+/// Whether there are no user-defined fields.
     ///
-    /// 对应 Java: `@Override public boolean isEmpty()`
+    /// Corresponds to Java: `@Override public boolean isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.m_unique_id_map.is_empty()
     }
 
-    /// 取全部任务用户自定义字段。
+/// Gets all task user-defined fields.
     ///
-    /// 对应 Java: `public Collection<UserDefinedField> getTaskFields()`
+    /// Corresponds to Java: `public Collection<UserDefinedField> getTaskFields()`
     pub fn get_task_fields(&self) -> Vec<Rc<RefCell<UserDefinedField>>> {
         self.m_task_fields.values().cloned().collect()
     }
 
-    /// 取全部资源用户自定义字段。
+/// Gets all resource user-defined fields.
     ///
-    /// 对应 Java: `public Collection<UserDefinedField> getResourceFields()`
+    /// Corresponds to Java: `public Collection<UserDefinedField> getResourceFields()`
     pub fn get_resource_fields(&self) -> Vec<Rc<RefCell<UserDefinedField>>> {
         self.m_resource_fields.values().cloned().collect()
     }
 
-    /// 取全部资源分配用户自定义字段。
+/// Gets all resource assignment user-defined fields.
     ///
-    /// 对应 Java: `public Collection<UserDefinedField> getAssignmentFields()`
+    /// Corresponds to Java: `public Collection<UserDefinedField> getAssignmentFields()`
     pub fn get_assignment_fields(&self) -> Vec<Rc<RefCell<UserDefinedField>>> {
         self.m_assignment_fields.values().cloned().collect()
     }
 
-    /// 取全部项目用户自定义字段。
+/// Gets all project user-defined fields.
     ///
-    /// 对应 Java: `public Collection<UserDefinedField> getProjectFields()`
+    /// Corresponds to Java: `public Collection<UserDefinedField> getProjectFields()`
     pub fn get_project_fields(&self) -> Vec<Rc<RefCell<UserDefinedField>>> {
         self.m_project_fields.values().cloned().collect()
     }
 
-    /// 按 ID 取任务用户自定义字段，不存在时用 `create` 创建。
+/// Gets a task user-defined field by ID, creating it with `create` when absent.
     ///
-    /// 对应 Java: `public UserDefinedField getOrCreateTaskField(Integer id, Function<Integer, UserDefinedField> createFunction)`
+    /// Corresponds to Java: `public UserDefinedField getOrCreateTaskField(Integer id, Function<Integer, UserDefinedField> createFunction)`
     pub fn get_or_create_task_field<F>(&mut self, id: i32, create: F) -> Rc<RefCell<UserDefinedField>>
     where
         F: FnOnce(i32) -> UserDefinedField,
@@ -240,9 +240,9 @@ impl UserDefinedFieldContainer {
         self.add_field(field)
     }
 
-    /// 按 ID 取资源用户自定义字段，不存在时用 `create` 创建。
+/// Gets a resource user-defined field by ID, creating it with `create` when absent.
     ///
-    /// 对应 Java: `public UserDefinedField getOrCreateResourceField(Integer id, Function<Integer, UserDefinedField> createFunction)`
+    /// Corresponds to Java: `public UserDefinedField getOrCreateResourceField(Integer id, Function<Integer, UserDefinedField> createFunction)`
     pub fn get_or_create_resource_field<F>(
         &mut self,
         id: i32,
@@ -260,9 +260,9 @@ impl UserDefinedFieldContainer {
         self.add_field(field)
     }
 
-    /// 按 ID 取资源分配用户自定义字段，不存在时用 `create` 创建。
+/// Gets a resource assignment user-defined field by ID, creating it with `create` when absent.
     ///
-    /// 对应 Java: `public UserDefinedField getOrCreateAssignmentField(Integer id, Function<Integer, UserDefinedField> createFunction)`
+    /// Corresponds to Java: `public UserDefinedField getOrCreateAssignmentField(Integer id, Function<Integer, UserDefinedField> createFunction)`
     pub fn get_or_create_assignment_field<F>(
         &mut self,
         id: i32,
@@ -280,9 +280,9 @@ impl UserDefinedFieldContainer {
         self.add_field(field)
     }
 
-    /// 按 ID 取项目用户自定义字段，不存在时用 `create` 创建。
+/// Gets a project user-defined field by ID, creating it with `create` when absent.
     ///
-    /// 对应 Java: `public UserDefinedField getOrCreateProjectField(Integer id, Function<Integer, UserDefinedField> createFunction)`
+    /// Corresponds to Java: `public UserDefinedField getOrCreateProjectField(Integer id, Function<Integer, UserDefinedField> createFunction)`
     pub fn get_or_create_project_field<F>(
         &mut self,
         id: i32,
@@ -300,15 +300,15 @@ impl UserDefinedFieldContainer {
         self.add_field(field)
     }
 
-    /// 按 unique ID 取用户自定义字段。
+/// Gets a user-defined field by unique ID.
     ///
-    /// 对应 Java: `public UserDefinedField getByUniqueID(Integer id)`
+    /// Corresponds to Java: `public UserDefinedField getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<UserDefinedField>>> {
         let id = id?;
         self.m_unique_id_map.get(&id).cloned()
     }
 
-    /// 把字段登记进 unique ID 索引并返回它（Java 的 `addField`）。
+/// Registers a field in the unique ID index and returns it (Java's `addField`).
     fn add_field(&mut self, field: Rc<RefCell<UserDefinedField>>) -> Rc<RefCell<UserDefinedField>> {
         let unique_id = field.borrow().get_unique_id();
         self.m_unique_id_map.insert(unique_id, Rc::clone(&field));
@@ -317,7 +317,7 @@ impl UserDefinedFieldContainer {
 }
 
 impl Debug for UserDefinedFieldContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出 unique ID 索引。
+/// Java does not override `toString()`; the Rust side outputs the unique ID index.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("UserDefinedFieldContainer")
             .field("m_unique_id_map", &self.m_unique_id_map)
@@ -333,7 +333,7 @@ mod tests {
     use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
     use std::any::TypeId;
 
-    /// 测试用序号生成器提供者。
+/// A sequence generator provider for tests.
     #[derive(Default)]
     struct TestProvider {
         sequences: HashMap<TypeId, Rc<ObjectSequence>>,
@@ -349,7 +349,7 @@ mod tests {
         }
     }
 
-    /// 构造一个用户自定义字段。
+/// Builds a user-defined field.
     fn field(unique_id: i32, type_class: FieldTypeClass) -> UserDefinedField {
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(TestProvider::default()));
@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(container.get_project_fields().len(), 1);
 
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(1)).expect("已登记"),
+            &container.get_by_unique_id(Some(1)).expect("registered"),
             &task
         ));
         assert!(container.get_by_unique_id(Some(9)).is_none());
@@ -412,10 +412,10 @@ mod tests {
         assert!(container.is_empty());
         assert!(container.get_by_unique_id(Some(1)).is_none());
 
-        // 与 Java 一致：分类映射中仍保留该字段
+// Consistent with Java: the field remains in the category map
         assert_eq!(container.get_task_fields().len(), 1);
 
-        // 再次移除返回 false
+// Removing again returns false
         assert!(!container.remove(&task.borrow()));
     }
 
@@ -440,7 +440,7 @@ mod tests {
 
         container.clear();
 
-        // 与 Java 一致：clear 后 size() 仍非 0
+// Consistent with Java: size() is still non-zero after clear
         assert_eq!(container.size(), 1);
         assert_eq!(container.get_task_fields().len(), 0);
         assert!(container.get_by_unique_id(Some(1)).is_some());
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(created.borrow().get_unique_id(), 5);
         assert_eq!(container.size(), 1);
 
-        // 已存在时不再调用创建函数
+// The create function is not called again when it already exists
         let create_calls = std::cell::Cell::new(0);
         let existing = container.get_or_create_task_field(5, |id| {
             create_calls.set(create_calls.get() + 1);
@@ -466,7 +466,7 @@ mod tests {
         assert!(Rc::ptr_eq(&created, &existing));
         assert_eq!(container.size(), 1);
 
-        // 其他类别各自独立
+// The other categories are independent of each other
         container.get_or_create_resource_field(6, |id| field(id, FieldTypeClass::Resource));
         container.get_or_create_assignment_field(7, |id| field(id, FieldTypeClass::Assignment));
         container.get_or_create_project_field(8, |id| field(id, FieldTypeClass::Project));

@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/Task.java`
+//! Corresponds to Java: `org/mpxj/Task.java`
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -44,98 +44,98 @@ use crate::task_type::TaskType;
 use crate::time_unit::TimeUnit;
 
 // ---------------------------------------------------------------------------
-// 文件头说明
+// File header description
 // ---------------------------------------------------------------------------
 //
-// # Java 形态
+// # Java form
 //
 // ```java
 // public final class Task extends AbstractFieldContainer<Task>
 //    implements Comparable<Task>, ProjectEntityWithID, ChildTaskContainer
 // ```
 //
-// 字段（Java 侧只有 5 个成员变量，其余全部存在 `AbstractFieldContainer` 的字段表里）：
+// Fields (the Java side has only 5 member variables; all the rest live in the field table of `AbstractFieldContainer`):
 //
-// | Java 字段 | Rust 字段 |
+// | Java field | Rust field |
 // |---|---|
 // | `private final ProjectFile m_parentFile` | `parent_file: Weak<RefCell<ProjectFile>>` |
 // | `private Task m_parent` | `parent: Weak<RefCell<Task>>` |
 // | `private final List<Task> m_children` | `children: Vec<Rc<RefCell<Task>>>` |
-// | `private RecurringTask m_recurringTask` | `recurring_task: Option<RecurringTask>`（惰性创建，见 [`Task::add_recurring_task`]） |
-// | `AbstractFieldContainer` 的 `m_fields` | `fields: AbstractFieldContainer` |
+// | `private RecurringTask m_recurringTask` | `recurring_task: Option<RecurringTask>` (lazily created, see [`Task::add_recurring_task`]) |
+// | `AbstractFieldContainer`'s `m_fields` | `fields: AbstractFieldContainer` |
 //
-// # 引用关系与生命周期（Java → Rust）
+// # References and lifetime (Java → Rust)
 //
-// * `m_parentFile`：Java 由 GC 管理，`Task` 直接持有 `ProjectFile`。Rust 侧
-//   `ProjectFile` 放在 `Rc<RefCell<ProjectFile>>` 中，任务反向持有其父文件，
-//   若用强引用会与 `ProjectFile → TaskContainer → Task` 形成 `Rc` 循环，
-//   故改为 [`Weak`]（见 [`Task::get_parent_file`]）。
-// * `m_parent` / `m_children`：Java 中父子互相强引用（同一张对象图内），Rust 侧
-//   子任务用 `Rc<RefCell<Task>>` 强引用持有（与 `TaskContainer` 共享同一实例），
-//   父任务回指用 [`Weak`] 避免 `Rc` 循环。
-// * Java 的 `Task` 没有对 `ProjectContext` 的直接引用，上下文经由
-//   `m_parentFile` 获取；Rust 侧保持同样的形态，另提供
-//   [`Task::get_project_context`] 作为便捷入口（Rust 特有）。
-// * 由于父子接线需要实体自身的共享句柄，Java 中隐含的 `this` 在 Rust 侧无法省略，
-//   因此 [`Task::add_task`] / [`Task::add_child_task`] / [`Task::add_child_task_before`]
+// * `m_parentFile`: in Java it is managed by the GC, and `Task` directly holds `ProjectFile`. On the Rust side
+// `ProjectFile` is stored in `Rc<RefCell<ProjectFile>>`, and the task holds a back-reference to its parent file,
+// if a strong reference were used it would form an `Rc` cycle with `ProjectFile → TaskContainer → Task`,
+// so it is changed to [`Weak`] (see [`Task::get_parent_file`]).
+// * `m_parent` / `m_children`: in Java parent and child strongly reference each other (within the same object graph); on the Rust side
+// child tasks are held by a strong `Rc<RefCell<Task>>` reference (sharing the same instance with `TaskContainer`),
+// and the back-reference to the parent task uses [`Weak`] to avoid an `Rc` cycle.
+// * Java's `Task` has no direct reference to `ProjectContext`; the context is obtained via
+// `m_parentFile`. The Rust side keeps the same shape and additionally provides
+// [`Task::get_project_context`] as a convenience entry point (Rust-specific).
+// * Because parent/child wiring needs the entity's own shared handle, the implicit `this` in Java cannot be omitted on the Rust side,
+// therefore [`Task::add_task`] / [`Task::add_child_task`] / [`Task::add_child_task_before`]
 //   / [`Task::remove_child_task`] / [`Task::clear_child_tasks`] / [`Task::remove`]
-//   改为以 `this: &Rc<RefCell<Task>>` 作为首个参数的关联函数。
+// are changed to associated functions taking `this: &Rc<RefCell<Task>>` as the first argument.
 //
-// # 字段存储（最关键）
+// # Field storage (most important)
 //
-// Java 的 `set` / `get` / `getCachedValue` 由基类 `AbstractFieldContainer` 提供，
-// 三个抽象方法 `handleFieldChange` / `getAlwaysCalculatedField` / `getCalculationMethod`
-// 由 `Task` 实现。Rust 侧改为**组合**：`Task` 持有
-// [`AbstractFieldContainer`] 并把 `set` / `get` / `get_cached_value` 委托给它，
-// 上述三个抽象方法的职责落在 `Task` 自己的实现里（见
-// [`Task::handle_field_change`]、[`Task::get_always_calculated_field`]、
-// [`Task::get_calculation_method`]）。
+// Java's `set` / `get` / `getCachedValue` are provided by the base class `AbstractFieldContainer`,
+// and the three abstract methods `handleFieldChange` / `getAlwaysCalculatedField` / `getCalculationMethod`
+// are implemented by `Task`. The Rust side uses **composition** instead: `Task` holds
+// an [`AbstractFieldContainer`] and delegates `set` / `get` / `get_cached_value` to it,
+// and the responsibility of the three abstract methods above falls to `Task`'s own implementation (see
+// [`Task::handle_field_change`],[`Task::get_always_calculated_field`],
+// [`Task::get_calculation_method`]).
 //
-// Java 的静态 `CALCULATED_FIELD_MAP`（`Map<FieldType, Function<Task, Object>>`）与
-// `DEPENDENCY_MAP`（`Map<FieldType, List<FieldType>>`）在 Rust 侧改写为 `match`
-// 分派（[`Task::get_calculation_method`] / [`dependency_fields`]），不使用函数指针映射表。
+// Java's static `CALCULATED_FIELD_MAP` (`Map<FieldType, Function<Task, Object>>`) and
+// `DEPENDENCY_MAP` (`Map<FieldType, List<FieldType>>`) are rewritten on the Rust side as `match`
+// dispatch ([`Task::get_calculation_method`] / [`dependency_fields`]), without using function-pointer maps.
 //
-// # 与 Java 的差异（除生命周期外）
+// # Differences from Java (besides lifetime)
 //
-// 1. **计算值不做写回缓存**：Java 的 `get(field)` 在算出非「始终计算」字段的值后
-//    会 `set(field, result)` 写回字段表做缓存（`AbstractFieldContainer.get`）。
-//    Rust 的 `&self` getter 无法写字段表，故每次按需重算。语义等价（字段表里已有的
-//    取值优先返回），差别仅在于不做缓存、监听器不会收到计算结果的变更事件。
-// 2. **字段变更事件与处理顺序**：Java 在 `AbstractFieldContainer.set` 中先调
-//    `handleFieldChange` 再 `fireFieldChangeEvent`；Rust 侧的监听器广播在
-//    [`AbstractFieldContainer::set`] 内部完成，因此 `Task::set` 只能在其之后调用
-//    [`Task::handle_field_change`]。对字段依赖清理的结果无影响。
-// 3. **`UNIQUE_ID` 的索引维护**：Java 的 `handleFieldChange` 在 `UNIQUE_ID` 变化时调用
-//    `m_parentFile.getTasks().updateUniqueID(this, old, new)`，`setID` 还会调用
-//    `mapID` / `unmapID`。这些都需要实体自身的共享引用，Rust 侧改由 `TaskContainer`
-//    在 `add` 时建立索引（见 `crate::task_container`）。`set_id` / `set_unique_id`
-//    因此只写字段值。
-// 4. **类型强转**：Java 的 `(Duration) get(...)` 等强转在类型不符时抛
-//    `ClassCastException`；Rust 侧统一返回 `None`（纯文本 / 日期 / 工期的读取辅助方法）。
-// 5. **`Number` → `f64`**：Java 的 `Number` 参数/返回值在 Rust 侧统一为 `f64`
-//    （与 [`crate::common::number_helper::NumberHelper`] 的约定一致）。
-// 6. **`equals` / `hashCode` / `compareTo`**：Java 未重写 `equals` / `hashCode`，
-//    即按对象同一性比较；Rust 的 `Task` 是普通 struct，无法表达同一性，故
-//    **不实现** `PartialEq` / `Eq` / `Hash`（调用方以 `Rc::ptr_eq` 判断同一实体）。
-//    Java 的 `compareTo` 按 ID 排序，与「同一性相等」不自洽，不满足 Rust
-//    `Ord` 的契约（`a == b` 必须与 `a.cmp(&b) == Equal` 一致），因此改为
-//    [`Task::compare_to`] 方法而非 `Ord` 实现。
-// 7. **枚举 / UUID / Notes 的字段值编码**：`crate::field_value::FieldValue` 对枚举
-//    仍是标量变体（其文档说明哪些值用哪种变体）。为完整翻译访问器，Rust 侧
-//    采用无损的编码约定，并在读取时还原：
-//    * 枚举 → `FieldValue::Integer`（`MpxjEnum::value()`；`TaskType` 无 int 值，
-//      用声明序号即 `TaskType::ALL` 的下标；`Priority` 用 `get_value()`）；
-//    * `UUID` → `FieldValue::String`（`Uuid::to_string()` / `Uuid::parse_str`）；
-//    * `Notes` → `FieldValue::Notes(Rc<dyn Notes>)`（子类型保真）。
-// 8. **关系列表**：Java 的 `TaskField.PREDECESSORS` / `TaskField.SUCCESSORS` 取值是
-//    `List<Relation>`，字段值用 [`FieldValue::Relations`] 承载，`get` 因此与 Java 一致
-//    返回关系列表（这两个字段属于「始终计算」集合，不读缓存、只现算）。
-//    [`Task::get_predecessors`] / [`Task::get_successors`] 仍直接向 `RelationContainer`
-//    查询（等价实现，见各自说明）。
+// 1. **Calculated values are not written back to the cache**: after computing the value of a field that is not "always calculated", Java's `get(field)`
+// calls `set(field, result)` to write it back to the field table as a cache (`AbstractFieldContainer.get`).
+// Rust's `&self` getter cannot write to the field table, so it recomputes on demand each time. The semantics are equivalent (an existing
+// value in the field table is returned first); the only difference is that no caching is done and listeners do not receive change events for computed results.
+// 2. **Field change events and processing order**: in `AbstractFieldContainer.set`, Java first calls
+// `handleFieldChange` and then `fireFieldChangeEvent`; on the Rust side the listener broadcast is done
+// inside [`AbstractFieldContainer::set`], so `Task::set` can only call
+// [`Task::handle_field_change`] afterwards. This does not affect the result of field-dependency cleanup.
+// 3. **Index maintenance for `UNIQUE_ID`**: Java's `handleFieldChange` calls
+// `m_parentFile.getTasks().updateUniqueID(this, old, new)` when `UNIQUE_ID` changes, and `setID` also calls
+// `mapID` / `unmapID`. These all require the entity's own shared reference, so on the Rust side they are handled instead by `TaskContainer`
+// building the index at `add` time (see `crate::task_container`). `set_id` / `set_unique_id`
+// therefore only write the field value.
+// 4. **Type casts**: Java's casts such as `(Duration) get(...)` throw
+// `ClassCastException` on a type mismatch; the Rust side uniformly returns `None` (for the plain-text / date / duration read helpers).
+// 5. **`Number` → `f64`**: Java's `Number` parameters/return values are uniformly `f64` on the Rust side
+// (consistent with the convention of [`crate::common::number_helper::NumberHelper`]).
+// 6. **`equals` / `hashCode` / `compareTo`**: Java does not override `equals` / `hashCode`,
+// i.e. it compares by object identity; Rust's `Task` is an ordinary struct and cannot express identity, so
+// it **does not implement** `PartialEq` / `Eq` / `Hash` (callers use `Rc::ptr_eq` to test for the same entity).
+// Java's `compareTo` sorts by ID, which is inconsistent with "identity equality" and does not satisfy Rust's
+// `Ord` contract (`a == b` must agree with `a.cmp(&b) == Equal`), so it is changed to
+// the [`Task::compare_to`] method rather than an `Ord` implementation.
+// 7. **Field value encoding for enums / UUID / Notes**: for enums, `crate::field_value::FieldValue`
+// still uses a scalar variant (its documentation explains which values use which variant). To translate the accessors completely, the Rust side
+// adopts a lossless encoding convention and restores it on read:
+// * enum → `FieldValue::Integer` (`MpxjEnum::value()`; `TaskType` has no int value,
+// so its declaration ordinal, i.e. the index into `TaskType::ALL`, is used; `Priority` uses `get_value()`);
+//    * `UUID` → `FieldValue::String`(`Uuid::to_string()` / `Uuid::parse_str`);
+// * `Notes` → `FieldValue::Notes(Rc<dyn Notes>)` (subtype-preserving).
+// 8. **Relation lists**: the values of Java's `TaskField.PREDECESSORS` / `TaskField.SUCCESSORS` are
+// `List<Relation>`; the field value is carried by [`FieldValue::Relations`], so `get`, consistently with Java,
+// returns the relation list (these two fields belong to the "always calculated" set; they do not read the cache and are computed on the fly).
+// [`Task::get_predecessors`] / [`Task::get_successors`] still query `RelationContainer` directly
+// (an equivalent implementation; see the respective notes).
 //
-// # 依赖模块的接口（已按各模块落地的真实签名书写）
+// # Interfaces of dependent modules (written against the real signatures landed in each module)
 //
-// 下列模块在编写本文件时已落地，调用形状与它们一致：
+// The following modules had already landed when this file was written, and the call shapes match them:
 //
 // ```text
 // TaskContainer::add_task(&mut self, task: Rc<RefCell<Task>>)
@@ -148,7 +148,7 @@ use crate::time_unit::TimeUnit;
 // ResourceAssignment::set_task_unique_id / set_resource_unique_id / set_work / set_units
 // ResourceAssignment::get_resource(&self) -> Option<Rc<RefCell<Resource>>>
 // ResourceAssignment::get_resource_unique_id(&self) -> Option<i32>
-// （Java 的常量 `ResourceAssignment.DEFAULT_UNITS` 尚未提供，`addResourceAssignment` 处直接使用其值 1.0）
+// (Java's constant `ResourceAssignment.DEFAULT_UNITS` is not yet provided; its value 1.0 is used directly at `addResourceAssignment`)
 //
 // RelationContainer::add_predecessor(&mut self, builder: Builder) -> Rc<RefCell<Relation>>
 // RelationContainer::remove_predecessor(&mut self, successor: &Task, predecessor: &Task, RelationType, Option<Duration>) -> bool
@@ -157,7 +157,7 @@ use crate::time_unit::TimeUnit;
 // Relation::Builder::successor_task(&Rc<RefCell<Task>>) -> Builder
 // Relation::get_predecessor_task(&self) / get_successor_task(&self) -> Option<Rc<RefCell<Task>>>
 //
-// Resource::get_unique_id(&self) -> Option<i32>            // 经 ProjectEntityWithUniqueID
+// Resource::get_unique_id(&self) -> Option<i32>            // via ProjectEntityWithUniqueID
 // ProjectProperties::get_default_duration_units / get_critical_slack_limit / get_status_date / get_project_id
 // ProjectProperties: impl TimeUnitDefaultsContainer
 // ProjectCalendar::get_unique_id / get_date / get_next_work_start / get_work
@@ -166,7 +166,7 @@ use crate::time_unit::TimeUnit;
 // Duration::convert_units(&self, TimeUnit, &dyn TimeUnitDefaultsContainer)
 // ```
 //
-// 下面 `crate::project_file::ProjectFile`（同样已落地）的签名：
+// Below are the signatures of `crate::project_file::ProjectFile` (also already landed):
 //
 // ```text
 // ProjectFile::get_project_config(&self) -> &ProjectConfig
@@ -189,131 +189,131 @@ use crate::time_unit::TimeUnit;
 // ProjectFile::add_external_project(&mut self, file: Option<&str>, project: Option<Rc<RefCell<ProjectFile>>>)
 // ```
 //
-// 另注：`crate::task_container::TaskContainer::add` 会调用
-// `Task::new_in_file(&project_file, None)`，本文件已提供该构造方法名。
+// Note also: `crate::task_container::TaskContainer::add` calls
+// `Task::new_in_file(&project_file, None)`; this file already provides that constructor name.
 //
-// # 已知的跨模块接口分歧（不改动他人文件，仅记录）
+// # Known cross-module interface discrepancies (other files are not modified, only recorded)
 //
-// * `crate::cpm::microsoft_slack_calculator` 按
-//   `Task::get_parent_file(&self) -> Rc<RefCell<ProjectFile>>`、
-//   `Task::get_constraint_type(&self) -> ConstraintType` 书写。本文件保持
-//   Java 语义：父文件是弱引用（无父文件的任务存在），`get_constraint_type` 在字段
-//   未设置时返回 `None`（Java 返回 `null`）。集成时该文件需相应处理 `Option`。
-// * `crate::common::slack_helper` 按 `Task::set_start_slack(Duration)` /
-//   `set_finish_slack(Duration)` / `set_total_slack(Duration)` 书写。本文件按
-//   Java 的可空语义统一为 `Option<Duration>`，集成时该处需包一层 `Some(...)`。
-// * `crate::slack_calculator` 的测试使用 `Task::new()`，本文件已提供该无参构造。
+// * `crate::cpm::microsoft_slack_calculator` is written against
+//   `Task::get_parent_file(&self) -> Rc<RefCell<ProjectFile>>`,
+// `Task::get_constraint_type(&self) -> ConstraintType`. This file keeps
+// the Java semantics: the parent file is a weak reference (tasks without a parent file exist), and `get_constraint_type`
+// returns `None` when the field is not set (Java returns `null`). That file needs to handle `Option` accordingly at integration time.
+// * `crate::common::slack_helper` is written against `Task::set_start_slack(Duration)` /
+// `set_finish_slack(Duration)` / `set_total_slack(Duration)`. This file follows
+// Java's nullable semantics and unifies them as `Option<Duration>`; that spot needs a `Some(...)` wrapper at integration time.
+// * the tests of `crate::slack_calculator` use `Task::new()`; this file already provides that no-argument constructor.
 //
-// # 跳过的 Java 方法（原因）
+// # Skipped Java Methods (reasons)
 //
-// | Java 方法 | 跳过原因 |
+// | Java method | Reason for skipping |
 // |---|---|
-// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*`（共 43 个） | 时间分段取值家族（含固定成本的分摊 / 计提实现 `getTimephasedFixedCostProRata` 等）尚未移植。[`crate::field_container::FieldContainer`] 的两个入口已存在，由 trait 默认实现提供 —— 即 Java 中「字段不在 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` 表中」的回落（全 `None` 列表），因此不会给出与 Java 不符的数值 |
-// | `getActivityCodeValues` / `addActivityCodeValue` / `defaultActivityCodeValues` | `ActivityCode` / `ActivityCodeValue` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
-// | `getExpenseItems` / `setExpenseItems` / `defaultExpenseItems` | `ExpenseItem` 属 P6/Primavera 专用数据（同上） |
-// | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据（同上） |
-// | `getBaselineTask` / `getBaselineTask(int)` | Java 以 `Task` 对象（同一性）作 `Map` 键，Rust 无法表达（`ProjectFile` 的基线与 `Task` 均已落地，缺的是「按对象同一性查表」这一 Java 语义，见 [`crate::default_baseline_strategy`] 改用唯一 ID 作键的取舍） |
-// | `set(FieldType, boolean)`（私有重载） | Rust 无重载，由 `put_bool` 辅助方法承担 |
-// | 静态 `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | 服务于上面已跳过的时间分段方法 |
+// | `getTimephasedDurationValues` / `getTimephasedNumericValues` / `getTimephased*` (43 in total) | The timephased value family (including the fixed-cost proration / accrual implementations such as `getTimephasedFixedCostProRata`) has not been ported yet. The two entry points of [`crate::field_container::FieldContainer`] already exist and are provided by the trait default implementation -- that is, the fallback in Java for "a field not in the `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` tables" (an all-`None` list), so it will not produce values that disagree with Java |
+// | `getActivityCodeValues` / `addActivityCodeValue` / `defaultActivityCodeValues` | `ActivityCode` / `ActivityCodeValue` are P6/Primavera-specific data; this project is only an MPP/MPX reader, so they are not ported |
+// | `getExpenseItems` / `setExpenseItems` / `defaultExpenseItems` | `ExpenseItem` is P6/Primavera-specific data (same as above) |
+// | `getLocation` / `setLocation` | `Location` is P6/Primavera-specific data (same as above) |
+// | `getBaselineTask` / `getBaselineTask(int)` | Java uses the `Task` object (identity) as the `Map` key, which Rust cannot express (both `ProjectFile`'s baseline and `Task` have landed; what is missing is the Java semantics of "looking up by object identity", see the trade-off in [`crate::default_baseline_strategy`] of using the unique ID as the key instead) |
+// | `set(FieldType, boolean)` (private overload) | Rust has no overloading; the `put_bool` helper method takes on this role |
+// | static `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | Serve the timephased methods skipped above |
 //
-// 反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`：`Task` 中未出现，无跳过。
+// Reflection, JDBC, XML/JAXB, GUI, `javax.*`, `Serializable`: none appear in `Task`, so nothing is skipped.
 
-/// 新建任务所需的「父文件上下文快照」（Rust 特有）。
+/// The "parent file context snapshot" needed to create a task (Rust-specific).
 ///
-/// 对应 Java: `Task(ProjectFile file, Task parent)` 构造方法内部**直接读取**的
-/// 那些值 —— `ProjectConfig` 的五个自动赋值开关、
-/// `file.getUniqueIdObjectSequence(Task.class).getNext()`、
-/// `file.getTasks().getNextID()`，以及 `generateWBS(null)` / `generateOutlineNumber(null)`
-/// 需要的 `file.getChildTasks().size()`。
+/// Corresponds to Java: those values **read directly** inside the `Task(ProjectFile file, Task parent)` constructor --
+/// the five auto-assignment switches of `ProjectConfig`,
+/// `file.getUniqueIdObjectSequence(Task.class).getNext()`,
+/// `file.getTasks().getNextID()`, and the
+/// `file.getChildTasks().size()` needed by `generateWBS(null)` / `generateOutlineNumber(null)`.
 ///
-/// Rust 侧因借用规则把这些读取外提：由调用方（[`crate::TaskContainer`]）在不持有
-/// `ProjectFile` 借用的前提下读好快照，再交给 [`Task::new_in_file_with_context`]，
-/// 使「新建任务」这条路径完全不回调父文件。
+/// On the Rust side, borrow rules require hoisting these reads out: the caller ([`crate::TaskContainer`]) reads the snapshot
+/// without holding a `ProjectFile` borrow, then passes it to [`Task::new_in_file_with_context`],
+/// so that the "create task" path never calls back into the parent file.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TaskCreationContext {
-    /// 对应 Java: `ProjectConfig.autoTaskUniqueID`
+    /// Corresponds to Java: `ProjectConfig.autoTaskUniqueID`
     pub auto_task_unique_id: bool,
-    /// 对应 Java: `ProjectConfig.autoTaskID`
+    /// Corresponds to Java: `ProjectConfig.autoTaskID`
     pub auto_task_id: bool,
-    /// 对应 Java: `ProjectConfig.autoWBS`
+    /// Corresponds to Java: `ProjectConfig.autoWBS`
     pub auto_wbs: bool,
-    /// 对应 Java: `ProjectConfig.autoOutlineNumber`
+    /// Corresponds to Java: `ProjectConfig.autoOutlineNumber`
     pub auto_outline_number: bool,
-    /// 对应 Java: `ProjectConfig.autoOutlineLevel`
+    /// Corresponds to Java: `ProjectConfig.autoOutlineLevel`
     pub auto_outline_level: bool,
-    /// 对应 Java: `file.getUniqueIdObjectSequence(Task.class).getNext()`
-    /// （仅在 `auto_task_unique_id` 为真时被消费）
+    /// Corresponds to Java: `file.getUniqueIdObjectSequence(Task.class).getNext()`
+/// (consumed only when `auto_task_unique_id` is true)
     pub next_unique_id: i32,
-    /// 对应 Java: `file.getTasks().getNextID()`
-    /// （仅在 `auto_task_id` 为真时被消费）
+    /// Corresponds to Java: `file.getTasks().getNextID()`
+/// (consumed only when `auto_task_id` is true)
     pub next_id: i32,
-    /// 对应 Java: `file.getChildTasks().size()`
-    /// （仅在 `auto_wbs` / `auto_outline_number` 且无父任务时被消费）
+    /// Corresponds to Java: `file.getChildTasks().size()`
+/// (consumed only when `auto_wbs` / `auto_outline_number` is set and there is no parent task)
     pub top_level_task_count: usize,
 }
 
-/// 任务记录。
+/// A task record.
 ///
-/// 对应 Java: `public final class Task extends AbstractFieldContainer<Task>
+/// Corresponds to Java: `public final class Task extends AbstractFieldContainer<Task>
 /// implements Comparable<Task>, ProjectEntityWithID, ChildTaskContainer`
 ///
-/// 继承与接口的还原方式见文件头说明。
+/// See the file header for how inheritance and interfaces are reproduced.
 pub struct Task {
-    /// 对应 Java: `private final ProjectFile m_parentFile;`
+    /// Corresponds to Java: `private final ProjectFile m_parentFile;`
     ///
-    /// Rust 侧存弱引用，避免 `ProjectFile → TaskContainer → Task → ProjectFile`
-    /// 形成 `Rc` 循环。
+/// The Rust side stores a weak reference to avoid `ProjectFile → TaskContainer → Task → ProjectFile`
+/// forming an `Rc` cycle.
     parent_file: Weak<RefCell<ProjectFile>>,
 
-    /// 对应 Java: `private Task m_parent;`
+    /// Corresponds to Java: `private Task m_parent;`
     ///
-    /// Rust 侧存弱引用，避免父子任务互相强引用形成 `Rc` 循环。
+/// The Rust side stores a weak reference to avoid parent and child tasks strongly referencing each other and forming an `Rc` cycle.
     parent: Weak<RefCell<Task>>,
 
-    /// 对应 Java: `private final List<Task> m_children = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<Task> m_children = new ArrayList<>();`
     children: Vec<Rc<RefCell<Task>>>,
 
-    /// 对应 Java: 继承自 `AbstractFieldContainer` 的 `m_fields`。
+/// Corresponds to Java: `m_fields` inherited from `AbstractFieldContainer`.
     ///
-    /// Java 的继承在 Rust 侧改为组合，`set` / `get` / `get_cached_value` 委托给它。
+/// Java's inheritance is changed to composition on the Rust side; `set` / `get` / `get_cached_value` are delegated to it.
     fields: AbstractFieldContainer,
 
-    /// 对应 Java: `AbstractFieldContainer.m_clearDependentFieldsEnabled`。
+    /// Corresponds to Java: `AbstractFieldContainer.m_clearDependentFieldsEnabled`.
     ///
-    /// Java 的依赖清理递归地走 `set`（进而触发 `handleFieldChange`），因此本标志
-    /// 需要在 `Task` 侧维护一份（`AbstractFieldContainer` 的同名标志同时保持同步）。
+/// Java's dependency cleanup recurses through `set` (thereby triggering `handleFieldChange`), so this flag
+/// needs to be maintained on the `Task` side as well (the same-named flag in `AbstractFieldContainer` is kept in sync at the same time).
     clear_dependent_fields_enabled: bool,
 
-    /// 任务自身的共享句柄（Rust 特有）。
+/// The task's own shared handle (Rust-specific).
     ///
-    /// 对应 Java: 无（Java 处处可用 `this` 作 `Task` 引用）。
+/// Corresponds to Java: none (Java can use `this` as a `Task` reference anywhere).
     ///
-    /// Java 的 `Task.setID` 会回调 `m_parentFile.getTasks().mapID(val, this)`，
-    /// 需要把 `this` 作为 `Task` 引用交给容器；Rust 的 `&mut self` 无法产出
-    /// `Rc<RefCell<Task>>`，故用弱引用自持句柄还原该回调。由
-    /// [`crate::TaskContainer::add_task`] 在任务入容器时接线。
+/// Java's `Task.setID` calls back into `m_parentFile.getTasks().mapID(val, this)`,
+/// which requires passing `this` as a `Task` reference to the container; Rust's `&mut self` cannot produce
+/// an `Rc<RefCell<Task>>`, so a weak self-held handle is used to reproduce that callback. It is wired up by
+/// [`crate::TaskContainer::add_task`] when the task is added to the container.
     self_ref: Weak<RefCell<Task>>,
 
-    /// 对应 Java: `private RecurringTask m_recurringTask;`
+    /// Corresponds to Java: `private RecurringTask m_recurringTask;`
     ///
-    /// 惰性创建（见 [`Task::add_recurring_task`]），非重复任务时为 `None`。
+/// Lazily created (see [`Task::add_recurring_task`]); `None` when the task is not recurring.
     recurring_task: Option<RecurringTask>,
 }
 
 impl Default for Task {
-    /// 对应 Java: 无（Rust 特有，等价于 [`Task::new`]）。
+/// Corresponds to Java: none (Rust-specific, equivalent to [`Task::new`]).
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Task {
-    /// 构造一个不属于任何项目文件的独立任务（Rust 特有）。
+/// Construct a standalone task that belongs to no project file (Rust-specific).
     ///
-    /// Java 的构造方法是包私有的 `Task(ProjectFile file, Task parent)`，必须提供
-    /// 父文件；Rust 侧另提供不带父文件的形态，便于测试与工具代码构造临时任务
-    /// （此时依赖父文件的访问器返回空值而不 panic）。需要接入项目文件时请用
-    /// [`Task::new_in_file`]。
+/// Java's constructor is package-private `Task(ProjectFile file, Task parent)` and requires
+/// a parent file; the Rust side additionally provides a form without a parent file, making it easy for tests and tooling code to construct temporary tasks
+/// (in that case, accessors that depend on the parent file return empty values instead of panicking). To attach it to a project file, use
+    /// [`Task::new_in_file`].
     pub fn new() -> Self {
         Self {
             parent_file: Weak::new(),
@@ -326,20 +326,20 @@ impl Task {
         }
     }
 
-    /// 构造方法。
+/// the constructor.
     ///
-    /// 对应 Java: `Task(ProjectFile file, Task parent)`
+    /// Corresponds to Java: `Task(ProjectFile file, Task parent)`
     ///
-    /// Java 在构造方法中按 `ProjectConfig` 的开关自动生成 unique ID、ID、WBS、
-    /// 大纲编号与大纲级别；Rust 侧保持一致。
+/// In the constructor, Java automatically generates the unique ID, ID, WBS,
+/// outline number, and outline level according to the switches in `ProjectConfig`; the Rust side keeps this consistent.
     ///
-    /// 本入口会读取父文件的 `ProjectConfig`、unique ID 序号与下一个任务 ID，
-    /// 因此**要求调用方不持有 `ProjectFile` 借用**（读取使用 `try_borrow`，被借用时
-    /// 会退化为「不做任何自动赋值」）。持有借用时请改用
-    /// [`Task::new_in_file_with_context`] 并传入事先读好的快照。
+/// This entry point reads the parent file's `ProjectConfig`, unique ID sequence, and next task ID,
+/// so it **requires the caller not to hold a `ProjectFile` borrow** (reads use `try_borrow`; when borrowed,
+/// it degrades gracefully to "no auto-assignment"). When holding a borrow, use
+/// [`Task::new_in_file_with_context`] instead and pass in a pre-read snapshot.
     ///
-    /// 方法名 `new_in_file` 为 Rust 侧命名（Java 的构造方法名与类名相同），
-    /// 供 `crate::task_container::TaskContainer::add` 等调用方使用。
+/// The method name `new_in_file` is a Rust-side naming choice (Java's constructor name is the same as the class name),
+/// for callers such as `crate::task_container::TaskContainer::add`.
     pub fn new_in_file(
         file: &Rc<RefCell<ProjectFile>>,
         parent: Option<&Rc<RefCell<Task>>>,
@@ -348,14 +348,14 @@ impl Task {
         Self::new_in_file_with_context(file, parent, creation)
     }
 
-    /// 用调用方读好的上下文快照构造任务 —— **完全不回调父文件**。
+/// Construct a task from a context snapshot read by the caller -- **without calling back into the parent file at all**.
     ///
-    /// 对应 Java: `Task(ProjectFile file, Task parent)`，其中构造方法内部读取的
-    /// `ProjectConfig` 开关、unique ID 序号、下一个任务 ID 与顶层任务数改由
-    /// [`TaskCreationContext`] 传入。
+/// Corresponds to Java: `Task(ProjectFile file, Task parent)`, where the
+/// `ProjectConfig` switches, unique ID sequence, next task ID, and top-level task count read inside the constructor are instead passed in via
+/// [`TaskCreationContext`].
     ///
-    /// 因为不回调父文件，本入口可以在调用方持有 `ProjectFile` 借用时使用
-    /// （[`crate::TaskContainer::add`] 即如此）。
+/// Because it does not call back into the parent file, this entry point can be used while the caller holds a `ProjectFile` borrow
+/// ([`crate::TaskContainer::add`] does exactly this).
     pub fn new_in_file_with_context(
         file: &Rc<RefCell<ProjectFile>>,
         parent: Option<&Rc<RefCell<Task>>>,
@@ -376,7 +376,7 @@ impl Task {
         }
 
         if creation.auto_wbs {
-            // Java: generateWBS(parent) —— 顶层任务计数由调用方提供
+// Java: generateWBS(parent) -- the top-level task count is provided by the caller
             task.generate_wbs_with_count(parent, creation.top_level_task_count);
         }
 
@@ -398,12 +398,12 @@ impl Task {
         task
     }
 
-    /// 从父文件读取「新建任务」所需的上下文快照（Rust 特有）。
+/// Read the context snapshot needed to create a task from the parent file (Rust-specific).
     ///
-    /// 对应 Java: `Task` 构造方法内部直接读取的这些值。
+/// Corresponds to Java: these values are read directly inside the `Task` constructor.
     ///
-    /// 读取一律使用 `try_borrow`：父文件正被借用时退化为默认快照（即不做任何自动
-    /// 赋值），不 panic。需要精确行为时请用 [`Task::new_in_file_with_context`]。
+/// Reads uniformly use `try_borrow`: when the parent file is currently borrowed, it degrades gracefully to a default snapshot (i.e. no auto-
+/// assignment is done) without panicking. For exact behavior, use [`Task::new_in_file_with_context`].
     fn read_creation_context(file: &Rc<RefCell<ProjectFile>>) -> TaskCreationContext {
         let mut creation = TaskCreationContext::default();
 
@@ -415,7 +415,7 @@ impl Task {
             creation.auto_outline_number = config.get_auto_outline_number();
             creation.auto_outline_level = config.get_auto_outline_level();
 
-            // Java: generateWBS(null) 读取 file.getChildTasks().size()
+// Java: generateWBS(null) reads file.getChildTasks().size()
             creation.top_level_task_count = file_ref.get_child_tasks().len();
         }
 
@@ -436,27 +436,27 @@ impl Task {
         creation
     }
 
-    /// 取当前任务所属的项目文件（弱引用升级；文件已释放时返回 `None`）。
+/// Get the project file this task belongs to (upgrades the weak reference; returns `None` when the file has been released).
     ///
-    /// 对应 Java: `public ProjectFile getParentFile()`
+    /// Corresponds to Java: `public ProjectFile getParentFile()`
     pub fn get_parent_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.parent_file.upgrade()
     }
 
-    /// 接线任务自身的共享句柄（Rust 特有）。
+/// Wire up the task's own shared handle (Rust-specific).
     ///
-    /// 对应 Java: 无（Java 处处可用 `this` 作 `Task` 引用）。
+/// Corresponds to Java: none (Java can use `this` as a `Task` reference anywhere).
     ///
-    /// 由 [`crate::TaskContainer::add_task`] 在任务入容器时登记，供
-    /// [`Task::set_id`] 还原 Java `setID` 中 `mapID(val, this)` 的回调。
+/// Registered by [`crate::TaskContainer::add_task`] when the task is added to the container, so that
+/// [`Task::set_id`] can reproduce the `mapID(val, this)` callback in Java's `setID`.
     pub fn set_self_reference(&mut self, task: &Rc<RefCell<Task>>) {
         self.self_ref = Rc::downgrade(task);
     }
 
-    /// 取当前任务所属的 `ProjectContext`（Rust 特有便捷入口）。
+/// Get the `ProjectContext` this task belongs to (Rust-specific convenience entry point).
     ///
-    /// Java 侧 `Task` 不直接持有 `ProjectContext`，上下文经由 `m_parentFile` 获取；
-    /// 此处保持同样的来源。
+/// On the Java side, `Task` does not directly hold `ProjectContext`; the context is obtained via `m_parentFile`;
+/// the same source is kept here.
     pub fn get_project_context(&self) -> Option<Rc<RefCell<crate::project_context::ProjectContext>>> {
         self.parent_file
             .upgrade()
@@ -464,94 +464,94 @@ impl Task {
     }
 
     // -----------------------------------------------------------------------
-    // 字段容器：set / get / get_cached_value 及三个「抽象方法」的落位
+// Field container: placement of set / get / get_cached_value and the three "abstract methods"
     // -----------------------------------------------------------------------
 
-    /// 设置字段值（含计算字段的写回）。
+/// Set a field value (including write-back of calculated fields).
     ///
-    /// 对应 Java: `@Override public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `@Override public void set(FieldType field, Object value)`
     pub fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
-        // 对应 Java: `Task.set(FieldType, Object)`
-        // TaskField 走自己的处理；其余键（含自定义字段 `UserDefinedField`）
-        // 落入 `super.set(field, value)`，即写进字段表。
-        // 此前这里对非 TaskField 的键直接丢弃，导致自定义字段实际写不进去。
+        // Corresponds to Java: `Task.set(FieldType, Object)`
+// TaskField gets its own handling; the remaining keys (including the user-defined field `UserDefinedField`)
+// fall into `super.set(field, value)`, i.e. are written to the field table.
+// Previously non-TaskField keys were simply discarded here, so user-defined fields could not actually be written.
         match field {
             FieldKey::Task(task_field) => self.set_task_field(task_field, value),
             _ => self.fields.set(field, value),
         }
     }
 
-    /// 读取字段值（含计算字段）。
+/// Read a field value (including calculated fields).
     ///
-    /// 对应 Java: `@Override public Object get(FieldType field)`
+    /// Corresponds to Java: `@Override public Object get(FieldType field)`
     pub fn get(&self, field: FieldKey) -> Option<FieldValue> {
         if let FieldKey::Task(task_field) = field {
             return self.get_task_field(task_field);
         }
 
-        // 对应 Java: `Task.get(FieldType)` 对非 TaskField 的键落入 `super.get(field)`，
-        // 即只从字段表里取值 —— 自定义字段（`UserDefinedField`）正是走这条路。
-        // 此前这里直接返回 `None`，导致写入容器的自定义字段读不出来。
+// Corresponds to Java: for non-TaskField keys, `Task.get(FieldType)` falls into `super.get(field)`,
+// i.e. it only reads from the field table -- user-defined fields (`UserDefinedField`) take exactly this path.
+// Previously this returned `None` directly, so user-defined fields written to the container could not be read back.
         self.get_cached_value(field).cloned()
     }
 
-    /// 只读取已保存的字段值，不触发计算。
+/// Read only the stored field value without triggering calculation.
     ///
-    /// 对应 Java: `@Override public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `@Override public Object getCachedValue(FieldType field)`
     pub fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 注册字段变更监听器。
+/// Register a field change listener.
     ///
-    /// 对应 Java: `@Override public void addFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void addFieldListener(FieldListener listener)`
     pub fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         self.fields.add_field_listener(listener);
     }
 
-    /// 清空字段变更监听器。
+/// Clear the field change listeners.
     ///
-    /// 对应 Java: `@Override public void removeFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void removeFieldListener(FieldListener listener)`
     pub fn clear_field_listeners(&mut self) {
         self.fields.clear_field_listeners();
     }
 
-    /// 取（必要时创建）重复任务记录。
+/// Get (creating if necessary) the recurring task record.
     ///
-    /// 对应 Java: `public RecurringTask addRecurringTask()`
+    /// Corresponds to Java: `public RecurringTask addRecurringTask()`
     ///
-    /// Java 侧若 `m_recurringTask` 为 null 则新建，Rust 侧等价于
-    /// `Option::get_or_insert_with`。
+/// On the Java side, a new one is created if `m_recurringTask` is null; on the Rust side this is equivalent to
+    /// `Option::get_or_insert_with`.
     pub fn add_recurring_task(&mut self) -> &mut RecurringTask {
         self.recurring_task.get_or_insert_with(RecurringTask::new)
     }
 
-    /// 取重复任务记录；当前任务不是重复任务时返回 `None`。
+/// Get the recurring task record; returns `None` when the current task is not a recurring task.
     ///
-    /// 对应 Java: `public RecurringTask getRecurringTask()`
+    /// Corresponds to Java: `public RecurringTask getRecurringTask()`
     pub fn get_recurring_task(&self) -> Option<&RecurringTask> {
         self.recurring_task.as_ref()
     }
 
-    /// 关闭字段更新时的依赖字段清理与事件触发。
+/// Disable dependency-field cleanup and event firing on field updates.
     ///
-    /// 对应 Java: `public void disableEvents()`
+    /// Corresponds to Java: `public void disableEvents()`
     pub fn disable_events(&mut self) {
         self.clear_dependent_fields_enabled = false;
         self.fields.disable_events();
     }
 
-    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+/// Enable dependency-field cleanup and event firing on field updates (the default state).
     ///
-    /// 对应 Java: `public void enableEvents()`
+    /// Corresponds to Java: `public void enableEvents()`
     pub fn enable_events(&mut self) {
         self.clear_dependent_fields_enabled = true;
         self.fields.enable_events();
     }
 
-    /// 对应 Java: `@Override boolean getAlwaysCalculatedField(FieldType field)`
+    /// Corresponds to Java: `@Override boolean getAlwaysCalculatedField(FieldType field)`
     ///
-    /// Java 的 `ALWAYS_CALCULATED_FIELDS` 集合改写为 `match` 分派。
+/// Java's `ALWAYS_CALCULATED_FIELDS` set is rewritten as `match` dispatch.
     pub fn get_always_calculated_field(field: TaskField) -> bool {
         matches!(
             field,
@@ -563,11 +563,11 @@ impl Task {
         )
     }
 
-    /// 对应 Java: `@Override Function<Task, Object> getCalculationMethod(FieldType field)`
+    /// Corresponds to Java: `@Override Function<Task, Object> getCalculationMethod(FieldType field)`
     ///
-    /// Java 返回一个 `Function<Task, Object>`（来自静态 `CALCULATED_FIELD_MAP`），
-    /// Rust 侧改为直接 `match` 分派并返回计算结果 —— 语义与
-    /// `CALCULATED_FIELD_MAP.get(field).apply(this)` 等价，未命中的字段返回 `None`。
+/// Java returns a `Function<Task, Object>` (from the static `CALCULATED_FIELD_MAP`);
+/// the Rust side instead dispatches directly with `match` and returns the computed result -- semantically
+/// equivalent to `CALCULATED_FIELD_MAP.get(field).apply(this)`; unmatched fields return `None`.
     fn get_calculation_method(&self, field: TaskField) -> Option<FieldValue> {
         match field {
             TaskField::ParentTaskUniqueId => {
@@ -593,7 +593,7 @@ impl Task {
             TaskField::ExternalProject => {
                 self.calculate_external_project().map(FieldValue::Boolean)
             }
-            // Java: CALCULATED_FIELD_MAP 中 PREDECESSORS / SUCCESSORS / WORK_SPLITS / STEPS 的条目
+// Java: the PREDECESSORS / SUCCESSORS / WORK_SPLITS / STEPS entries in CALCULATED_FIELD_MAP
             TaskField::Predecessors => Some(FieldValue::Relations(self.calculate_predecessors())),
             TaskField::Successors => Some(FieldValue::Relations(self.calculate_successors())),
             TaskField::WorkSplits => Some(FieldValue::TimeRanges(self.calculate_work_splits())),
@@ -628,8 +628,8 @@ impl Task {
             TaskField::Active => Some(FieldValue::Boolean(Self::default_active())),
             TaskField::Type => Some(FieldValue::Integer(task_type_to_value(Self::default_type()))),
             TaskField::TaskMode => Some(FieldValue::Integer(Self::default_task_mode().value())),
-            // Java: ACTIVITY_CODE_VALUES / EXPENSE_ITEMS / STEPS 的默认值分别为
-            // 空 Map / 空 List / 空 List，依赖未移植类型，见文件头「跳过的 Java 方法」。
+// Java: the default values of ACTIVITY_CODE_VALUES / EXPENSE_ITEMS / STEPS are respectively
+// an empty Map / an empty List / an empty List, depending on unported types; see "Skipped Java Methods" in the file header.
             TaskField::Expanded => Some(FieldValue::Boolean(Self::default_expanded())),
             TaskField::AutoComputeActuals => {
                 Some(FieldValue::Boolean(Self::default_auto_compute_actuals()))
@@ -638,12 +638,12 @@ impl Task {
         }
     }
 
-    /// 清空受本次字段变更影响的计算字段缓存。
+/// Clear the calculated-field caches affected by this field change.
     ///
-    /// 对应 Java: `@Override void handleFieldChange(FieldType field, Object oldValue, Object newValue)`
+    /// Corresponds to Java: `@Override void handleFieldChange(FieldType field, Object oldValue, Object newValue)`
     ///
-    /// Java 在 `UNIQUE_ID` 变化时会同步 `TaskContainer` 的索引，该动作需要实体自身的
-    /// 共享引用，Rust 侧改由 `TaskContainer` 负责（见文件头说明）。
+/// In Java, a change to `UNIQUE_ID` synchronizes the `TaskContainer` index; that action requires the entity's own
+/// shared reference, so on the Rust side `TaskContainer` is responsible for it instead (see the file header).
     fn handle_field_change(&mut self, field: TaskField) {
         if field == TaskField::UniqueId {
             return;
@@ -653,13 +653,13 @@ impl Task {
         self.clear_dependent_fields(field);
     }
 
-    /// 依据依赖表递归清理需要重算的字段。
+/// Recursively clear the fields that need recalculation based on the dependency map.
     ///
-    /// 对应 Java: `AbstractFieldContainer.clearDependentFields(Map, FieldType)`
-    /// （依赖表为 `Task.DEPENDENCY_MAP`）
+    /// Corresponds to Java: `AbstractFieldContainer.clearDependentFields(Map, FieldType)`
+/// (the dependency map is `Task.DEPENDENCY_MAP`)
     ///
-    /// Java 的依赖清理通过 `set` 递归，从而连带清理依赖的依赖；Rust 侧同样走
-    /// [`Task::set_task_field`] 以保持该递归语义。
+/// Java's dependency cleanup recurses through `set`, thereby clearing the dependencies of dependencies as well; the Rust side likewise goes through
+/// [`Task::set_task_field`] to preserve that recursive semantics.
     fn clear_dependent_fields(&mut self, field: TaskField) {
         if !self.clear_dependent_fields_enabled {
             return;
@@ -675,9 +675,9 @@ impl Task {
         }
     }
 
-    /// 写入字段值，并在值真正发生变化时执行字段变更处理。
+/// Write a field value and perform field-change handling when the value actually changes.
     ///
-    /// 对应 Java: `AbstractFieldContainer.set`（内含 `handleFieldChange` 与事件广播）
+/// Corresponds to Java: `AbstractFieldContainer.set` (which contains `handleFieldChange` and event broadcasting)
     fn set_task_field(&mut self, field: TaskField, value: Option<FieldValue>) {
         let changed = self.fields.get_cached_value(FieldKey::Task(field)).cloned() != value;
         self.fields.set(FieldKey::Task(field), value);
@@ -687,9 +687,9 @@ impl Task {
         }
     }
 
-    /// 读取字段值：优先返回字段表中的取值，否则按计算字段分派求值。
+/// Read a field value: return the value in the field table first, otherwise dispatch and evaluate as a calculated field.
     ///
-    /// 对应 Java: `AbstractFieldContainer.get`
+    /// Corresponds to Java: `AbstractFieldContainer.get`
     fn get_task_field(&self, field: TaskField) -> Option<FieldValue> {
         let always_calculated = Self::get_always_calculated_field(field);
 
@@ -699,16 +699,16 @@ impl Task {
             }
         }
 
-        // Java: 计算结果非 null 且非 always-calculated 时会写回字段表做缓存；
-        // Rust 的 &self getter 无法写缓存，改为每次重算（见文件头说明第 1 条）。
+// Java: when the computed result is non-null and not always-calculated, it is written back to the field table as a cache;
+// Rust's &self getter cannot write the cache, so it recomputes each time (see item 1 in the file header).
         self.get_calculation_method(field)
     }
 
     // -----------------------------------------------------------------------
-    // 类型化读写辅助方法（对应 Java 的强制类型转换与 `set` 重载）
+// Typed read/write helper methods (corresponding to Java's casts and `set` overloads)
     // -----------------------------------------------------------------------
 
-    /// 对应 Java: `(String) get(field)`（类型不符时 Java 抛 `ClassCastException`，Rust 返回 `None`）
+/// Corresponds to Java: `(String) get(field)` (Java throws `ClassCastException` on a type mismatch; Rust returns `None`)
     fn string_field(&self, field: TaskField) -> Option<String> {
         match self.get_task_field(field) {
             Some(FieldValue::String(value)) => Some(value),
@@ -716,17 +716,17 @@ impl Task {
         }
     }
 
-    /// 对应 Java: `(Integer) get(field)`
+    /// Corresponds to Java: `(Integer) get(field)`
     fn integer_field(&self, field: TaskField) -> Option<i32> {
         self.get_task_field(field).and_then(|value| value.as_integer())
     }
 
-    /// 对应 Java: `(Number) get(field)`，Rust 侧统一为 `f64`
+/// Corresponds to Java: `(Number) get(field)`; the Rust side uniformly uses `f64`
     fn number_field(&self, field: TaskField) -> Option<f64> {
         self.get_task_field(field).and_then(|value| value.as_double())
     }
 
-    /// 对应 Java: `BooleanHelper.getBoolean((Boolean) get(field))`
+    /// Corresponds to Java: `BooleanHelper.getBoolean((Boolean) get(field))`
     fn boolean_field(&self, field: TaskField) -> bool {
         BooleanHelper::get_boolean(
             self.get_task_field(field)
@@ -734,71 +734,71 @@ impl Task {
         )
     }
 
-    /// 对应 Java: `(LocalDateTime) get(field)`
+    /// Corresponds to Java: `(LocalDateTime) get(field)`
     fn date_time_field(&self, field: TaskField) -> Option<NaiveDateTime> {
         self.get_task_field(field)
             .and_then(|value| value.as_date_time())
     }
 
-    /// 对应 Java: `(Duration) get(field)`
+    /// Corresponds to Java: `(Duration) get(field)`
     fn duration_field(&self, field: TaskField) -> Option<Duration> {
         self.get_task_field(field)
             .and_then(|value| value.as_duration())
     }
 
-    /// 对应 Java: `(UUID) get(field)`（Rust 侧以字符串承载，见文件头差异第 7 条）
+/// Corresponds to Java: `(UUID) get(field)` (carried as a string on the Rust side; see item 7 in the file header differences)
     fn uuid_field(&self, field: TaskField) -> Option<Uuid> {
         self.string_field(field)
             .and_then(|value| Uuid::parse_str(&value).ok())
     }
 
-    /// 对应 Java: `set(field, value)`（`Integer` 取值）
+/// Corresponds to Java: `set(field, value)` (`Integer` value)
     fn put_integer(&mut self, field: TaskField, value: Option<i32>) {
         self.set_task_field(field, value.map(FieldValue::Integer));
     }
 
-    /// 对应 Java: `set(field, value)`（`Number` 取值）
+/// Corresponds to Java: `set(field, value)` (`Number` value)
     fn put_number(&mut self, field: TaskField, value: Option<f64>) {
         self.set_task_field(field, value.map(FieldValue::Double));
     }
 
-    /// 对应 Java: `set(field, value)`（`String` 取值）
+/// Corresponds to Java: `set(field, value)` (`String` value)
     fn put_string(&mut self, field: TaskField, value: Option<String>) {
         self.set_task_field(field, value.map(FieldValue::String));
     }
 
-    /// 对应 Java: `private void set(FieldType field, boolean value)`
+    /// Corresponds to Java: `private void set(FieldType field, boolean value)`
     ///
-    /// Java 是私有重载，Rust 无重载，改用具名辅助方法。
+/// Java uses a private overload; Rust has no overloading, so a named helper method is used instead.
     fn put_bool(&mut self, field: TaskField, value: bool) {
         self.set_task_field(field, Some(FieldValue::Boolean(value)));
     }
 
-    /// 对应 Java: `set(field, value)`（`LocalDateTime` 取值）
+/// Corresponds to Java: `set(field, value)` (`LocalDateTime` value)
     fn put_date_time(&mut self, field: TaskField, value: Option<NaiveDateTime>) {
         self.set_task_field(field, value.map(FieldValue::DateTime));
     }
 
-    /// 对应 Java: `set(field, value)`（`Duration` 取值）
+/// Corresponds to Java: `set(field, value)` (`Duration` value)
     fn put_duration(&mut self, field: TaskField, value: Option<Duration>) {
         self.set_task_field(field, value.map(FieldValue::Duration));
     }
 
-    /// 对应 Java: `set(field, value)`（枚举取值，Rust 侧编码为 int 值，见文件头差异第 7 条）
+/// Corresponds to Java: `set(field, value)` (enum value; encoded as an int on the Rust side, see item 7 in the file header differences)
     fn put_enum(&mut self, field: TaskField, value: Option<i32>) {
         self.set_task_field(field, value.map(FieldValue::Integer));
     }
 
-    /// 对应 Java: `set(field, value)`（`UUID` 取值，Rust 侧编码为字符串）
+/// Corresponds to Java: `set(field, value)` (`UUID` value; encoded as a string on the Rust side)
     fn put_uuid(&mut self, field: TaskField, value: Option<Uuid>) {
         self.put_string(field, value.map(|value| value.to_string()));
     }
 }
 
-/// 取任务字段的依赖列表。
+/// Get the dependency list for a task field.
 ///
-/// 对应 Java: `private static final Map<FieldType, List<FieldType>> DEPENDENCY_MAP`
-/// （静态初始化块中的 `FieldContainerDependencies` 声明，改为 `match` 分派）
+/// Corresponds to Java: `private static final Map<FieldType, List<FieldType>> DEPENDENCY_MAP`
+/// (the `FieldContainerDependencies` declarations in the static initializer block, rewritten as `match` dispatch)
 fn dependency_fields(field: TaskField) -> &'static [TaskField] {
     match field {
         TaskField::StartVariance => &[TaskField::Start, TaskField::BaselineStart],
@@ -843,10 +843,10 @@ fn dependency_fields(field: TaskField) -> &'static [TaskField] {
     }
 }
 
-/// 取索引对应的任务字段，越界返回 `None`。
+/// Get the task field at the given index; returns `None` when out of bounds.
 ///
-/// 对应 Java: `private TaskField selectField(TaskField[] fields, int index)`
-/// （Java 对越界下标抛 `IllegalArgumentException`，Rust 侧返回 `None`）
+/// Corresponds to Java: `private TaskField selectField(TaskField[] fields, int index)`
+/// (Java throws `IllegalArgumentException` for an out-of-bounds index; the Rust side returns `None`)
 fn select_field(fields: &'static [TaskField], index: i32) -> Option<TaskField> {
     let index = usize::try_from(index).ok()?;
     if index < 1 {
@@ -855,7 +855,7 @@ fn select_field(fields: &'static [TaskField], index: i32) -> Option<TaskField> {
     fields.get(index - 1).copied()
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_COST`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_COST`
 fn custom_cost_fields() -> &'static [TaskField] {
     &[
         TaskField::Cost1,
@@ -871,7 +871,7 @@ fn custom_cost_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_DATE`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_DATE`
 fn custom_date_fields() -> &'static [TaskField] {
     &[
         TaskField::Date1,
@@ -887,7 +887,7 @@ fn custom_date_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_DURATION`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_DURATION`
 fn custom_duration_fields() -> &'static [TaskField] {
     &[
         TaskField::Duration1,
@@ -903,7 +903,7 @@ fn custom_duration_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_FLAG`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_FLAG`
 fn custom_flag_fields() -> &'static [TaskField] {
     &[
         TaskField::Flag1,
@@ -929,7 +929,7 @@ fn custom_flag_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_FINISH`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_FINISH`
 fn custom_finish_fields() -> &'static [TaskField] {
     &[
         TaskField::Finish1,
@@ -945,7 +945,7 @@ fn custom_finish_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_NUMBER`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_NUMBER`
 fn custom_number_fields() -> &'static [TaskField] {
     &[
         TaskField::Number1,
@@ -971,7 +971,7 @@ fn custom_number_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_START`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_START`
 fn custom_start_fields() -> &'static [TaskField] {
     &[
         TaskField::Start1,
@@ -987,7 +987,7 @@ fn custom_start_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_TEXT`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_TEXT`
 fn custom_text_fields() -> &'static [TaskField] {
     &[
         TaskField::Text1,
@@ -1023,7 +1023,7 @@ fn custom_text_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.CUSTOM_OUTLINE_CODE`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.CUSTOM_OUTLINE_CODE`
 fn custom_outline_code_fields() -> &'static [TaskField] {
     &[
         TaskField::OutlineCode1,
@@ -1039,7 +1039,7 @@ fn custom_outline_code_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_COST`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_COST`
 fn enterprise_cost_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseCost1,
@@ -1055,7 +1055,7 @@ fn enterprise_cost_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_DATE`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_DATE`
 fn enterprise_date_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseDate1,
@@ -1091,7 +1091,7 @@ fn enterprise_date_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_DURATION`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_DURATION`
 fn enterprise_duration_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseDuration1,
@@ -1107,7 +1107,7 @@ fn enterprise_duration_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_FLAG`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_FLAG`
 fn enterprise_flag_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseFlag1,
@@ -1133,7 +1133,7 @@ fn enterprise_flag_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_NUMBER`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_NUMBER`
 fn enterprise_number_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseNumber1,
@@ -1179,7 +1179,7 @@ fn enterprise_number_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_TEXT`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.ENTERPRISE_CUSTOM_TEXT`
 fn enterprise_text_fields() -> &'static [TaskField] {
     &[
         TaskField::EnterpriseText1,
@@ -1225,7 +1225,7 @@ fn enterprise_text_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_COSTS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_COSTS`
 fn baseline_cost_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1Cost,
@@ -1241,7 +1241,7 @@ fn baseline_cost_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_DURATIONS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_DURATIONS`
 fn baseline_duration_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1Duration,
@@ -1257,7 +1257,7 @@ fn baseline_duration_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_DURATIONS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_DURATIONS`
 fn baseline_estimated_duration_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1EstimatedDuration,
@@ -1273,7 +1273,7 @@ fn baseline_estimated_duration_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_STARTS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_STARTS`
 fn baseline_start_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1Start,
@@ -1289,7 +1289,7 @@ fn baseline_start_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_STARTS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_STARTS`
 fn baseline_estimated_start_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1EstimatedStart,
@@ -1305,7 +1305,7 @@ fn baseline_estimated_start_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_FINISHES`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_FINISHES`
 fn baseline_finish_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1Finish,
@@ -1321,7 +1321,7 @@ fn baseline_finish_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_FINISHES`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_ESTIMATED_FINISHES`
 fn baseline_estimated_finish_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1EstimatedFinish,
@@ -1337,7 +1337,7 @@ fn baseline_estimated_finish_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_WORKS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_WORKS`
 fn baseline_work_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1Work,
@@ -1353,7 +1353,7 @@ fn baseline_work_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_FIXED_COSTS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_FIXED_COSTS`
 fn baseline_fixed_cost_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1FixedCost,
@@ -1369,7 +1369,7 @@ fn baseline_fixed_cost_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_FIXED_COST_ACCRUALS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_FIXED_COST_ACCRUALS`
 fn baseline_fixed_cost_accrual_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1FixedCostAccrual,
@@ -1385,7 +1385,7 @@ fn baseline_fixed_cost_accrual_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_BUDGET_COSTS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_BUDGET_COSTS`
 fn baseline_budget_cost_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1BudgetCost,
@@ -1401,7 +1401,7 @@ fn baseline_budget_cost_fields() -> &'static [TaskField] {
     ]
 }
 
-/// 对应 Java: `org.mpxj.common.TaskFieldLists.BASELINE_BUDGET_WORKS`
+/// Corresponds to Java: `org.mpxj.common.TaskFieldLists.BASELINE_BUDGET_WORKS`
 fn baseline_budget_work_fields() -> &'static [TaskField] {
     &[
         TaskField::Baseline1BudgetWork,
@@ -1418,10 +1418,10 @@ fn baseline_budget_work_fields() -> &'static [TaskField] {
 }
 
 // ---------------------------------------------------------------------------
-// 枚举 / 类型编码辅助（见文件头差异第 7 条）
+// Enum / type encoding helpers (see item 7 in the file header differences)
 // ---------------------------------------------------------------------------
 
-/// 把 `TaskType` 编码为声明序号（Java 侧该枚举没有 int 值）。
+/// Encode `TaskType` as its declaration ordinal (on the Java side this enum has no int value).
 fn task_type_to_value(value: TaskType) -> i32 {
     TaskType::ALL
         .iter()
@@ -1429,40 +1429,40 @@ fn task_type_to_value(value: TaskType) -> i32 {
         .map_or(0, |index| index as i32)
 }
 
-/// 把字段中的 int 还原为 `TaskType`。
+/// Restore the int in the field to a `TaskType`.
 fn task_type_from_value(value: i32) -> Option<TaskType> {
     TaskType::get_instance(value)
 }
 
-/// 把字段中的 int 还原为 `ConstraintType`（越界回落 `AS_SOON_AS_POSSIBLE`，与 Java 一致）。
+/// Restore the int in the field to a `ConstraintType` (falls back to `AS_SOON_AS_POSSIBLE` when out of bounds, matching Java).
 fn constraint_type_from_value(value: i32) -> ConstraintType {
     ConstraintType::get_instance(value)
 }
 
 // ---------------------------------------------------------------------------
-// 自动生成 WBS / 大纲编号
+// Automatic WBS / outline number generation
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 自动生成 WBS 字段取值。
+/// Automatically generate the WBS field value.
     ///
-    /// 对应 Java: `public void generateWBS(Task parent)`
+    /// Corresponds to Java: `public void generateWBS(Task parent)`
     ///
-    /// Java 在 `parent.getWBS()` 为 `null` 时会抛 `NullPointerException`；
-    /// Rust 侧按空串处理（不 panic）。
+/// Java throws `NullPointerException` when `parent.getWBS()` is `null`;
+/// the Rust side treats it as an empty string (no panic).
     pub fn generate_wbs(&mut self, parent: Option<&Rc<RefCell<Task>>>) {
         let top_level_count = self.top_level_task_count(parent);
         self.generate_wbs_with_count(parent, top_level_count);
     }
 
-    /// 生成 WBS，并显式传入「当前已登记的顶层任务数」。
+/// Generate the WBS and explicitly pass in "the currently registered top-level task count".
     ///
-    /// 对应 Java: `public void generateWBS(Task parent)`，其中 `parent == null`
-    /// 分支读取的是 `m_parentFile.getChildTasks().size()`。
+/// Corresponds to Java: `public void generateWBS(Task parent)`, where the `parent == null`
+/// branch reads `m_parentFile.getChildTasks().size()`.
     ///
-    /// [`crate::TaskContainer::update_structure`] 在构造任务层级的过程中调用本方法：
-    /// 它无法安全地回调 `ProjectFile`（重入借用），而它自身正是该计数的权威来源
-    /// （`TaskContainer.child_tasks` 即 `ProjectFile.getChildTasks()`），故显式传入。
+/// [`crate::TaskContainer::update_structure`] calls this method while building the task hierarchy:
+/// it cannot safely call back into `ProjectFile` (reentrant borrow), and it is itself the authoritative source of that count
+/// (`TaskContainer.child_tasks` is `ProjectFile.getChildTasks()`), so it is passed in explicitly.
     pub fn generate_wbs_with_count(
         &mut self,
         parent: Option<&Rc<RefCell<Task>>>,
@@ -1492,18 +1492,18 @@ impl Task {
         self.set_wbs(Some(wbs));
     }
 
-    /// 自动生成大纲编号字段取值。
+/// Automatically generate the outline number field value.
     ///
-    /// 对应 Java: `public void generateOutlineNumber(Task parent)`
+    /// Corresponds to Java: `public void generateOutlineNumber(Task parent)`
     pub fn generate_outline_number(&mut self, parent: Option<&Rc<RefCell<Task>>>) {
         let top_level_count = self.top_level_task_count(parent);
         self.generate_outline_number_with_count(parent, top_level_count);
     }
 
-    /// 生成大纲编号，并显式传入「当前已登记的顶层任务数」。
+/// Generate the outline number and explicitly pass in "the currently registered top-level task count".
     ///
-    /// 对应 Java: `public void generateOutlineNumber(Task parent)`，语义与取值来源
-    /// 同 [`Task::generate_wbs_with_count`]。
+/// Corresponds to Java: `public void generateOutlineNumber(Task parent)`; the semantics and value source
+/// are the same as [`Task::generate_wbs_with_count`].
     pub fn generate_outline_number_with_count(
         &mut self,
         parent: Option<&Rc<RefCell<Task>>>,
@@ -1537,11 +1537,11 @@ impl Task {
         self.set_outline_number(Some(outline));
     }
 
-    /// 读取「当前已登记的顶层任务数」，等价 Java 的
-    /// `m_parentFile.getChildTasks().size()`。
+/// Read "the currently registered top-level task count", equivalent to Java's
+    /// `m_parentFile.getChildTasks().size()`.
     ///
-    /// 仅 `parent == None` 时才有意义；`parent` 非空时返回 `0`（该分支不使用）。
-    /// 父文件缺失或正被可变借用时退化为 `0`（不 panic）。
+/// It is only meaningful when `parent == None`; returns `0` when `parent` is non-empty (that branch does not use it).
+/// Degrades gracefully to `0` when the parent file is missing or currently mutably borrowed (no panic).
     fn top_level_task_count(&self, parent: Option<&Rc<RefCell<Task>>>) -> usize {
         if parent.is_some() {
             return 0;
@@ -1558,12 +1558,12 @@ impl Task {
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 为当前任务添加纯文本笔记。
+/// Add plain-text notes to the current task.
     ///
-    /// 对应 Java: `public void setNotes(String notes)`
+    /// Corresponds to Java: `public void setNotes(String notes)`
     ///
     /// Java: `set(TaskField.NOTES, notes == null ? null : new Notes(notes));`
-    /// Rust 侧用 [`PlainNotes`] 承载「纯文本笔记」这一具体形态。
+/// The Rust side uses [`PlainNotes`] to carry this concrete "plain-text notes" form.
     pub fn set_notes(&mut self, notes: Option<String>) {
         let value = notes.map(|text| {
             let notes: Rc<dyn Notes> = Rc::new(PlainNotes::new(Some(text)));
@@ -1572,13 +1572,13 @@ impl Task {
         self.set_task_field(TaskField::Notes, value);
     }
 
-    /// 设置代表任务笔记的 `Notes` 实例（`RtfNotes` / `HtmlNotes` / `StructuredNotes` /
-    /// `ParentNotes` 的子类型信息经 [`FieldValue::Notes`] 保真保存）。
+/// Set the `Notes` instance representing the task notes (the subtype information of `RtfNotes` / `HtmlNotes` / `StructuredNotes` /
+/// `ParentNotes` is preserved losslessly via [`FieldValue::Notes`]).
     ///
-    /// 对应 Java: `public void setNotesObject(Notes notes)`
+    /// Corresponds to Java: `public void setNotesObject(Notes notes)`
     ///
-    /// Rust 侧 `Notes` 是 trait 对象，调用方只能交出借用，故经 [`Notes::to_rc`] 做一次
-    /// 子类型保真的浅拷贝（Java 直接存入同一个实例）。
+/// On the Rust side `Notes` is a trait object, so the caller can only hand over a borrow; therefore a
+/// subtype-preserving shallow copy is made via [`Notes::to_rc`] (Java stores the same instance directly).
     pub fn set_notes_object(&mut self, notes: Option<&dyn Notes>) {
         let value = notes.map(|notes| FieldValue::Notes(notes.to_rc()));
         self.set_task_field(TaskField::Notes, value);
@@ -1586,16 +1586,16 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 层级结构（父子任务）
+// Hierarchy structure (parent/child tasks)
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 新增一个子任务（WBS 自动补全）。
+/// Add a child task (with automatic WBS completion).
     ///
-    /// 对应 Java: `@Override public Task addTask()`
+    /// Corresponds to Java: `@Override public Task addTask()`
     ///
-    /// Java 的实例方法访问了隐含的 `this`，Rust 侧需要实体自身的共享句柄，
-    /// 故改为以 `this` 为首参的关联函数（见文件头说明）。
+/// Java's instance method accesses the implicit `this`; the Rust side needs the entity's own shared handle,
+/// so it is changed to an associated function taking `this` as the first argument (see the file header).
     pub fn add_task(this: &Rc<RefCell<Task>>) -> Option<Rc<RefCell<Task>>> {
         let file = this.borrow().parent_file.upgrade()?;
 
@@ -1608,9 +1608,9 @@ impl Task {
         Some(task)
     }
 
-    /// 按大纲级别把子任务挂到当前任务（读取 MPX 文件时构建层级用）。
+/// Attach a child task to the current task by outline level (used to build the hierarchy when reading MPX files).
     ///
-    /// 对应 Java: `public void addChildTask(Task child, int childOutlineLevel)`
+    /// Corresponds to Java: `public void addChildTask(Task child, int childOutlineLevel)`
     pub fn add_child_task_at_level(
         this: &Rc<RefCell<Task>>,
         child: &Rc<RefCell<Task>>,
@@ -1628,14 +1628,14 @@ impl Task {
         }
     }
 
-    /// 关联一个子任务，并按需自动设置子任务的大纲级别。
+/// Associate a child task and automatically set the child task's outline level as needed.
     ///
-    /// 对应 Java: `public void addChildTask(Task child)`
+    /// Corresponds to Java: `public void addChildTask(Task child)`
     pub fn add_child_task(this: &Rc<RefCell<Task>>, child: &Rc<RefCell<Task>>) {
         // Java: boolean autoOutlineLevel = m_parentFile.getProjectConfig().getAutoOutlineLevel();
         //
-        // 读取改用 `try_borrow`：调用方可能正持有 `ProjectFile` 的借用，此时按默认
-        // `true` 处理而不 panic（Java 无此限制）。
+// Reads use `try_borrow`: the caller may currently hold a `ProjectFile` borrow, in which case the default
+// `true` is used without panicking (Java has no such restriction).
         let auto_outline_level = match this.borrow().parent_file.upgrade() {
             Some(file) => match file.try_borrow() {
                 Ok(file) => file.get_project_config().get_auto_outline_level(),
@@ -1647,11 +1647,11 @@ impl Task {
         Task::add_child_task_with_auto_outline_level(this, child, auto_outline_level);
     }
 
-    /// 关联一个子任务，`autoOutlineLevel` 开关由调用方显式传入。
+/// Associate a child task; the `autoOutlineLevel` switch is passed in explicitly by the caller.
     ///
-    /// 对应 Java: `public void addChildTask(Task child)`，其中从 `ProjectConfig` 读取的
-    /// `autoOutlineLevel` 改由参数传入 —— 这样本方法不回调父文件，可在 `ProjectFile`
-    /// 已被借用时调用（[`crate::TaskContainer::update_structure`] 即如此）。
+/// Corresponds to Java: `public void addChildTask(Task child)`, where the
+/// `autoOutlineLevel` read from `ProjectConfig` is instead passed in as a parameter -- this way the method does not call back into the parent file and can be used while `ProjectFile`
+/// is already borrowed ([`crate::TaskContainer::update_structure`] does exactly this).
     pub fn add_child_task_with_auto_outline_level(
         this: &Rc<RefCell<Task>>,
         child: &Rc<RefCell<Task>>,
@@ -1668,9 +1668,9 @@ impl Task {
         }
     }
 
-    /// 在指定兄弟任务之前插入一个子任务。
+/// Insert a child task before the specified sibling task.
     ///
-    /// 对应 Java: `public void addChildTaskBefore(Task child, Task previousSibling)`
+    /// Corresponds to Java: `public void addChildTaskBefore(Task child, Task previousSibling)`
     pub fn add_child_task_before(
         this: &Rc<RefCell<Task>>,
         child: &Rc<RefCell<Task>>,
@@ -1705,9 +1705,9 @@ impl Task {
         }
     }
 
-    /// 移除一个子任务。
+/// Remove a child task.
     ///
-    /// 对应 Java: `public void removeChildTask(Task child)`
+    /// Corresponds to Java: `public void removeChildTask(Task child)`
     pub fn remove_child_task(this: &Rc<RefCell<Task>>, child: &Rc<RefCell<Task>>) {
         let removed = {
             let mut task = this.borrow_mut();
@@ -1732,11 +1732,11 @@ impl Task {
         this.borrow_mut().set_summary(!is_empty);
     }
 
-    /// 清空子任务列表（为构建层级结构做准备）。
+/// Clear the child task list (in preparation for building the hierarchy).
     ///
-    /// 对应 Java: `public void clearChildTasks()`
+    /// Corresponds to Java: `public void clearChildTasks()`
     ///
-    /// 仅在列表非空时动作，以保证 `summary` 标志在「无子活动的 WBS 条目」场景下不被改写。
+/// Acts only when the list is non-empty, to ensure the `summary` flag is not overwritten in the "WBS entry with no child activities" case.
     pub fn clear_child_tasks(this: &Rc<RefCell<Task>>) {
         if this.borrow().children.is_empty() {
             return;
@@ -1746,30 +1746,30 @@ impl Task {
         this.borrow_mut().set_summary(false);
     }
 
-    /// 取父任务（弱引用升级；无父任务或父任务已释放时返回 `None`）。
+/// Get the parent task (upgrades the weak reference; returns `None` when there is no parent task or the parent task has been released).
     ///
-    /// 对应 Java: `public Task getParentTask()`
+    /// Corresponds to Java: `public Task getParentTask()`
     pub fn get_parent_task(&self) -> Option<Rc<RefCell<Task>>> {
         self.parent.upgrade()
     }
 
-    /// 取子任务列表（返回共享句柄的克隆快照）。
+/// Get the child task list (returns a cloned snapshot of the shared handles).
     ///
-    /// 对应 Java: `@Override public List<Task> getChildTasks()`
+    /// Corresponds to Java: `@Override public List<Task> getChildTasks()`
     pub fn get_child_tasks(&self) -> Vec<Rc<RefCell<Task>>> {
         self.children.clone()
     }
 
-    /// 判断任务是否有子任务。
+/// Determine whether the task has child tasks.
     ///
-    /// 对应 Java: `public boolean hasChildTasks()`
+    /// Corresponds to Java: `public boolean hasChildTasks()`
     pub fn has_child_tasks(&self) -> bool {
         !self.children.is_empty()
     }
 
-    /// 从项目文件中移除本任务。
+/// Remove this task from the project file.
     ///
-    /// 对应 Java: `public void remove()`
+    /// Corresponds to Java: `public void remove()`
     pub fn remove(this: &Rc<RefCell<Task>>) {
         if let Some(file) = this.borrow().parent_file.upgrade() {
             file.borrow_mut().remove_task(this);
@@ -1778,13 +1778,13 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 资源分配与关系（Relation）
+// Resource assignments and relations (Relation)
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 为当前任务新增一个资源分配。
+/// Add a resource assignment to the current task.
     ///
-    /// 对应 Java: `public ResourceAssignment addResourceAssignment(Resource resource)`
+    /// Corresponds to Java: `public ResourceAssignment addResourceAssignment(Resource resource)`
     pub fn add_resource_assignment(
         &mut self,
         resource: Option<&Rc<RefCell<Resource>>>,
@@ -1800,7 +1800,7 @@ impl Task {
             );
             assignment_ref.set_work(self.get_duration());
             // Java: assignment.setUnits(ResourceAssignment.DEFAULT_UNITS)
-            // （`crate::resource_assignment` 尚未提供该常量，此处直接使用其值 1.0）
+// (`crate::resource_assignment` does not yet provide that constant, so its value 1.0 is used directly here)
             assignment_ref.set_units(Some(1.0));
         }
 
@@ -1811,9 +1811,9 @@ impl Task {
         Some(assignment)
     }
 
-    /// 取已存在的资源分配，避免重复添加。
+/// Get an existing resource assignment to avoid adding a duplicate.
     ///
-    /// 对应 Java: `public ResourceAssignment getExistingResourceAssignment(Resource resource)`
+    /// Corresponds to Java: `public ResourceAssignment getExistingResourceAssignment(Resource resource)`
     pub fn get_existing_resource_assignment(
         &self,
         resource: Option<&Rc<RefCell<Resource>>>,
@@ -1832,9 +1832,9 @@ impl Task {
         })
     }
 
-    /// 取当前任务的全部资源分配。
+/// Get all resource assignments of the current task.
     ///
-    /// 对应 Java: `public List<ResourceAssignment> getResourceAssignments()`
+    /// Corresponds to Java: `public List<ResourceAssignment> getResourceAssignments()`
     pub fn get_resource_assignments(&self) -> Vec<Rc<RefCell<ResourceAssignment>>> {
         match self.parent_file.upgrade() {
             Some(file) => file
@@ -1845,12 +1845,12 @@ impl Task {
         }
     }
 
-    /// 为当前任务新增一个前置关系。
+/// Add a predecessor relation to the current task.
     ///
-    /// 对应 Java: `public Relation addPredecessor(Relation.Builder builder)`
+    /// Corresponds to Java: `public Relation addPredecessor(Relation.Builder builder)`
     ///
-    /// Java 在方法体内使用隐含的 `this`（`builder.successorTask(this)`），Rust 侧
-    /// 需要实体自身的共享句柄，故改为以 `this` 为首参的关联函数。
+/// Java uses the implicit `this` inside the method body (`builder.successorTask(this)`); the Rust side
+/// needs the entity's own shared handle, so it is changed to an associated function taking `this` as the first argument.
     pub fn add_predecessor(
         this: &Rc<RefCell<Task>>,
         builder: RelationBuilder,
@@ -1860,9 +1860,9 @@ impl Task {
         Some(file.borrow_mut().get_relations_mut().add_predecessor(builder))
     }
 
-    /// 删除与给定目标任务、关系类型与延隔时间完全匹配的前置关系。
+/// Delete the predecessor relation that exactly matches the given target task, relation type, and lag time.
     ///
-    /// 对应 Java: `public boolean removePredecessor(Task targetTask, RelationType type, Duration lag)`
+    /// Corresponds to Java: `public boolean removePredecessor(Task targetTask, RelationType type, Duration lag)`
     pub fn remove_predecessor(
         &self,
         target_task: Option<&Rc<RefCell<Task>>>,
@@ -1886,27 +1886,27 @@ impl Task {
         )
     }
 
-    /// 取当前任务的前置关系列表。
+/// Get the predecessor relation list of the current task.
     ///
-    /// 对应 Java: `@SuppressWarnings("unchecked") public List<Relation> getPredecessors()`
+    /// Corresponds to Java: `@SuppressWarnings("unchecked") public List<Relation> getPredecessors()`
     ///
-    /// Java 经字段表 `TaskField.PREDECESSORS` 调 `calculatePredecessors()` 求值
-    /// （该字段属于「始终计算」集合，不写回缓存）；Rust 侧直接向关系容器查询，
-    /// 以绕开字段表缺少 `List<Relation>` 变体的问题（见文件头差异第 7 条）。
+/// Java evaluates it via the field table `TaskField.PREDECESSORS` by calling `calculatePredecessors()`
+/// (this field belongs to the "always calculated" set and is not written back to the cache); the Rust side queries the relation container directly,
+/// to work around the field table lacking a `List<Relation>` variant (see item 7 in the file header differences).
     pub fn get_predecessors(&self) -> Vec<Rc<RefCell<Relation>>> {
         self.calculate_predecessors()
     }
 
-    /// 取当前任务的后继关系列表。
+/// Get the successor relation list of the current task.
     ///
-    /// 对应 Java: `@SuppressWarnings("unchecked") public List<Relation> getSuccessors()`
+    /// Corresponds to Java: `@SuppressWarnings("unchecked") public List<Relation> getSuccessors()`
     pub fn get_successors(&self) -> Vec<Rc<RefCell<Relation>>> {
         self.calculate_successors()
     }
 
-    /// 计算前置关系列表。
+/// Compute the predecessor relation list.
     ///
-    /// 对应 Java: `private List<Relation> calculatePredecessors()`
+    /// Corresponds to Java: `private List<Relation> calculatePredecessors()`
     fn calculate_predecessors(&self) -> Vec<Rc<RefCell<Relation>>> {
         match self.parent_file.upgrade() {
             Some(file) => file.borrow().get_relations().get_predecessors(self),
@@ -1914,9 +1914,9 @@ impl Task {
         }
     }
 
-    /// 计算后继关系列表。
+/// Compute the successor relation list.
     ///
-    /// 对应 Java: `private List<Relation> calculateSuccessors()`
+    /// Corresponds to Java: `private List<Relation> calculateSuccessors()`
     fn calculate_successors(&self) -> Vec<Rc<RefCell<Relation>>> {
         match self.parent_file.upgrade() {
             Some(file) => file.borrow().get_relations().get_successors(self),
@@ -1924,9 +1924,9 @@ impl Task {
         }
     }
 
-    /// 判断给定任务是否是当前任务的前置任务。
+/// Determine whether the given task is a predecessor of the current task.
     ///
-    /// 对应 Java: `public boolean isPredecessor(Task task)`
+    /// Corresponds to Java: `public boolean isPredecessor(Task task)`
     pub fn is_predecessor(&self, task: Option<&Rc<RefCell<Task>>>) -> bool {
         let Some(task) = task else {
             return false;
@@ -1942,12 +1942,12 @@ impl Task {
         })
     }
 
-    /// 判断给定任务是否是当前任务的后继任务。
+/// Determine whether the given task is a successor of the current task.
     ///
-    /// 对应 Java: `public boolean isSuccessor(Task task)`
+    /// Corresponds to Java: `public boolean isSuccessor(Task task)`
     ///
-    /// Java 的实现是 `task.isPredecessor(this)`；Rust 侧改为在本任务的后继列表中
-    /// 反查（语义等价，且无需实体自身的共享句柄）。
+/// Java's implementation is `task.isPredecessor(this)`; the Rust side instead looks it up
+/// in reverse in this task's successor list (semantically equivalent, and it does not need the entity's own shared handle).
     pub fn is_successor(&self, task: Option<&Rc<RefCell<Task>>>) -> bool {
         let Some(task) = task else {
             return false;
@@ -1965,320 +1965,320 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 基本属性：百分比、成本、工期、日期
+// Basic properties: percentage, cost, duration, dates
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 设置完成百分比。
+/// Set the percentage complete.
     ///
-    /// 对应 Java: `public void setPercentageComplete(Number val)`
+    /// Corresponds to Java: `public void setPercentageComplete(Number val)`
     pub fn set_percentage_complete(&mut self, val: Option<f64>) {
         self.put_number(TaskField::PercentComplete, val);
     }
 
-    /// 设置工时完成百分比。
+/// Set the percentage work complete.
     ///
-    /// 对应 Java: `public void setPercentageWorkComplete(Number val)`
+    /// Corresponds to Java: `public void setPercentageWorkComplete(Number val)`
     pub fn set_percentage_work_complete(&mut self, val: Option<f64>) {
         self.put_number(TaskField::PercentWorkComplete, val);
     }
 
-    /// 设置实际成本。
+/// Set the actual cost.
     ///
-    /// 对应 Java: `public void setActualCost(Number val)`
+    /// Corresponds to Java: `public void setActualCost(Number val)`
     pub fn set_actual_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::ActualCost, val);
     }
 
-    /// 设置实际工期。
+/// Set the actual duration.
     ///
-    /// 对应 Java: `public void setActualDuration(Duration val)`
+    /// Corresponds to Java: `public void setActualDuration(Duration val)`
     pub fn set_actual_duration(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::ActualDuration, val);
     }
 
-    /// 设置实际完成日期。
+/// Set the actual finish date.
     ///
-    /// 对应 Java: `public void setActualFinish(LocalDateTime val)`
+    /// Corresponds to Java: `public void setActualFinish(LocalDateTime val)`
     pub fn set_actual_finish(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ActualFinish, val);
     }
 
-    /// 设置实际开始日期。
+/// Set the actual start date.
     ///
-    /// 对应 Java: `public void setActualStart(LocalDateTime val)`
+    /// Corresponds to Java: `public void setActualStart(LocalDateTime val)`
     pub fn set_actual_start(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ActualStart, val);
     }
 
-    /// 设置实际工时。
+/// Set the actual work.
     ///
-    /// 对应 Java: `public void setActualWork(Duration val)`
+    /// Corresponds to Java: `public void setActualWork(Duration val)`
     pub fn set_actual_work(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::ActualWork, val);
     }
 
-    /// 设置基线成本。
+/// Set the baseline cost.
     ///
-    /// 对应 Java: `public void setBaselineCost(Number val)`
+    /// Corresponds to Java: `public void setBaselineCost(Number val)`
     pub fn set_baseline_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::BaselineCost, val);
     }
 
-    /// 设置基线工期。
+/// Set the baseline duration.
     ///
-    /// 对应 Java: `public void setBaselineDuration(Duration val)`
+    /// Corresponds to Java: `public void setBaselineDuration(Duration val)`
     pub fn set_baseline_duration(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::BaselineDuration, val);
     }
 
-    /// 设置基线完成日期。
+/// Set the baseline finish date.
     ///
-    /// 对应 Java: `public void setBaselineFinish(LocalDateTime val)`
+    /// Corresponds to Java: `public void setBaselineFinish(LocalDateTime val)`
     pub fn set_baseline_finish(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::BaselineFinish, val);
     }
 
-    /// 设置基线开始日期。
+/// Set the baseline start date.
     ///
-    /// 对应 Java: `public void setBaselineStart(LocalDateTime val)`
+    /// Corresponds to Java: `public void setBaselineStart(LocalDateTime val)`
     pub fn set_baseline_start(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::BaselineStart, val);
     }
 
-    /// 设置基线工时。
+/// Set the baseline work.
     ///
-    /// 对应 Java: `public void setBaselineWork(Duration val)`
+    /// Corresponds to Java: `public void setBaselineWork(Duration val)`
     pub fn set_baseline_work(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::BaselineWork, val);
     }
 
-    /// 设置 BCWP（已完成工作预算成本）。
+/// Set BCWP (budgeted cost of work performed).
     ///
-    /// 对应 Java: `public void setBCWP(Number val)`
+    /// Corresponds to Java: `public void setBCWP(Number val)`
     pub fn set_bcwp(&mut self, val: Option<f64>) {
         self.put_number(TaskField::Bcwp, val);
     }
 
-    /// 设置 BCWS（计划工作预算成本）。
+/// Set BCWS (budgeted cost of work scheduled).
     ///
-    /// 对应 Java: `public void setBCWS(Number val)`
+    /// Corresponds to Java: `public void setBCWS(Number val)`
     pub fn set_bcws(&mut self, val: Option<f64>) {
         self.put_number(TaskField::Bcws, val);
     }
 
-    /// 设置「已确认」标志。
+/// Set the "confirmed" flag.
     ///
-    /// 对应 Java: `public void setConfirmed(boolean val)`
+    /// Corresponds to Java: `public void setConfirmed(boolean val)`
     pub fn set_confirmed(&mut self, val: bool) {
         self.put_bool(TaskField::Confirmed, val);
     }
 
-    /// 设置约束日期。
+/// Set the constraint date.
     ///
-    /// 对应 Java: `public void setConstraintDate(LocalDateTime val)`
+    /// Corresponds to Java: `public void setConstraintDate(LocalDateTime val)`
     pub fn set_constraint_date(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ConstraintDate, val);
     }
 
-    /// 设置次要约束日期。
+/// Set the secondary constraint date.
     ///
-    /// 对应 Java: `public void setSecondaryConstraintDate(LocalDateTime date)`
+    /// Corresponds to Java: `public void setSecondaryConstraintDate(LocalDateTime date)`
     pub fn set_secondary_constraint_date(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::SecondaryConstraintDate, date);
     }
 
-    /// 设置约束类型。
+/// Set the constraint type.
     ///
-    /// 对应 Java: `public void setConstraintType(ConstraintType type)`
+    /// Corresponds to Java: `public void setConstraintType(ConstraintType type)`
     pub fn set_constraint_type(&mut self, r#type: Option<ConstraintType>) {
         self.put_enum(TaskField::ConstraintType, r#type.map(|value| value.value()));
     }
 
-    /// 设置次要约束类型。
+/// Set the secondary constraint type.
     ///
-    /// 对应 Java: `public void setSecondaryConstraintType(ConstraintType type)`
+    /// Corresponds to Java: `public void setSecondaryConstraintType(ConstraintType type)`
     pub fn set_secondary_constraint_type(&mut self, r#type: Option<ConstraintType>) {
         self.put_enum(TaskField::SecondaryConstraintType, r#type.map(|value| value.value()));
     }
 
-    /// 设置联系人。
+/// Set the contact.
     ///
-    /// 对应 Java: `public void setContact(String val)`
+    /// Corresponds to Java: `public void setContact(String val)`
     pub fn set_contact(&mut self, val: Option<String>) {
         self.put_string(TaskField::Contact, val);
     }
 
-    /// 设置总成本。
+/// Set the total cost.
     ///
-    /// 对应 Java: `public void setCost(Number val)`
+    /// Corresponds to Java: `public void setCost(Number val)`
     pub fn set_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::Cost, val);
     }
 
-    /// 设置自定义成本字段。
+/// Set a custom cost field.
     ///
-    /// 对应 Java: `public void setCost(int index, Number value)`
+    /// Corresponds to Java: `public void setCost(int index, Number value)`
     pub fn set_cost_at(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(custom_cost_fields(), index) {
             self.put_number(field, value);
         }
     }
 
-    /// 读取自定义成本字段。
+/// Read a custom cost field.
     ///
-    /// 对应 Java: `public Number getCost(int index)`
+    /// Corresponds to Java: `public Number getCost(int index)`
     pub fn get_cost_at(&self, index: i32) -> Option<f64> {
         select_field(custom_cost_fields(), index).and_then(|field| self.number_field(field))
     }
 
-    /// 设置成本偏差。
+/// Set the cost variance.
     ///
-    /// 对应 Java: `public void setCostVariance(Number val)`
+    /// Corresponds to Java: `public void setCostVariance(Number val)`
     pub fn set_cost_variance(&mut self, val: Option<f64>) {
         self.put_number(TaskField::CostVariance, val);
     }
 
-    /// 设置创建日期。
+/// Set the created date.
     ///
-    /// 对应 Java: `public void setCreateDate(LocalDateTime val)`
+    /// Corresponds to Java: `public void setCreateDate(LocalDateTime val)`
     pub fn set_create_date(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Created, val);
     }
 
-    /// 设置关键路径标志。
+/// Set the critical path flag.
     ///
-    /// 对应 Java: `public void setCritical(boolean val)`
+    /// Corresponds to Java: `public void setCritical(boolean val)`
     pub fn set_critical(&mut self, val: bool) {
         self.put_bool(TaskField::Critical, val);
     }
 
-    /// 设置 CV（挣值成本偏差）。
+/// Set the CV (earned value cost variance).
     ///
-    /// 对应 Java: `public void setCV(Number val)`
+    /// Corresponds to Java: `public void setCV(Number val)`
     pub fn set_cv(&mut self, val: Option<f64>) {
         self.put_number(TaskField::Cv, val);
     }
 
-    /// 设置调配延隔时间。
+/// Set the leveling delay.
     ///
-    /// 对应 Java: `public void setLevelingDelay(Duration val)`
+    /// Corresponds to Java: `public void setLevelingDelay(Duration val)`
     pub fn set_leveling_delay(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::LevelingDelay, val);
     }
 
-    /// 设置工期。
+/// Set the duration.
     ///
-    /// 对应 Java: `public void setDuration(Duration val)`
+    /// Corresponds to Java: `public void setDuration(Duration val)`
     pub fn set_duration(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::Duration, val);
     }
 
-    /// 设置手排任务的工期文本。
+/// Set the duration text for a manually scheduled task.
     ///
-    /// 对应 Java: `public void setDurationText(String val)`
+    /// Corresponds to Java: `public void setDurationText(String val)`
     pub fn set_duration_text(&mut self, val: Option<String>) {
         self.put_string(TaskField::DurationText, val);
     }
 
-    /// 设置手工工期属性。
+/// Set the manual duration attribute.
     ///
-    /// 对应 Java: `public void setManualDuration(Duration dur)`
+    /// Corresponds to Java: `public void setManualDuration(Duration dur)`
     pub fn set_manual_duration(&mut self, dur: Option<Duration>) {
         self.put_duration(TaskField::ManualDuration, dur);
     }
 
-    /// 读取手工工期属性。
+/// Read the manual duration attribute.
     ///
-    /// 对应 Java: `public Duration getManualDuration()`
+    /// Corresponds to Java: `public Duration getManualDuration()`
     pub fn get_manual_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::ManualDuration)
     }
 
-    /// 设置工期偏差。
+/// Set the duration variance.
     ///
-    /// 对应 Java: `public void setDurationVariance(Duration duration)`
+    /// Corresponds to Java: `public void setDurationVariance(Duration duration)`
     pub fn set_duration_variance(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::DurationVariance, duration);
     }
 
-    /// 设置最早完成日期。
+/// Set the early finish date.
     ///
-    /// 对应 Java: `public void setEarlyFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setEarlyFinish(LocalDateTime date)`
     pub fn set_early_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::EarlyFinish, date);
     }
 
-    /// 设置剩余最早完成日期。
+/// Set the remaining early finish date.
     ///
-    /// 对应 Java: `public void setRemainingEarlyFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingEarlyFinish(LocalDateTime date)`
     pub fn set_remaining_early_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::RemainingEarlyFinish, date);
     }
 
-    /// 设置最早开始日期。
+/// Set the early start date.
     ///
-    /// 对应 Java: `public void setEarlyStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setEarlyStart(LocalDateTime date)`
     pub fn set_early_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::EarlyStart, date);
     }
 
-    /// 设置剩余最早开始日期。
+/// Set the remaining early start date.
     ///
-    /// 对应 Java: `public void setRemainingEarlyStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingEarlyStart(LocalDateTime date)`
     pub fn set_remaining_early_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::RemainingEarlyStart, date);
     }
 
-    /// 设置完成日期。
+/// Set the finish date.
     ///
-    /// 对应 Java: `public void setFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setFinish(LocalDateTime date)`
     pub fn set_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Finish, date);
     }
 
-    /// 设置手排任务的完成文本。
+/// Set the finish text for a manually scheduled task.
     ///
-    /// 对应 Java: `public void setFinishText(String val)`
+    /// Corresponds to Java: `public void setFinishText(String val)`
     pub fn set_finish_text(&mut self, val: Option<String>) {
         self.put_string(TaskField::FinishText, val);
     }
 
-    /// 设置完成偏差。
+/// Set the finish variance.
     ///
-    /// 对应 Java: `public void setFinishVariance(Duration duration)`
+    /// Corresponds to Java: `public void setFinishVariance(Duration duration)`
     pub fn set_finish_variance(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::FinishVariance, duration);
     }
 
-    /// 设置固定成本。
+/// Set the fixed cost.
     ///
-    /// 对应 Java: `public void setFixedCost(Number val)`
+    /// Corresponds to Java: `public void setFixedCost(Number val)`
     pub fn set_fixed_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::FixedCost, val);
     }
 
-    /// 设置自由时差。
+/// Set the free slack.
     ///
-    /// 对应 Java: `public void setFreeSlack(Duration duration)`
+    /// Corresponds to Java: `public void setFreeSlack(Duration duration)`
     pub fn set_free_slack(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::FreeSlack, duration);
     }
 
-    /// 设置「隐藏甘特条」标志。
+/// Set the "hide Gantt bar" flag.
     ///
-    /// 对应 Java: `public void setHideBar(boolean flag)`
+    /// Corresponds to Java: `public void setHideBar(boolean flag)`
     pub fn set_hide_bar(&mut self, flag: bool) {
         self.put_bool(TaskField::HideBar, flag);
     }
 
-    /// 设置任务 ID。
+/// Set the task ID.
     ///
-    /// 对应 Java: `@Override public void setID(Integer val)`
+    /// Corresponds to Java: `@Override public void setID(Integer val)`
     ///
-    /// 与 Java 一致地维护 [`crate::TaskContainer`] 的 ID 索引：先 `unmap_id` 旧 ID，
-    /// 再 `map_id` 新 ID。该回调需要任务自身的共享引用，由 [`Task::set_self_reference`]
-    /// 在任务入容器时接线；任务尚未接线、或父文件正被借用时，退化为「不维护索引」而不 panic。
+/// Maintain the ID index of [`crate::TaskContainer`] consistently with Java: first `unmap_id` the old ID,
+/// then `map_id` the new ID. This callback needs the task's own shared reference, which is wired up by [`Task::set_self_reference`]
+/// when the task is added to its container; if the task is not yet wired up, or the parent file is currently borrowed, fall back to "not maintaining the index" instead of panicking.
     pub fn set_id(&mut self, val: Option<i32>) {
         // Java:
         //   Integer previous = getID();
@@ -2288,8 +2288,8 @@ impl Task {
         let previous = self.get_id();
         if let Some(task) = self.self_ref.upgrade() {
             if let Some(file) = self.get_parent_file() {
-                // 调用方可能正持有 `ProjectFile` 的借用（例如容器在自身方法里批量改 ID），
-                // 此时退化为「不维护 ID 索引」而不 panic。
+// The caller may currently hold a borrow of `ProjectFile` (for example, the container changing IDs in bulk inside one of its own methods),
+// in which case fall back to "not maintaining the ID index" instead of panicking.
                 if let Ok(mut file_ref) = file.try_borrow_mut() {
                     let tasks = file_ref.get_tasks_mut();
                     if let Some(previous) = previous {
@@ -2305,86 +2305,86 @@ impl Task {
         self.put_integer(TaskField::Id, val);
     }
 
-    /// 设置最晚完成日期。
+/// Set the late finish date.
     ///
-    /// 对应 Java: `public void setLateFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setLateFinish(LocalDateTime date)`
     pub fn set_late_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::LateFinish, date);
     }
 
-    /// 设置剩余最晚完成日期。
+/// Set the remaining late finish date.
     ///
-    /// 对应 Java: `public void setRemainingLateFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingLateFinish(LocalDateTime date)`
     pub fn set_remaining_late_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::RemainingLateFinish, date);
     }
 
-    /// 设置最晚开始日期。
+/// Set the late start date.
     ///
-    /// 对应 Java: `public void setLateStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setLateStart(LocalDateTime date)`
     pub fn set_late_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::LateStart, date);
     }
 
-    /// 设置剩余最晚开始日期。
+/// Set the remaining late start date.
     ///
-    /// 对应 Java: `public void setRemainingLateStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setRemainingLateStart(LocalDateTime date)`
     pub fn set_remaining_late_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::RemainingLateStart, date);
     }
 
-    /// 设置「存在 OLE 链接」标志。
+/// Set the "OLE link present" flag.
     ///
-    /// 对应 Java: `public void setLinkedFields(boolean flag)`
+    /// Corresponds to Java: `public void setLinkedFields(boolean flag)`
     pub fn set_linked_fields(&mut self, flag: bool) {
         self.put_bool(TaskField::LinkedFields, flag);
     }
 
-    /// 设置「标记」标志。
+/// Set the "marked" flag.
     ///
-    /// 对应 Java: `public void setMarked(boolean flag)`
+    /// Corresponds to Java: `public void setMarked(boolean flag)`
     pub fn set_marked(&mut self, flag: bool) {
         self.put_bool(TaskField::Marked, flag);
     }
 
-    /// 设置里程碑标志。
+/// Set the milestone flag.
     ///
-    /// 对应 Java: `public void setMilestone(boolean flag)`
+    /// Corresponds to Java: `public void setMilestone(boolean flag)`
     pub fn set_milestone(&mut self, flag: bool) {
         self.put_bool(TaskField::Milestone, flag);
     }
 
-    /// 设置任务名称。
+/// Set the task name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.put_string(TaskField::Name, name);
     }
 
-    /// 设置附加对象数量。
+/// Set the number of attached objects.
     ///
-    /// 对应 Java: `public void setObjects(Integer val)`
+    /// Corresponds to Java: `public void setObjects(Integer val)`
     pub fn set_objects(&mut self, val: Option<i32>) {
         self.put_integer(TaskField::Objects, val);
     }
 
-    /// 设置大纲级别。
+/// Set the outline level.
     ///
-    /// 对应 Java: `public void setOutlineLevel(Integer val)`
+    /// Corresponds to Java: `public void setOutlineLevel(Integer val)`
     pub fn set_outline_level(&mut self, val: Option<i32>) {
         self.put_integer(TaskField::OutlineLevel, val);
     }
 
-    /// 设置大纲编号。
+/// Set the outline number.
     ///
-    /// 对应 Java: `public void setOutlineNumber(String val)`
+    /// Corresponds to Java: `public void setOutlineNumber(String val)`
     pub fn set_outline_number(&mut self, val: Option<String>) {
         self.put_string(TaskField::OutlineNumber, val);
     }
 
-    /// 设置优先级。
+/// Set the priority.
     ///
-    /// 对应 Java: `public void setPriority(Priority priority)`
+    /// Corresponds to Java: `public void setPriority(Priority priority)`
     pub fn set_priority(&mut self, priority: Option<Priority>) {
         self.put_enum(
             TaskField::Priority,
@@ -2392,614 +2392,614 @@ impl Task {
         );
     }
 
-    /// 设置来源项目名称。
+/// Set the source project name.
     ///
-    /// 对应 Java: `public void setProject(String val)`
+    /// Corresponds to Java: `public void setProject(String val)`
     pub fn set_project(&mut self, val: Option<String>) {
         self.put_string(TaskField::Project, val);
     }
 
-    /// 设置剩余成本。
+/// Set the remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCost(Number val)`
+    /// Corresponds to Java: `public void setRemainingCost(Number val)`
     pub fn set_remaining_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::RemainingCost, val);
     }
 
-    /// 设置剩余工期。
+/// Set the remaining duration.
     ///
-    /// 对应 Java: `public void setRemainingDuration(Duration val)`
+    /// Corresponds to Java: `public void setRemainingDuration(Duration val)`
     pub fn set_remaining_duration(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::RemainingDuration, val);
     }
 
-    /// 设置剩余工时。
+/// Set the remaining work.
     ///
-    /// 对应 Java: `public void setRemainingWork(Duration val)`
+    /// Corresponds to Java: `public void setRemainingWork(Duration val)`
     pub fn set_remaining_work(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::RemainingWork, val);
     }
 
-    /// 设置资源组。
+/// Set the resource group.
     ///
-    /// 对应 Java: `public void setResourceGroup(String val)`
+    /// Corresponds to Java: `public void setResourceGroup(String val)`
     pub fn set_resource_group(&mut self, val: Option<String>) {
         self.put_string(TaskField::ResourceGroup, val);
     }
 
-    /// 设置资源缩写。
+/// Set the resource initials.
     ///
-    /// 对应 Java: `public void setResourceInitials(String val)`
+    /// Corresponds to Java: `public void setResourceInitials(String val)`
     pub fn set_resource_initials(&mut self, val: Option<String>) {
         self.put_string(TaskField::ResourceInitials, val);
     }
 
-    /// 设置资源名称列表。
+/// Set the resource names.
     ///
-    /// 对应 Java: `public void setResourceNames(String val)`
+    /// Corresponds to Java: `public void setResourceNames(String val)`
     pub fn set_resource_names(&mut self, val: Option<String>) {
         self.put_string(TaskField::ResourceNames, val);
     }
 
-    /// 设置恢复日期。
+/// Set the resume date.
     ///
-    /// 对应 Java: `public void setResume(LocalDateTime val)`
+    /// Corresponds to Java: `public void setResume(LocalDateTime val)`
     pub fn set_resume(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Resume, val);
     }
 
-    /// 设置汇总标志。
+/// Set the rollup flag.
     ///
-    /// 对应 Java: `public void setRollup(boolean val)`
+    /// Corresponds to Java: `public void setRollup(boolean val)`
     pub fn set_rollup(&mut self, val: bool) {
         self.put_bool(TaskField::Rollup, val);
     }
 
-    /// 设置开始日期。
+/// Set the start date.
     ///
-    /// 对应 Java: `public void setStart(LocalDateTime val)`
+    /// Corresponds to Java: `public void setStart(LocalDateTime val)`
     pub fn set_start(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Start, val);
     }
 
-    /// 设置手排任务的开始文本。
+/// Set the start text for a manually scheduled task.
     ///
-    /// 对应 Java: `public void setStartText(String val)`
+    /// Corresponds to Java: `public void setStartText(String val)`
     pub fn set_start_text(&mut self, val: Option<String>) {
         self.put_string(TaskField::StartText, val);
     }
 
-    /// 设置开始偏差。
+/// Set the start variance.
     ///
-    /// 对应 Java: `public void setStartVariance(Duration val)`
+    /// Corresponds to Java: `public void setStartVariance(Duration val)`
     pub fn set_start_variance(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::StartVariance, val);
     }
 
-    /// 设置停止日期。
+/// Set the stop date.
     ///
-    /// 对应 Java: `public void setStop(LocalDateTime val)`
+    /// Corresponds to Java: `public void setStop(LocalDateTime val)`
     pub fn set_stop(&mut self, val: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Stop, val);
     }
 
-    /// 设置子项目文件路径。
+/// Set the subproject file path.
     ///
-    /// 对应 Java: `public void setSubprojectFile(String val)`
+    /// Corresponds to Java: `public void setSubprojectFile(String val)`
     pub fn set_subproject_file(&mut self, val: Option<String>) {
         self.put_string(TaskField::SubprojectFile, val);
     }
 
-    /// 设置链接子项目文件的 GUID。
+/// Set the GUID of the linked subproject file.
     ///
-    /// 对应 Java: `public void setSubprojectGUID(UUID guid)`
+    /// Corresponds to Java: `public void setSubprojectGUID(UUID guid)`
     pub fn set_subproject_guid(&mut self, guid: Option<Uuid>) {
         self.put_uuid(TaskField::SubprojectGuid, guid);
     }
 
-    /// 取链接子项目文件的 GUID。
+/// Get the GUID of the linked subproject file.
     ///
-    /// 对应 Java: `public UUID getSubprojectGUID()`
+    /// Corresponds to Java: `public UUID getSubprojectGUID()`
     pub fn get_subproject_guid(&self) -> Option<Uuid> {
         self.uuid_field(TaskField::SubprojectGuid)
     }
 
-    /// 设置汇总任务标志。
+/// Set the summary task flag.
     ///
-    /// 对应 Java: `public void setSummary(boolean val)`
+    /// Corresponds to Java: `public void setSummary(boolean val)`
     pub fn set_summary(&mut self, val: bool) {
         self.put_bool(TaskField::Summary, val);
     }
 
-    /// 设置 SV（挣值进度偏差）。
+/// Set the SV (earned value schedule variance).
     ///
-    /// 对应 Java: `public void setSV(Number val)`
+    /// Corresponds to Java: `public void setSV(Number val)`
     pub fn set_sv(&mut self, val: Option<f64>) {
         self.put_number(TaskField::Sv, val);
     }
 
-    /// 设置总时差。
+/// Set the total slack.
     ///
-    /// 对应 Java: `public void setTotalSlack(Duration val)`
+    /// Corresponds to Java: `public void setTotalSlack(Duration val)`
     pub fn set_total_slack(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::TotalSlack, val);
     }
 
-    /// 设置唯一 ID。
+/// Set the unique ID.
     ///
-    /// 对应 Java: `@Override public void setUniqueID(Integer val)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer val)`
     ///
-    /// Java 在字段变更处理中会同步 `TaskContainer` 的 unique ID 索引，
-    /// Rust 侧改由容器负责（见文件头说明第 3 条）。
+/// Java synchronizes the `TaskContainer` unique ID index during field change handling,
+/// while the Rust side leaves this to the container (see item 3 in the file header notes).
     pub fn set_unique_id(&mut self, val: Option<i32>) {
         self.put_integer(TaskField::UniqueId, val);
     }
 
-    /// 设置「需要更新」标志。
+/// Set the "update needed" flag.
     ///
-    /// 对应 Java: `public void setUpdateNeeded(boolean val)`
+    /// Corresponds to Java: `public void setUpdateNeeded(boolean val)`
     pub fn set_update_needed(&mut self, val: bool) {
         self.put_bool(TaskField::UpdateNeeded, val);
     }
 
-    /// 设置 WBS 编码。
+/// Set the WBS code.
     ///
-    /// 对应 Java: `public void setWBS(String val)`
+    /// Corresponds to Java: `public void setWBS(String val)`
     pub fn set_wbs(&mut self, val: Option<String>) {
         self.put_string(TaskField::Wbs, val);
     }
 
-    /// 设置工时。
+/// Set the work.
     ///
-    /// 对应 Java: `public void setWork(Duration val)`
+    /// Corresponds to Java: `public void setWork(Duration val)`
     pub fn set_work(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::Work, val);
     }
 
-    /// 设置工时偏差。
+/// Set the work variance.
     ///
-    /// 对应 Java: `public void setWorkVariance(Duration val)`
+    /// Corresponds to Java: `public void setWorkVariance(Duration val)`
     pub fn set_work_variance(&mut self, val: Option<Duration>) {
         self.put_duration(TaskField::WorkVariance, val);
     }
 }
 
 // ---------------------------------------------------------------------------
-// 基本属性读取
+// Basic property getters
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 取完成百分比。
+/// Get the percentage complete.
     ///
-    /// 对应 Java: `public Number getPercentageComplete()`
+    /// Corresponds to Java: `public Number getPercentageComplete()`
     pub fn get_percentage_complete(&self) -> Option<f64> {
         self.number_field(TaskField::PercentComplete)
     }
 
-    /// 取工时完成百分比。
+/// Get the percentage work complete.
     ///
-    /// 对应 Java: `public Number getPercentageWorkComplete()`
+    /// Corresponds to Java: `public Number getPercentageWorkComplete()`
     pub fn get_percentage_work_complete(&self) -> Option<f64> {
         self.number_field(TaskField::PercentWorkComplete)
     }
 
-    /// 取实际成本。
+/// Get the actual cost.
     ///
-    /// 对应 Java: `public Number getActualCost()`
+    /// Corresponds to Java: `public Number getActualCost()`
     pub fn get_actual_cost(&self) -> Option<f64> {
         self.number_field(TaskField::ActualCost)
     }
 
-    /// 取实际工期。
+/// Get the actual duration.
     ///
-    /// 对应 Java: `public Duration getActualDuration()`
+    /// Corresponds to Java: `public Duration getActualDuration()`
     pub fn get_actual_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualDuration)
     }
 
-    /// 取实际完成日期。
+/// Get the actual finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getActualFinish()`
+    /// Corresponds to Java: `public LocalDateTime getActualFinish()`
     pub fn get_actual_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ActualFinish)
     }
 
-    /// 取实际开始日期。
+/// Get the actual start date.
     ///
-    /// 对应 Java: `public LocalDateTime getActualStart()`
+    /// Corresponds to Java: `public LocalDateTime getActualStart()`
     pub fn get_actual_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ActualStart)
     }
 
-    /// 取实际工时。
+/// Get the actual work.
     ///
-    /// 对应 Java: `public Duration getActualWork()`
+    /// Corresponds to Java: `public Duration getActualWork()`
     pub fn get_actual_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualWork)
     }
 
-    /// 取基线成本。
+/// Get the baseline cost.
     ///
-    /// 对应 Java: `public Number getBaselineCost()`
+    /// Corresponds to Java: `public Number getBaselineCost()`
     pub fn get_baseline_cost(&self) -> Option<f64> {
         self.number_field(TaskField::BaselineCost)
     }
 
-    /// 取基线工期。
+/// Get the baseline duration.
     ///
-    /// 对应 Java: `public Duration getBaselineDuration()`
+    /// Corresponds to Java: `public Duration getBaselineDuration()`
     pub fn get_baseline_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::BaselineDuration)
     }
 
-    /// 取基线工期文本。
+/// Get the baseline duration text.
     ///
-    /// 对应 Java: `public String getBaselineDurationText()`
+    /// Corresponds to Java: `public String getBaselineDurationText()`
     pub fn get_baseline_duration_text(&self) -> Option<String> {
         self.string_field(TaskField::BaselineDuration)
     }
 
-    /// 设置基线工期文本。
+/// Set the baseline duration text.
     ///
-    /// 对应 Java: `public void setBaselineDurationText(String value)`
+    /// Corresponds to Java: `public void setBaselineDurationText(String value)`
     pub fn set_baseline_duration_text(&mut self, value: Option<String>) {
         self.put_string(TaskField::BaselineDuration, value);
     }
 
-    /// 取基线完成日期。
+/// Get the baseline finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineFinish()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineFinish()`
     pub fn get_baseline_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::BaselineFinish)
     }
 
-    /// 取基线完成文本。
+/// Get the baseline finish text.
     ///
-    /// 对应 Java: `public String getBaselineFinishText()`
+    /// Corresponds to Java: `public String getBaselineFinishText()`
     pub fn get_baseline_finish_text(&self) -> Option<String> {
         self.string_field(TaskField::BaselineFinish)
     }
 
-    /// 设置基线完成文本。
+/// Set the baseline finish text.
     ///
-    /// 对应 Java: `public void setBaselineFinishText(String value)`
+    /// Corresponds to Java: `public void setBaselineFinishText(String value)`
     pub fn set_baseline_finish_text(&mut self, value: Option<String>) {
         self.put_string(TaskField::BaselineFinish, value);
     }
 
-    /// 取基线开始日期。
+/// Get the baseline start date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineStart()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineStart()`
     pub fn get_baseline_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::BaselineStart)
     }
 
-    /// 取基线开始文本。
+/// Get the baseline start text.
     ///
-    /// 对应 Java: `public String getBaselineStartText()`
+    /// Corresponds to Java: `public String getBaselineStartText()`
     pub fn get_baseline_start_text(&self) -> Option<String> {
         self.string_field(TaskField::BaselineStart)
     }
 
-    /// 设置基线开始文本。
+/// Set the baseline start text.
     ///
-    /// 对应 Java: `public void setBaselineStartText(String value)`
+    /// Corresponds to Java: `public void setBaselineStartText(String value)`
     pub fn set_baseline_start_text(&mut self, value: Option<String>) {
         self.put_string(TaskField::BaselineStart, value);
     }
 
-    /// 取基线工时。
+/// Get the baseline work.
     ///
-    /// 对应 Java: `public Duration getBaselineWork()`
+    /// Corresponds to Java: `public Duration getBaselineWork()`
     pub fn get_baseline_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::BaselineWork)
     }
 
-    /// 取 BCWP。
+/// Get the BCWP.
     ///
-    /// 对应 Java: `public Number getBCWP()`
+    /// Corresponds to Java: `public Number getBCWP()`
     pub fn get_bcwp(&self) -> Option<f64> {
         self.number_field(TaskField::Bcwp)
     }
 
-    /// 取 BCWS。
+/// Get the BCWS.
     ///
-    /// 对应 Java: `public Number getBCWS()`
+    /// Corresponds to Java: `public Number getBCWS()`
     pub fn get_bcws(&self) -> Option<f64> {
         self.number_field(TaskField::Bcws)
     }
 
-    /// 取「已确认」标志。
+/// Get the "confirmed" flag.
     ///
-    /// 对应 Java: `public boolean getConfirmed()`
+    /// Corresponds to Java: `public boolean getConfirmed()`
     pub fn get_confirmed(&self) -> bool {
         self.boolean_field(TaskField::Confirmed)
     }
 
-    /// 取约束日期。
+/// Get the constraint date.
     ///
-    /// 对应 Java: `public LocalDateTime getConstraintDate()`
+    /// Corresponds to Java: `public LocalDateTime getConstraintDate()`
     pub fn get_constraint_date(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ConstraintDate)
     }
 
-    /// 取次要约束日期。
+/// Get the secondary constraint date.
     ///
-    /// 对应 Java: `public LocalDateTime getSecondaryConstraintDate()`
+    /// Corresponds to Java: `public LocalDateTime getSecondaryConstraintDate()`
     pub fn get_secondary_constraint_date(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::SecondaryConstraintDate)
     }
 
-    /// 取约束类型。
+/// Get the constraint type.
     ///
-    /// 对应 Java: `public ConstraintType getConstraintType()`
+    /// Corresponds to Java: `public ConstraintType getConstraintType()`
     pub fn get_constraint_type(&self) -> Option<ConstraintType> {
         self.integer_field(TaskField::ConstraintType)
             .map(constraint_type_from_value)
     }
 
-    /// 取次要约束类型。
+/// Get the secondary constraint type.
     ///
-    /// 对应 Java: `public ConstraintType getSecondaryConstraintType()`
+    /// Corresponds to Java: `public ConstraintType getSecondaryConstraintType()`
     pub fn get_secondary_constraint_type(&self) -> Option<ConstraintType> {
         self.integer_field(TaskField::SecondaryConstraintType)
             .map(constraint_type_from_value)
     }
 
-    /// 取联系人。
+/// Get the contact.
     ///
-    /// 对应 Java: `public String getContact()`
+    /// Corresponds to Java: `public String getContact()`
     pub fn get_contact(&self) -> Option<String> {
         self.string_field(TaskField::Contact)
     }
 
-    /// 取总成本。
+/// Get the total cost.
     ///
-    /// 对应 Java: `public Number getCost()`
+    /// Corresponds to Java: `public Number getCost()`
     pub fn get_cost(&self) -> Option<f64> {
         self.number_field(TaskField::Cost)
     }
 
-    /// 取成本偏差。
+/// Get the cost variance.
     ///
-    /// 对应 Java: `public Number getCostVariance()`
+    /// Corresponds to Java: `public Number getCostVariance()`
     pub fn get_cost_variance(&self) -> Option<f64> {
         self.number_field(TaskField::CostVariance)
     }
 
-    /// 取创建日期。
+/// Get the created date.
     ///
-    /// 对应 Java: `public LocalDateTime getCreateDate()`
+    /// Corresponds to Java: `public LocalDateTime getCreateDate()`
     pub fn get_create_date(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Created)
     }
 
-    /// 取关键路径标志。
+/// Get the critical path flag.
     ///
-    /// 对应 Java: `public boolean getCritical()`
+    /// Corresponds to Java: `public boolean getCritical()`
     pub fn get_critical(&self) -> bool {
         self.boolean_field(TaskField::Critical)
     }
 
-    /// 取 CV。
+/// Get the CV.
     ///
-    /// 对应 Java: `public Number getCV()`
+    /// Corresponds to Java: `public Number getCV()`
     pub fn get_cv(&self) -> Option<f64> {
         self.number_field(TaskField::Cv)
     }
 
-    /// 取调配延隔时间。
+/// Get the leveling delay.
     ///
-    /// 对应 Java: `public Duration getLevelingDelay()`
+    /// Corresponds to Java: `public Duration getLevelingDelay()`
     pub fn get_leveling_delay(&self) -> Option<Duration> {
         self.duration_field(TaskField::LevelingDelay)
     }
 
-    /// 取工期。
+/// Get the duration.
     ///
-    /// 对应 Java: `public Duration getDuration()`
+    /// Corresponds to Java: `public Duration getDuration()`
     pub fn get_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::Duration)
     }
 
-    /// 取手排任务的工期文本。
+/// Get the duration text for a manually scheduled task.
     ///
-    /// 对应 Java: `public String getDurationText()`
+    /// Corresponds to Java: `public String getDurationText()`
     pub fn get_duration_text(&self) -> Option<String> {
         self.string_field(TaskField::DurationText)
     }
 
-    /// 设置自定义工期字段。
+/// Set a custom duration field.
     ///
-    /// 对应 Java: `public void setDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setDuration(int index, Duration value)`
     pub fn set_duration_at(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = select_field(custom_duration_fields(), index) {
             self.put_duration(field, value);
         }
     }
 
-    /// 读取自定义工期字段。
+/// Read a custom duration field.
     ///
-    /// 对应 Java: `public Duration getDuration(int index)`
+    /// Corresponds to Java: `public Duration getDuration(int index)`
     pub fn get_duration_at(&self, index: i32) -> Option<Duration> {
         select_field(custom_duration_fields(), index).and_then(|field| self.duration_field(field))
     }
 
-    /// 取工期偏差。
+/// Get the duration variance.
     ///
-    /// 对应 Java: `public Duration getDurationVariance()`
+    /// Corresponds to Java: `public Duration getDurationVariance()`
     pub fn get_duration_variance(&self) -> Option<Duration> {
         self.duration_field(TaskField::DurationVariance)
     }
 
-    /// 取最早完成日期。
+/// Get the early finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getEarlyFinish()`
+    /// Corresponds to Java: `public LocalDateTime getEarlyFinish()`
     pub fn get_early_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::EarlyFinish)
     }
 
-    /// 取剩余最早完成日期。
+/// Get the remaining early finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingEarlyFinish()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingEarlyFinish()`
     pub fn get_remaining_early_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::RemainingEarlyFinish)
     }
 
-    /// 取最早开始日期。
+/// Get the early start date.
     ///
-    /// 对应 Java: `public LocalDateTime getEarlyStart()`
+    /// Corresponds to Java: `public LocalDateTime getEarlyStart()`
     pub fn get_early_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::EarlyStart)
     }
 
-    /// 取剩余最早开始日期。
+/// Get the remaining early start date.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingEarlyStart()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingEarlyStart()`
     pub fn get_remaining_early_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::RemainingEarlyStart)
     }
 
-    /// 取完成日期。
+/// Get the finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getFinish()`
+    /// Corresponds to Java: `public LocalDateTime getFinish()`
     pub fn get_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Finish)
     }
 
-    /// 取手排任务的完成文本。
+/// Get the finish text for a manually scheduled task.
     ///
-    /// 对应 Java: `public String getFinishText()`
+    /// Corresponds to Java: `public String getFinishText()`
     pub fn get_finish_text(&self) -> Option<String> {
         self.string_field(TaskField::FinishText)
     }
 
-    /// 设置自定义完成日期字段。
+/// Set a custom finish date field.
     ///
-    /// 对应 Java: `public void setFinish(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setFinish(int index, LocalDateTime value)`
     pub fn set_finish_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(custom_finish_fields(), index) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 读取自定义完成日期字段。
+/// Read a custom finish date field.
     ///
-    /// 对应 Java: `public LocalDateTime getFinish(int index)`
+    /// Corresponds to Java: `public LocalDateTime getFinish(int index)`
     pub fn get_finish_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(custom_finish_fields(), index).and_then(|field| self.date_time_field(field))
     }
 
-    /// 取完成偏差。
+/// Get the finish variance.
     ///
-    /// 对应 Java: `public Duration getFinishVariance()`
+    /// Corresponds to Java: `public Duration getFinishVariance()`
     pub fn get_finish_variance(&self) -> Option<Duration> {
         self.duration_field(TaskField::FinishVariance)
     }
 
-    /// 取固定成本。
+/// Get the fixed cost.
     ///
-    /// 对应 Java: `public Number getFixedCost()`
+    /// Corresponds to Java: `public Number getFixedCost()`
     pub fn get_fixed_cost(&self) -> Option<f64> {
         self.number_field(TaskField::FixedCost)
     }
 
-    /// 设置自定义标志字段。
+/// Set a custom flag field.
     ///
-    /// 对应 Java: `public void setFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setFlag(int index, boolean value)`
     pub fn set_flag(&mut self, index: i32, value: bool) {
         if let Some(field) = select_field(custom_flag_fields(), index) {
             self.put_bool(field, value);
         }
     }
 
-    /// 读取自定义标志字段。
+/// Read a custom flag field.
     ///
-    /// 对应 Java: `public boolean getFlag(int index)`
+    /// Corresponds to Java: `public boolean getFlag(int index)`
     pub fn get_flag(&self, index: i32) -> bool {
         select_field(custom_flag_fields(), index).map_or(false, |field| self.boolean_field(field))
     }
 
-    /// 取自由时差。
+/// Get the free slack.
     ///
-    /// 对应 Java: `public Duration getFreeSlack()`
+    /// Corresponds to Java: `public Duration getFreeSlack()`
     pub fn get_free_slack(&self) -> Option<Duration> {
         self.duration_field(TaskField::FreeSlack)
     }
 
-    /// 取「隐藏甘特条」标志。
+/// Get the "hide Gantt bar" flag.
     ///
-    /// 对应 Java: `public boolean getHideBar()`
+    /// Corresponds to Java: `public boolean getHideBar()`
     pub fn get_hide_bar(&self) -> bool {
         self.boolean_field(TaskField::HideBar)
     }
 
-    /// 取任务 ID。
+/// Get the task ID.
     ///
-    /// 对应 Java: `@Override public Integer getID()`
+    /// Corresponds to Java: `@Override public Integer getID()`
     pub fn get_id(&self) -> Option<i32> {
         self.integer_field(TaskField::Id)
     }
 
-    /// 取最晚完成日期。
+/// Get the late finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getLateFinish()`
+    /// Corresponds to Java: `public LocalDateTime getLateFinish()`
     pub fn get_late_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::LateFinish)
     }
 
-    /// 取剩余最晚完成日期。
+/// Get the remaining late finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingLateFinish()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingLateFinish()`
     pub fn get_remaining_late_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::RemainingLateFinish)
     }
 
-    /// 取最晚开始日期。
+/// Get the late start date.
     ///
-    /// 对应 Java: `public LocalDateTime getLateStart()`
+    /// Corresponds to Java: `public LocalDateTime getLateStart()`
     pub fn get_late_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::LateStart)
     }
 
-    /// 取剩余最晚开始日期。
+/// Get the remaining late start date.
     ///
-    /// 对应 Java: `public LocalDateTime getRemainingLateStart()`
+    /// Corresponds to Java: `public LocalDateTime getRemainingLateStart()`
     pub fn get_remaining_late_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::RemainingLateStart)
     }
 
-    /// 取「存在 OLE 链接」标志。
+/// Get the "OLE link present" flag.
     ///
-    /// 对应 Java: `public boolean getLinkedFields()`
+    /// Corresponds to Java: `public boolean getLinkedFields()`
     pub fn get_linked_fields(&self) -> bool {
         self.boolean_field(TaskField::LinkedFields)
     }
 
-    /// 取「标记」标志。
+/// Get the "marked" flag.
     ///
-    /// 对应 Java: `public boolean getMarked()`
+    /// Corresponds to Java: `public boolean getMarked()`
     pub fn get_marked(&self) -> bool {
         self.boolean_field(TaskField::Marked)
     }
 
-    /// 取里程碑标志。
+/// Get the milestone flag.
     ///
-    /// 对应 Java: `public boolean getMilestone()`
+    /// Corresponds to Java: `public boolean getMilestone()`
     pub fn get_milestone(&self) -> bool {
         self.boolean_field(TaskField::Milestone)
     }
 
-    /// 取任务名称。
+/// Get the task name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<String> {
         self.string_field(TaskField::Name)
     }
 
-    /// 取任务笔记的纯文本表示（无笔记时返回空串）。
+/// Get the plain text representation of the task notes (returns an empty string when there are no notes).
     ///
-    /// 对应 Java: `public String getNotes()`
+    /// Corresponds to Java: `public String getNotes()`
     ///
     /// Java: `Object notes = get(TaskField.NOTES); return notes == null ? "" : notes.toString();`
     pub fn get_notes(&self) -> String {
@@ -3008,19 +3008,19 @@ impl Task {
             .unwrap_or_default()
     }
 
-    /// 取代表任务笔记的 `Notes` 实例。
+/// Get the `Notes` instance representing the task notes.
     ///
-    /// 对应 Java: `public Notes getNotesObject()`
+    /// Corresponds to Java: `public Notes getNotesObject()`
     ///
-    /// 子类型（`RtfNotes` / `HtmlNotes` / `StructuredNotes` / `ParentNotes`）经
-    /// [`FieldValue::Notes`] 保真保存，因此返回的是原具体类型。
+/// The subtypes (`RtfNotes` / `HtmlNotes` / `StructuredNotes` / `ParentNotes`) are
+/// preserved faithfully via [`FieldValue::Notes`], so the original concrete type is returned.
     pub fn get_notes_object(&self) -> Option<Rc<dyn Notes>> {
         self.notes_object()
     }
 
-    /// 取字段表中的笔记对象（内部便捷方法）。
+/// Get the notes object from the field table (internal convenience method).
     ///
-    /// 对应 Java: `(Notes) get(TaskField.NOTES)`
+    /// Corresponds to Java: `(Notes) get(TaskField.NOTES)`
     fn notes_object(&self) -> Option<Rc<dyn Notes>> {
         match self.get_task_field(TaskField::Notes) {
             Some(FieldValue::Notes(notes)) => Some(notes),
@@ -3029,40 +3029,40 @@ impl Task {
     }
 
     // -----------------------------------------------------------------------
-    // 步骤（TaskField.STEPS）
+// Steps (TaskField.STEPS)
     // -----------------------------------------------------------------------
 
-    /// 取本任务的步骤列表。
+/// Get the step list for this task.
     ///
-    /// 对应 Java: `@SuppressWarnings("unchecked") public List<Step> getSteps()`
+    /// Corresponds to Java: `@SuppressWarnings("unchecked") public List<Step> getSteps()`
     ///
-    /// Java 返回字段表里的**活列表**（未设置时每次返回 `defaultSteps()` 造出的新空列表）；
-    /// Rust 侧的列表装在 [`FieldValue::Steps`] 的 `Rc<RefCell<...>>` 里，此处返回其快照，
-    /// 因此对返回值的修改不会写回任务。
+/// Java returns the **live list** in the field table (when unset, it returns a new empty list created by `defaultSteps()` each time);
+/// the Rust-side list is stored in the `Rc<RefCell<...>>` of [`FieldValue::Steps`], and this returns a snapshot of it,
+/// so modifications to the returned value are not written back to the task.
     pub fn get_steps(&self) -> Vec<Step> {
         self.steps()
             .and_then(|steps| steps.try_borrow().ok().map(|steps| steps.clone()))
             .unwrap_or_default()
     }
 
-    /// 设置本任务的步骤列表。
+/// Set the step list for this task.
     ///
-    /// 对应 Java: `public void setSteps(List<Step> steps)`
+    /// Corresponds to Java: `public void setSteps(List<Step> steps)`
     pub fn set_steps(&mut self, steps: Vec<Step>) {
         let value = FieldValue::Steps(Rc::new(RefCell::new(steps)));
         self.set_task_field(TaskField::Steps, Some(value));
     }
 
-    /// 步骤列表的默认取值。
+/// Default value for the step list.
     ///
-    /// 对应 Java: `private List<Step> defaultSteps()`（返回 `new ArrayList<>()`）
+/// Corresponds to Java: `private List<Step> defaultSteps()` (returns `new ArrayList<>()`)
     fn default_steps() -> Rc<RefCell<Vec<Step>>> {
         Rc::new(RefCell::new(Vec::new()))
     }
 
-    /// 取字段表中的步骤列表（共享列表，内部便捷方法）。
+/// Get the step list from the field table (shared list, internal convenience method).
     ///
-    /// 对应 Java: `(List<Step>) get(TaskField.STEPS)`
+    /// Corresponds to Java: `(List<Step>) get(TaskField.STEPS)`
     fn steps(&self) -> Option<Rc<RefCell<Vec<Step>>>> {
         match self.get_task_field(TaskField::Steps) {
             Some(FieldValue::Steps(steps)) => Some(steps),
@@ -3071,15 +3071,15 @@ impl Task {
     }
 
     // -----------------------------------------------------------------------
-    // 工作时间段（TaskField.WORK_SPLITS）
+// Work splits (TaskField.WORK_SPLITS)
     // -----------------------------------------------------------------------
 
-    /// 取本任务区间内的工作时间段。
+/// Get the work splits within this task's range.
     ///
-    /// 对应 Java: `@SuppressWarnings("unchecked") public List<LocalDateTimeRange> getWorkSplits()`
+    /// Corresponds to Java: `@SuppressWarnings("unchecked") public List<LocalDateTimeRange> getWorkSplits()`
     ///
-    /// 该字段属于 Java 的 `ALWAYS_CALCULATED_FIELDS`，取值即
-    /// [`Task::calculate_work_splits`]。
+/// This field belongs to Java's `ALWAYS_CALCULATED_FIELDS`, so getting it is equivalent to
+/// [`Task::calculate_work_splits`].
     pub fn get_work_splits(&self) -> Vec<LocalDateTimeRange> {
         match self.get_task_field(TaskField::WorkSplits) {
             Some(FieldValue::TimeRanges(ranges)) => ranges,
@@ -3087,9 +3087,9 @@ impl Task {
         }
     }
 
-    /// 合并各资源分配的工作时间段。
+    /// Merge the work time ranges of each resource assignment.
     ///
-    /// 对应 Java: `private List<LocalDateTimeRange> calculateWorkSplits()`
+    /// Corresponds to Java: `private List<LocalDateTimeRange> calculateWorkSplits()`
     fn calculate_work_splits(&self) -> Vec<LocalDateTimeRange> {
         // In MS Project, summary tasks do not show splits.
         if self.get_summary() {
@@ -3098,7 +3098,7 @@ impl Task {
 
         let mut result: Option<Vec<LocalDateTimeRange>> = None;
         for assignment in self.get_resource_assignments() {
-            // 逐元素借用：调用期间不持有整份分配的借用（Java 无借用限制）。
+// Borrow element by element: no borrow of the whole assignment is held during the call (Java has no borrow restrictions).
             let Ok(assignment) = assignment.try_borrow() else {
                 continue;
             };
@@ -3113,9 +3113,9 @@ impl Task {
         result.unwrap_or_default()
     }
 
-    /// 合并两组工作时间段。
+/// Merge two sets of work splits.
     ///
-    /// 对应 Java: `private List<LocalDateTimeRange> reduceWorkSplits(List<LocalDateTimeRange> list1, List<LocalDateTimeRange> list2)`
+    /// Corresponds to Java: `private List<LocalDateTimeRange> reduceWorkSplits(List<LocalDateTimeRange> list1, List<LocalDateTimeRange> list2)`
     fn reduce_work_splits(
         &self,
         list1: Vec<LocalDateTimeRange>,
@@ -3178,12 +3178,12 @@ impl Task {
         result
     }
 
-    /// 把一个工作时间段并入结果列表（必要时与上一段合并）。
+/// Add a work split to the result list (merging with the previous one if necessary).
     ///
-    /// 对应 Java: `private void addWorkSplit(ProjectCalendar calendar, List<LocalDateTimeRange> ranges, LocalDateTimeRange range)`
+    /// Corresponds to Java: `private void addWorkSplit(ProjectCalendar calendar, List<LocalDateTimeRange> ranges, LocalDateTimeRange range)`
     ///
-    /// Java 在 `calendar` / 区间端点为 `null` 时会抛 `NullPointerException`；Rust 侧
-    /// 日历缺失或日期为空时按「无工作时间」处理（`0.0`），仍不 panic。
+/// Java throws `NullPointerException` when `calendar` or a range endpoint is `null`; the Rust side
+/// treats a missing calendar or empty date as "no working time" (`0.0`), and still does not panic.
     fn add_work_split(
         calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
         ranges: &mut Vec<LocalDateTimeRange>,
@@ -3213,266 +3213,266 @@ impl Task {
         ranges.push(range);
     }
 
-    /// 设置自定义数字字段。
+/// Set a custom number field.
     ///
-    /// 对应 Java: `public void setNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setNumber(int index, Number value)`
     pub fn set_number(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(custom_number_fields(), index) {
             self.put_number(field, value);
         }
     }
 
-    /// 读取自定义数字字段。
+/// Read a custom number field.
     ///
-    /// 对应 Java: `public Number getNumber(int index)`
+    /// Corresponds to Java: `public Number getNumber(int index)`
     pub fn get_number(&self, index: i32) -> Option<f64> {
         select_field(custom_number_fields(), index).and_then(|field| self.number_field(field))
     }
 
-    /// 取附加对象数量。
+/// Get the number of attached objects.
     ///
-    /// 对应 Java: `public Integer getObjects()`
+    /// Corresponds to Java: `public Integer getObjects()`
     pub fn get_objects(&self) -> Option<i32> {
         self.integer_field(TaskField::Objects)
     }
 
-    /// 取大纲级别。
+/// Get the outline level.
     ///
-    /// 对应 Java: `public Integer getOutlineLevel()`
+    /// Corresponds to Java: `public Integer getOutlineLevel()`
     pub fn get_outline_level(&self) -> Option<i32> {
         self.integer_field(TaskField::OutlineLevel)
     }
 
-    /// 取大纲编号。
+/// Get the outline number.
     ///
-    /// 对应 Java: `public String getOutlineNumber()`
+    /// Corresponds to Java: `public String getOutlineNumber()`
     pub fn get_outline_number(&self) -> Option<String> {
         self.string_field(TaskField::OutlineNumber)
     }
 
-    /// 取优先级。
+/// Get the priority.
     ///
-    /// 对应 Java: `public Priority getPriority()`
+    /// Corresponds to Java: `public Priority getPriority()`
     pub fn get_priority(&self) -> Option<Priority> {
         self.integer_field(TaskField::Priority)
             .map(Priority::get_instance)
     }
 
-    /// 取来源项目名称。
+/// Get the source project name.
     ///
-    /// 对应 Java: `public String getProject()`
+    /// Corresponds to Java: `public String getProject()`
     pub fn get_project(&self) -> Option<String> {
         self.string_field(TaskField::Project)
     }
 
-    /// 取剩余成本。
+/// Get the remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCost()`
+    /// Corresponds to Java: `public Number getRemainingCost()`
     pub fn get_remaining_cost(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingCost)
     }
 
-    /// 取剩余工期。
+/// Get the remaining duration.
     ///
-    /// 对应 Java: `public Duration getRemainingDuration()`
+    /// Corresponds to Java: `public Duration getRemainingDuration()`
     pub fn get_remaining_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingDuration)
     }
 
-    /// 取剩余工时。
+/// Get the remaining work.
     ///
-    /// 对应 Java: `public Duration getRemainingWork()`
+    /// Corresponds to Java: `public Duration getRemainingWork()`
     pub fn get_remaining_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingWork)
     }
 
-    /// 取资源组。
+/// Get the resource group.
     ///
-    /// 对应 Java: `public String getResourceGroup()`
+    /// Corresponds to Java: `public String getResourceGroup()`
     pub fn get_resource_group(&self) -> Option<String> {
         self.string_field(TaskField::ResourceGroup)
     }
 
-    /// 取资源缩写。
+/// Get the resource initials.
     ///
-    /// 对应 Java: `public String getResourceInitials()`
+    /// Corresponds to Java: `public String getResourceInitials()`
     pub fn get_resource_initials(&self) -> Option<String> {
         self.string_field(TaskField::ResourceInitials)
     }
 
-    /// 取资源名称列表。
+/// Get the resource names.
     ///
-    /// 对应 Java: `public String getResourceNames()`
+    /// Corresponds to Java: `public String getResourceNames()`
     pub fn get_resource_names(&self) -> Option<String> {
         self.string_field(TaskField::ResourceNames)
     }
 
-    /// 取恢复日期。
+/// Get the resume date.
     ///
-    /// 对应 Java: `public LocalDateTime getResume()`
+    /// Corresponds to Java: `public LocalDateTime getResume()`
     pub fn get_resume(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Resume)
     }
 
-    /// 取汇总标志。
+/// Get the rollup flag.
     ///
-    /// 对应 Java: `public boolean getRollup()`
+    /// Corresponds to Java: `public boolean getRollup()`
     pub fn get_rollup(&self) -> bool {
         self.boolean_field(TaskField::Rollup)
     }
 
-    /// 取开始日期。
+/// Get the start date.
     ///
-    /// 对应 Java: `public LocalDateTime getStart()`
+    /// Corresponds to Java: `public LocalDateTime getStart()`
     pub fn get_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Start)
     }
 
-    /// 取手排任务的开始文本。
+/// Get the start text for a manually scheduled task.
     ///
-    /// 对应 Java: `public String getStartText()`
+    /// Corresponds to Java: `public String getStartText()`
     pub fn get_start_text(&self) -> Option<String> {
         self.string_field(TaskField::StartText)
     }
 
-    /// 设置自定义开始日期字段。
+/// Set a custom start date field.
     ///
-    /// 对应 Java: `public void setStart(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setStart(int index, LocalDateTime value)`
     pub fn set_start_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(custom_start_fields(), index) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 读取自定义开始日期字段。
+/// Read a custom start date field.
     ///
-    /// 对应 Java: `public LocalDateTime getStart(int index)`
+    /// Corresponds to Java: `public LocalDateTime getStart(int index)`
     pub fn get_start_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(custom_start_fields(), index).and_then(|field| self.date_time_field(field))
     }
 
-    /// 取开始偏差。
+/// Get the start variance.
     ///
-    /// 对应 Java: `public Duration getStartVariance()`
+    /// Corresponds to Java: `public Duration getStartVariance()`
     pub fn get_start_variance(&self) -> Option<Duration> {
         self.duration_field(TaskField::StartVariance)
     }
 
-    /// 取停止日期。
+/// Get the stop date.
     ///
-    /// 对应 Java: `public LocalDateTime getStop()`
+    /// Corresponds to Java: `public LocalDateTime getStop()`
     pub fn get_stop(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Stop)
     }
 
-    /// 取子项目文件路径。
+/// Get the subproject file path.
     ///
-    /// 对应 Java: `public String getSubprojectFile()`
+    /// Corresponds to Java: `public String getSubprojectFile()`
     pub fn get_subproject_file(&self) -> Option<String> {
         self.string_field(TaskField::SubprojectFile)
     }
 
-    /// 取汇总任务标志。
+/// Get the summary task flag.
     ///
-    /// 对应 Java: `public boolean getSummary()`
+    /// Corresponds to Java: `public boolean getSummary()`
     pub fn get_summary(&self) -> bool {
         self.boolean_field(TaskField::Summary)
     }
 
-    /// 取 SV。
+/// Get the SV.
     ///
-    /// 对应 Java: `public Number getSV()`
+    /// Corresponds to Java: `public Number getSV()`
     pub fn get_sv(&self) -> Option<f64> {
         self.number_field(TaskField::Sv)
     }
 
-    /// 设置自定义文本字段。
+/// Set a custom text field.
     ///
-    /// 对应 Java: `public void setText(int index, String value)`
+    /// Corresponds to Java: `public void setText(int index, String value)`
     pub fn set_text(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(custom_text_fields(), index) {
             self.put_string(field, value);
         }
     }
 
-    /// 读取自定义文本字段。
+/// Read a custom text field.
     ///
-    /// 对应 Java: `public String getText(int index)`
+    /// Corresponds to Java: `public String getText(int index)`
     pub fn get_text(&self, index: i32) -> Option<String> {
         select_field(custom_text_fields(), index).and_then(|field| self.string_field(field))
     }
 
-    /// 设置自定义大纲代码字段。
+/// Set a custom outline code field.
     ///
-    /// 对应 Java: `public void setOutlineCode(int index, String value)`
+    /// Corresponds to Java: `public void setOutlineCode(int index, String value)`
     pub fn set_outline_code(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(custom_outline_code_fields(), index) {
             self.put_string(field, value);
         }
     }
 
-    /// 读取自定义大纲代码字段。
+/// Read a custom outline code field.
     ///
-    /// 对应 Java: `public String getOutlineCode(int index)`
+    /// Corresponds to Java: `public String getOutlineCode(int index)`
     pub fn get_outline_code(&self, index: i32) -> Option<String> {
         select_field(custom_outline_code_fields(), index).and_then(|field| self.string_field(field))
     }
 
-    /// 取总时差。
+/// Get the total slack.
     ///
-    /// 对应 Java: `public Duration getTotalSlack()`
+    /// Corresponds to Java: `public Duration getTotalSlack()`
     pub fn get_total_slack(&self) -> Option<Duration> {
         self.duration_field(TaskField::TotalSlack)
     }
 
-    /// 取唯一 ID。
+/// Get the unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::UniqueId)
     }
 
-    /// 取「需要更新」标志。
+/// Get the "update needed" flag.
     ///
-    /// 对应 Java: `public boolean getUpdateNeeded()`
+    /// Corresponds to Java: `public boolean getUpdateNeeded()`
     pub fn get_update_needed(&self) -> bool {
         self.boolean_field(TaskField::UpdateNeeded)
     }
 
-    /// 取 WBS 编码。
+/// Get the WBS code.
     ///
-    /// 对应 Java: `public String getWBS()`
+    /// Corresponds to Java: `public String getWBS()`
     pub fn get_wbs(&self) -> Option<String> {
         self.string_field(TaskField::Wbs)
     }
 
-    /// 取工时。
+/// Get the work.
     ///
-    /// 对应 Java: `public Duration getWork()`
+    /// Corresponds to Java: `public Duration getWork()`
     pub fn get_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::Work)
     }
 
-    /// 取工时偏差。
+/// Get the work variance.
     ///
-    /// 对应 Java: `public Duration getWorkVariance()`
+    /// Corresponds to Java: `public Duration getWorkVariance()`
     pub fn get_work_variance(&self) -> Option<Duration> {
         self.duration_field(TaskField::WorkVariance)
     }
 
-    /// 取父任务的唯一 ID。
+/// Get the parent task unique ID.
     ///
-    /// 对应 Java: `public Integer getParentTaskUniqueID()`
+    /// Corresponds to Java: `public Integer getParentTaskUniqueID()`
     pub fn get_parent_task_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::ParentTaskUniqueId)
     }
 
-    /// 按 ID 比较两个任务。
+/// Compare two tasks by ID.
     ///
-    /// 对应 Java: `@Override public int compareTo(Task o)`
+    /// Corresponds to Java: `@Override public int compareTo(Task o)`
     ///
-    /// Java 的 `compareTo` 与「同一性相等」不自洽，无法映射为 Rust 的 `Ord`
-    /// （见文件头差异第 6 条），故保留为具名方法。
+/// Java's `compareTo` is inconsistent with identity equality and cannot be mapped to Rust's `Ord`
+/// (see difference 6 in the file header), so it is kept as a named method.
     pub fn compare_to(&self, other: &Task) -> Ordering {
         let id1 = NumberHelper::get_int(self.get_id().map(f64::from));
         let id2 = NumberHelper::get_int(other.get_id().map(f64::from));
@@ -3481,211 +3481,211 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 布尔 / 日期 / 枚举 / UUID 属性
+// Boolean / date / enum / UUID properties
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 取「工期为估算值」标志。
+/// Get the "duration is estimated" flag.
     ///
-    /// 对应 Java: `public boolean getEstimated()`
+    /// Corresponds to Java: `public boolean getEstimated()`
     pub fn get_estimated(&self) -> bool {
         self.boolean_field(TaskField::Estimated)
     }
 
-    /// 设置「工期为估算值」标志。
+/// Set the "duration is estimated" flag.
     ///
-    /// 对应 Java: `public void setEstimated(boolean estimated)`
+    /// Corresponds to Java: `public void setEstimated(boolean estimated)`
     pub fn set_estimated(&mut self, estimated: bool) {
         self.put_bool(TaskField::Estimated, estimated);
     }
 
-    /// 取截止日期。
+/// Get the deadline date.
     ///
-    /// 对应 Java: `public LocalDateTime getDeadline()`
+    /// Corresponds to Java: `public LocalDateTime getDeadline()`
     pub fn get_deadline(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::Deadline)
     }
 
-    /// 设置截止日期。
+/// Set the deadline date.
     ///
-    /// 对应 Java: `public void setDeadline(LocalDateTime deadline)`
+    /// Corresponds to Java: `public void setDeadline(LocalDateTime deadline)`
     pub fn set_deadline(&mut self, deadline: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::Deadline, deadline);
     }
 
-    /// 取任务类型。
+/// Get the task type.
     ///
-    /// 对应 Java: `public TaskType getType()`
+    /// Corresponds to Java: `public TaskType getType()`
     pub fn get_type(&self) -> Option<TaskType> {
         self.integer_field(TaskField::Type)
             .and_then(task_type_from_value)
     }
 
-    /// 设置任务类型。
+/// Set the task type.
     ///
-    /// 对应 Java: `public void setType(TaskType type)`
+    /// Corresponds to Java: `public void setType(TaskType type)`
     pub fn set_type(&mut self, r#type: Option<TaskType>) {
         self.put_enum(TaskField::Type, r#type.map(task_type_to_value));
     }
 
-    /// 取「空任务」标志。
+/// Get the "null task" flag.
     ///
-    /// 对应 Java: `public boolean getNull()`
+    /// Corresponds to Java: `public boolean getNull()`
     pub fn get_null(&self) -> bool {
         self.boolean_field(TaskField::Null)
     }
 
-    /// 设置「空任务」标志。
+/// Set the "null task" flag.
     ///
-    /// 对应 Java: `public void setNull(boolean isNull)`
+    /// Corresponds to Java: `public void setNull(boolean isNull)`
     pub fn set_null(&mut self, is_null: bool) {
         self.put_bool(TaskField::Null, is_null);
     }
 
-    /// 取「恢复有效」标志。
+/// Get the "resume valid" flag.
     ///
-    /// 对应 Java: `public boolean getResumeValid()`
+    /// Corresponds to Java: `public boolean getResumeValid()`
     pub fn get_resume_valid(&self) -> bool {
         self.boolean_field(TaskField::ResumeValid)
     }
 
-    /// 设置「恢复有效」标志。
+/// Set the "resume valid" flag.
     ///
-    /// 对应 Java: `public void setResumeValid(boolean resumeValid)`
+    /// Corresponds to Java: `public void setResumeValid(boolean resumeValid)`
     pub fn set_resume_valid(&mut self, resume_valid: bool) {
         self.put_bool(TaskField::ResumeValid, resume_valid);
     }
 
-    /// 取「重复任务」标志。
+/// Get the "recurring task" flag.
     ///
-    /// 对应 Java: `public boolean getRecurring()`
+    /// Corresponds to Java: `public boolean getRecurring()`
     pub fn get_recurring(&self) -> bool {
         self.boolean_field(TaskField::Recurring)
     }
 
-    /// 设置「重复任务」标志。
+/// Set the "recurring task" flag.
     ///
-    /// 对应 Java: `public void setRecurring(boolean recurring)`
+    /// Corresponds to Java: `public void setRecurring(boolean recurring)`
     pub fn set_recurring(&mut self, recurring: bool) {
         self.put_bool(TaskField::Recurring, recurring);
     }
 
-    /// 取「资源过度分配」标志。
+/// Get the "resource overallocated" flag.
     ///
-    /// 对应 Java: `public boolean getOverAllocated()`
+    /// Corresponds to Java: `public boolean getOverAllocated()`
     pub fn get_over_allocated(&self) -> bool {
         self.boolean_field(TaskField::Overallocated)
     }
 
-    /// 设置「资源过度分配」标志。
+/// Set the "resource overallocated" flag.
     ///
-    /// 对应 Java: `public void setOverAllocated(boolean overAllocated)`
+    /// Corresponds to Java: `public void setOverAllocated(boolean overAllocated)`
     pub fn set_over_allocated(&mut self, over_allocated: bool) {
         self.put_bool(TaskField::Overallocated, over_allocated);
     }
 
-    /// 取子项目中任务的唯一 ID。
+/// Get the unique ID of the task in the subproject.
     ///
-    /// 对应 Java: `public Integer getSubprojectTaskUniqueID()`
+    /// Corresponds to Java: `public Integer getSubprojectTaskUniqueID()`
     pub fn get_subproject_task_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::SubprojectTaskUniqueId)
     }
 
-    /// 设置子项目中任务的唯一 ID。
+/// Set the unique ID of the task in the subproject.
     ///
-    /// 对应 Java: `public void setSubprojectTaskUniqueID(Integer subprojectUniqueTaskID)`
+    /// Corresponds to Java: `public void setSubprojectTaskUniqueID(Integer subprojectUniqueTaskID)`
     pub fn set_subproject_task_unique_id(&mut self, subproject_unique_task_id: Option<i32>) {
         self.put_integer(TaskField::SubprojectTaskUniqueId, subproject_unique_task_id);
     }
 
-    /// 取子项目中任务的 ID。
+/// Get the ID of the task in the subproject.
     ///
-    /// 对应 Java: `public Integer getSubprojectTaskID()`
+    /// Corresponds to Java: `public Integer getSubprojectTaskID()`
     pub fn get_subproject_task_id(&self) -> Option<i32> {
         self.integer_field(TaskField::SubprojectTaskId)
     }
 
-    /// 设置子项目中任务的 ID。
+/// Set the ID of the task in the subproject.
     ///
-    /// 对应 Java: `public void setSubprojectTaskID(Integer subprojectTaskID)`
+    /// Corresponds to Java: `public void setSubprojectTaskID(Integer subprojectTaskID)`
     pub fn set_subproject_task_id(&mut self, subproject_task_id: Option<i32>) {
         self.put_integer(TaskField::SubprojectTaskId, subproject_task_id);
     }
 
-    /// 设置子项目任务唯一 ID 的偏移量。
+/// Set the subproject tasks unique ID offset.
     ///
-    /// 对应 Java: `public void setSubprojectTasksUniqueIDOffset(Integer offset)`
+    /// Corresponds to Java: `public void setSubprojectTasksUniqueIDOffset(Integer offset)`
     pub fn set_subproject_tasks_unique_id_offset(&mut self, offset: Option<i32>) {
         self.put_integer(TaskField::SubprojectTasksUniqueidOffset, offset);
     }
 
-    /// 取子项目任务唯一 ID 的偏移量。
+/// Get the subproject tasks unique ID offset.
     ///
-    /// 对应 Java: `public Integer getSubprojectTasksUniqueIDOffset()`
+    /// Corresponds to Java: `public Integer getSubprojectTasksUniqueIDOffset()`
     pub fn get_subproject_tasks_unique_id_offset(&self) -> Option<i32> {
         self.integer_field(TaskField::SubprojectTasksUniqueidOffset)
     }
 
-    /// 取子项目只读标志。
+/// Get the subproject read-only flag.
     ///
-    /// 对应 Java: `public boolean getSubprojectReadOnly()`
+    /// Corresponds to Java: `public boolean getSubprojectReadOnly()`
     pub fn get_subproject_read_only(&self) -> bool {
         self.boolean_field(TaskField::SubprojectReadOnly)
     }
 
-    /// 设置子项目只读标志。
+/// Set the subproject read-only flag.
     ///
-    /// 对应 Java: `public void setSubprojectReadOnly(boolean subprojectReadOnly)`
+    /// Corresponds to Java: `public void setSubprojectReadOnly(boolean subprojectReadOnly)`
     pub fn set_subproject_read_only(&mut self, subproject_read_only: bool) {
         self.put_bool(TaskField::SubprojectReadOnly, subproject_read_only);
     }
 
-    /// 取外部任务标志。
+/// Get the external task flag.
     ///
-    /// 对应 Java: `public boolean getExternalTask()`
+    /// Corresponds to Java: `public boolean getExternalTask()`
     pub fn get_external_task(&self) -> bool {
         self.boolean_field(TaskField::ExternalTask)
     }
 
-    /// 设置外部任务标志。
+/// Set the external task flag.
     ///
-    /// 对应 Java: `public void setExternalTask(boolean externalTask)`
+    /// Corresponds to Java: `public void setExternalTask(boolean externalTask)`
     pub fn set_external_task(&mut self, external_task: bool) {
         self.put_bool(TaskField::ExternalTask, external_task);
     }
 
-    /// 取外部项目标志。
+/// Get the external project flag.
     ///
-    /// 对应 Java: `public boolean getExternalProject()`
+    /// Corresponds to Java: `public boolean getExternalProject()`
     pub fn get_external_project(&self) -> bool {
         self.boolean_field(TaskField::ExternalProject)
     }
 
-    /// 取 ACWP（已完成工作实际成本）。
+/// Get ACWP (actual cost of work performed).
     ///
-    /// 对应 Java: `public Number getACWP()`
+    /// Corresponds to Java: `public Number getACWP()`
     pub fn get_acwp(&self) -> Option<f64> {
         self.number_field(TaskField::Acwp)
     }
 
-    /// 设置 ACWP。
+/// Set ACWP.
     ///
-    /// 对应 Java: `public void setACWP(Number acwp)`
+    /// Corresponds to Java: `public void setACWP(Number acwp)`
     pub fn set_acwp(&mut self, acwp: Option<f64>) {
         self.put_number(TaskField::Acwp, acwp);
     }
 
-    /// 取调配延隔时间单位。
+/// Get the leveling delay units.
     ///
-    /// 对应 Java: `public TimeUnit getLevelingDelayFormat()`
+    /// Corresponds to Java: `public TimeUnit getLevelingDelayFormat()`
     pub fn get_leveling_delay_format(&self) -> Option<TimeUnit> {
         self.integer_field(TaskField::LevelingDelayUnits)
             .map(TimeUnit::get_instance)
     }
 
-    /// 设置调配延隔时间单位。
+/// Set the leveling delay units.
     ///
-    /// 对应 Java: `public void setLevelingDelayFormat(TimeUnit levelingDelayFormat)`
+    /// Corresponds to Java: `public void setLevelingDelayFormat(TimeUnit levelingDelayFormat)`
     pub fn set_leveling_delay_format(&mut self, leveling_delay_format: Option<TimeUnit>) {
         self.put_enum(
             TaskField::LevelingDelayUnits,
@@ -3693,73 +3693,73 @@ impl Task {
         );
     }
 
-    /// 取「忽略资源日历」标志。
+/// Get the "ignore resource calendar" flag.
     ///
-    /// 对应 Java: `public boolean getIgnoreResourceCalendar()`
+    /// Corresponds to Java: `public boolean getIgnoreResourceCalendar()`
     pub fn get_ignore_resource_calendar(&self) -> bool {
         self.boolean_field(TaskField::IgnoreResourceCalendar)
     }
 
-    /// 设置「忽略资源日历」标志。
+/// Set the "ignore resource calendar" flag.
     ///
-    /// 对应 Java: `public void setIgnoreResourceCalendar(boolean ignoreResourceCalendar)`
+    /// Corresponds to Java: `public void setIgnoreResourceCalendar(boolean ignoreResourceCalendar)`
     pub fn set_ignore_resource_calendar(&mut self, ignore_resource_calendar: bool) {
         self.put_bool(TaskField::IgnoreResourceCalendar, ignore_resource_calendar);
     }
 
-    /// 取实际完成百分比。
+/// Get the physical percent complete.
     ///
-    /// 对应 Java: `public Number getPhysicalPercentComplete()`
+    /// Corresponds to Java: `public Number getPhysicalPercentComplete()`
     pub fn get_physical_percent_complete(&self) -> Option<f64> {
         self.number_field(TaskField::PhysicalPercentComplete)
     }
 
-    /// 设置实际完成百分比。
+/// Set the physical percent complete.
     ///
-    /// 对应 Java: `public void setPhysicalPercentComplete(Number physicalPercentComplete)`
+    /// Corresponds to Java: `public void setPhysicalPercentComplete(Number physicalPercentComplete)`
     pub fn set_physical_percent_complete(&mut self, physical_percent_complete: Option<f64>) {
         self.put_number(TaskField::PhysicalPercentComplete, physical_percent_complete);
     }
 
-    /// 取估算权重。
+/// Get the estimated weight.
     ///
-    /// 对应 Java: `public Number getEstimatedWeight()`
+    /// Corresponds to Java: `public Number getEstimatedWeight()`
     pub fn get_estimated_weight(&self) -> Option<f64> {
         self.number_field(TaskField::EstimatedWeight)
     }
 
-    /// 设置估算权重。
+/// Set the estimated weight.
     ///
-    /// 对应 Java: `public void setEstimatedWeight(Number estimatedWeight)`
+    /// Corresponds to Java: `public void setEstimatedWeight(Number estimatedWeight)`
     pub fn set_estimated_weight(&mut self, estimated_weight: Option<f64>) {
         self.put_number(TaskField::EstimatedWeight, estimated_weight);
     }
 
-    /// 取「自动计算实际值」标志。
+/// Get the "auto compute actuals" flag.
     ///
-    /// 对应 Java: `public boolean getAutoComputeActuals()`
+    /// Corresponds to Java: `public boolean getAutoComputeActuals()`
     pub fn get_auto_compute_actuals(&self) -> bool {
         self.boolean_field(TaskField::AutoComputeActuals)
     }
 
-    /// 设置「自动计算实际值」标志。
+/// Set the "auto compute actuals" flag.
     ///
-    /// 对应 Java: `public void setAutoComputeActuals(boolean autoComputeActuals)`
+    /// Corresponds to Java: `public void setAutoComputeActuals(boolean autoComputeActuals)`
     pub fn set_auto_compute_actuals(&mut self, auto_compute_actuals: bool) {
         self.put_bool(TaskField::AutoComputeActuals, auto_compute_actuals);
     }
 
-    /// 取挣值计算方法。
+/// Get the earned value method.
     ///
-    /// 对应 Java: `public EarnedValueMethod getEarnedValueMethod()`
+    /// Corresponds to Java: `public EarnedValueMethod getEarnedValueMethod()`
     pub fn get_earned_value_method(&self) -> Option<EarnedValueMethod> {
         self.integer_field(TaskField::EarnedValueMethod)
             .map(EarnedValueMethod::get_instance)
     }
 
-    /// 设置挣值计算方法。
+/// Set the earned value method.
     ///
-    /// 对应 Java: `public void setEarnedValueMethod(EarnedValueMethod earnedValueMethod)`
+    /// Corresponds to Java: `public void setEarnedValueMethod(EarnedValueMethod earnedValueMethod)`
     pub fn set_earned_value_method(&mut self, earned_value_method: Option<EarnedValueMethod>) {
         self.put_enum(
             TaskField::EarnedValueMethod,
@@ -3767,30 +3767,30 @@ impl Task {
         );
     }
 
-    /// 取受保护的实际工时。
+/// Get the protected actual work.
     ///
-    /// 对应 Java: `public Duration getActualWorkProtected()`
+    /// Corresponds to Java: `public Duration getActualWorkProtected()`
     pub fn get_actual_work_protected(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualWorkProtected)
     }
 
-    /// 设置受保护的实际工时。
+/// Set the protected actual work.
     ///
-    /// 对应 Java: `public void setActualWorkProtected(Duration actualWorkProtected)`
+    /// Corresponds to Java: `public void setActualWorkProtected(Duration actualWorkProtected)`
     pub fn set_actual_work_protected(&mut self, actual_work_protected: Option<Duration>) {
         self.put_duration(TaskField::ActualWorkProtected, actual_work_protected);
     }
 
-    /// 取受保护的实际加班工时。
+/// Get the protected actual overtime work.
     ///
-    /// 对应 Java: `public Duration getActualOvertimeWorkProtected()`
+    /// Corresponds to Java: `public Duration getActualOvertimeWorkProtected()`
     pub fn get_actual_overtime_work_protected(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualOvertimeWorkProtected)
     }
 
-    /// 设置受保护的实际加班工时。
+/// Set the protected actual overtime work.
     ///
-    /// 对应 Java: `public void setActualOvertimeWorkProtected(Duration actualOvertimeWorkProtected)`
+    /// Corresponds to Java: `public void setActualOvertimeWorkProtected(Duration actualOvertimeWorkProtected)`
     pub fn set_actual_overtime_work_protected(
         &mut self,
         actual_overtime_work_protected: Option<Duration>,
@@ -3801,103 +3801,103 @@ impl Task {
         );
     }
 
-    /// 取常规工时。
+/// Get the regular work.
     ///
-    /// 对应 Java: `public Duration getRegularWork()`
+    /// Corresponds to Java: `public Duration getRegularWork()`
     pub fn get_regular_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::RegularWork)
     }
 
-    /// 设置常规工时。
+/// Set the regular work.
     ///
-    /// 对应 Java: `public void setRegularWork(Duration regularWork)`
+    /// Corresponds to Java: `public void setRegularWork(Duration regularWork)`
     pub fn set_regular_work(&mut self, regular_work: Option<Duration>) {
         self.put_duration(TaskField::RegularWork, regular_work);
     }
 
-    /// 设置「投入比导向」标志。
+/// Set the "effort driven" flag.
     ///
-    /// 对应 Java: `public void setEffortDriven(boolean flag)`
+    /// Corresponds to Java: `public void setEffortDriven(boolean flag)`
     pub fn set_effort_driven(&mut self, flag: bool) {
         self.put_bool(TaskField::EffortDriven, flag);
     }
 
-    /// 取「投入比导向」标志。
+/// Get the "effort driven" flag.
     ///
-    /// 对应 Java: `public boolean getEffortDriven()`
+    /// Corresponds to Java: `public boolean getEffortDriven()`
     pub fn get_effort_driven(&self) -> bool {
         self.boolean_field(TaskField::EffortDriven)
     }
 
-    /// 设置自定义日期字段。
+/// Set a custom date field.
     ///
-    /// 对应 Java: `public void setDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setDate(int index, LocalDateTime value)`
     pub fn set_date(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(custom_date_fields(), index) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 读取自定义日期字段。
+/// Read a custom date field.
     ///
-    /// 对应 Java: `public LocalDateTime getDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getDate(int index)`
     pub fn get_date(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(custom_date_fields(), index).and_then(|field| self.date_time_field(field))
     }
 
-    /// 取加班成本。
+/// Get the overtime cost.
     ///
-    /// 对应 Java: `public Number getOvertimeCost()`
+    /// Corresponds to Java: `public Number getOvertimeCost()`
     pub fn get_overtime_cost(&self) -> Option<f64> {
         self.number_field(TaskField::OvertimeCost)
     }
 
-    /// 设置加班成本。
+/// Set the overtime cost.
     ///
-    /// 对应 Java: `public void setOvertimeCost(Number number)`
+    /// Corresponds to Java: `public void setOvertimeCost(Number number)`
     pub fn set_overtime_cost(&mut self, number: Option<f64>) {
         self.put_number(TaskField::OvertimeCost, number);
     }
 
-    /// 取实际加班成本。
+/// Get the actual overtime cost.
     ///
-    /// 对应 Java: `public Number getActualOvertimeCost()`
+    /// Corresponds to Java: `public Number getActualOvertimeCost()`
     pub fn get_actual_overtime_cost(&self) -> Option<f64> {
         self.number_field(TaskField::ActualOvertimeCost)
     }
 
-    /// 设置实际加班成本。
+/// Set the actual overtime cost.
     ///
-    /// 对应 Java: `public void setActualOvertimeCost(Number cost)`
+    /// Corresponds to Java: `public void setActualOvertimeCost(Number cost)`
     pub fn set_actual_overtime_cost(&mut self, cost: Option<f64>) {
         self.put_number(TaskField::ActualOvertimeCost, cost);
     }
 
-    /// 取实际加班工时。
+/// Get the actual overtime work.
     ///
-    /// 对应 Java: `public Duration getActualOvertimeWork()`
+    /// Corresponds to Java: `public Duration getActualOvertimeWork()`
     pub fn get_actual_overtime_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualOvertimeWork)
     }
 
-    /// 设置实际加班工时。
+/// Set the actual overtime work.
     ///
-    /// 对应 Java: `public void setActualOvertimeWork(Duration work)`
+    /// Corresponds to Java: `public void setActualOvertimeWork(Duration work)`
     pub fn set_actual_overtime_work(&mut self, work: Option<Duration>) {
         self.put_duration(TaskField::ActualOvertimeWork, work);
     }
 
-    /// 取固定成本计入方式。
+/// Get the fixed cost accrual.
     ///
-    /// 对应 Java: `public AccrueType getFixedCostAccrual()`
+    /// Corresponds to Java: `public AccrueType getFixedCostAccrual()`
     pub fn get_fixed_cost_accrual(&self) -> Option<AccrueType> {
         self.integer_field(TaskField::FixedCostAccrual)
             .and_then(AccrueType::get_instance)
     }
 
-    /// 设置固定成本计入方式。
+/// Set the fixed cost accrual.
     ///
-    /// 对应 Java: `public void setFixedCostAccrual(AccrueType type)`
+    /// Corresponds to Java: `public void setFixedCostAccrual(AccrueType type)`
     pub fn set_fixed_cost_accrual(&mut self, r#type: Option<AccrueType>) {
         self.put_enum(
             TaskField::FixedCostAccrual,
@@ -3905,245 +3905,245 @@ impl Task {
         );
     }
 
-    /// 取超链接文本。
+/// Get the hyperlink text.
     ///
-    /// 对应 Java: `public String getHyperlink()`
+    /// Corresponds to Java: `public String getHyperlink()`
     pub fn get_hyperlink(&self) -> Option<String> {
         self.string_field(TaskField::Hyperlink)
     }
 
-    /// 取超链接地址。
+/// Get the hyperlink address.
     ///
-    /// 对应 Java: `public String getHyperlinkAddress()`
+    /// Corresponds to Java: `public String getHyperlinkAddress()`
     pub fn get_hyperlink_address(&self) -> Option<String> {
         self.string_field(TaskField::HyperlinkAddress)
     }
 
-    /// 取超链接子地址。
+/// Get the hyperlink sub address.
     ///
-    /// 对应 Java: `public String getHyperlinkSubAddress()`
+    /// Corresponds to Java: `public String getHyperlinkSubAddress()`
     pub fn get_hyperlink_sub_address(&self) -> Option<String> {
         self.string_field(TaskField::HyperlinkSubaddress)
     }
 
-    /// 取超链接屏幕提示。
+/// Get the hyperlink screen tip.
     ///
-    /// 对应 Java: `public String getHyperlinkScreenTip()`
+    /// Corresponds to Java: `public String getHyperlinkScreenTip()`
     pub fn get_hyperlink_screen_tip(&self) -> Option<String> {
         self.string_field(TaskField::HyperlinkScreenTip)
     }
 
-    /// 设置超链接文本。
+/// Set the hyperlink text.
     ///
-    /// 对应 Java: `public void setHyperlink(String text)`
+    /// Corresponds to Java: `public void setHyperlink(String text)`
     pub fn set_hyperlink(&mut self, text: Option<String>) {
         self.put_string(TaskField::Hyperlink, text);
     }
 
-    /// 设置超链接地址。
+/// Set the hyperlink address.
     ///
-    /// 对应 Java: `public void setHyperlinkAddress(String text)`
+    /// Corresponds to Java: `public void setHyperlinkAddress(String text)`
     pub fn set_hyperlink_address(&mut self, text: Option<String>) {
         self.put_string(TaskField::HyperlinkAddress, text);
     }
 
-    /// 设置超链接子地址。
+/// Set the hyperlink sub address.
     ///
-    /// 对应 Java: `public void setHyperlinkSubAddress(String text)`
+    /// Corresponds to Java: `public void setHyperlinkSubAddress(String text)`
     pub fn set_hyperlink_sub_address(&mut self, text: Option<String>) {
         self.put_string(TaskField::HyperlinkSubaddress, text);
     }
 
-    /// 设置超链接屏幕提示。
+/// Set the hyperlink screen tip.
     ///
-    /// 对应 Java: `public void setHyperlinkScreenTip(String text)`
+    /// Corresponds to Java: `public void setHyperlinkScreenTip(String text)`
     pub fn set_hyperlink_screen_tip(&mut self, text: Option<String>) {
         self.put_string(TaskField::HyperlinkScreenTip, text);
     }
 
-    /// 取「可调配分配」标志。
+/// Get the "level assignments" flag.
     ///
-    /// 对应 Java: `public boolean getLevelAssignments()`
+    /// Corresponds to Java: `public boolean getLevelAssignments()`
     pub fn get_level_assignments(&self) -> bool {
         self.boolean_field(TaskField::LevelAssignments)
     }
 
-    /// 设置「可调配分配」标志。
+/// Set the "level assignments" flag.
     ///
-    /// 对应 Java: `public void setLevelAssignments(boolean flag)`
+    /// Corresponds to Java: `public void setLevelAssignments(boolean flag)`
     pub fn set_level_assignments(&mut self, flag: bool) {
         self.put_bool(TaskField::LevelAssignments, flag);
     }
 
-    /// 取「调配可拆分」标志。
+/// Get the "leveling can split" flag.
     ///
-    /// 对应 Java: `public boolean getLevelingCanSplit()`
+    /// Corresponds to Java: `public boolean getLevelingCanSplit()`
     pub fn get_leveling_can_split(&self) -> bool {
         self.boolean_field(TaskField::LevelingCanSplit)
     }
 
-    /// 设置「调配可拆分」标志。
+/// Set the "leveling can split" flag.
     ///
-    /// 对应 Java: `public void setLevelingCanSplit(boolean flag)`
+    /// Corresponds to Java: `public void setLevelingCanSplit(boolean flag)`
     pub fn set_leveling_can_split(&mut self, flag: bool) {
         self.put_bool(TaskField::LevelingCanSplit, flag);
     }
 
-    /// 取加班工时。
+/// Get the overtime work.
     ///
-    /// 对应 Java: `public Duration getOvertimeWork()`
+    /// Corresponds to Java: `public Duration getOvertimeWork()`
     pub fn get_overtime_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::OvertimeWork)
     }
 
-    /// 设置加班工时。
+/// Set the overtime work.
     ///
-    /// 对应 Java: `public void setOvertimeWork(Duration work)`
+    /// Corresponds to Java: `public void setOvertimeWork(Duration work)`
     pub fn set_overtime_work(&mut self, work: Option<Duration>) {
         self.put_duration(TaskField::OvertimeWork, work);
     }
 
-    /// 取预调配开始日期。
+/// Get the preleveled start date.
     ///
-    /// 对应 Java: `public LocalDateTime getPreleveledStart()`
+    /// Corresponds to Java: `public LocalDateTime getPreleveledStart()`
     pub fn get_preleveled_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::PreleveledStart)
     }
 
-    /// 取预调配完成日期。
+/// Get the preleveled finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getPreleveledFinish()`
+    /// Corresponds to Java: `public LocalDateTime getPreleveledFinish()`
     pub fn get_preleveled_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::PreleveledFinish)
     }
 
-    /// 设置预调配开始日期。
+/// Set the preleveled start date.
     ///
-    /// 对应 Java: `public void setPreleveledStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setPreleveledStart(LocalDateTime date)`
     pub fn set_preleveled_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::PreleveledStart, date);
     }
 
-    /// 设置预调配完成日期。
+/// Set the preleveled finish date.
     ///
-    /// 对应 Java: `public void setPreleveledFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setPreleveledFinish(LocalDateTime date)`
     pub fn set_preleveled_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::PreleveledFinish, date);
     }
 
-    /// 取剩余加班工时。
+/// Get the remaining overtime work.
     ///
-    /// 对应 Java: `public Duration getRemainingOvertimeWork()`
+    /// Corresponds to Java: `public Duration getRemainingOvertimeWork()`
     pub fn get_remaining_overtime_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingOvertimeWork)
     }
 
-    /// 设置剩余加班工时。
+/// Set the remaining overtime work.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeWork(Duration work)`
+    /// Corresponds to Java: `public void setRemainingOvertimeWork(Duration work)`
     pub fn set_remaining_overtime_work(&mut self, work: Option<Duration>) {
         self.put_duration(TaskField::RemainingOvertimeWork, work);
     }
 
-    /// 取剩余加班成本。
+/// Get the remaining overtime cost.
     ///
-    /// 对应 Java: `public Number getRemainingOvertimeCost()`
+    /// Corresponds to Java: `public Number getRemainingOvertimeCost()`
     pub fn get_remaining_overtime_cost(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingOvertimeCost)
     }
 
-    /// 设置剩余加班成本。
+/// Set the remaining overtime cost.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeCost(Number cost)`
+    /// Corresponds to Java: `public void setRemainingOvertimeCost(Number cost)`
     pub fn set_remaining_overtime_cost(&mut self, cost: Option<f64>) {
         self.put_number(TaskField::RemainingOvertimeCost, cost);
     }
 
-    /// 取任务关联的日历。
+/// Get the calendar associated with the task.
     ///
-    /// 对应 Java: `public ProjectCalendar getCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getCalendar()`
     pub fn get_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let file = self.parent_file.upgrade()?;
         let calendar_unique_id = self.get_calendar_unique_id();
         file.borrow().get_calendars().get_by_unique_id(calendar_unique_id)
     }
 
-    /// 设置日历唯一 ID。
+/// Set the calendar unique ID.
     ///
-    /// 对应 Java: `public void setCalendarUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setCalendarUniqueID(Integer id)`
     pub fn set_calendar_unique_id(&mut self, id: Option<i32>) {
         self.put_integer(TaskField::CalendarUniqueId, id);
     }
 
-    /// 取日历唯一 ID。
+/// Get the calendar unique ID.
     ///
-    /// 对应 Java: `public Integer getCalendarUniqueID()`
+    /// Corresponds to Java: `public Integer getCalendarUniqueID()`
     pub fn get_calendar_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::CalendarUniqueId)
     }
 
-    /// 设置任务关联的日历。
+/// Set the calendar associated with the task.
     ///
-    /// 对应 Java: `public void setCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void setCalendar(ProjectCalendar calendar)`
     pub fn set_calendar(&mut self, calendar: Option<&Rc<RefCell<ProjectCalendar>>>) {
         let unique_id = calendar.and_then(|calendar| calendar.borrow().get_unique_id());
         self.set_calendar_unique_id(unique_id);
     }
 
-    /// 取「展开显示」标志。
+/// Get the "expanded" flag.
     ///
-    /// 对应 Java: `public boolean getExpanded()`
+    /// Corresponds to Java: `public boolean getExpanded()`
     pub fn get_expanded(&self) -> bool {
         self.boolean_field(TaskField::Expanded)
     }
 
-    /// 设置「展开显示」标志。
+/// Set the "expanded" flag.
     ///
-    /// 对应 Java: `public void setExpanded(boolean expanded)`
+    /// Corresponds to Java: `public void setExpanded(boolean expanded)`
     pub fn set_expanded(&mut self, expanded: bool) {
         self.put_bool(TaskField::Expanded, expanded);
     }
 
-    /// 设置开始浮动时间。
+/// Set the start slack.
     ///
-    /// 对应 Java: `public void setStartSlack(Duration duration)`
+    /// Corresponds to Java: `public void setStartSlack(Duration duration)`
     pub fn set_start_slack(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::StartSlack, duration);
     }
 
-    /// 设置完成浮动时间。
+/// Set the finish slack.
     ///
-    /// 对应 Java: `public void setFinishSlack(Duration duration)`
+    /// Corresponds to Java: `public void setFinishSlack(Duration duration)`
     pub fn set_finish_slack(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::FinishSlack, duration);
     }
 
-    /// 取开始浮动时间。
+/// Get the start slack.
     ///
-    /// 对应 Java: `public Duration getStartSlack()`
+    /// Corresponds to Java: `public Duration getStartSlack()`
     pub fn get_start_slack(&self) -> Option<Duration> {
         self.duration_field(TaskField::StartSlack)
     }
 
-    /// 取完成浮动时间。
+/// Get the finish slack.
     ///
-    /// 对应 Java: `public Duration getFinishSlack()`
+    /// Corresponds to Java: `public Duration getFinishSlack()`
     pub fn get_finish_slack(&self) -> Option<Duration> {
         self.duration_field(TaskField::FinishSlack)
     }
 
-    /// 按字段别名读取字段值。
+/// Read a field value by field alias.
     ///
-    /// 对应 Java: `public Object getFieldByAlias(String alias)`
+    /// Corresponds to Java: `public Object getFieldByAlias(String alias)`
     pub fn get_field_by_alias(&self, alias: &str) -> Option<FieldValue> {
         let file = self.parent_file.upgrade()?;
         let field = file.borrow().get_tasks().get_field_type_by_alias(alias)?;
         self.get(field)
     }
 
-    /// 按字段别名设置字段值。
+/// Set a field value by field alias.
     ///
-    /// 对应 Java: `public void setFieldByAlias(String alias, Object value)`
+    /// Corresponds to Java: `public void setFieldByAlias(String alias, Object value)`
     pub fn set_field_by_alias(&mut self, alias: &str, value: Option<FieldValue>) {
         let Some(file) = self.parent_file.upgrade() else {
             return;
@@ -4156,285 +4156,285 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 多基线（Baseline 1-10）与 Enterprise 自定义字段
+// Multiple baselines (Baseline 1-10) and Enterprise custom fields
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 设置基线成本（多基线）。
+/// Set the baseline cost (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineCost(int baselineNumber, Number value)`
     pub fn set_baseline_cost_at(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = select_field(baseline_cost_fields(), baseline_number) {
             self.put_number(field, value);
         }
     }
 
-    /// 设置基线工期（多基线）。
+/// Set the baseline duration (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineDuration(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineDuration(int baselineNumber, Duration value)`
     pub fn set_baseline_duration_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(baseline_duration_fields(), baseline_number) {
             self.put_duration(field, value);
         }
     }
 
-    /// 设置基线完成日期（多基线）。
+/// Set the baseline finish date (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineFinish(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineFinish(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_finish_at(&mut self, baseline_number: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(baseline_finish_fields(), baseline_number) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 设置基线开始日期（多基线）。
+/// Set baseline start date (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineStart(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineStart(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_start_at(&mut self, baseline_number: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(baseline_start_fields(), baseline_number) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 设置基线工时（多基线）。
+/// Set baseline work (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineWork(int baselineNumber, Duration value)`
     pub fn set_baseline_work_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(baseline_work_fields(), baseline_number) {
             self.put_duration(field, value);
         }
     }
 
-    /// 取基线成本（多基线）。
+/// Get baseline cost (multiple baselines).
     ///
-    /// 对应 Java: `public Number getBaselineCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineCost(int baselineNumber)`
     pub fn get_baseline_cost_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(baseline_cost_fields(), baseline_number)
             .and_then(|field| self.number_field(field))
     }
 
-    /// 取基线工期（多基线）。
+/// Get baseline duration (multiple baselines).
     ///
-    /// 对应 Java: `public Duration getBaselineDuration(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineDuration(int baselineNumber)`
     pub fn get_baseline_duration_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(baseline_duration_fields(), baseline_number)
             .and_then(|field| self.duration_field(field))
     }
 
-    /// 取基线工期文本（多基线）。
+/// Get baseline duration text (multiple baselines).
     ///
-    /// 对应 Java: `public String getBaselineDurationText(int baselineNumber)`
+    /// Corresponds to Java: `public String getBaselineDurationText(int baselineNumber)`
     pub fn get_baseline_duration_text_at(&self, baseline_number: i32) -> Option<String> {
         select_field(baseline_duration_fields(), baseline_number)
             .and_then(|field| self.string_field(field))
     }
 
-    /// 设置基线工期文本（多基线）。
+/// Set baseline duration text (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineDurationText(int baselineNumber, String value)`
+    /// Corresponds to Java: `public void setBaselineDurationText(int baselineNumber, String value)`
     pub fn set_baseline_duration_text_at(&mut self, baseline_number: i32, value: Option<String>) {
         if let Some(field) = select_field(baseline_duration_fields(), baseline_number) {
             self.put_string(field, value);
         }
     }
 
-    /// 取基线完成日期（多基线）。
+/// Get baseline finish date (multiple baselines).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineFinish(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineFinish(int baselineNumber)`
     pub fn get_baseline_finish_at(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         select_field(baseline_finish_fields(), baseline_number)
             .and_then(|field| self.date_time_field(field))
     }
 
-    /// 取基线完成文本（多基线）。
+/// Get baseline finish text (multiple baselines).
     ///
-    /// 对应 Java: `public String getBaselineFinishText(int baselineNumber)`
+    /// Corresponds to Java: `public String getBaselineFinishText(int baselineNumber)`
     pub fn get_baseline_finish_text_at(&self, baseline_number: i32) -> Option<String> {
         select_field(baseline_finish_fields(), baseline_number)
             .and_then(|field| self.string_field(field))
     }
 
-    /// 设置基线完成文本（多基线）。
+/// Set baseline finish text (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineFinishText(int baselineNumber, String value)`
+    /// Corresponds to Java: `public void setBaselineFinishText(int baselineNumber, String value)`
     pub fn set_baseline_finish_text_at(&mut self, baseline_number: i32, value: Option<String>) {
         if let Some(field) = select_field(baseline_finish_fields(), baseline_number) {
             self.put_string(field, value);
         }
     }
 
-    /// 取基线开始日期（多基线）。
+/// Get baseline start date (multiple baselines).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineStart(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineStart(int baselineNumber)`
     pub fn get_baseline_start_at(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         select_field(baseline_start_fields(), baseline_number)
             .and_then(|field| self.date_time_field(field))
     }
 
-    /// 取基线开始文本（多基线）。
+/// Get baseline start text (multiple baselines).
     ///
-    /// 对应 Java: `public String getBaselineStartText(int baselineNumber)`
+    /// Corresponds to Java: `public String getBaselineStartText(int baselineNumber)`
     pub fn get_baseline_start_text_at(&self, baseline_number: i32) -> Option<String> {
         select_field(baseline_start_fields(), baseline_number)
             .and_then(|field| self.string_field(field))
     }
 
-    /// 设置基线开始文本（多基线）。
+/// Set baseline start text (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineStartText(int baselineNumber, String value)`
+    /// Corresponds to Java: `public void setBaselineStartText(int baselineNumber, String value)`
     pub fn set_baseline_start_text_at(&mut self, baseline_number: i32, value: Option<String>) {
         if let Some(field) = select_field(baseline_start_fields(), baseline_number) {
             self.put_string(field, value);
         }
     }
 
-    /// 取基线工时（多基线）。
+/// Get baseline work (multiple baselines).
     ///
-    /// 对应 Java: `public Duration getBaselineWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineWork(int baselineNumber)`
     pub fn get_baseline_work_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(baseline_work_fields(), baseline_number)
             .and_then(|field| self.duration_field(field))
     }
 
-    /// 取企业自定义成本字段。
+/// Get enterprise custom cost field.
     ///
-    /// 对应 Java: `public Number getEnterpriseCost(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseCost(int index)`
     pub fn get_enterprise_cost(&self, index: i32) -> Option<f64> {
         select_field(enterprise_cost_fields(), index).and_then(|field| self.number_field(field))
     }
 
-    /// 设置企业自定义成本字段。
+/// Set enterprise custom cost field.
     ///
-    /// 对应 Java: `public void setEnterpriseCost(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseCost(int index, Number value)`
     pub fn set_enterprise_cost(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(enterprise_cost_fields(), index) {
             self.put_number(field, value);
         }
     }
 
-    /// 取企业自定义日期字段。
+/// Get enterprise custom date field.
     ///
-    /// 对应 Java: `public LocalDateTime getEnterpriseDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getEnterpriseDate(int index)`
     pub fn get_enterprise_date(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(enterprise_date_fields(), index).and_then(|field| self.date_time_field(field))
     }
 
-    /// 设置企业自定义日期字段。
+/// Set enterprise custom date field.
     ///
-    /// 对应 Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
     pub fn set_enterprise_date(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(enterprise_date_fields(), index) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 取企业自定义工期字段。
+/// Get enterprise custom duration field.
     ///
-    /// 对应 Java: `public Duration getEnterpriseDuration(int index)`
+    /// Corresponds to Java: `public Duration getEnterpriseDuration(int index)`
     pub fn get_enterprise_duration(&self, index: i32) -> Option<Duration> {
         select_field(enterprise_duration_fields(), index)
             .and_then(|field| self.duration_field(field))
     }
 
-    /// 设置企业自定义工期字段。
+/// Set enterprise custom duration field.
     ///
-    /// 对应 Java: `public void setEnterpriseDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setEnterpriseDuration(int index, Duration value)`
     pub fn set_enterprise_duration(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = select_field(enterprise_duration_fields(), index) {
             self.put_duration(field, value);
         }
     }
 
-    /// 取企业自定义标志字段。
+/// Get enterprise custom flag field.
     ///
-    /// 对应 Java: `public boolean getEnterpriseFlag(int index)`
+    /// Corresponds to Java: `public boolean getEnterpriseFlag(int index)`
     pub fn get_enterprise_flag(&self, index: i32) -> bool {
         select_field(enterprise_flag_fields(), index).map_or(false, |field| self.boolean_field(field))
     }
 
-    /// 设置企业自定义标志字段。
+/// Set enterprise custom flag field.
     ///
-    /// 对应 Java: `public void setEnterpriseFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setEnterpriseFlag(int index, boolean value)`
     pub fn set_enterprise_flag(&mut self, index: i32, value: bool) {
         if let Some(field) = select_field(enterprise_flag_fields(), index) {
             self.put_bool(field, value);
         }
     }
 
-    /// 取企业自定义数字字段。
+/// Get enterprise custom number field.
     ///
-    /// 对应 Java: `public Number getEnterpriseNumber(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseNumber(int index)`
     pub fn get_enterprise_number(&self, index: i32) -> Option<f64> {
         select_field(enterprise_number_fields(), index).and_then(|field| self.number_field(field))
     }
 
-    /// 设置企业自定义数字字段。
+/// Set enterprise custom number field.
     ///
-    /// 对应 Java: `public void setEnterpriseNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseNumber(int index, Number value)`
     pub fn set_enterprise_number(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(enterprise_number_fields(), index) {
             self.put_number(field, value);
         }
     }
 
-    /// 取企业自定义文本字段。
+/// Get enterprise custom text field.
     ///
-    /// 对应 Java: `public String getEnterpriseText(int index)`
+    /// Corresponds to Java: `public String getEnterpriseText(int index)`
     pub fn get_enterprise_text(&self, index: i32) -> Option<String> {
         select_field(enterprise_text_fields(), index).and_then(|field| self.string_field(field))
     }
 
-    /// 设置企业自定义文本字段。
+/// Set enterprise custom text field.
     ///
-    /// 对应 Java: `public void setEnterpriseText(int index, String value)`
+    /// Corresponds to Java: `public void setEnterpriseText(int index, String value)`
     pub fn set_enterprise_text(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(enterprise_text_fields(), index) {
             self.put_string(field, value);
         }
     }
 
-    /// 设置基线固定成本。
+/// Set baseline fixed cost.
     ///
-    /// 对应 Java: `public void setBaselineFixedCost(Number val)`
+    /// Corresponds to Java: `public void setBaselineFixedCost(Number val)`
     pub fn set_baseline_fixed_cost(&mut self, val: Option<f64>) {
         self.put_number(TaskField::BaselineFixedCost, val);
     }
 
-    /// 取基线固定成本。
+/// Get baseline fixed cost.
     ///
-    /// 对应 Java: `public Number getBaselineFixedCost()`
+    /// Corresponds to Java: `public Number getBaselineFixedCost()`
     pub fn get_baseline_fixed_cost(&self) -> Option<f64> {
         self.number_field(TaskField::BaselineFixedCost)
     }
 
-    /// 设置基线固定成本（多基线）。
+/// Set baseline fixed cost (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineFixedCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineFixedCost(int baselineNumber, Number value)`
     pub fn set_baseline_fixed_cost_at(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = select_field(baseline_fixed_cost_fields(), baseline_number) {
             self.put_number(field, value);
         }
     }
 
-    /// 取基线固定成本（多基线）。
+/// Get baseline fixed cost (multiple baselines).
     ///
-    /// 对应 Java: `public Number getBaselineFixedCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineFixedCost(int baselineNumber)`
     pub fn get_baseline_fixed_cost_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(baseline_fixed_cost_fields(), baseline_number)
             .and_then(|field| self.number_field(field))
     }
 
-    /// 取基线固定成本计入方式。
+/// Get baseline fixed cost accrual method.
     ///
-    /// 对应 Java: `public AccrueType getBaselineFixedCostAccrual()`
+    /// Corresponds to Java: `public AccrueType getBaselineFixedCostAccrual()`
     pub fn get_baseline_fixed_cost_accrual(&self) -> Option<AccrueType> {
         self.integer_field(TaskField::BaselineFixedCostAccrual)
             .and_then(AccrueType::get_instance)
     }
 
-    /// 设置基线固定成本计入方式。
+/// Set baseline fixed cost accrual method.
     ///
-    /// 对应 Java: `public void setBaselineFixedCostAccrual(AccrueType type)`
+    /// Corresponds to Java: `public void setBaselineFixedCostAccrual(AccrueType type)`
     pub fn set_baseline_fixed_cost_accrual(&mut self, r#type: Option<AccrueType>) {
         self.put_enum(
             TaskField::BaselineFixedCostAccrual,
@@ -4442,9 +4442,9 @@ impl Task {
         );
     }
 
-    /// 设置基线固定成本计入方式（多基线）。
+/// Set baseline fixed cost accrual method (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineFixedCostAccrual(int baselineNumber, AccrueType value)`
+    /// Corresponds to Java: `public void setBaselineFixedCostAccrual(int baselineNumber, AccrueType value)`
     pub fn set_baseline_fixed_cost_accrual_at(
         &mut self,
         baseline_number: i32,
@@ -4455,71 +4455,71 @@ impl Task {
         }
     }
 
-    /// 取基线固定成本计入方式（多基线）。
+/// Get baseline fixed cost accrual method (multiple baselines).
     ///
-    /// 对应 Java: `public AccrueType getBaselineFixedCostAccrual(int baselineNumber)`
+    /// Corresponds to Java: `public AccrueType getBaselineFixedCostAccrual(int baselineNumber)`
     pub fn get_baseline_fixed_cost_accrual_at(&self, baseline_number: i32) -> Option<AccrueType> {
         select_field(baseline_fixed_cost_accrual_fields(), baseline_number)
             .and_then(|field| self.integer_field(field))
             .and_then(AccrueType::get_instance)
     }
 
-    /// 取基线预算成本。
+/// Get baseline budget cost.
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost()`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost()`
     pub fn get_baseline_budget_cost(&self) -> Option<f64> {
         self.number_field(TaskField::BaselineBudgetCost)
     }
 
-    /// 设置基线预算成本。
+/// Set baseline budget cost.
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(Number value)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(Number value)`
     pub fn set_baseline_budget_cost(&mut self, value: Option<f64>) {
         self.put_number(TaskField::BaselineBudgetCost, value);
     }
 
-    /// 取基线预算工时。
+/// Get baseline budget work.
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork()`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork()`
     pub fn get_baseline_budget_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::BaselineBudgetWork)
     }
 
-    /// 设置基线预算工时。
+/// Set baseline budget work.
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(Duration value)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(Duration value)`
     pub fn set_baseline_budget_work(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::BaselineBudgetWork, value);
     }
 
-    /// 取基线预算成本（多基线）。
+/// Get baseline budget cost (multiple baselines).
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost(int baselineNumber)`
     pub fn get_baseline_budget_cost_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(baseline_budget_cost_fields(), baseline_number)
             .and_then(|field| self.number_field(field))
     }
 
-    /// 设置基线预算成本（多基线）。
+/// Set baseline budget cost (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
     pub fn set_baseline_budget_cost_at(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = select_field(baseline_budget_cost_fields(), baseline_number) {
             self.put_number(field, value);
         }
     }
 
-    /// 取基线预算工时（多基线）。
+/// Get baseline budget work (multiple baselines).
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
     pub fn get_baseline_budget_work_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(baseline_budget_work_fields(), baseline_number)
             .and_then(|field| self.duration_field(field))
     }
 
-    /// 设置基线预算工时（多基线）。
+/// Set baseline budget work (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
     pub fn set_baseline_budget_work_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(baseline_budget_work_fields(), baseline_number) {
             self.put_duration(field, value);
@@ -4528,177 +4528,177 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 基线估算值 / 完成进度 / GUID / 任务模式
+// Baseline estimate values / percent complete / GUID / task mode
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 取基线估算工期。
+/// Get baseline estimated duration.
     ///
-    /// 对应 Java: `public Duration getBaselineEstimatedDuration()`
+    /// Corresponds to Java: `public Duration getBaselineEstimatedDuration()`
     pub fn get_baseline_estimated_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::BaselineEstimatedDuration)
     }
 
-    /// 设置基线估算工期。
+/// Set baseline estimated duration.
     ///
-    /// 对应 Java: `public void setBaselineEstimatedDuration(Duration duration)`
+    /// Corresponds to Java: `public void setBaselineEstimatedDuration(Duration duration)`
     pub fn set_baseline_estimated_duration(&mut self, duration: Option<Duration>) {
         self.put_duration(TaskField::BaselineEstimatedDuration, duration);
     }
 
-    /// 设置基线估算工期（多基线）。
+/// Set baseline estimated duration (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineEstimatedDuration(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineEstimatedDuration(int baselineNumber, Duration value)`
     pub fn set_baseline_estimated_duration_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(baseline_estimated_duration_fields(), baseline_number) {
             self.put_duration(field, value);
         }
     }
 
-    /// 取基线估算工期（多基线）。
+/// Get baseline estimated duration (multiple baselines).
     ///
-    /// 对应 Java: `public Duration getBaselineEstimatedDuration(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineEstimatedDuration(int baselineNumber)`
     pub fn get_baseline_estimated_duration_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(baseline_estimated_duration_fields(), baseline_number)
             .and_then(|field| self.duration_field(field))
     }
 
-    /// 取基线估算开始日期。
+/// Get baseline estimated start date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineEstimatedStart()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineEstimatedStart()`
     pub fn get_baseline_estimated_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::BaselineEstimatedStart)
     }
 
-    /// 设置基线估算开始日期。
+/// Set baseline estimated start date.
     ///
-    /// 对应 Java: `public void setBaselineEstimatedStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setBaselineEstimatedStart(LocalDateTime date)`
     pub fn set_baseline_estimated_start(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::BaselineEstimatedStart, date);
     }
 
-    /// 取基线估算开始日期（多基线）。
+/// Get baseline estimated start date (multiple baselines).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineEstimatedStart(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineEstimatedStart(int baselineNumber)`
     pub fn get_baseline_estimated_start_at(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         select_field(baseline_estimated_start_fields(), baseline_number)
             .and_then(|field| self.date_time_field(field))
     }
 
-    /// 设置基线估算开始日期（多基线）。
+/// Set baseline estimated start date (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineEstimatedStart(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineEstimatedStart(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_estimated_start_at(&mut self, baseline_number: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(baseline_estimated_start_fields(), baseline_number) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 取基线估算完成日期。
+/// Get baseline estimated finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineEstimatedFinish()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineEstimatedFinish()`
     pub fn get_baseline_estimated_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::BaselineEstimatedFinish)
     }
 
-    /// 设置基线估算完成日期。
+/// Set baseline estimated finish date.
     ///
-    /// 对应 Java: `public void setBaselineEstimatedFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setBaselineEstimatedFinish(LocalDateTime date)`
     pub fn set_baseline_estimated_finish(&mut self, date: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::BaselineEstimatedFinish, date);
     }
 
-    /// 取基线估算完成日期（多基线）。
+/// Get baseline estimated finish date (multiple baselines).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineEstimatedFinish(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineEstimatedFinish(int baselineNumber)`
     pub fn get_baseline_estimated_finish_at(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         select_field(baseline_estimated_finish_fields(), baseline_number)
             .and_then(|field| self.date_time_field(field))
     }
 
-    /// 设置基线估算完成日期（多基线）。
+/// Set baseline estimated finish date (multiple baselines).
     ///
-    /// 对应 Java: `public void setBaselineEstimatedFinish(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineEstimatedFinish(int baselineNumber, LocalDateTime value)`
     pub fn set_baseline_estimated_finish_at(&mut self, baseline_number: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(baseline_estimated_finish_fields(), baseline_number) {
             self.put_date_time(field, value);
         }
     }
 
-    /// 取「完成到」日期。
+/// Get the "complete through" date.
     ///
-    /// 对应 Java: `public LocalDateTime getCompleteThrough()`
+    /// Corresponds to Java: `public LocalDateTime getCompleteThrough()`
     pub fn get_complete_through(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::CompleteThrough)
     }
 
-    /// 设置「完成到」日期。
+/// Set the "complete through" date.
     ///
-    /// 对应 Java: `public void setCompleteThrough(LocalDateTime value)`
+    /// Corresponds to Java: `public void setCompleteThrough(LocalDateTime value)`
     pub fn set_complete_through(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::CompleteThrough, value);
     }
 
-    /// 取汇总进度日期。
+/// Get the summary progress date.
     ///
-    /// 对应 Java: `public LocalDateTime getSummaryProgress()`
+    /// Corresponds to Java: `public LocalDateTime getSummaryProgress()`
     pub fn get_summary_progress(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::SummaryProgress)
     }
 
-    /// 设置汇总进度日期。
+/// Set the summary progress date.
     ///
-    /// 对应 Java: `public void setSummaryProgress(LocalDateTime value)`
+    /// Corresponds to Java: `public void setSummaryProgress(LocalDateTime value)`
     pub fn set_summary_progress(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::SummaryProgress, value);
     }
 
-    /// 取任务 GUID。
+/// Get the task GUID.
     ///
-    /// 对应 Java: `public UUID getGUID()`
+    /// Corresponds to Java: `public UUID getGUID()`
     pub fn get_guid(&self) -> Option<Uuid> {
         self.uuid_field(TaskField::Guid)
     }
 
-    /// 设置任务 GUID。
+/// Set the task GUID.
     ///
-    /// 对应 Java: `public void setGUID(UUID value)`
+    /// Corresponds to Java: `public void setGUID(UUID value)`
     pub fn set_guid(&mut self, value: Option<Uuid>) {
         self.put_uuid(TaskField::Guid, value);
     }
 
-    /// 取任务模式。
+/// Get the task mode.
     ///
-    /// 对应 Java: `public TaskMode getTaskMode()`
+    /// Corresponds to Java: `public TaskMode getTaskMode()`
     pub fn get_task_mode(&self) -> Option<TaskMode> {
         self.integer_field(TaskField::TaskMode)
             .map(TaskMode::get_instance)
     }
 
-    /// 设置任务模式。
+/// Set the task mode.
     ///
-    /// 对应 Java: `public void setTaskMode(TaskMode mode)`
+    /// Corresponds to Java: `public void setTaskMode(TaskMode mode)`
     pub fn set_task_mode(&mut self, mode: Option<TaskMode>) {
         self.put_enum(TaskField::TaskMode, mode.map(|value| value.value()));
     }
 
-    /// 取活动标志。
+/// Get the active flag.
     ///
-    /// 对应 Java: `public boolean getActive()`
+    /// Corresponds to Java: `public boolean getActive()`
     pub fn get_active(&self) -> bool {
         self.boolean_field(TaskField::Active)
     }
 
-    /// 设置活动标志。
+/// Set the active flag.
     ///
-    /// 对应 Java: `public void setActive(boolean active)`
+    /// Corresponds to Java: `public void setActive(boolean active)`
     pub fn set_active(&mut self, active: bool) {
         self.put_bool(TaskField::Active, active);
     }
 
-    /// 取活动 ID 的「规范化」版本（汇总任务用 `PROJECT` 替换项目 ID 前缀）。
+/// Get the "canonical" version of the activity ID (summary tasks replace the project ID prefix with `PROJECT`).
     ///
-    /// 对应 Java: `public String getCanonicalActivityID()`
+    /// Corresponds to Java: `public String getCanonicalActivityID()`
     pub fn get_canonical_activity_id(&self) -> Option<String> {
         let activity_id = self.get_activity_id();
         if !self.get_summary() {
@@ -4722,23 +4722,23 @@ impl Task {
         }
     }
 
-    /// 取活动 ID。
+/// Get the activity ID.
     ///
-    /// 对应 Java: `public String getActivityID()`
+    /// Corresponds to Java: `public String getActivityID()`
     pub fn get_activity_id(&self) -> Option<String> {
         self.string_field(TaskField::ActivityId)
     }
 
-    /// 设置活动 ID。
+/// Set the activity ID.
     ///
-    /// 对应 Java: `public void setActivityID(String value)`
+    /// Corresponds to Java: `public void setActivityID(String value)`
     pub fn set_activity_id(&mut self, value: Option<String>) {
         self.put_string(TaskField::ActivityId, value);
     }
 
-    /// 设置完成百分比类型。
+/// Set the percent complete type.
     ///
-    /// 对应 Java: `public void setPercentCompleteType(PercentCompleteType value)`
+    /// Corresponds to Java: `public void setPercentCompleteType(PercentCompleteType value)`
     pub fn set_percent_complete_type(&mut self, value: Option<PercentCompleteType>) {
         self.put_enum(
             TaskField::PercentCompleteType,
@@ -4746,480 +4746,480 @@ impl Task {
         );
     }
 
-    /// 取完成百分比类型。
+/// Get the percent complete type.
     ///
-    /// 对应 Java: `public PercentCompleteType getPercentCompleteType()`
+    /// Corresponds to Java: `public PercentCompleteType getPercentCompleteType()`
     pub fn get_percent_complete_type(&self) -> Option<PercentCompleteType> {
         self.integer_field(TaskField::PercentCompleteType)
             .and_then(PercentCompleteType::get_instance)
     }
 
-    /// 取活动状态。
+/// Get the activity status.
     ///
-    /// 对应 Java: `public ActivityStatus getActivityStatus()`
+    /// Corresponds to Java: `public ActivityStatus getActivityStatus()`
     pub fn get_activity_status(&self) -> Option<ActivityStatus> {
         self.integer_field(TaskField::ActivityStatus)
             .and_then(ActivityStatus::get_instance)
     }
 
-    /// 设置活动状态。
+/// Set the activity status.
     ///
-    /// 对应 Java: `public void setActivityStatus(ActivityStatus value)`
+    /// Corresponds to Java: `public void setActivityStatus(ActivityStatus value)`
     pub fn set_activity_status(&mut self, value: Option<ActivityStatus>) {
         self.put_enum(TaskField::ActivityStatus, value.map(|value| value.value()));
     }
 
-    /// 取活动类型。
+/// Get the activity type.
     ///
-    /// 对应 Java: `public ActivityType getActivityType()`
+    /// Corresponds to Java: `public ActivityType getActivityType()`
     pub fn get_activity_type(&self) -> Option<ActivityType> {
         self.integer_field(TaskField::ActivityType)
             .and_then(ActivityType::get_instance)
     }
 
-    /// 设置活动类型。
+/// Set the activity type.
     ///
-    /// 对应 Java: `public void setActivityType(ActivityType value)`
+    /// Corresponds to Java: `public void setActivityType(ActivityType value)`
     pub fn set_activity_type(&mut self, value: Option<ActivityType>) {
         self.put_enum(TaskField::ActivityType, value.map(|value| value.value()));
     }
 
-    /// 取「属于最长路径」标志。
+/// Get the "longest path" flag.
     ///
-    /// 对应 Java: `public boolean getLongestPath()`
+    /// Corresponds to Java: `public boolean getLongestPath()`
     pub fn get_longest_path(&self) -> bool {
         self.boolean_field(TaskField::LongestPath)
     }
 
-    /// 设置「属于最长路径」标志。
+/// Set the "longest path" flag.
     ///
-    /// 对应 Java: `public void setLongestPath(boolean value)`
+    /// Corresponds to Java: `public void setLongestPath(boolean value)`
     pub fn set_longest_path(&mut self, value: bool) {
         self.put_bool(TaskField::LongestPath, value);
     }
 
-    /// 取外部最早开始日期。
+/// Get the external early start date.
     ///
-    /// 对应 Java: `public LocalDateTime getExternalEarlyStart()`
+    /// Corresponds to Java: `public LocalDateTime getExternalEarlyStart()`
     pub fn get_external_early_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ExternalEarlyStart)
     }
 
-    /// 设置外部最早开始日期。
+/// Set the external early start date.
     ///
-    /// 对应 Java: `public void setExternalEarlyStart(LocalDateTime value)`
+    /// Corresponds to Java: `public void setExternalEarlyStart(LocalDateTime value)`
     pub fn set_external_early_start(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ExternalEarlyStart, value);
     }
 
-    /// 取外部最晚完成日期。
+/// Get the external late finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getExternalLateFinish()`
+    /// Corresponds to Java: `public LocalDateTime getExternalLateFinish()`
     pub fn get_external_late_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ExternalLateFinish)
     }
 
-    /// 设置外部最晚完成日期。
+/// Set the external late finish date.
     ///
-    /// 对应 Java: `public void setExternalLateFinish(LocalDateTime value)`
+    /// Corresponds to Java: `public void setExternalLateFinish(LocalDateTime value)`
     pub fn set_external_late_finish(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ExternalLateFinish, value);
     }
 
-    /// 取 Sprint ID。
+/// Get the Sprint ID.
     ///
-    /// 对应 Java: `public Integer getSprintID()`
+    /// Corresponds to Java: `public Integer getSprintID()`
     pub fn get_sprint_id(&self) -> Option<i32> {
         self.integer_field(TaskField::SprintId)
     }
 
-    /// 设置 Sprint ID。
+/// Set the Sprint ID.
     ///
-    /// 对应 Java: `public void setSprintID(Integer value)`
+    /// Corresponds to Java: `public void setSprintID(Integer value)`
     pub fn set_sprint_id(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::SprintId, value);
     }
 
-    /// 取看板状态 ID。
+/// Get the board status ID.
     ///
-    /// 对应 Java: `public Integer getBoardStatusID()`
+    /// Corresponds to Java: `public Integer getBoardStatusID()`
     pub fn get_board_status_id(&self) -> Option<i32> {
         self.integer_field(TaskField::BoardStatusId)
     }
 
-    /// 设置看板状态 ID。
+/// Set the board status ID.
     ///
-    /// 对应 Java: `public void setBoardStatusID(Integer value)`
+    /// Corresponds to Java: `public void setBoardStatusID(Integer value)`
     pub fn set_board_status_id(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::BoardStatusId, value);
     }
 
-    /// 取「等待响应」标志。
+/// Get the "response pending" flag.
     ///
-    /// 对应 Java: `public boolean getResponsePending()`
+    /// Corresponds to Java: `public boolean getResponsePending()`
     pub fn get_response_pending(&self) -> bool {
         self.boolean_field(TaskField::ResponsePending)
     }
 
-    /// 设置「等待响应」标志。
+/// Set the "response pending" flag.
     ///
-    /// 对应 Java: `public void setResponsePending(boolean value)`
+    /// Corresponds to Java: `public void setResponsePending(boolean value)`
     pub fn set_response_pending(&mut self, value: bool) {
         self.put_bool(TaskField::ResponsePending, value);
     }
 
-    /// 取计划开始日期。
+/// Get the planned start date.
     ///
-    /// 对应 Java: `public LocalDateTime getScheduledStart()`
+    /// Corresponds to Java: `public LocalDateTime getScheduledStart()`
     pub fn get_scheduled_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ScheduledStart)
     }
 
-    /// 设置计划开始日期。
+/// Set the planned start date.
     ///
-    /// 对应 Java: `public void setScheduledStart(LocalDateTime value)`
+    /// Corresponds to Java: `public void setScheduledStart(LocalDateTime value)`
     pub fn set_scheduled_start(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ScheduledStart, value);
     }
 
-    /// 取计划完成日期。
+/// Get the planned finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getScheduledFinish()`
+    /// Corresponds to Java: `public LocalDateTime getScheduledFinish()`
     pub fn get_scheduled_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ScheduledFinish)
     }
 
-    /// 设置计划完成日期。
+/// Set the planned finish date.
     ///
-    /// 对应 Java: `public void setScheduledFinish(LocalDateTime value)`
+    /// Corresponds to Java: `public void setScheduledFinish(LocalDateTime value)`
     pub fn set_scheduled_finish(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ScheduledFinish, value);
     }
 
-    /// 取计划工期。
+/// Get the planned duration.
     ///
-    /// 对应 Java: `public Duration getScheduledDuration()`
+    /// Corresponds to Java: `public Duration getScheduledDuration()`
     pub fn get_scheduled_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::ScheduledDuration)
     }
 
-    /// 设置计划工期。
+/// Set the planned duration.
     ///
-    /// 对应 Java: `public void setScheduledDuration(Duration value)`
+    /// Corresponds to Java: `public void setScheduledDuration(Duration value)`
     pub fn set_scheduled_duration(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::ScheduledDuration, value);
     }
 
-    /// 取预算成本。
+/// Get the budget cost.
     ///
-    /// 对应 Java: `public Number getBudgetCost()`
+    /// Corresponds to Java: `public Number getBudgetCost()`
     pub fn get_budget_cost(&self) -> Option<f64> {
         self.number_field(TaskField::BudgetCost)
     }
 
-    /// 设置预算成本。
+/// Set the budget cost.
     ///
-    /// 对应 Java: `public void setBudgetCost(Number value)`
+    /// Corresponds to Java: `public void setBudgetCost(Number value)`
     pub fn set_budget_cost(&mut self, value: Option<f64>) {
         self.put_number(TaskField::BudgetCost, value);
     }
 
-    /// 取预算工时。
+/// Get the budget work.
     ///
-    /// 对应 Java: `public Duration getBudgetWork()`
+    /// Corresponds to Java: `public Duration getBudgetWork()`
     pub fn get_budget_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::BudgetWork)
     }
 
-    /// 设置预算工时。
+/// Set the budget work.
     ///
-    /// 对应 Java: `public void setBudgetWork(Duration value)`
+    /// Corresponds to Java: `public void setBudgetWork(Duration value)`
     pub fn set_budget_work(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::BudgetWork, value);
     }
 
-    /// 设置任务序号。
+/// Set the task sequence number.
     ///
-    /// 对应 Java: `public void setSequenceNumber(Integer sequenceNumber)`
+    /// Corresponds to Java: `public void setSequenceNumber(Integer sequenceNumber)`
     pub fn set_sequence_number(&mut self, sequence_number: Option<i32>) {
         self.put_integer(TaskField::SequenceNumber, sequence_number);
     }
 
-    /// 取任务序号。
+/// Get the task sequence number.
     ///
-    /// 对应 Java: `public Integer getSequenceNumber()`
+    /// Corresponds to Java: `public Integer getSequenceNumber()`
     pub fn get_sequence_number(&self) -> Option<i32> {
         self.integer_field(TaskField::SequenceNumber)
     }
 
-    /// 取位置唯一 ID。
+/// Get the location unique ID.
     ///
-    /// 对应 Java: `public Integer getLocationUniqueID()`
+    /// Corresponds to Java: `public Integer getLocationUniqueID()`
     pub fn get_location_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::LocationUniqueId)
     }
 
-    /// 设置位置唯一 ID。
+/// Set the location unique ID.
     ///
-    /// 对应 Java: `public void setLocationUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setLocationUniqueID(Integer uniqueID)`
     pub fn set_location_unique_id(&mut self, unique_id: Option<i32>) {
         self.put_integer(TaskField::LocationUniqueId, unique_id);
     }
 
-    /// 取 Asta Powerproject 甘特条名称。
+/// Get the Asta Powerproject bar name.
     ///
-    /// 对应 Java: `public String getBarName()`
+    /// Corresponds to Java: `public String getBarName()`
     pub fn get_bar_name(&self) -> Option<String> {
         self.string_field(TaskField::BarName)
     }
 
-    /// 设置 Asta Powerproject 甘特条名称。
+/// Set the Asta Powerproject bar name.
     ///
-    /// 对应 Java: `public void setBarName(String value)`
+    /// Corresponds to Java: `public void setBarName(String value)`
     pub fn set_bar_name(&mut self, value: Option<String>) {
         self.put_string(TaskField::BarName, value);
     }
 
-    /// 取预计完成日期。
+/// Get the expected finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getExpectedFinish()`
+    /// Corresponds to Java: `public LocalDateTime getExpectedFinish()`
     pub fn get_expected_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::ExpectedFinish)
     }
 
-    /// 设置预计完成日期。
+/// Set the expected finish date.
     ///
-    /// 对应 Java: `public void setExpectedFinish(LocalDateTime value)`
+    /// Corresponds to Java: `public void setExpectedFinish(LocalDateTime value)`
     pub fn set_expected_finish(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::ExpectedFinish, value);
     }
 }
 
 // ---------------------------------------------------------------------------
-// 工时 / 成本的构成（人工、非人工、材料、费用）
+// Work / cost breakdown (labor, non-labor, material, expense)
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 设置实际工时中的人工部分。
+/// Set the labor portion of actual work.
     ///
-    /// 对应 Java: `public void setActualWorkLabor(Duration value)`
+    /// Corresponds to Java: `public void setActualWorkLabor(Duration value)`
     pub fn set_actual_work_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::ActualWorkLabor, value);
     }
 
-    /// 取实际工时中的人工部分。
+/// Get the labor portion of actual work.
     ///
-    /// 对应 Java: `public Duration getActualWorkLabor()`
+    /// Corresponds to Java: `public Duration getActualWorkLabor()`
     pub fn get_actual_work_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualWorkLabor)
     }
 
-    /// 设置实际工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Set the non-labor portion of actual work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public void setActualWorkNonlabor(Duration value)`
+    /// Corresponds to Java: `@Deprecated public void setActualWorkNonlabor(Duration value)`
     pub fn set_actual_work_nonlabor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::ActualWorkNonlabor, value);
     }
 
-    /// 设置实际工时中的非人工部分。
+/// Set the non-labor portion of actual work.
     ///
-    /// 对应 Java: `public void setActualWorkNonLabor(Duration value)`
+    /// Corresponds to Java: `public void setActualWorkNonLabor(Duration value)`
     pub fn set_actual_work_non_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::ActualWorkNonlabor, value);
     }
 
-    /// 取实际工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Get the non-labor portion of actual work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public Duration getActualWorkNonlabor()`
+    /// Corresponds to Java: `@Deprecated public Duration getActualWorkNonlabor()`
     pub fn get_actual_work_nonlabor(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualWorkNonlabor)
     }
 
-    /// 取实际工时中的非人工部分。
+/// Get the non-labor portion of actual work.
     ///
-    /// 对应 Java: `public Duration getActualWorkNonLabor()`
+    /// Corresponds to Java: `public Duration getActualWorkNonLabor()`
     pub fn get_actual_work_non_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualWorkNonlabor)
     }
 
-    /// 设置计划工时中的人工部分。
+/// Set the labor portion of planned work.
     ///
-    /// 对应 Java: `public void setPlannedWorkLabor(Duration value)`
+    /// Corresponds to Java: `public void setPlannedWorkLabor(Duration value)`
     pub fn set_planned_work_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::PlannedWorkLabor, value);
     }
 
-    /// 取计划工时中的人工部分。
+/// Get the labor portion of planned work.
     ///
-    /// 对应 Java: `public Duration getPlannedWorkLabor()`
+    /// Corresponds to Java: `public Duration getPlannedWorkLabor()`
     pub fn get_planned_work_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::PlannedWorkLabor)
     }
 
-    /// 设置计划工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Set the non-labor portion of planned work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public void setPlannedWorkNonlabor(Duration value)`
+    /// Corresponds to Java: `@Deprecated public void setPlannedWorkNonlabor(Duration value)`
     pub fn set_planned_work_nonlabor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::PlannedWorkNonlabor, value);
     }
 
-    /// 设置计划工时中的非人工部分。
+/// Set the non-labor portion of planned work.
     ///
-    /// 对应 Java: `public void setPlannedWorkNonLabor(Duration value)`
+    /// Corresponds to Java: `public void setPlannedWorkNonLabor(Duration value)`
     pub fn set_planned_work_non_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::PlannedWorkNonlabor, value);
     }
 
-    /// 取计划工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Get the non-labor portion of planned work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public Duration getPlannedWorkNonlabor()`
+    /// Corresponds to Java: `@Deprecated public Duration getPlannedWorkNonlabor()`
     pub fn get_planned_work_nonlabor(&self) -> Option<Duration> {
         self.duration_field(TaskField::PlannedWorkNonlabor)
     }
 
-    /// 取计划工时中的非人工部分。
+/// Get the non-labor portion of planned work.
     ///
-    /// 对应 Java: `public Duration getPlannedWorkNonLabor()`
+    /// Corresponds to Java: `public Duration getPlannedWorkNonLabor()`
     pub fn get_planned_work_non_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::PlannedWorkNonlabor)
     }
 
-    /// 设置剩余工时中的人工部分。
+/// Set the labor portion of remaining work.
     ///
-    /// 对应 Java: `public void setRemainingWorkLabor(Duration value)`
+    /// Corresponds to Java: `public void setRemainingWorkLabor(Duration value)`
     pub fn set_remaining_work_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::RemainingWorkLabor, value);
     }
 
-    /// 取剩余工时中的人工部分。
+/// Get the labor portion of remaining work.
     ///
-    /// 对应 Java: `public Duration getRemainingWorkLabor()`
+    /// Corresponds to Java: `public Duration getRemainingWorkLabor()`
     pub fn get_remaining_work_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingWorkLabor)
     }
 
-    /// 设置剩余工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Set the non-labor portion of remaining work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public void setRemainingWorkNonlabor(Duration value)`
+    /// Corresponds to Java: `@Deprecated public void setRemainingWorkNonlabor(Duration value)`
     pub fn set_remaining_work_nonlabor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::RemainingWorkNonlabor, value);
     }
 
-    /// 设置剩余工时中的非人工部分。
+/// Set the non-labor portion of remaining work.
     ///
-    /// 对应 Java: `public void setRemainingWorkNonLabor(Duration value)`
+    /// Corresponds to Java: `public void setRemainingWorkNonLabor(Duration value)`
     pub fn set_remaining_work_non_labor(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::RemainingWorkNonlabor, value);
     }
 
-    /// 取剩余工时中的非人工部分（已废弃的 Java 旧方法名）。
+/// Get the non-labor portion of remaining work (deprecated legacy Java method name).
     ///
-    /// 对应 Java: `@Deprecated public Duration getRemainingWorkNonlabor()`
+    /// Corresponds to Java: `@Deprecated public Duration getRemainingWorkNonlabor()`
     pub fn get_remaining_work_nonlabor(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingWorkNonlabor)
     }
 
-    /// 取剩余工时中的非人工部分。
+/// Get the non-labor portion of remaining work.
     ///
-    /// 对应 Java: `public Duration getRemainingWorkNonLabor()`
+    /// Corresponds to Java: `public Duration getRemainingWorkNonLabor()`
     pub fn get_remaining_work_non_labor(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingWorkNonlabor)
     }
 
-    /// 判断手排任务是否应显示开始文本。
+/// Determine whether a manually scheduled task should display start text.
     ///
-    /// 对应 Java: `public boolean getShowStartText()`
+    /// Corresponds to Java: `public boolean getShowStartText()`
     pub fn get_show_start_text(&self) -> bool {
         self.boolean_field(TaskField::ShowStartText)
     }
 
-    /// 判断手排任务是否应显示完成文本。
+/// Determine whether a manually scheduled task should display finish text.
     ///
-    /// 对应 Java: `public boolean getShowFinishText()`
+    /// Corresponds to Java: `public boolean getShowFinishText()`
     pub fn get_show_finish_text(&self) -> bool {
         self.boolean_field(TaskField::ShowFinishText)
     }
 
-    /// 判断手排任务是否应显示工期文本。
+/// Determine whether a manually scheduled task should display duration text.
     ///
-    /// 对应 Java: `public boolean getShowDurationText()`
+    /// Corresponds to Java: `public boolean getShowDurationText()`
     pub fn get_show_duration_text(&self) -> bool {
         self.boolean_field(TaskField::ShowDurationText)
     }
 
-    /// 取按完成百分比类型确定的完成百分比。
+/// Get the percent complete determined by the percent complete type.
     ///
-    /// 对应 Java: `public Number getActivityPercentComplete()`
+    /// Corresponds to Java: `public Number getActivityPercentComplete()`
     pub fn get_activity_percent_complete(&self) -> Option<f64> {
         self.number_field(TaskField::ActivityPercentComplete)
     }
 
-    /// 取方法论 GUID。
+/// Get the methodology GUID.
     ///
-    /// 对应 Java: `public UUID getMethodologyGUID()`
+    /// Corresponds to Java: `public UUID getMethodologyGUID()`
     pub fn get_methodology_guid(&self) -> Option<Uuid> {
         self.uuid_field(TaskField::MethodologyGuid)
     }
 
-    /// 设置方法论 GUID。
+/// Set the methodology GUID.
     ///
-    /// 对应 Java: `public void setMethodologyGUID(UUID value)`
+    /// Corresponds to Java: `public void setMethodologyGUID(UUID value)`
     pub fn set_methodology_guid(&mut self, value: Option<Uuid>) {
         self.put_uuid(TaskField::MethodologyGuid, value);
     }
 
-    /// 取浮动路径号。
+/// Get the float path number.
     ///
-    /// 对应 Java: `public Integer getFloatPath()`
+    /// Corresponds to Java: `public Integer getFloatPath()`
     pub fn get_float_path(&self) -> Option<i32> {
         self.integer_field(TaskField::FloatPath)
     }
 
-    /// 设置浮动路径号。
+/// Set the float path number.
     ///
-    /// 对应 Java: `public void setFloatPath(Integer value)`
+    /// Corresponds to Java: `public void setFloatPath(Integer value)`
     pub fn set_float_path(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::FloatPath, value);
     }
 
-    /// 取浮动路径顺序。
+/// Get the float path order.
     ///
-    /// 对应 Java: `public Integer getFloatPathOrder()`
+    /// Corresponds to Java: `public Integer getFloatPathOrder()`
     pub fn get_float_path_order(&self) -> Option<i32> {
         self.integer_field(TaskField::FloatPathOrder)
     }
 
-    /// 设置浮动路径顺序。
+/// Set the float path order.
     ///
-    /// 对应 Java: `public void setFloatPathOrder(Integer value)`
+    /// Corresponds to Java: `public void setFloatPathOrder(Integer value)`
     pub fn set_float_path_order(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::FloatPathOrder, value);
     }
 
-    /// 取原始预算。
+/// Get the original budget.
     ///
-    /// 对应 Java: `public Number getOriginalBudget()`
+    /// Corresponds to Java: `public Number getOriginalBudget()`
     pub fn get_original_budget(&self) -> Option<f64> {
         self.number_field(TaskField::OriginalBudget)
     }
 
-    /// 设置原始预算。
+/// Set the original budget.
     ///
-    /// 对应 Java: `public void setOriginalBudget(Number originalBudget)`
+    /// Corresponds to Java: `public void setOriginalBudget(Number originalBudget)`
     pub fn set_original_budget(&mut self, original_budget: Option<f64>) {
         self.put_number(TaskField::OriginalBudget, original_budget);
     }
 
-    /// 取进度百分比完成度。
+/// Get the schedule percent complete.
     ///
-    /// 对应 Java: `public Number getSchedulePercentComplete()`
+    /// Corresponds to Java: `public Number getSchedulePercentComplete()`
     pub fn get_schedule_percent_complete(&self) -> Option<f64> {
         self.number_field(TaskField::SchedulePercentComplete)
     }
 
-    /// 取有效日历：任务自身日历为空时回落到项目默认日历。
+/// Get the effective calendar: fall back to the project default calendar when the task's own calendar is empty.
     ///
-    /// 对应 Java: `public ProjectCalendar getEffectiveCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getEffectiveCalendar()`
     pub fn get_effective_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         if let Some(calendar) = self.get_calendar() {
             return Some(calendar);
@@ -5230,528 +5230,528 @@ impl Task {
             .and_then(|file| file.borrow().get_default_calendar())
     }
 
-    /// 取实际常规工时。
+/// Get actual regular work.
     ///
-    /// 对应 Java: `public Duration getActualRegularWork()`
+    /// Corresponds to Java: `public Duration getActualRegularWork()`
     pub fn get_actual_regular_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::ActualRegularWork)
     }
 
-    /// 取剩余常规工时。
+/// Get remaining regular work.
     ///
-    /// 对应 Java: `public Duration getRemainingRegularWork()`
+    /// Corresponds to Java: `public Duration getRemainingRegularWork()`
     pub fn get_remaining_regular_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::RemainingRegularWork)
     }
 
-    /// 取实际常规成本。
+/// Get actual regular cost.
     ///
-    /// 对应 Java: `public Number getActualRegularCost()`
+    /// Corresponds to Java: `public Number getActualRegularCost()`
     pub fn get_actual_regular_cost(&self) -> Option<f64> {
         self.number_field(TaskField::ActualRegularCost)
     }
 
-    /// 取剩余常规成本。
+/// Get remaining regular cost.
     ///
-    /// 对应 Java: `public Number getRemainingRegularCost()`
+    /// Corresponds to Java: `public Number getRemainingRegularCost()`
     pub fn get_remaining_regular_cost(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingRegularCost)
     }
 
-    /// 设置计划成本中的人工部分。
+/// Set the labor portion of planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCostLabor(Number value)`
+    /// Corresponds to Java: `public void setPlannedCostLabor(Number value)`
     pub fn set_planned_cost_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::PlannedCostLabor, value);
     }
 
-    /// 取计划成本中的人工部分。
+/// Get the labor portion of planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCostLabor()`
+    /// Corresponds to Java: `public Number getPlannedCostLabor()`
     pub fn get_planned_cost_labor(&self) -> Option<f64> {
         self.number_field(TaskField::PlannedCostLabor)
     }
 
-    /// 设置计划成本中的非人工部分。
+/// Set the non-labor portion of planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCostNonLabor(Number value)`
+    /// Corresponds to Java: `public void setPlannedCostNonLabor(Number value)`
     pub fn set_planned_cost_non_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::PlannedCostNonLabor, value);
     }
 
-    /// 取计划成本中的非人工部分。
+/// Get the non-labor portion of planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCostNonLabor()`
+    /// Corresponds to Java: `public Number getPlannedCostNonLabor()`
     pub fn get_planned_cost_non_labor(&self) -> Option<f64> {
         self.number_field(TaskField::PlannedCostNonLabor)
     }
 
-    /// 设置计划成本中的材料部分。
+/// Set the material portion of planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCostMaterial(Number value)`
+    /// Corresponds to Java: `public void setPlannedCostMaterial(Number value)`
     pub fn set_planned_cost_material(&mut self, value: Option<f64>) {
         self.put_number(TaskField::PlannedCostMaterial, value);
     }
 
-    /// 取计划成本中的材料部分。
+/// Get the material portion of planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCostMaterial()`
+    /// Corresponds to Java: `public Number getPlannedCostMaterial()`
     pub fn get_planned_cost_material(&self) -> Option<f64> {
         self.number_field(TaskField::PlannedCostMaterial)
     }
 
-    /// 设置计划成本中的费用部分。
+/// Set the expense portion of planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCostExpense(Number value)`
+    /// Corresponds to Java: `public void setPlannedCostExpense(Number value)`
     pub fn set_planned_cost_expense(&mut self, value: Option<f64>) {
         self.put_number(TaskField::PlannedCostExpense, value);
     }
 
-    /// 取计划成本中的费用部分。
+/// Get the expense portion of planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCostExpense()`
+    /// Corresponds to Java: `public Number getPlannedCostExpense()`
     pub fn get_planned_cost_expense(&self) -> Option<f64> {
         self.number_field(TaskField::PlannedCostExpense)
     }
 
-    /// 设置实际成本中的人工部分。
+/// Set the labor portion of actual cost.
     ///
-    /// 对应 Java: `public void setActualCostLabor(Number value)`
+    /// Corresponds to Java: `public void setActualCostLabor(Number value)`
     pub fn set_actual_cost_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::ActualCostLabor, value);
     }
 
-    /// 取实际成本中的人工部分。
+/// Get the labor portion of actual cost.
     ///
-    /// 对应 Java: `public Number getActualCostLabor()`
+    /// Corresponds to Java: `public Number getActualCostLabor()`
     pub fn get_actual_cost_labor(&self) -> Option<f64> {
         self.number_field(TaskField::ActualCostLabor)
     }
 
-    /// 设置实际成本中的非人工部分。
+/// Set the non-labor portion of actual cost.
     ///
-    /// 对应 Java: `public void setActualCostNonLabor(Number value)`
+    /// Corresponds to Java: `public void setActualCostNonLabor(Number value)`
     pub fn set_actual_cost_non_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::ActualCostNonLabor, value);
     }
 
-    /// 取实际成本中的非人工部分。
+/// Get the non-labor portion of actual cost.
     ///
-    /// 对应 Java: `public Number getActualCostNonLabor()`
+    /// Corresponds to Java: `public Number getActualCostNonLabor()`
     pub fn get_actual_cost_non_labor(&self) -> Option<f64> {
         self.number_field(TaskField::ActualCostNonLabor)
     }
 
-    /// 设置实际成本中的材料部分。
+/// Set the material portion of actual cost.
     ///
-    /// 对应 Java: `public void setActualCostMaterial(Number value)`
+    /// Corresponds to Java: `public void setActualCostMaterial(Number value)`
     pub fn set_actual_cost_material(&mut self, value: Option<f64>) {
         self.put_number(TaskField::ActualCostMaterial, value);
     }
 
-    /// 取实际成本中的材料部分。
+/// Get the material portion of actual cost.
     ///
-    /// 对应 Java: `public Number getActualCostMaterial()`
+    /// Corresponds to Java: `public Number getActualCostMaterial()`
     pub fn get_actual_cost_material(&self) -> Option<f64> {
         self.number_field(TaskField::ActualCostMaterial)
     }
 
-    /// 设置实际成本中的费用部分。
+/// Set the expense portion of actual cost.
     ///
-    /// 对应 Java: `public void setActualCostExpense(Number value)`
+    /// Corresponds to Java: `public void setActualCostExpense(Number value)`
     pub fn set_actual_cost_expense(&mut self, value: Option<f64>) {
         self.put_number(TaskField::ActualCostExpense, value);
     }
 
-    /// 取实际成本中的费用部分。
+/// Get the expense portion of actual cost.
     ///
-    /// 对应 Java: `public Number getActualCostExpense()`
+    /// Corresponds to Java: `public Number getActualCostExpense()`
     pub fn get_actual_cost_expense(&self) -> Option<f64> {
         self.number_field(TaskField::ActualCostExpense)
     }
 
-    /// 设置剩余成本中的人工部分。
+/// Set the labor portion of remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCostLabor(Number value)`
+    /// Corresponds to Java: `public void setRemainingCostLabor(Number value)`
     pub fn set_remaining_cost_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::RemainingCostLabor, value);
     }
 
-    /// 取剩余成本中的人工部分。
+/// Get the labor portion of remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCostLabor()`
+    /// Corresponds to Java: `public Number getRemainingCostLabor()`
     pub fn get_remaining_cost_labor(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingCostLabor)
     }
 
-    /// 设置剩余成本中的非人工部分。
+/// Set the non-labor portion of remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCostNonLabor(Number value)`
+    /// Corresponds to Java: `public void setRemainingCostNonLabor(Number value)`
     pub fn set_remaining_cost_non_labor(&mut self, value: Option<f64>) {
         self.put_number(TaskField::RemainingCostNonLabor, value);
     }
 
-    /// 取剩余成本中的非人工部分。
+/// Get the non-labor portion of remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCostNonLabor()`
+    /// Corresponds to Java: `public Number getRemainingCostNonLabor()`
     pub fn get_remaining_cost_non_labor(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingCostNonLabor)
     }
 
-    /// 设置剩余成本中的材料部分。
+/// Set the material portion of remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCostMaterial(Number value)`
+    /// Corresponds to Java: `public void setRemainingCostMaterial(Number value)`
     pub fn set_remaining_cost_material(&mut self, value: Option<f64>) {
         self.put_number(TaskField::RemainingCostMaterial, value);
     }
 
-    /// 取剩余成本中的材料部分。
+/// Get the material portion of remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCostMaterial()`
+    /// Corresponds to Java: `public Number getRemainingCostMaterial()`
     pub fn get_remaining_cost_material(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingCostMaterial)
     }
 
-    /// 设置剩余成本中的费用部分。
+/// Set the expense portion of remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCostExpense(Number value)`
+    /// Corresponds to Java: `public void setRemainingCostExpense(Number value)`
     pub fn set_remaining_cost_expense(&mut self, value: Option<f64>) {
         self.put_number(TaskField::RemainingCostExpense, value);
     }
 
-    /// 取剩余成本中的费用部分。
+/// Get the expense portion of remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCostExpense()`
+    /// Corresponds to Java: `public Number getRemainingCostExpense()`
     pub fn get_remaining_cost_expense(&self) -> Option<f64> {
         self.number_field(TaskField::RemainingCostExpense)
     }
 }
 
 // ---------------------------------------------------------------------------
-// 剩余工程量与 Asta / Primavera 扩展字段
+// Remaining quantities and Asta / Primavera extension fields
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 设置已存储材料量。
+/// Set the stored material quantity.
     ///
-    /// 对应 Java: `public void setStoredMaterial(Number value)`
+    /// Corresponds to Java: `public void setStoredMaterial(Number value)`
     pub fn set_stored_material(&mut self, value: Option<f64>) {
         self.put_number(TaskField::StoredMaterial, value);
     }
 
-    /// 取已存储材料量。
+/// Get the stored material quantity.
     ///
-    /// 对应 Java: `public Number getStoredMaterial()`
+    /// Corresponds to Java: `public Number getStoredMaterial()`
     pub fn get_stored_material(&self) -> Option<f64> {
         self.number_field(TaskField::StoredMaterial)
     }
 
-    /// 设置工程项（feature of work）。
+/// Set the feature of work.
     ///
-    /// 对应 Java: `public void setFeatureOfWork(String value)`
+    /// Corresponds to Java: `public void setFeatureOfWork(String value)`
     pub fn set_feature_of_work(&mut self, value: Option<String>) {
         self.put_string(TaskField::FeatureOfWork, value);
     }
 
-    /// 取工程项（feature of work）。
+/// Get the feature of work.
     ///
-    /// 对应 Java: `public String getFeatureOfWork()`
+    /// Corresponds to Java: `public String getFeatureOfWork()`
     pub fn get_feature_of_work(&self) -> Option<String> {
         self.string_field(TaskField::FeatureOfWork)
     }
 
-    /// 设置工作类别。
+/// Set the category of work.
     ///
-    /// 对应 Java: `public void setCategoryOfWork(String value)`
+    /// Corresponds to Java: `public void setCategoryOfWork(String value)`
     pub fn set_category_of_work(&mut self, value: Option<String>) {
         self.put_string(TaskField::CategoryOfWork, value);
     }
 
-    /// 取工作类别。
+/// Get the category of work.
     ///
-    /// 对应 Java: `public String getCategoryOfWork()`
+    /// Corresponds to Java: `public String getCategoryOfWork()`
     pub fn get_category_of_work(&self) -> Option<String> {
         self.string_field(TaskField::CategoryOfWork)
     }
 
-    /// 设置工作阶段。
+/// Set the phase of work.
     ///
-    /// 对应 Java: `public void setPhaseOfWork(String value)`
+    /// Corresponds to Java: `public void setPhaseOfWork(String value)`
     pub fn set_phase_of_work(&mut self, value: Option<String>) {
         self.put_string(TaskField::PhaseOfWork, value);
     }
 
-    /// 取工作阶段。
+/// Get the phase of work.
     ///
-    /// 对应 Java: `public String getPhaseOfWork()`
+    /// Corresponds to Java: `public String getPhaseOfWork()`
     pub fn get_phase_of_work(&self) -> Option<String> {
         self.string_field(TaskField::PhaseOfWork)
     }
 
-    /// 设置投标项。
+/// Set the bid item.
     ///
-    /// 对应 Java: `public void setBidItem(String value)`
+    /// Corresponds to Java: `public void setBidItem(String value)`
     pub fn set_bid_item(&mut self, value: Option<String>) {
         self.put_string(TaskField::BidItem, value);
     }
 
-    /// 取投标项。
+/// Get the bid item.
     ///
-    /// 对应 Java: `public String getBidItem()`
+    /// Corresponds to Java: `public String getBidItem()`
     pub fn get_bid_item(&self) -> Option<String> {
         self.string_field(TaskField::BidItem)
     }
 
-    /// 设置变更 / 索赔编号。
+/// Set the mod or claim number.
     ///
-    /// 对应 Java: `public void setModOrClaimNumber(String value)`
+    /// Corresponds to Java: `public void setModOrClaimNumber(String value)`
     pub fn set_mod_or_claim_number(&mut self, value: Option<String>) {
         self.put_string(TaskField::ModOrClaimNumber, value);
     }
 
-    /// 取变更 / 索赔编号。
+/// Get the mod or claim number.
     ///
-    /// 对应 Java: `public String getModOrClaimNumber()`
+    /// Corresponds to Java: `public String getModOrClaimNumber()`
     pub fn get_mod_or_claim_number(&self) -> Option<String> {
         self.string_field(TaskField::ModOrClaimNumber)
     }
 
-    /// 设置工区代码。
+/// Set the work area code.
     ///
-    /// 对应 Java: `public void setWorkAreaCode(String value)`
+    /// Corresponds to Java: `public void setWorkAreaCode(String value)`
     pub fn set_work_area_code(&mut self, value: Option<String>) {
         self.put_string(TaskField::WorkAreaCode, value);
     }
 
-    /// 取工区代码。
+/// Get the work area code.
     ///
-    /// 对应 Java: `public String getWorkAreaCode()`
+    /// Corresponds to Java: `public String getWorkAreaCode()`
     pub fn get_work_area_code(&self) -> Option<String> {
         self.string_field(TaskField::WorkAreaCode)
     }
 
-    /// 设置责任代码。
+/// Set the responsibility code.
     ///
-    /// 对应 Java: `public void setResponsibilityCode(String value)`
+    /// Corresponds to Java: `public void setResponsibilityCode(String value)`
     pub fn set_responsibility_code(&mut self, value: Option<String>) {
         self.put_string(TaskField::ResponsibilityCode, value);
     }
 
-    /// 取责任代码。
+/// Get the responsibility code.
     ///
-    /// 对应 Java: `public String getResponsibilityCode()`
+    /// Corresponds to Java: `public String getResponsibilityCode()`
     pub fn get_responsibility_code(&self) -> Option<String> {
         self.string_field(TaskField::ResponsibilityCode)
     }
 
-    /// 设置每日工人数。
+/// Set the workers per day.
     ///
-    /// 对应 Java: `public void setWorkersPerDay(Integer value)`
+    /// Corresponds to Java: `public void setWorkersPerDay(Integer value)`
     pub fn set_workers_per_day(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::WorkersPerDay, value);
     }
 
-    /// 取每日工人数。
+/// Get the workers per day.
     ///
-    /// 对应 Java: `public Integer getWorkersPerDay()`
+    /// Corresponds to Java: `public Integer getWorkersPerDay()`
     pub fn get_workers_per_day(&self) -> Option<i32> {
         self.integer_field(TaskField::WorkersPerDay)
     }
 
-    /// 设置吊床代码标志。
+/// Set the hammock code flag.
     ///
-    /// 对应 Java: `public void setHammockCode(boolean value)`
+    /// Corresponds to Java: `public void setHammockCode(boolean value)`
     pub fn set_hammock_code(&mut self, value: bool) {
         self.put_bool(TaskField::HammockCode, value);
     }
 
-    /// 取吊床代码标志。
+/// Get the hammock code flag.
     ///
-    /// 对应 Java: `public boolean getHammockCode()`
+    /// Corresponds to Java: `public boolean getHammockCode()`
     pub fn get_hammock_code(&self) -> bool {
         self.boolean_field(TaskField::HammockCode)
     }
 
-    /// 设置邮件字段。
+/// Set the mail field.
     ///
-    /// 对应 Java: `public void setMail(String value)`
+    /// Corresponds to Java: `public void setMail(String value)`
     pub fn set_mail(&mut self, value: Option<String>) {
         self.put_string(TaskField::Mail, value);
     }
 
-    /// 取邮件字段。
+/// Get the mail field.
     ///
-    /// 对应 Java: `public String getMail()`
+    /// Corresponds to Java: `public String getMail()`
     pub fn get_mail(&self) -> Option<String> {
         self.string_field(TaskField::Mail)
     }
 
-    /// 设置分部字段。
+/// Set the section field.
     ///
-    /// 对应 Java: `public void setSection(String value)`
+    /// Corresponds to Java: `public void setSection(String value)`
     pub fn set_section(&mut self, value: Option<String>) {
         self.put_string(TaskField::Section, value);
     }
 
-    /// 取分部字段。
+/// Get the section field.
     ///
-    /// 对应 Java: `public String getSection()`
+    /// Corresponds to Java: `public String getSection()`
     pub fn get_section(&self) -> Option<String> {
         self.string_field(TaskField::Section)
     }
 
-    /// 设置经理字段。
+/// Set the manager field.
     ///
-    /// 对应 Java: `public void setManager(String value)`
+    /// Corresponds to Java: `public void setManager(String value)`
     pub fn set_manager(&mut self, value: Option<String>) {
         self.put_string(TaskField::Manager, value);
     }
 
-    /// 取经理字段。
+/// Get the manager field.
     ///
-    /// 对应 Java: `public String getManager()`
+    /// Corresponds to Java: `public String getManager()`
     pub fn get_manager(&self) -> Option<String> {
         self.string_field(TaskField::Manager)
     }
 
-    /// 设置部门字段。
+/// Set the department field.
     ///
-    /// 对应 Java: `public void setDepartment(String value)`
+    /// Corresponds to Java: `public void setDepartment(String value)`
     pub fn set_department(&mut self, value: Option<String>) {
         self.put_string(TaskField::Department, value);
     }
 
-    /// 取部门字段。
+/// Get the department field.
     ///
-    /// 对应 Java: `public String getDepartment()`
+    /// Corresponds to Java: `public String getDepartment()`
     pub fn get_department(&self) -> Option<String> {
         self.string_field(TaskField::Department)
     }
 
-    /// 设置总体完成百分比。
+/// Set the overall percent complete.
     ///
-    /// 对应 Java: `public void setOverallPercentComplete(Number value)`
+    /// Corresponds to Java: `public void setOverallPercentComplete(Number value)`
     pub fn set_overall_percent_complete(&mut self, value: Option<f64>) {
         self.put_number(TaskField::OverallPercentComplete, value);
     }
 
-    /// 取总体完成百分比。
+/// Get the overall percent complete.
     ///
-    /// 对应 Java: `public Number getOverallPercentComplete()`
+    /// Corresponds to Java: `public Number getOverallPercentComplete()`
     pub fn get_overall_percent_complete(&self) -> Option<f64> {
         self.number_field(TaskField::OverallPercentComplete)
     }
 
-    /// 设置计划完成日期。
+/// Set the planned finish date.
     ///
-    /// 对应 Java: `public void setPlannedFinish(LocalDateTime value)`
+    /// Corresponds to Java: `public void setPlannedFinish(LocalDateTime value)`
     pub fn set_planned_finish(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::PlannedFinish, value);
     }
 
-    /// 取计划完成日期。
+/// Get the planned finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getPlannedFinish()`
+    /// Corresponds to Java: `public LocalDateTime getPlannedFinish()`
     pub fn get_planned_finish(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::PlannedFinish)
     }
 
-    /// 设置计划开始日期。
+/// Set the planned start date.
     ///
-    /// 对应 Java: `public void setPlannedStart(LocalDateTime value)`
+    /// Corresponds to Java: `public void setPlannedStart(LocalDateTime value)`
     pub fn set_planned_start(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::PlannedStart, value);
     }
 
-    /// 取计划开始日期。
+/// Get the planned start date.
     ///
-    /// 对应 Java: `public LocalDateTime getPlannedStart()`
+    /// Corresponds to Java: `public LocalDateTime getPlannedStart()`
     pub fn get_planned_start(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::PlannedStart)
     }
 
-    /// 设置计划工期。
+/// Set the planned duration.
     ///
-    /// 对应 Java: `public void setPlannedDuration(Duration value)`
+    /// Corresponds to Java: `public void setPlannedDuration(Duration value)`
     pub fn set_planned_duration(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::PlannedDuration, value);
     }
 
-    /// 取计划工期。
+/// Get the planned duration.
     ///
-    /// 对应 Java: `public Duration getPlannedDuration()`
+    /// Corresponds to Java: `public Duration getPlannedDuration()`
     pub fn get_planned_duration(&self) -> Option<Duration> {
         self.duration_field(TaskField::PlannedDuration)
     }
 
-    /// 设置计划工时。
+/// Set the planned work.
     ///
-    /// 对应 Java: `public void setPlannedWork(Duration value)`
+    /// Corresponds to Java: `public void setPlannedWork(Duration value)`
     pub fn set_planned_work(&mut self, value: Option<Duration>) {
         self.put_duration(TaskField::PlannedWork, value);
     }
 
-    /// 取计划工时。
+/// Get the planned work.
     ///
-    /// 对应 Java: `public Duration getPlannedWork()`
+    /// Corresponds to Java: `public Duration getPlannedWork()`
     pub fn get_planned_work(&self) -> Option<Duration> {
         self.duration_field(TaskField::PlannedWork)
     }
 
-    /// 设置计划成本。
+/// Set the planned cost.
     ///
-    /// 对应 Java: `public void setPlannedCost(Number value)`
+    /// Corresponds to Java: `public void setPlannedCost(Number value)`
     pub fn set_planned_cost(&mut self, value: Option<f64>) {
         self.put_number(TaskField::PlannedCost, value);
     }
 
-    /// 取计划成本。
+/// Get the planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCost()`
+    /// Corresponds to Java: `public Number getPlannedCost()`
     pub fn get_planned_cost(&self) -> Option<f64> {
         self.number_field(TaskField::PlannedCost)
     }
 
-    /// 设置挂起日期。
+/// Set the suspend date.
     ///
-    /// 对应 Java: `public void setSuspendDate(LocalDateTime value)`
+    /// Corresponds to Java: `public void setSuspendDate(LocalDateTime value)`
     pub fn set_suspend_date(&mut self, value: Option<NaiveDateTime>) {
         self.put_date_time(TaskField::SuspendDate, value);
     }
 
-    /// 取挂起日期。
+/// Get the suspend date.
     ///
-    /// 对应 Java: `public LocalDateTime getSuspendDate()`
+    /// Corresponds to Java: `public LocalDateTime getSuspendDate()`
     pub fn get_suspend_date(&self) -> Option<NaiveDateTime> {
         self.date_time_field(TaskField::SuspendDate)
     }
 
-    /// 设置主资源唯一 ID。
+/// Set the primary resource unique ID.
     ///
-    /// 对应 Java: `public void setPrimaryResourceUniqueID(Integer value)`
+    /// Corresponds to Java: `public void setPrimaryResourceUniqueID(Integer value)`
     pub fn set_primary_resource_unique_id(&mut self, value: Option<i32>) {
         self.put_integer(TaskField::PrimaryResourceUniqueId, value);
     }
 
-    /// 取主资源唯一 ID。
+/// Get the primary resource unique ID.
     ///
-    /// 对应 Java: `public Integer getPrimaryResourceUniqueID()`
+    /// Corresponds to Java: `public Integer getPrimaryResourceUniqueID()`
     pub fn get_primary_resource_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::PrimaryResourceUniqueId)
     }
 
-    /// 取主资源。
+/// Get the primary resource.
     ///
-    /// 对应 Java: `public Resource getPrimaryResource()`
+    /// Corresponds to Java: `public Resource getPrimaryResource()`
     pub fn get_primary_resource(&self) -> Option<Rc<RefCell<Resource>>> {
         let file = self.parent_file.upgrade()?;
         let unique_id = self.get_primary_resource_unique_id();
         file.borrow().get_resource_by_unique_id(unique_id)
     }
 
-    /// 设置主资源。
+/// Set the primary resource.
     ///
-    /// 对应 Java: `public void setPrimaryResource(Resource resource)`
+    /// Corresponds to Java: `public void setPrimaryResource(Resource resource)`
     pub fn set_primary_resource(&mut self, resource: Option<&Rc<RefCell<Resource>>>) {
         let unique_id = resource.and_then(|resource| resource.borrow().get_unique_id());
         self.set_primary_resource_unique_id(unique_id);
@@ -5759,13 +5759,13 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 子项目（外部项目）
+// Subprojects (external projects)
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 若本任务代表外部项目（子项目），展开并把子项目任务挂为子任务。
+/// If this task represents an external project (subproject), expand it and attach the subproject tasks as child tasks.
     ///
-    /// 对应 Java: `public ProjectFile expandSubproject()`
+    /// Corresponds to Java: `public ProjectFile expandSubproject()`
     pub fn expand_subproject(&mut self) -> Option<Rc<RefCell<ProjectFile>>> {
         if !self.get_external_project() || self.get_subproject_object().is_none() {
             return None;
@@ -5785,9 +5785,9 @@ impl Task {
         Some(subproject)
     }
 
-    /// 读取本任务引用的外部项目文件（结果由项目文件缓存）。
+/// Read the external project file referenced by this task (the result is cached by the project file).
     ///
-    /// 对应 Java: `public ProjectFile getSubprojectObject()`
+    /// Corresponds to Java: `public ProjectFile getSubprojectObject()`
     pub fn get_subproject_object(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         if !self.get_external_task() && !self.get_external_project() {
             return None;
@@ -5798,9 +5798,9 @@ impl Task {
         file.borrow_mut().read_external_project(subproject_file.as_deref())
     }
 
-    /// 把已读取的项目文件挂到本任务引用的外部项目上。
+/// Attach the already-read project file to the external project referenced by this task.
     ///
-    /// 对应 Java: `public void setSubprojectObject(ProjectFile projectFile)`
+    /// Corresponds to Java: `public void setSubprojectObject(ProjectFile projectFile)`
     pub fn set_subproject_object(&mut self, project_file: Option<Rc<RefCell<ProjectFile>>>) {
         let Some(file) = self.parent_file.upgrade() else {
             return;
@@ -5813,22 +5813,22 @@ impl Task {
 }
 
 // ---------------------------------------------------------------------------
-// 计算字段（对应 Java 的 calculateXxx / defaultXxx 方法）
+// Calculated fields (correspond to Java's calculateXxx / defaultXxx methods)
 // ---------------------------------------------------------------------------
 
 impl Task {
-    /// 取父任务的唯一 ID。
+/// Get the parent task unique ID.
     ///
-    /// 对应 Java: `private Integer calculateParentTaskUniqueID()`
+    /// Corresponds to Java: `private Integer calculateParentTaskUniqueID()`
     fn calculate_parent_task_unique_id(&self) -> Option<i32> {
         self.parent.upgrade()?.borrow().get_unique_id()
     }
 
-    /// 计算开始偏差。
+/// Calculate the start variance.
     ///
-    /// 对应 Java: `private Duration calculateStartVariance()`
+    /// Corresponds to Java: `private Duration calculateStartVariance()`
     ///
-    /// 缺少项目文件时无法取得默认工期单位，返回 `None`（Java 会抛 `NullPointerException`）。
+/// Returns `None` when the project file is missing, since the default duration units cannot be obtained (Java throws `NullPointerException`).
     fn calculate_start_variance(&self) -> Option<Duration> {
         let format = {
             let file = self.parent_file.upgrade()?;
@@ -5858,9 +5858,9 @@ impl Task {
         Some(variance)
     }
 
-    /// 计算完成偏差。
+/// Calculate the finish variance.
     ///
-    /// 对应 Java: `private Duration calculateFinishVariance()`
+    /// Corresponds to Java: `private Duration calculateFinishVariance()`
     fn calculate_finish_variance(&self) -> Option<Duration> {
         let format = {
             let file = self.parent_file.upgrade()?;
@@ -5890,9 +5890,9 @@ impl Task {
         Some(variance)
     }
 
-    /// 计算开始浮动时间（委托给 `ProjectConfig` 的 slack 计算器）。
+/// Calculate start slack (delegated to the `ProjectConfig` slack calculator).
     ///
-    /// 对应 Java: `private Duration calculateStartSlack()`
+    /// Corresponds to Java: `private Duration calculateStartSlack()`
     fn calculate_start_slack(&self) -> Option<Duration> {
         self.parent_file
             .upgrade()?
@@ -5902,9 +5902,9 @@ impl Task {
             .and_then(|calculator| calculator.calculate_start_slack(self))
     }
 
-    /// 计算完成浮动时间（委托给 `ProjectConfig` 的 slack 计算器）。
+/// Calculate finish slack (delegated to the `ProjectConfig` slack calculator).
     ///
-    /// 对应 Java: `private Duration calculateFinishSlack()`
+    /// Corresponds to Java: `private Duration calculateFinishSlack()`
     fn calculate_finish_slack(&self) -> Option<Duration> {
         self.parent_file
             .upgrade()?
@@ -5914,20 +5914,20 @@ impl Task {
             .and_then(|calculator| calculator.calculate_finish_slack(self))
     }
 
-    /// 计算成本偏差。
+/// Calculate the cost variance.
     ///
-    /// 对应 Java: `private Double calculateCostVariance()`
+    /// Corresponds to Java: `private Double calculateCostVariance()`
     fn calculate_cost_variance(&self) -> Option<f64> {
         let cost = self.get_cost()?;
         let baseline_cost = self.get_baseline_cost()?;
         Some(cost - baseline_cost)
     }
 
-    /// 计算工期偏差。
+/// Calculate the duration variance.
     ///
-    /// 对应 Java: `private Duration calculateDurationVariance()`
+    /// Corresponds to Java: `private Duration calculateDurationVariance()`
     ///
-    /// 缺少项目文件时无法换算基线工期单位，返回 `None`。
+/// Returns `None` when the project file is missing, since the baseline duration units cannot be converted.
     fn calculate_duration_variance(&self) -> Option<Duration> {
         let duration = self.get_duration()?;
         let baseline_duration = self.get_baseline_duration()?;
@@ -5943,9 +5943,9 @@ impl Task {
         ))
     }
 
-    /// 计算工时偏差。
+/// Calculate the work variance.
     ///
-    /// 对应 Java: `private Duration calculateWorkVariance()`
+    /// Corresponds to Java: `private Duration calculateWorkVariance()`
     fn calculate_work_variance(&self) -> Option<Duration> {
         let work = self.get_work()?;
         let baseline_work = self.get_baseline_work()?;
@@ -5961,25 +5961,25 @@ impl Task {
         ))
     }
 
-    /// 计算 CV（BCWP - ACWP）。
+/// Calculate CV (BCWP - ACWP).
     ///
-    /// 对应 Java: `private Double calculateCV()`
+    /// Corresponds to Java: `private Double calculateCV()`
     fn calculate_cv(&self) -> Option<f64> {
         Some(NumberHelper::get_double(self.get_bcwp()) - NumberHelper::get_double(self.get_acwp()))
     }
 
-    /// 计算 SV（BCWP - BCWS）。
+/// Calculate SV (BCWP - BCWS).
     ///
-    /// 对应 Java: `private Double calculateSV()`
+    /// Corresponds to Java: `private Double calculateSV()`
     fn calculate_sv(&self) -> Option<f64> {
         let bcwp = self.get_bcwp()?;
         let bcws = self.get_bcws()?;
         Some(bcwp - bcws)
     }
 
-    /// 计算自由时差（委托给 `ProjectConfig` 的 slack 计算器）。
+/// Calculate free slack (delegated to the `ProjectConfig` slack calculator).
     ///
-    /// 对应 Java: `private Duration calculateFreeSlack()`
+    /// Corresponds to Java: `private Duration calculateFreeSlack()`
     fn calculate_free_slack(&self) -> Option<Duration> {
         self.parent_file
             .upgrade()?
@@ -5989,9 +5989,9 @@ impl Task {
             .and_then(|calculator| calculator.calculate_free_slack(self))
     }
 
-    /// 计算总时差（委托给 `ProjectConfig` 的 slack 计算器）。
+/// Calculate total slack (delegated to the `ProjectConfig` slack calculator).
     ///
-    /// 对应 Java: `private Duration calculateTotalSlack()`
+    /// Corresponds to Java: `private Duration calculateTotalSlack()`
     fn calculate_total_slack(&self) -> Option<Duration> {
         self.parent_file
             .upgrade()?
@@ -6001,17 +6001,17 @@ impl Task {
             .and_then(|calculator| calculator.calculate_total_slack(self))
     }
 
-    /// 计算关键路径标志。
+/// Calculate the critical path flag.
     ///
-    /// 对应 Java: `private Boolean calculateCritical()`
+    /// Corresponds to Java: `private Boolean calculateCritical()`
     ///
-    /// 缺少项目文件时无法取得「关键时差上限」，返回 `None`（`getCritical()` 因此为 `false`）。
+/// Returns `None` when the project file is missing, since the critical slack limit cannot be obtained (`getCritical()` is therefore `false`).
     fn calculate_critical(&self) -> Option<bool> {
         if self.get_actual_finish().is_some() {
             return Some(false);
         }
 
-        // Java 在总时差缺失时返回 Boolean.FALSE，而不是 null。
+// Java returns Boolean.FALSE when total slack is missing, not null.
         let mut total_slack = match self.get_total_slack() {
             Some(value) => value,
             None => return Some(false),
@@ -6042,9 +6042,9 @@ impl Task {
         )
     }
 
-    /// 计算「完成到」日期。
+/// Calculate the "complete through" date.
     ///
-    /// 对应 Java: `private LocalDateTime calculateCompleteThrough()`
+    /// Corresponds to Java: `private LocalDateTime calculateCompleteThrough()`
     fn calculate_complete_through(&self) -> Option<NaiveDateTime> {
         let percent_complete = NumberHelper::get_int(self.get_percentage_complete());
 
@@ -6084,16 +6084,16 @@ impl Task {
         Some(value)
     }
 
-    /// 计算外部项目标志。
+/// Calculate the external project flag.
     ///
-    /// 对应 Java: `private Boolean calculateExternalProject()`
+    /// Corresponds to Java: `private Boolean calculateExternalProject()`
     fn calculate_external_project(&self) -> Option<bool> {
         Some(self.get_subproject_file().is_some() && !self.get_external_task())
     }
 
-    /// 计算完成百分比（按 `PercentCompleteType` 选择来源）。
+/// Calculate percent complete (source selected by `PercentCompleteType`).
     ///
-    /// 对应 Java: `private Number calculateActivityPercentComplete()`
+    /// Corresponds to Java: `private Number calculateActivityPercentComplete()`
     fn calculate_activity_percent_complete(&self) -> Option<f64> {
         match self.get_percent_complete_type() {
             None => self.get_percentage_complete(),
@@ -6103,11 +6103,11 @@ impl Task {
         }
     }
 
-    /// 计算进度百分比完成度。
+/// Calculate the schedule percent complete.
     ///
-    /// 对应 Java: `private Number calculateSchedulePercentComplete()`
+    /// Corresponds to Java: `private Number calculateSchedulePercentComplete()`
     ///
-    /// Java 注释中标注为 `TODO: review and implement Schedule Percent Complete for WBS`。
+/// Java notes this as `TODO: review and implement Schedule Percent Complete for WBS`.
     fn calculate_schedule_percent_complete(&self) -> Option<f64> {
         if self.get_summary() {
             return None;
@@ -6144,11 +6144,11 @@ impl Task {
         Some((current_work * 100.0) / total_work)
     }
 
-    /// 计算常规成本（总成本 - 加班成本）。
+/// Calculate regular cost (total cost - overtime cost).
     ///
-    /// 对应 Java: `private Number calculateRegularCost(Supplier<Number> totalCostSupplier, Supplier<Number> overtimeCostSupplier)`
+    /// Corresponds to Java: `private Number calculateRegularCost(Supplier<Number> totalCostSupplier, Supplier<Number> overtimeCostSupplier)`
     ///
-    /// Java 用 `Supplier` 惰性取值，Rust 侧由调用方直接传入取值结果。
+/// Java uses a `Supplier` for lazy evaluation; on the Rust side the caller passes in the resolved values directly.
     fn calculate_regular_cost(
         &self,
         total_cost: Option<f64>,
@@ -6163,12 +6163,12 @@ impl Task {
         )
     }
 
-    /// 计算常规工时（总工时 - 加班工时）。
+/// Calculate regular work (total work - overtime work).
     ///
-    /// 对应 Java: `private Duration calculateRegularWork(Supplier<Duration> totalWorkSupplier, Supplier<Duration> overtimeWorkSupplier)`
+    /// Corresponds to Java: `private Duration calculateRegularWork(Supplier<Duration> totalWorkSupplier, Supplier<Duration> overtimeWorkSupplier)`
     ///
-    /// Java 用 `getCalendar()` 作为单位换算的默认值来源；日历为空时 Rust 侧跳过换算
-    /// （Java 会抛 `NullPointerException`）。
+/// Java uses `getCalendar()` as the default source for unit conversion; the Rust side skips conversion when the calendar is empty
+/// (Java throws `NullPointerException`).
     fn calculate_regular_work(
         &self,
         total_work: Option<Duration>,
@@ -6181,7 +6181,7 @@ impl Task {
         let units = match (total_work, overtime_work) {
             (Some(total_work), _) => total_work.get_units(),
             (None, Some(overtime_work)) => overtime_work.get_units(),
-            // 上面已排除两者均为 None 的情形
+// The case where both are None was already excluded above
             (None, None) => return None,
         };
 
@@ -6202,48 +6202,48 @@ impl Task {
         Some(Duration::get_instance(total - overtime, units))
     }
 
-    /// 取 `active` 字段的默认值。
+/// Get the default value of the `active` field.
     ///
-    /// 对应 Java: `private Boolean defaultActive()`
+    /// Corresponds to Java: `private Boolean defaultActive()`
     fn default_active() -> bool {
         true
     }
 
-    /// 取 `type` 字段的默认值。
+/// Get the default value of the `type` field.
     ///
-    /// 对应 Java: `private TaskType defaultType()`
+    /// Corresponds to Java: `private TaskType defaultType()`
     fn default_type() -> TaskType {
         TaskType::FixedUnits
     }
 
-    /// 取 `taskMode` 字段的默认值。
+/// Get the default value of the `taskMode` field.
     ///
-    /// 对应 Java: `private TaskMode defaultTaskMode()`
+    /// Corresponds to Java: `private TaskMode defaultTaskMode()`
     fn default_task_mode() -> TaskMode {
         TaskMode::AutoScheduled
     }
 
-    /// 取 `expanded` 字段的默认值。
+/// Get the default value of the `expanded` field.
     ///
-    /// 对应 Java: `private Boolean defaultExpanded()`
+    /// Corresponds to Java: `private Boolean defaultExpanded()`
     fn default_expanded() -> bool {
         true
     }
 
-    /// 取 `autoComputeActuals` 字段的默认值。
+/// Get the default value of the `autoComputeActuals` field.
     ///
-    /// 对应 Java: `private Boolean defaultAutoComputeActuals()`
+    /// Corresponds to Java: `private Boolean defaultAutoComputeActuals()`
     fn default_auto_compute_actuals() -> bool {
         true
     }
 }
 
 // ---------------------------------------------------------------------------
-// Display / 接口实现
+// Display / trait implementations
 // ---------------------------------------------------------------------------
 
 impl Display for Task {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[Task id={}", optional_display(self.get_id()))?;
         write!(f, " uniqueID={}", optional_display(self.get_unique_id()))?;
@@ -6267,15 +6267,15 @@ impl Display for Task {
     }
 }
 
-/// 对应 Java 中把可空值直接拼进字符串的输出（`null` 输出 `"null"`）。
+/// Corresponds to Java's output that concatenates nullable values directly into a string (`null` is output as `"null"`).
 fn optional_display<T: Display>(value: Option<T>) -> String {
     value.map_or_else(|| "null".to_owned(), |value| value.to_string())
 }
 
-/// 取日历上两个时刻之间的工时（小时）。
+/// Get the work (in hours) between two instants on the calendar.
 ///
-/// 对应 Java: `calendar.getWork(start, finish, TimeUnit.HOURS).getDuration()`。
-/// 日历缺失、日期为空或日历正被借用时返回 `0.0`（Java 会抛 `NullPointerException`）。
+/// Corresponds to Java: `calendar.getWork(start, finish, TimeUnit.HOURS).getDuration()`.
+/// Returns `0.0` when the calendar is missing, a date is empty, or the calendar is currently borrowed (Java throws `NullPointerException`).
 fn work_hours(
     calendar: Option<&Rc<RefCell<ProjectCalendar>>>,
     start: Option<NaiveDateTime>,
@@ -6293,53 +6293,53 @@ fn work_hours(
 }
 
 impl FieldContainer for Task {
-    /// 对应 Java: `@Override public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `@Override public void set(FieldType field, Object value)`
     fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         Task::set(self, field, value);
     }
 
-    /// 对应 Java: `@Override public Object get(FieldType field)`
+    /// Corresponds to Java: `@Override public Object get(FieldType field)`
     fn get(&self, field: FieldKey) -> Option<FieldValue> {
         Task::get(self, field)
     }
 
-    /// 对应 Java: `@Override public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `@Override public Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         Task::get_cached_value(self, field)
     }
 
-    /// 对应 Java: `@Override public void addFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void addFieldListener(FieldListener listener)`
     fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         Task::add_field_listener(self, listener);
     }
 
-    /// 对应 Java: `@Override public void removeFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void removeFieldListener(FieldListener listener)`
     fn clear_field_listeners(&mut self) {
         Task::clear_field_listeners(self);
     }
 }
 
 impl ProjectEntityWithUniqueID for Task {
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32> {
         self.integer_field(TaskField::UniqueId)
     }
 }
 
 impl ProjectEntityWithMutableUniqueID for Task {
-    /// 对应 Java: `@Override public void setUniqueID(Integer val)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer val)`
     fn set_unique_id(&mut self, id: Option<i32>) {
         self.put_integer(TaskField::UniqueId, id);
     }
 }
 
 impl ProjectEntityWithID for Task {
-    /// 对应 Java: `@Override public Integer getID()`
+    /// Corresponds to Java: `@Override public Integer getID()`
     fn get_id(&self) -> Option<i32> {
         self.integer_field(TaskField::Id)
     }
 
-    /// 对应 Java: `@Override public void setID(Integer val)`
+    /// Corresponds to Java: `@Override public void setID(Integer val)`
     fn set_id(&mut self, id: Option<i32>) {
         self.put_integer(TaskField::Id, id);
     }
@@ -6355,18 +6355,18 @@ mod tests {
 
     fn datetime(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         chrono::NaiveDate::from_ymd_opt(year, month, day)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(hour, minute, 0)
-            .expect("合法时间")
+            .expect("valid time")
     }
 
     fn days(value: f64) -> Duration {
         Duration::get_instance(value, TimeUnit::Days)
     }
 
-    /// 注：此处只覆盖不依赖父文件的路径 —— 需要父 `ProjectFile` 的
-    /// [`Task::new_in_file`] 与 `add_task` / `get_calendar` / `get_resource_assignments`
-    /// 等访问器不在本测试范围内。
+/// Note: only paths that do not depend on the parent file are covered here — the parent `ProjectFile`-dependent
+/// [`Task::new_in_file`] and accessors such as `add_task` / `get_calendar` / `get_resource_assignments`
+/// are outside the scope of this test.
     #[test]
     fn field_values_round_trip() {
         let mut task = Task::new();
@@ -6393,11 +6393,11 @@ mod tests {
         assert_eq!(task.get_unique_id(), Some(7));
         assert_eq!(task.get_id(), Some(2));
 
-        // 未设置的字段返回 None / false
+// Unset fields return None / false
         assert_eq!(task.get_contact(), None);
         assert!(!task.get_confirmed());
 
-        // 传 None 等价于 Java 的 set(field, null)：把字段从字段表中移除
+// Passing None is equivalent to Java's set(field, null): it removes the field from the field table
         task.set_name(None);
         assert_eq!(task.get_name(), None);
         assert_eq!(task.get_cached_value(FieldKey::Task(TaskField::Name)), None);
@@ -6420,7 +6420,7 @@ mod tests {
             Some(FieldValue::String("note".to_owned()))
         );
 
-        // 计算出的默认值不写回字段表（见文件头差异第 1 条）
+// Calculated defaults are not written back to the field table (see difference 1 in the file header)
         assert_eq!(
             task.get(FieldKey::Task(TaskField::AutoComputeActuals)),
             Some(FieldValue::Boolean(true))
@@ -6450,7 +6450,7 @@ mod tests {
     fn calculated_fields_are_computed_on_demand() {
         let mut task = Task::new();
 
-        // Java: calculateCostVariance —— 需要 cost 与 baselineCost 同时存在
+// Java: calculateCostVariance — requires both cost and baselineCost to be present
         assert_eq!(task.get_cost_variance(), None);
         task.set_cost(Some(100.0));
         task.set_baseline_cost(Some(80.0));
@@ -6485,7 +6485,7 @@ mod tests {
     fn default_calculated_values_match_java() {
         let mut task = Task::new();
 
-        // Java 的 CALCULATED_FIELD_MAP 默认值：active / type / taskMode / expanded /
+// Java's CALCULATED_FIELD_MAP defaults: active / type / taskMode / expanded /
         // autoComputeActuals
         assert!(task.get_active());
         assert_eq!(task.get_type(), Some(TaskType::FixedUnits));
@@ -6493,7 +6493,7 @@ mod tests {
         assert!(task.get_expanded());
         assert!(task.get_auto_compute_actuals());
 
-        // 显式设置后覆盖默认值
+// Explicit settings override the defaults
         task.set_active(false);
         task.set_type(Some(TaskType::FixedWork));
         task.set_task_mode(Some(TaskMode::ManuallyScheduled));
@@ -6515,7 +6515,7 @@ mod tests {
 
         let task = Task::new();
 
-        // 无父文件时 SCHEDULE_PERCENT_COMPLETE 无法计算，返回 None 且不进入字段表
+// Without a parent file SCHEDULE_PERCENT_COMPLETE cannot be calculated; it returns None and does not enter the field table
         assert_eq!(
             task.get(FieldKey::Task(TaskField::SchedulePercentComplete)),
             None
@@ -6565,8 +6565,8 @@ mod tests {
             Some(ActivityStatus::Completed)
         );
 
-        // UUID 以字符串承载（见文件头差异第 7 条）
-        let guid = Uuid::parse_str("2f9d1c2e-6d5b-4f0e-9a3c-1b2d3e4f5a6b").expect("合法 UUID");
+// UUIDs are carried as strings (see difference 7 in the file header)
+        let guid = Uuid::parse_str("2f9d1c2e-6d5b-4f0e-9a3c-1b2d3e4f5a6b").expect("valid UUID");
         task.set_guid(Some(guid));
         assert_eq!(task.get_guid(), Some(guid));
         assert_eq!(
@@ -6597,8 +6597,8 @@ mod tests {
         task.set_notes_object(Some(&plain));
         assert_eq!(task.get_notes(), "object");
 
-        // Java: setNotesObject(new RtfNotes(rtf))；RtfNotes 的纯文本已去掉 RTF 标记，
-        // 因此能打印出 "hello" 即证明子类型未退化为纯文本笔记。
+// Java: setNotesObject(new RtfNotes(rtf)); RtfNotes plain text has the RTF markup removed,
+// so printing "hello" proves the subtype has not degraded to a plain text note.
         let rtf = RtfNotes::new(Some("{\\rtf1 hello}".to_owned()));
         task.set_notes_object(Some(&rtf));
         assert_eq!(task.get_notes(), "hello");
@@ -6608,7 +6608,7 @@ mod tests {
             Some("Notes")
         );
 
-        // Java: setNotesObject(new HtmlNotes(html))；同样以「纯文本已去标记」佐证子类型保真
+// Java: setNotesObject(new HtmlNotes(html)); likewise, "plain text with markup removed" confirms the subtype is preserved
         let html = HtmlNotes::new(Some("<html><body>world</body></html>".to_owned()));
         task.set_notes_object(Some(&html));
         assert_eq!(task.get_notes(), "world");
@@ -6621,7 +6621,7 @@ mod tests {
     #[test]
     fn steps_round_trip_through_the_field_table() {
         let mut task = Task::new();
-        // Java: getSteps() 未设置时返回 defaultSteps()（空列表）
+// Java: getSteps() returns defaultSteps() (an empty list) when unset
         assert!(task.get_steps().is_empty());
         assert!(matches!(
             task.get(FieldKey::Task(TaskField::Steps)),
@@ -6644,7 +6644,7 @@ mod tests {
 
     #[test]
     fn work_splits_follow_assignment_splits() {
-        // 无资源分配、非摘要任务 ⇒ 空列表（Java 的 calculateWorkSplits）
+// No resource assignments and not a summary task ⇒ empty list (Java's calculateWorkSplits)
         let task = Task::new();
         assert!(!task.get_summary());
         assert!(task.get_work_splits().is_empty());
@@ -6653,7 +6653,7 @@ mod tests {
             Some(FieldValue::TimeRanges(_))
         ));
 
-        // 摘要任务不显示分段（Java 注释：In MS Project, summary tasks do not show splits）
+// Summary tasks do not show splits (Java comment: In MS Project, summary tasks do not show splits)
         let mut summary = Task::new();
         summary.set_summary(true);
         assert!(summary.get_work_splits().is_empty());
@@ -6668,7 +6668,7 @@ mod tests {
         assert_eq!(task.get_text(1), Some("first".to_owned()));
         assert_eq!(task.get_text(30), Some("last".to_owned()));
 
-        // Java 抛 IllegalArgumentException，Rust 侧返回 None / false
+// Java throws IllegalArgumentException; the Rust side returns None / false
         assert_eq!(task.get_text(0), None);
         assert_eq!(task.get_text(31), None);
         task.set_text(31, Some("ignored".to_owned()));
@@ -6698,7 +6698,7 @@ mod tests {
         task.set_enterprise_flag(1, true);
         assert!(task.get_enterprise_flag(1));
 
-        // 多基线字段
+// Multiple baseline fields
         task.set_baseline_cost_at(1, Some(5.0));
         assert_eq!(task.get_baseline_cost_at(1), Some(5.0));
         assert_eq!(task.get_baseline_cost_at(0), None);
@@ -6710,8 +6710,8 @@ mod tests {
     fn baseline_duration_and_text_share_one_field() {
         let mut task = Task::new();
 
-        // Java: BASELINE_DURATION 字段既可存 Duration 也可存 String，
-        // 读取时按 instanceof 判断（Rust 侧按取值类型返回）
+// Java: the BASELINE_DURATION field can hold either a Duration or a String,
+// determined by instanceof when reading (the Rust side returns based on the value type)
         task.set_baseline_duration(Some(days(4.0)));
         assert_eq!(task.get_baseline_duration(), Some(days(4.0)));
         assert_eq!(task.get_baseline_duration_text(), None);
@@ -6735,10 +6735,10 @@ mod tests {
         assert!(parent.borrow().get_summary());
         assert_eq!(child.borrow().get_parent_task_unique_id(), Some(7));
 
-        let recovered = child.borrow().get_parent_task().expect("父任务仍然存在");
+        let recovered = child.borrow().get_parent_task().expect("parent task still exists");
         assert!(Rc::ptr_eq(&recovered, &parent));
 
-        // 移除子任务后父任务不再是汇总任务，且回指被清空
+// After removing the child task the parent is no longer a summary task, and the back reference is cleared
         Task::remove_child_task(&parent, &child);
         assert!(!parent.borrow().has_child_tasks());
         assert!(!parent.borrow().get_summary());
@@ -6764,20 +6764,20 @@ mod tests {
         assert!(Rc::ptr_eq(&children[1], &third));
         assert!(Rc::ptr_eq(&children[2], &second));
 
-        // 预置同级任务不在列表中时追加到末尾
+// When the sibling task to insert before is not in the list, append to the end
         let outsider = Rc::new(RefCell::new(Task::new()));
         let fourth = Rc::new(RefCell::new(Task::new()));
         Task::add_child_task_before(&parent, &fourth, &outsider);
         let children = parent.borrow().get_child_tasks();
         assert_eq!(children.len(), 4);
-        assert!(Rc::ptr_eq(children.last().expect("非空"), &fourth));
+        assert!(Rc::ptr_eq(children.last().expect("not empty"), &fourth));
 
         Task::clear_child_tasks(&parent);
         assert!(!parent.borrow().has_child_tasks());
         assert!(!parent.borrow().get_summary());
         assert!(third.borrow().get_parent_task().is_some());
 
-        // 列表为空时 clearChildTasks 不改写 summary 标志
+// clearChildTasks does not rewrite the summary flag when the list is empty
         parent.borrow_mut().set_summary(true);
         Task::clear_child_tasks(&parent);
         assert!(parent.borrow().get_summary());
@@ -6793,13 +6793,13 @@ mod tests {
         Task::add_child_task_at_level(&root, &level2, 2);
         assert_eq!(root.borrow().get_child_tasks().len(), 1);
 
-        // 更深一层应挂到最后一个子任务上
+// A deeper level should be attached to the last child task
         let level3 = Rc::new(RefCell::new(Task::new()));
         Task::add_child_task_at_level(&root, &level3, 3);
         assert_eq!(root.borrow().get_child_tasks().len(), 1);
         assert_eq!(level2.borrow().get_child_tasks().len(), 1);
 
-        // 与当前层级不匹配且没有子任务时不做任何事
+// Does nothing when the level does not match the current one and there are no child tasks
         let other = Rc::new(RefCell::new(Task::new()));
         other.borrow_mut().set_outline_level(Some(5));
         let orphan = Rc::new(RefCell::new(Task::new()));
@@ -6816,7 +6816,7 @@ mod tests {
         root.generate_outline_number(None);
         assert_eq!(root.get_outline_number(), Some("0".to_owned()));
 
-        // 父任务 WBS 为 "0" 时直接取「子任务数 + 1」
+// When the parent WBS is "0", use "number of child tasks + 1" directly
         let mut zero_parent = Task::new();
         zero_parent.set_wbs(Some("0".to_owned()));
         let zero_parent = Rc::new(RefCell::new(zero_parent));
@@ -6824,7 +6824,7 @@ mod tests {
         child.generate_wbs(Some(&zero_parent));
         assert_eq!(child.get_wbs(), Some("1".to_owned()));
 
-        // 父任务 WBS 非 "0" 时追加 ".n"；大纲编号会先去掉结尾的 ".0"
+// When the parent WBS is not "0", append ".n"; the outline number first strips a trailing ".0"
         let mut parent = Task::new();
         parent.set_wbs(Some("1".to_owned()));
         parent.set_outline_number(Some("1.0".to_owned()));
@@ -6834,7 +6834,7 @@ mod tests {
         child.generate_outline_number(Some(&parent));
         assert_eq!(child.get_outline_number(), Some("1.1".to_owned()));
 
-        // 顶层任务按「项目文件子任务数 + 1」编号（无父文件时为 1）
+// Top-level tasks are numbered by "project file child task count + 1" (1 when there is no parent file)
         let mut top = Task::new();
         top.set_unique_id(Some(1));
         top.generate_wbs(None);
@@ -6852,7 +6852,7 @@ mod tests {
         assert_eq!(second.compare_to(&first), Ordering::Greater);
         assert_eq!(first.compare_to(&first), Ordering::Equal);
 
-        // 未设置 ID 时按 0 处理（Java: NumberHelper.getInt(null) == 0）
+// Treats an unset ID as 0 (Java: NumberHelper.getInt(null) == 0)
         let third = Task::new();
         assert_eq!(third.compare_to(&first), Ordering::Less);
     }
@@ -6872,7 +6872,7 @@ mod tests {
         task.set_external_task(true);
         task.set_subproject_task_unique_id(Some(9));
         task.set_subproject_task_id(Some(3));
-        // Java: 外部任务分支不再追加额外的 "]"
+// Java: the external task branch no longer appends an extra "]"
         assert_eq!(
             task.to_string(),
             "[Task id=1 uniqueID=2 activityID=A name=X [EXTERNAL uid=9 id=3]"
@@ -6886,7 +6886,7 @@ mod tests {
         task.disable_events();
         task.set_cost(Some(10.0));
         task.set_baseline_cost(Some(1.0));
-        // 依赖清理被关闭，但仍按需求值（Rust 侧不缓存计算结果）
+// Dependency cleanup is disabled, but values are still computed on demand (the Rust side does not cache calculation results)
         assert_eq!(task.get_cost_variance(), Some(9.0));
         task.enable_events();
     }
@@ -6901,7 +6901,7 @@ mod tests {
         ProjectEntityWithID::set_id(&mut task, Some(3));
         assert_eq!(ProjectEntityWithID::get_id(&task), Some(3));
 
-        // 固有的同名方法访问同一字段
+// The inherent method of the same name accesses the same field
         assert_eq!(task.get_unique_id(), Some(11));
         assert_eq!(task.get_id(), Some(3));
     }

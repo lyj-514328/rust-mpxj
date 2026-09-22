@@ -1,40 +1,42 @@
-//! 对应 Java: `org/mpxj/mpx/RelationTypeUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/RelationTypeUtility.java`
 //!
-//! # 区域设置名表
+//! # Locale name tables
 //!
-//! Java 用 `LocaleData.getStringArray(locale, LocaleData.RELATION_TYPES)` 从 `ResourceBundle`
-//! 取本地化的关系类型名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份数据
-//! 由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的
-//! 方式**按区域设置取名表** —— 德语文件里的 `EA` 只有走德语名表才能识别。
+//! Java uses `LocaleData.getStringArray(locale, LocaleData.RELATION_TYPES)` to obtain from
+//! `ResourceBundle` the localised relation type name table (non-English languages are overridden by
+//! resource bundles such as `LocaleData_de`); on the Rust side the same data is held by
+//! [`LocaleData`] (localised overrides come from the `locale_data_XX` modules in the same package),
+//! so this module obtains the name table **per locale** the same way Java does -- the `EA` in the
+//! German file can only be recognised through the German name table.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 use crate::relation_type::RelationType;
 
-/// 英文（默认）关系类型名表。
+/// English (default) relation type name table.
 ///
-/// 对应 Java: `LocaleData.RELATION_TYPES_DATA`（下标即 `RelationType` 的 int 值）。
+/// Corresponds to Java: `LocaleData.RELATION_TYPES_DATA` (the index is the `RelationType` int value).
 const RELATION_TYPES: [Option<&str>; 4] = [Some("FF"), Some("FS"), Some("SF"), Some("SS")];
 
-/// 管理 MPX 文件中 `RelationType` 实例的工具方法。
+/// Utility methods for managing `RelationType` instances in MPX files.
 ///
-/// 对应 Java: `final class RelationTypeUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class RelationTypeUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct RelationTypeUtility;
 
 impl RelationTypeUtility {
-    /// 把关系类型的文本形式转换成对应的枚举实例，无法识别的值返回 `None`。
+    /// Convert the text form of a relation type into the corresponding enum instance; unrecognised values return `None`.
     ///
-    /// 对应 Java: `public static RelationType getInstance(Locale locale, String type)`
+    /// Corresponds to Java: `public static RelationType getInstance(Locale locale, String type)`
     ///
-    /// Java 对无法识别的值（含 `null`，`equalsIgnoreCase(null)` 恒为 `false`）返回 `null`，
-    /// Rust 侧用 `Option<RelationType>` 承载。
+    /// Java returns `null` for unrecognised values (including `null`, since `equalsIgnoreCase(null)`
+    /// is always `false`); the Rust side uses `Option<RelationType>`.
     pub fn get_instance(locale: MpxLocale, r#type: Option<&str>) -> Option<RelationType> {
         let mut index = -1;
 
         for (loop_index, name) in relation_types(locale).iter().enumerate() {
-            // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+            // Java's name table elements are never null; the Rust side skips `None` elements directly.
             if let Some(name) = name {
                 if equals_ignore_case(name, r#type) {
                     index = loop_index as i32;
@@ -52,11 +54,12 @@ impl RelationTypeUtility {
     }
 }
 
-/// 取对应区域设置的关系类型名表。
+/// Obtain the relation type name table for the given locale.
 ///
-/// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.RELATION_TYPES)`
+/// Corresponds to Java: `LocaleData.getStringArray(locale, LocaleData.RELATION_TYPES)`
 ///
-/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+/// When the key is missing it falls back to the English default name table (Java's `ResourceBundle`
+/// likewise falls back to the base class resource).
 fn relation_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
     LocaleData::get_string_array(locale, LocaleData::RELATION_TYPES).unwrap_or(&RELATION_TYPES)
 }
@@ -69,9 +72,9 @@ mod tests {
     #[test]
     fn relation_type_round_trips_through_mpx_name() {
         for (index, name) in RELATION_TYPES.iter().enumerate() {
-            let name = name.expect("英文名表没有空元素");
+            let name = name.expect("English name table has no empty elements");
             let value = RelationTypeUtility::get_instance(MpxLocale::En, Some(name))
-                .expect("英文名表中的值应当可以识别");
+                .expect("values in the English name table should be recognizable");
             assert_eq!(value.value(), index as i32);
             assert_eq!(RELATION_TYPES[value.value() as usize], Some(name));
             assert_eq!(value.get_name(), name);
@@ -109,7 +112,7 @@ mod tests {
             RelationTypeUtility::get_instance(MpxLocale::De, Some("AA")),
             Some(RelationType::StartStart)
         );
-        // 英文名表里的值在德语名表中不存在
+        // The values in the English name table do not exist in the German name table
         assert_eq!(
             RelationTypeUtility::get_instance(MpxLocale::De, Some("FS")),
             None

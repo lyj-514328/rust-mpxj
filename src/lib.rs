@@ -1,13 +1,13 @@
-//! Rust 版 MPXJ reader。
+//! Rust port of the MPXJ reader.
 //!
-//! 本 crate 是 [MPXJ](https://github.com/joniles/mpxj) reader 部分的 Rust 移植，
-//! 只支持 MPP 与 MPX 两种格式，并沿用原版统一的 `ProjectFile` 领域模型。
+//! This crate is a Rust port of the reader portion of [MPXJ](https://github.com/joniles/mpxj),
+//! supports only the MPP and MPX formats, and reuses the original unified `ProjectFile` domain model.
 //!
-//! 目录结构与 Java 包结构一一对应：
+//! The directory structure corresponds one-to-one with the Java package structure:
 //!
-//! | Java 包 | Rust 模块 |
+//! | Java package | Rust module |
 //! |---|---|
-//! | `org.mpxj` | `src/*.rs`（根模块） |
+//! | `org.mpxj` | `src/*.rs` (root module) |
 //! | `org.mpxj.common` | [`common`] |
 //! | `org.mpxj.cpm` | [`cpm`] |
 //! | `org.mpxj.listener` | [`listener`] |
@@ -22,7 +22,7 @@ pub mod mpp;
 pub mod mpx;
 pub mod reader;
 
-// ---- org.mpxj 根包 ----
+// ---- org.mpxj root package ----
 
 pub mod abstract_field_container;
 pub mod accrue_type;
@@ -140,7 +140,7 @@ pub mod work_contour;
 pub mod work_contour_container;
 pub mod work_group;
 
-// ---- 展示层与其余领域模型 ----
+// ---- presentation layer and remaining domain model ----
 
 pub mod column;
 pub mod data_link;
@@ -167,7 +167,7 @@ pub mod view_container;
 pub mod view_state;
 pub mod view_type;
 
-// ---- 便于使用的再导出 ----
+// ---- convenience re-exports ----
 
 pub use abstract_field_container::AbstractFieldContainer;
 pub use accrue_type::AccrueType;

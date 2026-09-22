@@ -1,56 +1,56 @@
-//! 对应 Java: `org/mpxj/StructuredNotes.java`
+//! Corresponds to Java: `org/mpxj/StructuredNotes.java`
 
 use crate::notes::Notes;
 use crate::notes_topic::NotesTopic;
 use crate::project_context::ProjectContext;
 use std::fmt::{self, Display, Formatter};
 
-/// 属于某个主题（topic）的结构化笔记。
+/// Structured notes belonging to a topic.
 ///
-/// 对应 Java: `public class StructuredNotes extends Notes`
+/// Corresponds to Java: `public class StructuredNotes extends Notes`
 ///
-/// # 继承关系如何还原
+/// # How the inheritance relationship is restored
 ///
-/// Java 中 `StructuredNotes` 直接继承 `Notes`；Rust 无继承，改为独立 struct 实现
-/// [`crate::notes::Notes`] trait。Java 构造方法通过 `super(null)` 传给基类的
-/// `m_text` 在本类中不参与逻辑（本类重写了 `toString()`），故不再保留；本类自身
-/// 的 `m_uniqueID` / `m_topic` / `m_notes` 则原样放进 struct。
+/// In Java `StructuredNotes` directly extends `Notes`; Rust has no inheritance, so it is changed to a standalone struct implementing
+/// the [`crate::notes::Notes`] trait. The Java constructor passes `super(null)` to the base class's
+/// `m_text`, which is not used in this class's logic (this class overrides `toString()`), so it is no longer kept; this class's own
+/// `m_uniqueID` / `m_topic` / `m_notes` are placed into the struct as-is.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 用 `context.getUniqueIdObjectSequence(StructuredNotes.class)` 取唯一 ID
-///   序列；Rust 没有 class 字面量，改为传入类名字符串（与 Java `Class.getName()`
-///   作为 map key 的做法一致）。
-/// - Java 的 `toString()` 在 `m_topic` 为 `null` 且笔记非空时会抛
-///   `NullPointerException`；Rust 不 panic，主题名按空字符串处理。
+/// - Java uses `context.getUniqueIdObjectSequence(StructuredNotes.class)` to get the unique ID
+/// sequence; Rust has no class literal, so a class name string is passed instead (consistent with Java `Class.getName()`
+/// being used as the map key).
+/// - Java's `toString()` throws when `m_topic` is `null` and the notes are non-empty
+/// a `NullPointerException`; Rust does not panic and treats the topic name as an empty string.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub struct StructuredNotes {
-    /// 唯一 ID。
+/// Unique ID.
     ///
-    /// 对应 Java: `private final Integer m_uniqueID;`
+    /// Corresponds to Java: `private final Integer m_uniqueID;`
     m_unique_id: Option<i32>,
 
-    /// 笔记所属主题。
+/// The topic the notes belong to.
     ///
-    /// 对应 Java: `private final NotesTopic m_topic;`
+    /// Corresponds to Java: `private final NotesTopic m_topic;`
     m_topic: Option<NotesTopic>,
 
-    /// 实际笔记内容。
+/// The actual note content.
     ///
-    /// 对应 Java: `private final Notes m_notes;`
+    /// Corresponds to Java: `private final Notes m_notes;`
     m_notes: Option<Box<dyn Notes>>,
 }
 
 impl StructuredNotes {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public StructuredNotes(ProjectContext context, Integer uniqueID, NotesTopic topic, Notes notes)`
+    /// Corresponds to Java: `public StructuredNotes(ProjectContext context, Integer uniqueID, NotesTopic topic, Notes notes)`
     ///
-    /// `unique_id` 为 `None` 时从上下文的序列里取下一个值；否则同步序列并返回该值
-    /// （与 `ObjectSequence.syncOrGetNext` 语义一致）。
+/// When `unique_id` is `None`, take the next value from the context's sequence; otherwise sync the sequence and return that value
+/// (semantically consistent with `ObjectSequence.syncOrGetNext`).
     pub fn new(
         context: &mut ProjectContext,
         unique_id: Option<i32>,
@@ -69,44 +69,44 @@ impl StructuredNotes {
         }
     }
 
-    /// 返回本笔记的唯一 ID。
+/// Return the unique ID of these notes.
     ///
-    /// 对应 Java: `public Integer getUniqueID()`
+    /// Corresponds to Java: `public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.m_unique_id
     }
 
-    /// 返回本笔记的主题 ID。
+/// Return the topic ID of these notes.
     ///
-    /// 对应 Java: `public Integer getTopicID()`
+    /// Corresponds to Java: `public Integer getTopicID()`
     pub fn get_topic_id(&self) -> Option<i32> {
         self.m_topic
             .as_ref()
             .and_then(|topic| topic.get_unique_id())
     }
 
-    /// 返回本笔记的主题。
+/// Return the topic of these notes.
     ///
-    /// 对应 Java: `public NotesTopic getNotesTopic()`
+    /// Corresponds to Java: `public NotesTopic getNotesTopic()`
     pub fn get_notes_topic(&self) -> Option<&NotesTopic> {
         self.m_topic.as_ref()
     }
 
-    /// 返回笔记内容。
+/// Return the note content.
     ///
-    /// 对应 Java: `public Notes getNotes()`
+    /// Corresponds to Java: `public Notes getNotes()`
     pub fn get_notes(&self) -> Option<&dyn Notes> {
         self.m_notes.as_deref()
     }
 }
 
 impl Display for StructuredNotes {
-    /// 返回「主题名 + 换行 + 笔记正文 + 换行」。
+/// Return "topic name + newline + note body + newline".
     ///
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 在正文为 `null` 或空串时返回 `null`；Rust 的 `Display` 无法表达 `null`，
-    /// 此时输出空字符串（`is_empty` 的判定结果与 Java 保持一致）。
+/// Java returns `null` when the body is `null` or an empty string; Rust's `Display` cannot express `null`,
+/// so it outputs an empty string here (the `is_empty` result is consistent with Java).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Some(text) = self.m_notes.as_ref().map(|notes| notes.to_string()) else {
             return Ok(());
@@ -127,7 +127,7 @@ impl Display for StructuredNotes {
 }
 
 impl Notes for StructuredNotes {
-    /// 对应 Java: 无（Rust 特有的子类型保真拷贝，见 [`Notes::to_box`]）
+/// Corresponds to Java: none (Rust-specific subtype-preserving copy, see [`Notes::to_box`])
     fn to_box(&self) -> Box<dyn Notes> {
         Box::new(StructuredNotes {
             m_unique_id: self.m_unique_id,
@@ -162,7 +162,7 @@ mod tests {
         let notes = StructuredNotes::new(&mut context, Some(42), None, body("body"));
         assert_eq!(notes.get_unique_id(), Some(42));
 
-        // 序列被同步到 42 之后，下一个自动 ID 应为 43。
+// After the sequence is synced to 42, the next automatic ID should be 43.
         let notes = StructuredNotes::new(&mut context, None, None, body("body"));
         assert_eq!(notes.get_unique_id(), Some(43));
     }
@@ -195,7 +195,7 @@ mod tests {
     fn non_empty_body_without_topic_renders_body_only() {
         let mut context = ProjectContext::default();
         let notes = StructuredNotes::new(&mut context, None, None, body("body"));
-        // Java 在 topic 为 null 时会抛 NPE，Rust 侧不 panic，主题名按空串处理。
+// Java throws an NPE when topic is null; Rust does not panic and treats the topic name as an empty string.
         assert_eq!(notes.to_string(), "\nbody\n");
         assert!(!notes.is_empty());
     }

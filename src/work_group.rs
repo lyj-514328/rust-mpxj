@@ -1,37 +1,37 @@
-//! 对应 Java: `org/mpxj/WorkGroup.java`
+//! Corresponds to Java: `org/mpxj/WorkGroup.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 资源工作组类型的枚举。
+/// Enum for resource work group types.
 ///
-/// 对应 Java: `public enum WorkGroup implements MpxjEnum`
+/// Corresponds to Java: `public enum WorkGroup implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`WorkGroup::ALL`] 加 [`WorkGroup::get_instance`] 的 `match`。
+/// In Java, `EnumHelper.createTypeArray` builds the int → enum array via reflection;
+/// the Rust side does not use reflection and instead uses [`WorkGroup::ALL`] plus the `match` in [`WorkGroup::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WorkGroup {
-    /// 默认。
+    /// Default.
     ///
-    /// 对应 Java: `DEFAULT(0)`
+    /// Corresponds to Java: `DEFAULT(0)`
     Default = 0,
-    /// 无。
+    /// None.
     ///
-    /// 对应 Java: `NONE(1)`
+    /// Corresponds to Java: `NONE(1)`
     None = 1,
-    /// 电子邮件。
+    /// Email.
     ///
-    /// 对应 Java: `EMAIL(2)`
+    /// Corresponds to Java: `EMAIL(2)`
     Email = 2,
-    /// Web。
+    /// Web.
     ///
-    /// 对应 Java: `WEB(3)`
+    /// Corresponds to Java: `WEB(3)`
     Web = 3,
 }
 
 impl WorkGroup {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, sorted ascending by int value.
     ///
-    /// 对应 Java: `private static final WorkGroup[] TYPE_VALUES`（不含反射部分）。
+    /// Corresponds to Java: `private static final WorkGroup[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [WorkGroup; 4] = [
         WorkGroup::Default,
         WorkGroup::None,
@@ -39,9 +39,9 @@ impl WorkGroup {
         WorkGroup::Web,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `NONE`。
+    /// Returns the enum instance for the given int value, falling back to `NONE` when out of bounds.
     ///
-    /// 对应 Java: `public static WorkGroup getInstance(int type)`
+    /// Corresponds to Java: `public static WorkGroup getInstance(int type)`
     pub fn get_instance(value: i32) -> WorkGroup {
         match value {
             0 => WorkGroup::Default,
@@ -53,18 +53,18 @@ impl WorkGroup {
         }
     }
 
-    /// 对应 Java: `public static WorkGroup getInstance(Number type)`
+    /// Corresponds to Java: `public static WorkGroup getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `NONE`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `NONE`.
     pub fn get_instance_optional(value: Option<i32>) -> WorkGroup {
         WorkGroup::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for WorkGroup {
-    /// 返回该枚举关联的 int 值。
+    /// Returns the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

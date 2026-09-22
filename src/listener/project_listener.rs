@@ -1,8 +1,8 @@
-//! 对应 Java: `org/mpxj/listener/ProjectListener.java`
+//! Corresponds to Java: `org/mpxj/listener/ProjectListener.java`
 //!
-//! 接收项目文件读取 / 写出事件的接口。
+//! Interface for receiving project file read / write events.
 //!
-//! # Java → Rust 方法对照
+//! # Java to Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
@@ -17,25 +17,30 @@
 //! | `void relationRead(Relation relation)` | [`ProjectListener::relation_read`] |
 //! | `void relationWritten(Relation relation)` | [`ProjectListener::relation_written`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **实体以共享句柄传递**：Java 直接把实体引用传进来（`Task task`），Rust 侧统一写作
-//!   `&Rc<RefCell<Task>>` 这类共享句柄，而不是 `&Task` 或 `&mut Task`。原因与前一批落地的
-//!   [`crate::listener::field_listener::FieldListener`] 一致：实体在 crate 内一律以
-//!   `Rc<RefCell<..>>` 共享持有，`fire_*` 的调用点往往正处在对实体的可变操作序列中
-//!   （例如写出流程先取 `&mut` 改字段，再广播事件），此时无法再构造一个 `&mut Task` 别名
-//!   交出去；改用共享句柄后，监听器想读就 `borrow()`、想改就 `borrow_mut()`，也可以自行
-//!   `clone()` 保留句柄，语义与 Java 最接近，且不会与调用点的借用冲突。
-//! - **监听器方法取 `&mut self`**：Java 的监听器是普通对象；Rust 侧允许监听器在回调中
-//!   累积状态（计数、日志等），故与 [`crate::listener::field_listener::FieldListener`] 的
-//!   既有约定一致，统一取 `&mut self`。
-//! - **`null` 参数**：Java 的 `fire*` 允许传 `null` 实体；Rust 参数类型是引用，不存在对应写法。
+//! - **Entities are passed as shared handles**: Java passes the entity reference directly
+//!   (`Task task`); the Rust side uniformly uses shared handles such as `&Rc<RefCell<Task>>`
+//!   rather than `&Task` or `&mut Task`. The reason matches the previously landed
+//!   [`crate::listener::field_listener::FieldListener`]: entities are always held shared as
+//!   `Rc<RefCell<..>>` within the crate, and the call sites of `fire_*` are often in the middle
+//!   of a mutable operation sequence on the entity (for example, the write path first takes
+//!   `&mut` to modify a field and then broadcasts the event), at which point another
+//!   `&mut Task` alias cannot be constructed and handed out; after switching to shared handles,
+//!   a listener can `borrow()` to read, `borrow_mut()` to modify, or `clone()` to keep the
+//!   handle, which is closest to Java semantics and does not conflict with the call site's borrow.
+//! - **Listener methods take `&mut self`**: Java listeners are ordinary objects; the Rust side
+//!   allows a listener to accumulate state (counters, logs, etc.) in the callback, so consistent
+//!   with the existing convention of [`crate::listener::field_listener::FieldListener`], all
+//!   methods take `&mut self`.
+//! - **`null` parameters**: Java's `fire*` allows passing `null` entities; Rust parameter types
+//!   are references, so there is no corresponding form.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 本接口未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 无对应代码 |
+//! | This interface does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | No corresponding code |
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -46,59 +51,60 @@ use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
 use crate::task::Task;
 
-/// 实现本 trait 的类型可以接收项目文件中的事件通知。
+/// Types implementing this trait can receive event notifications from a project file.
 ///
-/// 对应 Java: `public interface ProjectListener`
+/// Corresponds to Java: `public interface ProjectListener`
 ///
-/// 签名中实体用共享句柄（`&Rc<RefCell<..>>`）而非 `&mut` 的取舍见文件头。
+/// The trade-off of using shared handles (`&Rc<RefCell<..>>`) rather than `&mut` for entities
+/// in the signatures is described in the file header.
 pub trait ProjectListener {
-    /// 从文件中读入一个任务时调用。
+    /// Called when a task is read from a file.
     ///
-    /// 对应 Java: `void taskRead(Task task)`
+    /// Corresponds to Java: `void taskRead(Task task)`
     fn task_read(&mut self, task: &Rc<RefCell<Task>>);
 
-    /// 将一个任务写出到文件时调用。
+    /// Called when a task is written to a file.
     ///
-    /// 对应 Java: `void taskWritten(Task task)`
+    /// Corresponds to Java: `void taskWritten(Task task)`
     fn task_written(&mut self, task: &Rc<RefCell<Task>>);
 
-    /// 从文件中读入一个资源时调用。
+    /// Called when a resource is read from a file.
     ///
-    /// 对应 Java: `void resourceRead(Resource resource)`
+    /// Corresponds to Java: `void resourceRead(Resource resource)`
     fn resource_read(&mut self, resource: &Rc<RefCell<Resource>>);
 
-    /// 将一个资源写出到文件时调用。
+    /// Called when a resource is written to a file.
     ///
-    /// 对应 Java: `void resourceWritten(Resource resource)`
+    /// Corresponds to Java: `void resourceWritten(Resource resource)`
     fn resource_written(&mut self, resource: &Rc<RefCell<Resource>>);
 
-    /// 从文件中读入一个日历时调用。
+    /// Called when a calendar is read from a file.
     ///
-    /// 对应 Java: `void calendarRead(ProjectCalendar calendar)`
+    /// Corresponds to Java: `void calendarRead(ProjectCalendar calendar)`
     fn calendar_read(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>);
 
-    /// 将一个日历写出到文件时调用。
+    /// Called when a calendar is written to a file.
     ///
-    /// 对应 Java: `void calendarWritten(ProjectCalendar calendar)`
+    /// Corresponds to Java: `void calendarWritten(ProjectCalendar calendar)`
     fn calendar_written(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>);
 
-    /// 从文件中读入一个资源分配时调用。
+    /// Called when a resource assignment is read from a file.
     ///
-    /// 对应 Java: `void assignmentRead(ResourceAssignment assignment)`
+    /// Corresponds to Java: `void assignmentRead(ResourceAssignment assignment)`
     fn assignment_read(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>);
 
-    /// 将一个资源分配写出到文件时调用。
+    /// Called when a resource assignment is written to a file.
     ///
-    /// 对应 Java: `void assignmentWritten(ResourceAssignment assignment)`
+    /// Corresponds to Java: `void assignmentWritten(ResourceAssignment assignment)`
     fn assignment_written(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>);
 
-    /// 从文件中读入一个关系时调用。
+    /// Called when a relation is read from a file.
     ///
-    /// 对应 Java: `void relationRead(Relation relation)`
+    /// Corresponds to Java: `void relationRead(Relation relation)`
     fn relation_read(&mut self, relation: &Rc<RefCell<Relation>>);
 
-    /// 将一个关系写出到文件时调用。
+    /// Called when a relation is written to a file.
     ///
-    /// 对应 Java: `void relationWritten(Relation relation)`
+    /// Corresponds to Java: `void relationWritten(Relation relation)`
     fn relation_written(&mut self, relation: &Rc<RefCell<Relation>>);
 }

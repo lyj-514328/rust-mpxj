@@ -1,22 +1,22 @@
-//! 对应 Java: `org/mpxj/mpp/SplitView9.java`
+//! Corresponds to Java: `org/mpxj/mpp/SplitView9.java`
 //!
-//! MS Project 中的「用户自定义组合视图」：由两个已有视图上下拼接而成（拆分屏幕）。本类在
-//! [`GenericView9`] 的基础上，从属性块里再读出上、下两个视图的名称。
+//! The "user-defined combined view" in MS Project: formed by stacking two existing views vertically (split screen). This class,
+//! building on [`GenericView9`], additionally reads the names of the upper and lower views from the properties block.
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `InputStream` / `ByteArrayInputStream` | 按本工程约定，Java 的流读取改为直接接收 `&[u8]` |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `InputStream` / `ByteArrayInputStream` | Per this project's convention, Java's stream reading is changed to directly accepting `&[u8]` |
+//! | Reflection / JDBC / XML (JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # How inheritance is reproduced: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `SplitView9 extends GenericView9` | [`SplitView9`] **持有**一个 [`GenericView9`]，转发访问器 / setter / `toString()` 之外的行为 |
-//! | `SplitView9(ProjectFile parent, byte[] fixedData, Var2Data varData) throws IOException`（包内可见） | [`SplitView9::new`]（`IOException` → `Err(MpxjError)`；Rust 无包内可见性，取 `pub`） |
-//! | `@Override public String toString()` | `impl Display`（Java 覆写了 `toString()`，Rust 侧照抄其格式） |
+//! | `SplitView9 extends GenericView9` | [`SplitView9`] **holds** a [`GenericView9`] and forwards behavior other than the accessors / setters / `toString()` |
+//! | `SplitView9(ProjectFile parent, byte[] fixedData, Var2Data varData) throws IOException` (package-private) | [`SplitView9::new`] (`IOException` -> `Err(MpxjError)`; Rust has no package visibility, so it is `pub`) |
+//! | `@Override public String toString()` | `impl Display` (Java overrides `toString()`, and Rust copies its format) |
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -33,33 +33,33 @@ use crate::table::Table;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// 拆分屏幕视图（上 / 下两个视图的组合）。
+/// Split-screen view (a combination of an upper and a lower view).
 ///
-/// 对应 Java: `public class SplitView9 extends GenericView9`
+/// Corresponds to Java: `public class SplitView9 extends GenericView9`
 pub struct SplitView9 {
-    /// 对应 Java: `extends GenericView9`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends GenericView9` (Rust uses composition instead of inheritance)
     view: GenericView9,
 
-    /// 上方视图的名称。
+/// Name of the upper view.
     ///
-    /// 对应 Java 字段: `private String m_upperViewName;`
+    /// Corresponds to Java field: `private String m_upperViewName;`
     m_upper_view_name: Option<String>,
 
-    /// 下方视图的名称。
+/// Name of the lower view.
     ///
-    /// 对应 Java 字段: `private String m_lowerViewName;`
+    /// Corresponds to Java field: `private String m_lowerViewName;`
     m_lower_view_name: Option<String>,
 }
 
 impl SplitView9 {
-    /// 属性块的数据类型 ID。
+/// Data type ID of the properties block.
     ///
-    /// 对应 Java: `private static final Integer PROPERTIES = Integer.valueOf(1);`
+    /// Corresponds to Java: `private static final Integer PROPERTIES = Integer.valueOf(1);`
     pub const PROPERTIES: i32 = 1;
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `SplitView9(ProjectFile parent, byte[] fixedData, Var2Data varData) throws IOException`
+    /// Corresponds to Java: `SplitView9(ProjectFile parent, byte[] fixedData, Var2Data varData) throws IOException`
     pub fn new(
         parent: &Rc<RefCell<ProjectFile>>,
         fixed_data: &[u8],
@@ -98,71 +98,71 @@ impl SplitView9 {
         Ok(result)
     }
 
-    /// 取下方视图的名称。
+/// Get the name of the lower view.
     ///
-    /// 对应 Java: `public String getLowerViewName()`
+    /// Corresponds to Java: `public String getLowerViewName()`
     pub fn get_lower_view_name(&self) -> Option<&str> {
         self.m_lower_view_name.as_deref()
     }
 
-    /// 取上方视图的名称。
+/// Get the name of the upper view.
     ///
-    /// 对应 Java: `public String getUpperViewName()`
+    /// Corresponds to Java: `public String getUpperViewName()`
     pub fn get_upper_view_name(&self) -> Option<&str> {
         self.m_upper_view_name.as_deref()
     }
 
-    /// 取属性块的数据类型 ID。
+/// Get the data type ID of the properties block.
     ///
-    /// 对应 Java: `GenericView9.getPropertiesID()`（继承）
+/// Corresponds to Java: `GenericView9.getPropertiesID()` (inherited)
     pub fn get_properties_id(&self) -> i32 {
         self.view.get_properties_id()
     }
 
-    /// 取父项目文件。
+/// Get the parent project file.
     ///
-    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+/// Corresponds to Java: `AbstractView.m_file` (protected field)
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.view.get_file()
     }
 
-    /// 取内部持有的 `GenericView9` 实例。
+/// Get the internally held `GenericView9` instance.
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达。
+/// Rust-specific: Java's inheritance is expressed on the Rust side by composition.
     pub fn as_generic_view9(&self) -> &GenericView9 {
         &self.view
     }
 }
 
 impl View for SplitView9 {
-    /// 对应 Java: `AbstractView.getID()`（继承）
+/// Corresponds to Java: `AbstractView.getID()` (inherited)
     fn get_id(&self) -> Option<i32> {
         self.view.get_id()
     }
 
-    /// 对应 Java: `AbstractView.getName()`（继承）
+/// Corresponds to Java: `AbstractView.getName()` (inherited)
     fn get_name(&self) -> Option<&str> {
         self.view.get_name()
     }
 
-    /// 对应 Java: `AbstractView.getType()`（继承）
+/// Corresponds to Java: `AbstractView.getType()` (inherited)
     fn get_type(&self) -> Option<ViewType> {
         self.view.get_type()
     }
 
-    /// 对应 Java: `AbstractView.getTableName()`（继承）
+/// Corresponds to Java: `AbstractView.getTableName()` (inherited)
     fn get_table_name(&self) -> Option<&str> {
         self.view.get_table_name()
     }
 
-    /// 对应 Java: `AbstractView.getTable()`（继承）
+/// Corresponds to Java: `AbstractView.getTable()` (inherited)
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
 }
 
 impl Display for SplitView9 {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
     /// Java: `"[SplitView9 upperViewName=" + m_upperViewName + " lowerViewName=" + m_lowerViewName + "]"`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 构造固定数据块（ID + UTF-16LE 名称 + 偏移 112 处的视图类型）。
+/// Build a fixed data block (ID + UTF-16LE name + view type at offset 112).
     fn fixed_data(id: i32, name: &str, view_type: i32) -> Vec<u8> {
         let mut data = vec![0u8; 116];
         data[0..4].copy_from_slice(&id.to_le_bytes());
@@ -192,7 +192,7 @@ mod tests {
         data
     }
 
-    /// 构造 UTF-16LE 字符串（含结尾 NUL）。
+/// Build a UTF-16LE string (including the trailing NUL).
     fn utf16(value: &str) -> Vec<u8> {
         let mut data = Vec::new();
         for unit in value.encode_utf16() {
@@ -202,7 +202,7 @@ mod tests {
         data
     }
 
-    /// 按 MPP9 的属性块布局构造 `Props9` 数据。
+/// Build `Props9` data using the MPP9 properties block layout.
     fn props9(entries: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(entries.len() as i16).to_le_bytes());
@@ -220,7 +220,7 @@ mod tests {
         data
     }
 
-    /// 用 `(id, type) → 数据项` 的映射构造 var data 块。
+/// Build a var data block from an `(id, type) -> data item` mapping.
     fn var_data_block(file: &Rc<RefCell<ProjectFile>>, items: &[(i32, i32, Vec<u8>)]) -> Var2Data {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
@@ -245,11 +245,11 @@ mod tests {
             meta.extend_from_slice(&offsets[index].to_le_bytes());
         }
 
-        let meta = VarMeta9::new(&meta).expect("元数据合法");
+        let meta = VarMeta9::new(&meta).expect("valid metadata");
         Var2Data::new(file, Rc::new(meta), &data)
     }
 
-    /// 上、下视图名称按 Java 的键解析，并剥离 `&`。
+/// The upper and lower view names are resolved using Java's keys, stripping `&`.
     #[test]
     fn parses_upper_and_lower_view_names() {
         let file = ProjectFile::new();
@@ -260,12 +260,12 @@ mod tests {
         ]);
         let var_data = var_data_block(&file, &[(1, 1, props)]);
 
-        let view = SplitView9::new(&file, &data, &var_data).expect("应能解析");
+        let view = SplitView9::new(&file, &data, &var_data).expect("should parse");
 
         assert_eq!(view.get_upper_view_name(), Some("Gantt Chart"));
         assert_eq!(view.get_lower_view_name(), Some("Task Form"));
-        // 注意：`PropsKey::TableName` 与 `PropsKey::UpperViewName` 是同一个键值
-        // （574619658），属性块是「键值 → 字节数组」表，因此二者读到同一份数据。
+// Note: `PropsKey::TableName` and `PropsKey::UpperViewName` are the same key value
+// (574619658); the properties block is a "key value -> byte array" table, so both read the same data.
         assert_eq!(view.get_table_name(), Some("Gantt Chart"));
         assert_eq!(view.get_id(), Some(1));
         assert_eq!(
@@ -274,14 +274,14 @@ mod tests {
         );
     }
 
-    /// 属性块缺失时上下视图名称均为 `None`（Java 的 `null`）。
+/// When the properties block is missing, both view names are `None` (Java's `null`).
     #[test]
     fn missing_properties_yields_none() {
         let file = ProjectFile::new();
         let data = fixed_data(2, "Split View", 1);
         let var_data = var_data_block(&file, &[]);
 
-        let view = SplitView9::new(&file, &data, &var_data).expect("应能解析");
+        let view = SplitView9::new(&file, &data, &var_data).expect("should parse");
 
         assert_eq!(view.get_upper_view_name(), None);
         assert_eq!(view.get_lower_view_name(), None);
@@ -291,7 +291,7 @@ mod tests {
         );
     }
 
-    /// 属性块只有其中一个键时另一个为 `None`。
+/// When the properties block has only one of the keys, the other is `None`.
     #[test]
     fn partial_properties_are_supported() {
         let file = ProjectFile::new();
@@ -299,22 +299,22 @@ mod tests {
         let props = props9(&[(PropsKey::LowerViewName.get_value(), utf16("Resource Sheet"))]);
         let var_data = var_data_block(&file, &[(3, 1, props)]);
 
-        let view = SplitView9::new(&file, &data, &var_data).expect("应能解析");
+        let view = SplitView9::new(&file, &data, &var_data).expect("should parse");
 
         assert_eq!(view.get_upper_view_name(), None);
         assert_eq!(view.get_lower_view_name(), Some("Resource Sheet"));
     }
 
-    /// 数据过短 / 属性块损坏时不 panic（损坏的 props 返回 `Err`）。
+/// No panic when the data is too short / the properties block is corrupted (a corrupted props returns `Err`).
     #[test]
     fn short_data_and_corrupt_props_do_not_panic() {
         let file = ProjectFile::new();
         let empty_var_data = var_data_block(&file, &[]);
-        let view = SplitView9::new(&file, &[], &empty_var_data).expect("应能解析");
+        let view = SplitView9::new(&file, &[], &empty_var_data).expect("should parse");
         assert_eq!(view.get_id(), Some(0));
         assert_eq!(view.get_upper_view_name(), None);
 
-        // 声明 2 条但只有 1 条 → Props9 解析失败
+// Declares 2 entries but has only 1 -> Props9 parsing fails
         let mut props = vec![0u8; 16];
         props[12..14].copy_from_slice(&2i16.to_le_bytes());
         props.extend_from_slice(&4i32.to_le_bytes());

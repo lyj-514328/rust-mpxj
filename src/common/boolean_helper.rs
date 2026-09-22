@@ -1,16 +1,16 @@
-//! 对应 Java: `org/mpxj/common/BooleanHelper.java`
+//! Corresponds to Java: `org/mpxj/common/BooleanHelper.java`
 
-/// 处理 `Boolean` 对象与 `boolean` 基本类型的工具方法。
+/// Utility methods for handling `Boolean` objects and the `boolean` primitive type.
 ///
-/// 对应 Java: `public final class BooleanHelper`
+/// Corresponds to Java: `public final class BooleanHelper`
 ///
-/// 未移植的方法：无。
+/// Skipped Java methods: none.
 pub struct BooleanHelper;
 
 impl BooleanHelper {
-    /// 对应 Java: `public static final boolean getBoolean(Boolean value)`
+    /// Corresponds to Java: `public static final boolean getBoolean(Boolean value)`
     ///
-    /// 处理 null：只有显式 `Some(true)` 才返回 `true`。
+    /// Handles null: only an explicit `Some(true)` returns `true`.
     pub fn get_boolean(value: Option<bool>) -> bool {
         value == Some(true)
     }

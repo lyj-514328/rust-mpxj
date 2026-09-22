@@ -1,16 +1,16 @@
-//! 对应 Java: `org/mpxj/DataLink.java`
+//! Corresponds to Java: `org/mpxj/DataLink.java`
 //!
-//! 表示两个字段之间的链接，可以位于同一个项目内，也可以跨项目。通常一条记录
-//! 同时给出源与目标，有时也会拆成两条记录（源在一条、目标在另一条）。此外，
-//! 当一条链接被移除后，可能留下「只有源、没有目标」的记录。
+//! Represents a link between two fields, either within the same project or across projects. Usually one record
+//! gives both source and target, but sometimes it is split into two records (source in one, target in the other). In addition,
+//! when a link is removed, a record with "only a source, no target" may be left behind.
 //!
-//! # Java → Rust 方法对照
+//! # Java -> Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
 //! | `public DataLink(String id)` | [`DataLink::new`] |
-//! | `public String getID()` | [`DataLink::get_nullable_id`]；兼容旧 API 的 [`DataLink::get_id`] 将 `null` 映射为空串 |
-//! | `public FieldType getSourceField()` | [`DataLink::get_source_field`]（返回 `Option<FieldKey>`，见下） |
+//! | `public String getID()` | [`DataLink::get_nullable_id`]; the legacy-API-compatible [`DataLink::get_id`] maps `null` to the empty string |
+//! | `public FieldType getSourceField()` | [`DataLink::get_source_field`] (returns `Option<FieldKey>`, see below) |
 //! | `public void setSourceField(FieldType)` | [`DataLink::set_source_field`] |
 //! | `public Integer getSourceUniqueID()` | [`DataLink::get_source_unique_id`] |
 //! | `public void setSourceUniqueID(Integer)` | [`DataLink::set_source_unique_id`] |
@@ -20,75 +20,75 @@
 //! | `public void setTargetUniqueID(Integer)` | [`DataLink::set_target_unique_id`] |
 //! | `@Override public String toString()` | `impl Display for DataLink` |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`FieldType` → [`FieldKey`]**：Java 的 `getSourceField()` / `getTargetField()`
-//!   返回 `FieldType` 接口；Rust 侧按本 crate 的约定改用其运行时擦除形式
-//!   [`FieldKey`]（见 `crate::field_key`），并用 `FieldType::get_field_type_class` /
-//!   `FieldType::name` 复现 Java `toString()` 中 `FieldTypeClass.name()` 的输出。
-//! - **可空字段 → `Option<T>`**：Java 字段可为 `null`（`Integer` → `Option<i32>`，
-//!   `FieldType` → `Option<FieldKey>`）。
-//! - **`get_id` 兼容入口**：Java 的 `m_id` 也可为 `null`；模型保留
-//!   `Option<String>`，旧 `get_id()` 为保持 API 兼容把 `None` 表示为空串；
-//!   精确语义请调用 `get_nullable_id()`。
-//! - **未派生 `PartialEq` / `Eq` / `Hash`**：Java 的 `DataLink` 未覆写
-//!   `equals` / `hashCode`（沿用对象同一性），因此 Rust 侧不提供结构相等，
-//!   容器中的「按引用相等移除」由 [`crate::data_link_container::DataLinkContainer`]
-//!   用指针同一性表达。
-//! - **`toString()` → [`Display`]**：输出顺序与 Java 的 `StringBuilder` 拼接一致；
-//!   Java 对可空整数字段打印 `"null"`，Rust 侧用 [`format_optional_integer`] 复现。
+//! - **`FieldType` -> [`FieldKey`]**: Java's `getSourceField()` / `getTargetField()`
+//! return the `FieldType` interface; Rust follows this crate's convention and uses its runtime-erased form
+//! [`FieldKey`] (see `crate::field_key`), and reproduces the output of `FieldTypeClass.name()` in Java's
+//! `toString()` using `FieldType::get_field_type_class` / `FieldType::name`.
+//! - **Nullable fields -> `Option<T>`**: Java fields may be `null` (`Integer` -> `Option<i32>`,
+//!   `FieldType` → `Option<FieldKey>`).
+//! - **`get_id` compatibility entry point**: Java's `m_id` may also be `null`; the model keeps
+//! `Option<String>`, and the legacy `get_id()` represents `None` as the empty string for API compatibility;
+//! call `get_nullable_id()` for exact semantics.
+//! - **`PartialEq` / `Eq` / `Hash` are not derived**: Java's `DataLink` does not override
+//! `equals` / `hashCode` (it uses object identity), so Rust does not provide structural equality,
+//! and "remove by reference equality" in the container is expressed by [`crate::data_link_container::DataLinkContainer`]
+//! using pointer identity.
+//! - **`toString()` -> [`Display`]**: the output order matches Java's `StringBuilder` concatenation;
+//! Java prints `"null"` for nullable integer fields, and Rust reproduces this with [`format_optional_integer`].
 //!
-//! # 跳过的 Java 机制
+//! # Skipped Java mechanisms
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::field_key::FieldKey;
 use crate::field_type::FieldType;
 
-/// 两个字段之间的链接。
+/// A link between two fields.
 ///
-/// 对应 Java: `public final class DataLink`
+/// Corresponds to Java: `public final class DataLink`
 #[derive(Debug, Clone)]
 pub struct DataLink {
-    /// 链接标识。
+/// Link identifier.
     ///
-    /// 对应 Java: `private final String m_id;`
+    /// Corresponds to Java: `private final String m_id;`
     id: Option<String>,
 
-    /// 源字段。
+/// Source field.
     ///
-    /// 对应 Java: `private FieldType m_sourceField;`
+    /// Corresponds to Java: `private FieldType m_sourceField;`
     source_field: Option<FieldKey>,
 
-    /// 源对象的 unique ID。
+/// Unique ID of the source object.
     ///
-    /// 对应 Java: `private Integer m_sourceUniqueID;`
+    /// Corresponds to Java: `private Integer m_sourceUniqueID;`
     source_unique_id: Option<i32>,
 
-    /// 目标字段。
+/// Target field.
     ///
-    /// 对应 Java: `private FieldType m_targetField;`
+    /// Corresponds to Java: `private FieldType m_targetField;`
     target_field: Option<FieldKey>,
 
-    /// 目标对象的 unique ID。
+/// Unique ID of the target object.
     ///
-    /// 对应 Java: `private Integer m_targetUniqueID;`
+    /// Corresponds to Java: `private Integer m_targetUniqueID;`
     target_unique_id: Option<i32>,
 }
 
 impl DataLink {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public DataLink(String id)`
+    /// Corresponds to Java: `public DataLink(String id)`
     pub fn new(id: impl Into<String>) -> Self {
         Self::new_nullable(Some(id.into()))
     }
 
-    /// 构造允许空标识的链接，保留 Java 的 `null` 和空字符串区别。
+/// Construct a link that allows a null identifier, preserving Java's distinction between `null` and the empty string.
     ///
-    /// 对应 Java: `public DataLink(String id)`（`id == null`）。
+    /// Corresponds to Java: `public DataLink(String id)`(`id == null`).
     pub fn new_nullable(id: Option<String>) -> Self {
         Self {
             id,
@@ -99,79 +99,79 @@ impl DataLink {
         }
     }
 
-    /// 取链接标识。
+/// Get the link identifier.
     ///
-    /// 对应 Java: `public String getID()`
+    /// Corresponds to Java: `public String getID()`
     pub fn get_id(&self) -> &str {
         self.id.as_deref().unwrap_or("")
     }
 
-    /// 取可空标识，供需要区分 Java `null` 与空串的调用方使用。
+/// Get the nullable identifier, for callers that need to distinguish Java `null` from the empty string.
     ///
-    /// 对应 Java: `public String getID()`。
+    /// Corresponds to Java: `public String getID()`.
     pub fn get_nullable_id(&self) -> Option<&str> {
         self.id.as_deref()
     }
 
-    /// 取源字段。
+/// Get the source field.
     ///
-    /// 对应 Java: `public FieldType getSourceField()`
+    /// Corresponds to Java: `public FieldType getSourceField()`
     pub fn get_source_field(&self) -> Option<FieldKey> {
         self.source_field
     }
 
-    /// 设置源字段。
+/// Set the source field.
     ///
-    /// 对应 Java: `public void setSourceField(FieldType sourceField)`
+    /// Corresponds to Java: `public void setSourceField(FieldType sourceField)`
     pub fn set_source_field(&mut self, source_field: Option<FieldKey>) {
         self.source_field = source_field;
     }
 
-    /// 取源对象的 unique ID。
+/// Get the unique ID of the source object.
     ///
-    /// 对应 Java: `public Integer getSourceUniqueID()`
+    /// Corresponds to Java: `public Integer getSourceUniqueID()`
     pub fn get_source_unique_id(&self) -> Option<i32> {
         self.source_unique_id
     }
 
-    /// 设置源对象的 unique ID。
+/// Set the unique ID of the source object.
     ///
-    /// 对应 Java: `public void setSourceUniqueID(Integer sourceUniqueID)`
+    /// Corresponds to Java: `public void setSourceUniqueID(Integer sourceUniqueID)`
     pub fn set_source_unique_id(&mut self, source_unique_id: Option<i32>) {
         self.source_unique_id = source_unique_id;
     }
 
-    /// 取目标字段。
+/// Get the target field.
     ///
-    /// 对应 Java: `public FieldType getTargetField()`
+    /// Corresponds to Java: `public FieldType getTargetField()`
     pub fn get_target_field(&self) -> Option<FieldKey> {
         self.target_field
     }
 
-    /// 设置目标字段。
+/// Set the target field.
     ///
-    /// 对应 Java: `public void setTargetField(FieldType targetField)`
+    /// Corresponds to Java: `public void setTargetField(FieldType targetField)`
     pub fn set_target_field(&mut self, target_field: Option<FieldKey>) {
         self.target_field = target_field;
     }
 
-    /// 取目标对象的 unique ID。
+/// Get the unique ID of the target object.
     ///
-    /// 对应 Java: `public Integer getTargetUniqueID()`
+    /// Corresponds to Java: `public Integer getTargetUniqueID()`
     pub fn get_target_unique_id(&self) -> Option<i32> {
         self.target_unique_id
     }
 
-    /// 设置目标对象的 unique ID。
+/// Set the unique ID of the target object.
     ///
-    /// 对应 Java: `public void setTargetUniqueID(Integer targetUniqueID)`
+    /// Corresponds to Java: `public void setTargetUniqueID(Integer targetUniqueID)`
     pub fn set_target_unique_id(&mut self, target_unique_id: Option<i32>) {
         self.target_unique_id = target_unique_id;
     }
 }
 
 impl Display for DataLink {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[DataLink id={}", self.id.as_deref().unwrap_or("null"))?;
 
@@ -199,7 +199,7 @@ impl Display for DataLink {
     }
 }
 
-/// 按 Java 的 `StringBuilder.append(Integer)` 语义输出可空整数（`null` 打印为 `"null"`）。
+/// Output a nullable integer following Java's `StringBuilder.append(Integer)` semantics (`null` prints as `"null"`).
 fn format_optional_integer(value: Option<i32>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(link.get_target_field(), Some(FieldKey::Task(TaskField::Cost)));
         assert_eq!(link.get_target_unique_id(), Some(9));
 
-        // 清除同样有效（对应 Java 传入 null）
+// Clearing is equally valid (corresponds to Java passing null)
         link.set_source_field(None);
         link.set_source_unique_id(None);
         assert!(link.get_source_field().is_none());

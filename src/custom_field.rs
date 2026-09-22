@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/CustomField.java`
+//! Corresponds to Java: `org/mpxj/CustomField.java`
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
@@ -19,76 +19,81 @@ use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 use crate::graphical_indicator::GraphicalIndicator;
 
-/// 单个字段的配置信息。
+/// Configuration information for a single field.
 ///
-/// 对应 Java: `public class CustomField implements Comparable<CustomField>`
+/// Corresponds to Java: `public class CustomField implements Comparable<CustomField>`
 ///
-/// # 字段映射与结构取舍
+/// # Field Mapping and Structural Trade-offs
 ///
 /// | Java | Rust |
 /// |---|---|
-/// | `private final FieldType m_field` | `FieldKey`（本 crate 对 `FieldType` 接口的运行时擦除，见 [`crate::field_key`]） |
-/// | `private final CustomFieldContainer m_parent` | `Weak<RefCell<CustomFieldContainer>>`（`setAlias` 时回指父容器注册别名，用 `Weak` 避免 `Rc` 循环） |
+/// | `private final FieldType m_field` | `FieldKey` (this crate's runtime erasure of the `FieldType` interface, see [`crate::field_key`]) |
+/// | `private final CustomFieldContainer m_parent` | `Weak<RefCell<CustomFieldContainer>>` (points back to the parent container to register aliases in `setAlias`; `Weak` avoids an `Rc` cycle) |
 /// | `private final CustomFieldLookupTable m_table` | [`CustomFieldLookupTable`] |
-/// | `private final GraphicalIndicator m_indicator` | [`GraphicalIndicator`]（`src/graphical_indicator.rs`） |
+/// | `private final GraphicalIndicator m_indicator` | [`GraphicalIndicator`] (`src/graphical_indicator.rs`) |
 /// | `private final List<CustomFieldValueMask> m_masks` | `Vec<CustomFieldValueMask>` |
-/// | `private Integer m_uniqueID` | `Cell<Option<i32>>`（Java 的 `getUniqueID()` 会惰性回填该字段，`Cell` 提供等价的可变性，见下） |
+/// | `private Integer m_uniqueID` | `Cell<Option<i32>>` (Java's `getUniqueID()` lazily back-fills this field; `Cell` provides equivalent mutability, see below) |
 /// | `private String m_alias` | `Option<String>` |
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - `getUniqueID()` 的惰性回落**已实现**（见 [`CustomField::get_unique_id`]）：
-///   Java 在该值为 `null` 时写入 `FieldTypeHelper.getFieldID(m_field)` 并返回，
-///   Rust 侧用 [`std::cell::Cell`] 保存 `m_unique_id`，因此 `&self` 下也能完成
-///   「读回落 + 回填缓存」。`m_field` 为 [`FieldKey::Custom`] 时按 Java 的
-///   `UserDefinedField.getValue()` 分支计算（见模块级 `fallback_unique_id`）。
-/// - `getGraphicalIndicator()` 返回的是 `m_indicator` 的借用，且额外提供
-///   [`CustomField::get_graphical_indicator_mut`]：Java 的 `GraphicalIndicator` 是引用语义，
-///   调用方拿到后直接修改；Rust 侧实例通常被 `Rc<RefCell<CustomField>>` 共享，故按本 crate
-///   的既有做法（见 `get_lookup_table_mut` / `get_masks_mut`）另给一个可变访问器。
+/// - The lazy fallback of `getUniqueID()` **is implemented** (see [`CustomField::get_unique_id`]):
+///   Java writes `FieldTypeHelper.getFieldID(m_field)` and returns it when the value is `null`;
+///   the Rust side stores `m_unique_id` in a [`std::cell::Cell`], so "read fallback + back-fill
+///   cache" can also be performed under `&self`. When `m_field` is [`FieldKey::Custom`], it is
+///   computed via Java's `UserDefinedField.getValue()` branch (see module-level
+///   `fallback_unique_id`).
+/// - `getGraphicalIndicator()` returns a borrow of `m_indicator` and additionally provides
+///   [`CustomField::get_graphical_indicator_mut`]: Java's `GraphicalIndicator` has reference
+///   semantics, and callers modify it directly after obtaining it; the Rust instance is
+///   usually shared via `Rc<RefCell<CustomField>>`, so following this crate's existing
+///   practice (see `get_lookup_table_mut` / `get_masks_mut`) a separate mutable accessor is
+///   provided.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub struct CustomField {
-    /// 该配置对应的字段类型。
+    /// Field type corresponding to this configuration.
     ///
-    /// 对应 Java: `private final FieldType m_field;`
+    /// Corresponds to Java: `private final FieldType m_field;`
     m_field: FieldKey,
-    /// 父容器。
+    /// Parent container.
     ///
-    /// 对应 Java: `private final CustomFieldContainer m_parent;`
+    /// Corresponds to Java: `private final CustomFieldContainer m_parent;`
     m_parent: Weak<RefCell<CustomFieldContainer>>,
-    /// 取值查找表。
+    /// Value lookup table.
     ///
-    /// 对应 Java: `private final CustomFieldLookupTable m_table;`
+    /// Corresponds to Java: `private final CustomFieldLookupTable m_table;`
     m_table: CustomFieldLookupTable,
-    /// 图形化指标配置。
+    /// Graphical indicator configuration.
     ///
-    /// 对应 Java: `private final GraphicalIndicator m_indicator;`
+    /// Corresponds to Java: `private final GraphicalIndicator m_indicator;`
     m_indicator: GraphicalIndicator,
-    /// mask 定义。
+    /// Mask definitions.
     ///
-    /// 对应 Java: `private final List<CustomFieldValueMask> m_masks;`
+    /// Corresponds to Java: `private final List<CustomFieldValueMask> m_masks;`
     m_masks: Vec<CustomFieldValueMask>,
-    /// unique ID。
+    /// Unique ID.
     ///
-    /// 对应 Java: `private Integer m_uniqueID;`
+    /// Corresponds to Java: `private Integer m_uniqueID;`
     ///
-    /// 用 [`Cell`] 而非 `Option<i32>`：Java 的 `getUniqueID()` 会在未显式设置时把回落结果
-    /// 写回该字段（惰性缓存），`&self` 下要复刻该行为需要内部可变性。
+    /// A [`Cell`] is used instead of `Option<i32>`: Java's `getUniqueID()` writes the fallback
+    /// result back to this field when it has not been set explicitly (lazy caching), and
+    /// reproducing that behavior under `&self` requires interior mutability.
     m_unique_id: Cell<Option<i32>>,
-    /// 字段别名。
+    /// Field alias.
     ///
-    /// 对应 Java: `private String m_alias;`
+    /// Corresponds to Java: `private String m_alias;`
     m_alias: Option<String>,
 }
 
 impl CustomField {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public CustomField(FieldType field, CustomFieldContainer parent)`
+    /// Corresponds to Java: `public CustomField(FieldType field, CustomFieldContainer parent)`
     ///
-    /// Java 的 `parent` 不可为 `null`；Rust 侧允许传入 `Weak::new()` 表示「无父容器」
-    /// （此时 `set_alias` 不会向外注册别名），便于单独构造字段做测试。
+    /// Java's `parent` cannot be `null`; the Rust side allows passing `Weak::new()` to mean
+    /// "no parent container" (in which case `set_alias` does not register an alias outward),
+    /// which makes it convenient to construct fields standalone for tests.
     pub fn new(field: FieldKey, parent: Weak<RefCell<CustomFieldContainer>>) -> Self {
         Self {
             m_field: field,
@@ -101,60 +106,63 @@ impl CustomField {
         }
     }
 
-    /// 取该配置对应的字段类型。
+    /// Return the field type corresponding to this configuration.
     ///
-    /// 对应 Java: `public FieldType getFieldType()`
+    /// Corresponds to Java: `public FieldType getFieldType()`
     pub fn get_field_type(&self) -> FieldKey {
         self.m_field
     }
 
-    /// 取取值查找表。
+    /// Return the value lookup table.
     ///
-    /// 对应 Java: `public CustomFieldLookupTable getLookupTable()`
+    /// Corresponds to Java: `public CustomFieldLookupTable getLookupTable()`
     pub fn get_lookup_table(&self) -> &CustomFieldLookupTable {
         &self.m_table
     }
 
-    /// 以可变方式取取值查找表（Java 返回的对象本身可变）。
+    /// Return the value lookup table mutably (the object Java returns is itself mutable).
     ///
-    /// 对应 Java: `public CustomFieldLookupTable getLookupTable()`
+    /// Corresponds to Java: `public CustomFieldLookupTable getLookupTable()`
     pub fn get_lookup_table_mut(&mut self) -> &mut CustomFieldLookupTable {
         &mut self.m_table
     }
 
-    /// 取该字段的图形化指标配置。
+    /// Return the graphical indicator configuration for this field.
     ///
-    /// 对应 Java: `public GraphicalIndicator getGraphicalIndicator()`
+    /// Corresponds to Java: `public GraphicalIndicator getGraphicalIndicator()`
     ///
-    /// Java 返回的实例在构造时创建（`m_indicator = new GraphicalIndicator(field)`），
-    /// 因此同一字段的指标配置始终是同一个实例；`GraphicalIndicatorReader` 正是取出它再填充。
+    /// Java creates the returned instance in the constructor
+    /// (`m_indicator = new GraphicalIndicator(field)`), so the indicator configuration for the
+    /// same field is always the same instance; `GraphicalIndicatorReader` retrieves it and then
+    /// populates it.
     pub fn get_graphical_indicator(&self) -> &GraphicalIndicator {
         &self.m_indicator
     }
 
-    /// 以可变方式取图形化指标配置（Java 返回的对象本身可变）。
+    /// Return the graphical indicator configuration mutably (the object Java returns is itself mutable).
     ///
-    /// 对应 Java: `public GraphicalIndicator getGraphicalIndicator()`
+    /// Corresponds to Java: `public GraphicalIndicator getGraphicalIndicator()`
     pub fn get_graphical_indicator_mut(&mut self) -> &mut GraphicalIndicator {
         &mut self.m_indicator
     }
 
-    /// 取字段别名。
+    /// Return the field alias.
     ///
-    /// 对应 Java: `public String getAlias()`
+    /// Corresponds to Java: `public String getAlias()`
     pub fn get_alias(&self) -> Option<&str> {
         self.m_alias.as_deref()
     }
 
-    /// 设置字段别名，并在父容器中注册别名索引。
+    /// Set the field alias and register the alias index in the parent container.
     ///
-    /// 对应 Java: `public CustomField setAlias(String alias)`
+    /// Corresponds to Java: `public CustomField setAlias(String alias)`
     ///
-    /// Java 侧返回 `this` 以支持链式调用；Rust 侧的实例通常被
-    /// `Rc<RefCell<CustomField>>` 共享，故改为 `&mut self` 且不返回。
+    /// The Java side returns `this` to support method chaining; the Rust instance is usually
+    /// shared via `Rc<RefCell<CustomField>>`, so this takes `&mut self` and returns nothing.
     ///
-    /// Java 对 `null` 别名同样会调用 `registerAlias`；Rust 侧的别名索引键类型为
-    /// `(FieldTypeClass, String)`，无法表达 `null`，因此只在别名非 `None` 时注册。
+    /// Java also calls `registerAlias` for a `null` alias; the Rust alias index key type is
+    /// `(FieldTypeClass, String)`, which cannot express `null`, so registration only happens
+    /// when the alias is not `None`.
     pub fn set_alias(&mut self, alias: Option<String>) {
         if let Some(alias) = alias.as_deref() {
             if let Some(parent) = self.m_parent.upgrade() {
@@ -165,14 +173,15 @@ impl CustomField {
         self.m_alias = alias;
     }
 
-    /// 取 unique ID。
+    /// Return the unique ID.
     ///
-    /// 对应 Java: `public Integer getUniqueID()`
+    /// Corresponds to Java: `public Integer getUniqueID()`
     ///
-    /// Java：未显式设置时回落到 [`FieldTypeHelper::get_field_id`]（即 MS Project 使用的
-    /// 字段号）并把结果缓存下来；`setUniqueID(null)` 之后再取会重新回落。
-    /// 回落的计算见模块级 `fallback_unique_id`（`FieldKey::Custom` 需按
-    /// `UserDefinedField.getValue()` 分支处理，不能走内置字段的查表分支）。
+    /// Java: when not set explicitly, falls back to [`FieldTypeHelper::get_field_id`] (i.e. the
+    /// field number used by MS Project) and caches the result; reading again after
+    /// `setUniqueID(null)` falls back anew. See module-level `fallback_unique_id` for the
+    /// fallback computation (`FieldKey::Custom` must be handled via the
+    /// `UserDefinedField.getValue()` branch and cannot use the built-in field lookup branch).
     pub fn get_unique_id(&self) -> Option<i32> {
         // Java: if (m_uniqueID == null) { m_uniqueID = Integer.valueOf(...); }
         if let Some(unique_id) = self.m_unique_id.get() {
@@ -181,59 +190,60 @@ impl CustomField {
 
         let unique_id = fallback_unique_id(self.m_field);
         self.m_unique_id.set(Some(unique_id));
-        // Java 的 `getUniqueID()` 恒返回非 null 的 `Integer`，Rust 侧保留 `Option`
-        // 只是为了表达「尚未计算」的缓存状态，返回值始终是 `Some`。
+        // Java's `getUniqueID()` always returns a non-null `Integer`; the Rust side keeps `Option`
+        // only to express the "not yet computed" cache state, and the return value is always `Some`.
         Some(unique_id)
     }
 
-    /// 设置 unique ID。
+    /// Set the unique ID.
     ///
-    /// 对应 Java: `public CustomField setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public CustomField setUniqueID(Integer uniqueID)`
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.m_unique_id.set(unique_id);
     }
 
-    /// 取 mask 定义。
+    /// Return the mask definitions.
     ///
-    /// 对应 Java: `public List<CustomFieldValueMask> getMasks()`
+    /// Corresponds to Java: `public List<CustomFieldValueMask> getMasks()`
     pub fn get_masks(&self) -> &[CustomFieldValueMask] {
         &self.m_masks
     }
 
-    /// 以可变方式取 mask 定义（Java 返回的列表本身可变，调用方可直接 `add`）。
+    /// Return the mask definitions mutably (the list Java returns is itself mutable, so callers can `add` directly).
     ///
-    /// 对应 Java: `public List<CustomFieldValueMask> getMasks()`
+    /// Corresponds to Java: `public List<CustomFieldValueMask> getMasks()`
     pub fn get_masks_mut(&mut self) -> &mut Vec<CustomFieldValueMask> {
         &mut self.m_masks
     }
 
-    /// 排序键，对应 Java `compareTo` 中拼接的字符串：
-    /// `fieldTypeClass.name() + "." + uniqueID + "." + alias`。
+    /// Sort key corresponding to the string concatenated in Java's `compareTo`:
+    /// `fieldTypeClass.name() + "." + uniqueID + "." + alias`.
     ///
-    /// Java 用的是 `getUniqueID()`（会惰性回落），故这里同样走
-    /// [`CustomField::get_unique_id`]，而不是直接读缓存字段。
+    /// Java uses `getUniqueID()` (which falls back lazily), so this likewise goes through
+    /// [`CustomField::get_unique_id`] rather than reading the cached field directly.
     fn sort_key(&self) -> String {
         format!(
             "{}.{}.{}",
             field_type_class_name(self.m_field.get_field_type_class()),
             self.get_unique_id().unwrap_or(-1),
-            // Java: "+ getAlias()"，别名未设置时输出 "null"
+            // Java: "+ getAlias()"; outputs "null" when the alias is not set
             self.m_alias.as_deref().unwrap_or("null")
         )
     }
 }
 
-/// 复刻 Java `FieldTypeHelper.getFieldID(m_field)`（`CustomField.getUniqueID` 的回落值）。
+/// Reproduce Java `FieldTypeHelper.getFieldID(m_field)` (the fallback value of `CustomField.getUniqueID`).
 ///
-/// 内置字段直接转发 [`FieldTypeHelper::get_field_id`]。
+/// Built-in fields forward directly to [`FieldTypeHelper::get_field_id`].
 ///
-/// `FieldKey::Custom` 必须单独处理：Java 的 `FieldTypeHelper.getFieldID` 按
-/// `FieldTypeClass` 分派到 `MPPTaskField.getID(...)` 等，而 `getID` 内部对
-/// `UserDefinedField` 走的是 `value.getValue()` 分支（返回该字段的 unique ID），
-/// 并非 `ID_ARRAY` 查表。Rust 的 [`FieldKey::Custom`] 是 `Copy` 的等价键、
-/// 拿不到 `UserDefinedField` 句柄，若按内置字段传成 `MppFieldType::Builtin`
-/// 会落入查表分支（自定义字段的 unique ID 远超 `ID_ARRAY` 长度，结果是 -1），
-/// 故这里按 `value.getValue()` 的语义手工计算，与 Java 一致。
+/// `FieldKey::Custom` must be handled separately: Java's `FieldTypeHelper.getFieldID`
+/// dispatches on `FieldTypeClass` to `MPPTaskField.getID(...)` etc., and internally `getID`
+/// takes the `value.getValue()` branch for `UserDefinedField` (returning the field's unique
+/// ID) rather than the `ID_ARRAY` lookup. Rust's [`FieldKey::Custom`] is a `Copy` equivalent
+/// key and cannot obtain a `UserDefinedField` handle; passing it as a built-in field
+/// (`MppFieldType::Builtin`) would fall into the lookup branch (a custom field's unique ID
+/// far exceeds the length of `ID_ARRAY`, giving -1), so this computes manually with the
+/// semantics of `value.getValue()`, consistent with Java.
 fn fallback_unique_id(field: FieldKey) -> i32 {
     match field {
         FieldKey::Custom(key) => match key.get_field_type_class() {
@@ -247,7 +257,7 @@ fn fallback_unique_id(field: FieldKey) -> i32 {
             }
             // Java: result = MPPProjectField.PROJECT_FIELD_BASE | MPPProjectField.getID(type)
             FieldTypeClass::Project => MPPProjectField::PROJECT_FIELD_BASE | key.get_unique_id(),
-            // Java: default: result = -1;（Constraint / Unknown）
+            // Java: default: result = -1; (Constraint / Unknown)
             _ => -1,
         },
         // Java: switch (type.getFieldTypeClass()) { case TASK/RESOURCE/ASSIGNMENT/PROJECT: ... }
@@ -255,7 +265,7 @@ fn fallback_unique_id(field: FieldKey) -> i32 {
     }
 }
 
-/// 取 `FieldTypeClass` 的 Java 枚举名（`Enum.name()`），用于复刻 `compareTo` 的排序键。
+/// Return the Java enum name of `FieldTypeClass` (`Enum.name()`), used to reproduce the sort key of `compareTo`.
 fn field_type_class_name(type_class: FieldTypeClass) -> &'static str {
     match type_class {
         FieldTypeClass::Task => "TASK",
@@ -268,9 +278,9 @@ fn field_type_class_name(type_class: FieldTypeClass) -> &'static str {
 }
 
 impl PartialEq for CustomField {
-    /// Java 未覆写 `equals`（使用引用相等），但实现了 `Comparable`。Rust 的 `Ord` 要求配套
-    /// `Eq`，故按 `compareTo` 的排序键实现 —— 与 Java 中 `TreeSet` / `TreeMap` 用
-    /// `compareTo` 判等的行为一致。
+    /// Java does not override `equals` (it uses reference equality) but implements `Comparable`.
+    /// Rust's `Ord` requires a matching `Eq`, so this is implemented via the sort key of
+    /// `compareTo` — consistent with Java's `TreeSet` / `TreeMap` using `compareTo` for equality.
     fn eq(&self, other: &Self) -> bool {
         self.sort_key() == other.sort_key()
     }
@@ -279,24 +289,25 @@ impl PartialEq for CustomField {
 impl Eq for CustomField {}
 
 impl PartialOrd for CustomField {
-    /// 对应 Java: `public int compareTo(CustomField f)`
+    /// Corresponds to Java: `public int compareTo(CustomField f)`
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for CustomField {
-    /// 对应 Java: `public int compareTo(CustomField f)`
+    /// Corresponds to Java: `public int compareTo(CustomField f)`
     fn cmp(&self, other: &Self) -> Ordering {
         self.sort_key().cmp(&other.sort_key())
     }
 }
 
 impl Display for CustomField {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java: `"[CustomField field=" + m_field + " alias=" + m_alias + "]"`；其中 `m_field`
-    /// 是枚举，输出常量名（如 `"TEXT1"`），`m_alias` 为 `null` 时输出 `null`。
+    /// Java: `"[CustomField field=" + m_field + " alias=" + m_alias + "]"`; here `m_field` is an
+    /// enum and outputs the constant name (e.g. `"TEXT1"`), and `m_alias` outputs `null` when it
+    /// is `null`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -308,14 +319,15 @@ impl Display for CustomField {
 }
 
 impl std::fmt::Debug for CustomField {
-    /// Java 未覆写 `toString()` 以外的调试输出；Rust 侧为便于诊断提供 `Debug`。
+    /// Java does not override debug output beyond `toString()`; the Rust side provides `Debug` for easier diagnosis.
     ///
-    /// 刻意**不**输出 `m_parent`：子对象经 `Weak` 回指父容器，父容器又持有全部子对象，
-    /// 打印父容器会造成无限递归。
+    /// Deliberately **does not** output `m_parent`: child objects point back to the parent
+    /// container via `Weak`, and the parent container holds all child objects, so printing the
+    /// parent container would cause infinite recursion.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("CustomField")
             .field("field", &self.m_field.name())
-            // 直接读缓存值（不触发回落），`Cell` 本身的 `Debug` 输出会多一层包装
+            // Read the cached value directly (without triggering the fallback); `Cell`'s own `Debug` output adds an extra layer of wrapping
             .field("unique_id", &self.m_unique_id.get())
             .field("alias", &self.m_alias)
             .field("table", &self.m_table)
@@ -332,7 +344,7 @@ mod tests {
     use crate::resource_field::ResourceField;
     use crate::task_field::TaskField;
 
-    /// 构造一个「无父容器」的字段（Java 的 `m_parent` 必非空，Rust 侧用悬空 `Weak` 代替）。
+    /// Construct a field with "no parent container" (Java's `m_parent` must be non-null; the Rust side uses a dangling `Weak` instead).
     fn standalone(field: FieldKey) -> CustomField {
         CustomField::new(field, Weak::new())
     }
@@ -353,8 +365,9 @@ mod tests {
         assert_eq!(field.get_unique_id(), Some(42));
     }
 
-    /// Java: `getUniqueID()` 未显式设置时回落到 `FieldTypeHelper.getFieldID(m_field)`
-    /// 并把结果缓存；`setUniqueID(null)` 之后重新回落。
+    /// Java: when `getUniqueID()` is not set explicitly, falls back to
+    /// `FieldTypeHelper.getFieldID(m_field)` and caches the result; falls back anew after
+    /// `setUniqueID(null)`.
     #[test]
     fn unique_id_falls_back_to_field_id_and_is_cached() {
         let mut field = standalone(FieldKey::Task(TaskField::Text1));
@@ -363,22 +376,23 @@ mod tests {
             TaskField::Text1,
         ))));
         assert_eq!(field.get_unique_id(), Some(expected));
-        // 回落结果被回填缓存（Debug 直接读缓存字段即可看到）
+        // The fallback result is back-filled into the cache (visible by reading the cached field directly via Debug)
         assert_eq!(field.m_unique_id.get(), Some(expected));
 
-        // setUniqueID(null) 之后再次读取 → 重新回落
+        // Reading again after setUniqueID(null) → falls back anew
         field.set_unique_id(None);
         assert_eq!(field.get_unique_id(), Some(expected));
 
-        // 显式设置的值优先
+        // An explicitly set value takes precedence
         field.set_unique_id(Some(7));
         assert_eq!(field.get_unique_id(), Some(7));
     }
 
-    /// 自定义字段键（`FieldKey::Custom`）的回落值。
+    /// Fallback value for custom field keys (`FieldKey::Custom`).
     ///
-    /// Java 的 `MPPTaskField.getID(UserDefinedField)` 返回 `value.getValue()`（即该字段的
-    /// unique ID），随后与 `TASK_FIELD_BASE` 按位或；不能走内置字段的 `ID_ARRAY` 查表分支。
+    /// Java's `MPPTaskField.getID(UserDefinedField)` returns `value.getValue()` (i.e. the
+    /// field's unique ID) and then bitwise-ORs it with `TASK_FIELD_BASE`; it cannot use the
+    /// built-in field `ID_ARRAY` lookup branch.
     #[test]
     fn unique_id_fallback_for_custom_field_keys() {
         let key = crate::field_key::CustomFieldKey::new(
@@ -393,7 +407,7 @@ mod tests {
             Some(MPPTaskField::TASK_FIELD_BASE | 0x0B40_8000)
         );
 
-        // 资源 / 分配 / 项目类自定义字段各用自己的 BASE
+        // Resource / assignment / project custom fields each use their own BASE
         let resource_key = crate::field_key::CustomFieldKey::new(
             5,
             FieldTypeClass::Resource,
@@ -424,7 +438,7 @@ mod tests {
             Some(MPPProjectField::PROJECT_FIELD_BASE | 5)
         );
 
-        // Java: default: result = -1;（约束字段不参与 getFieldID 的 switch）
+        // Java: default: result = -1; (constraint fields do not participate in getFieldID's switch)
         let constraint_key = crate::field_key::CustomFieldKey::new(
             5,
             FieldTypeClass::Constraint,
@@ -444,7 +458,7 @@ mod tests {
         );
         assert!(!field.get_graphical_indicator().get_display_graphical_indicators());
 
-        // Java 的指标对象本身可变（同一实例被读写）
+        // Java's indicator object is itself mutable (the same instance is read and written)
         field
             .get_graphical_indicator_mut()
             .set_display_graphical_indicators(true);
@@ -510,24 +524,25 @@ mod tests {
         resource_field.set_unique_id(Some(1));
         resource_field.set_alias(Some("A".to_owned()));
 
-        // RESOURCE < TASK（按枚举名比较）
+        // RESOURCE < TASK (compared by enum name)
         assert!(resource_field < task_field);
 
-        // 同类型下 unique ID 较小者在前
+        // Within the same type, the smaller unique ID comes first
         let mut task_field_two = standalone(FieldKey::Task(TaskField::Text2));
         task_field_two.set_unique_id(Some(2));
         task_field_two.set_alias(Some("A".to_owned()));
         assert!(task_field < task_field_two);
 
-        // 同类型同 ID 时按别名比较
+        // For the same type and ID, compare by alias
         let mut task_field_alias_b = standalone(FieldKey::Task(TaskField::Text1));
         task_field_alias_b.set_unique_id(Some(1));
         task_field_alias_b.set_alias(Some("B".to_owned()));
         assert!(task_field < task_field_alias_b);
     }
 
-    /// Java 的 `compareTo` 用 `getUniqueID()`（惰性回落）拼排序键，因此未显式设置 ID 的字段
-    /// 得到的是回落出的字段号，而不是字符串 `"null"`。
+    /// Java's `compareTo` builds the sort key with `getUniqueID()` (lazy fallback), so a field
+    /// whose ID is not set explicitly gets the fallback field number rather than the string
+    /// `"null"`.
     #[test]
     fn sort_key_uses_the_fallback_unique_id() {
         let mut unset = standalone(FieldKey::Task(TaskField::Text1));
@@ -538,7 +553,7 @@ mod tests {
         ))));
         assert_eq!(unset.sort_key(), format!("TASK.{fallback}.A"));
 
-        // 显式设置的 ID 参与字符串比较："1" < 回落出的字段号（多位数）
+        // The explicitly set ID participates in string comparison: "1" < the fallback field number (multiple digits)
         let mut set = standalone(FieldKey::Task(TaskField::Text1));
         set.set_unique_id(Some(1));
         set.set_alias(Some("A".to_owned()));

@@ -1,32 +1,32 @@
-//! 对应 Java: `org/mpxj/DayType.java`
+//! Corresponds to Java: `org/mpxj/DayType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 项目日历中某一天的类型。
+/// Type of a day in a project calendar.
 ///
-/// 对应 Java: `public enum DayType implements MpxjEnum`
+/// Corresponds to Java: `public enum DayType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(DayType.class)` 生成查找表：数组长度为 3，
-/// 取值 0..2 恰好填满，因此 `getInstance` 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(DayType.class)` builds the lookup table: the array length is 3,
+/// and the values 0..2 fill it exactly, so `getInstance` never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DayType {
-    /// 对应 Java: `NON_WORKING(0)`
+    /// Corresponds to Java: `NON_WORKING(0)`
     NonWorking = 0,
-    /// 对应 Java: `WORKING(1)`
+    /// Corresponds to Java: `WORKING(1)`
     Working = 1,
-    /// 对应 Java: `DEFAULT(2)`
+    /// Corresponds to Java: `DEFAULT(2)`
     Default = 2,
 }
 
 impl DayType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final DayType[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final DayType[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [DayType; 3] = [DayType::NonWorking, DayType::Working, DayType::Default];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `NON_WORKING`。
+    /// Returns the enum instance for the given int value, falling back to `NON_WORKING` when out of bounds.
     ///
-    /// 对应 Java: `public static DayType getInstance(int type)`
+    /// Corresponds to Java: `public static DayType getInstance(int type)`
     pub fn get_instance(value: i32) -> DayType {
         match value {
             0 => DayType::NonWorking,
@@ -37,16 +37,16 @@ impl DayType {
         }
     }
 
-    /// 对应 Java: `public static DayType getInstance(Number type)`
+    /// Corresponds to Java: `public static DayType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `NON_WORKING`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `NON_WORKING`.
     pub fn get_instance_optional(value: Option<i32>) -> DayType {
         DayType::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for DayType {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

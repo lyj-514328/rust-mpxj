@@ -1,18 +1,21 @@
-//! MPP 字段号 ↔ 统一字段类型 的映射结果（Rust 特有）。
+//! Mapping result of MPP field ID ↔ unified field type (Rust-specific).
 //!
-//! MPXJ 的 `org.mpxj.common.MPPTaskField` / `MPPResourceField` / `MPPAssignmentField` /
-//! `MPPProjectField` / `MPPConstraintField` 都提供
-//! `FieldType getInstance(ProjectFile project, int value)`：把 MPP 文件里的字段号
-//! 映射成统一的 `FieldType`。
+//! MPXJ's `org.mpxj.common.MPPTaskField` / `MPPResourceField` / `MPPAssignmentField` /
+//! `MPPProjectField` / `MPPConstraintField` all provide
+//! `FieldType getInstance(ProjectFile project, int value)`: map the field ID in the MPP file
+//! to a unified `FieldType`.
 //!
-//! Java 的 `FieldType` 既可能是**内置字段**（`TaskField` / `ResourceField` / …），
-//! 也可能是**自定义字段** `UserDefinedField`（当字段号最高位为 1，即企业自定义字段）。
-//! Rust 的 [`FieldKey`] 是本 crate 对 `FieldType` 的运行时擦除载体，但它要求
-//! `Copy + Eq + Hash`，无法承载内部含 `String` 的 `UserDefinedField`。
+//! Java's `FieldType` may be either a **built-in field** (`TaskField` / `ResourceField` / …)
+//! or a **custom field** `UserDefinedField` (when the high bit of the field ID is 1, i.e., an
+//! enterprise custom field). The Rust [`FieldKey`] is this crate's runtime-erased carrier for
+//! `FieldType`, but it requires `Copy + Eq + Hash` and cannot carry a `UserDefinedField` that
+//! internally contains a `String`.
 //!
-//! 因此本模块引入两个类型：
-//! - [`MppFieldType`] —— 映射的返回值，表达「内置」与「自定义」两种情形；
-//! - [`MppFieldKey`] —— 可作 `HashMap` 键的等价标识（自定义字段取其 unique ID）。
+//! Therefore this module introduces two types:
+//! - [`MppFieldType`] — the return value of the mapping, expressing both the "built-in" and
+//!   "custom" cases;
+//! - [`MppFieldKey`] — an equivalent identity usable as a `HashMap` key (custom fields use
+//!   their unique ID).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,19 +26,19 @@ use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 use crate::user_defined_field::UserDefinedField;
 
-/// 对应 Java: `MPPTaskField.getInstance(...)` 等方法的返回类型 `FieldType`。
+/// Corresponds to Java: the return type `FieldType` of methods such as `MPPTaskField.getInstance(...)`.
 #[derive(Clone)]
 pub enum MppFieldType {
-    /// 内置字段（`TaskField` / `ResourceField` / `AssignmentField` / `ProjectField` / `ConstraintField`）。
+    /// Built-in field (`TaskField` / `ResourceField` / `AssignmentField` / `ProjectField` / `ConstraintField`).
     Builtin(FieldKey),
-    /// 项目自定义字段（`UserDefinedField`）。
+    /// Project custom field (`UserDefinedField`).
     ///
-    /// 对应 Java: `project.getUserDefinedFields().getOrCreateTaskField(...)` 的返回值。
+    /// Corresponds to Java: the return value of `project.getUserDefinedFields().getOrCreateTaskField(...)`.
     Custom(Rc<RefCell<UserDefinedField>>),
 }
 
 impl MppFieldType {
-    /// 取可作 `HashMap` 键的等价标识。
+    /// Get an equivalent identity usable as a `HashMap` key.
     pub fn to_key(&self) -> MppFieldKey {
         match self {
             MppFieldType::Builtin(key) => MppFieldKey::Builtin(*key),
@@ -43,12 +46,12 @@ impl MppFieldType {
         }
     }
 
-    /// 转成字段容器使用的键。
+    /// Convert to the key used by the field container.
     ///
-    /// 对应 Java: `container.set(item.getType(), value)` —— Java 直接把
-    /// `FieldType` 当键；Rust 侧内置字段用其 [`FieldKey`]，自定义字段转成
-    /// [`FieldKey::Custom`]（以 unique ID 为等价依据，与 Java
-    /// `UserDefinedField.equals` 一致，见 [`CustomFieldKey`]）。
+    /// Corresponds to Java: `container.set(item.getType(), value)` — Java uses `FieldType`
+    /// directly as the key; the Rust side uses its [`FieldKey`] for built-in fields and
+    /// converts custom fields to [`FieldKey::Custom`] (equivalence based on unique ID,
+    /// consistent with Java's `UserDefinedField.equals`, see [`CustomFieldKey`]).
     pub fn to_field_key(&self) -> FieldKey {
         match self {
             MppFieldType::Builtin(key) => *key,
@@ -58,17 +61,17 @@ impl MppFieldType {
         }
     }
 
-    /// 是否为内置字段。
+    /// Whether this is a built-in field.
     pub fn is_builtin(&self) -> bool {
         matches!(self, MppFieldType::Builtin(_))
     }
 
-    /// 是否为自定义字段。
+    /// Whether this is a custom field.
     pub fn is_custom(&self) -> bool {
         matches!(self, MppFieldType::Custom(_))
     }
 
-    /// 取内置字段的 [`FieldKey`]；自定义字段返回 `None`。
+    /// Get the [`FieldKey`] of a built-in field; returns `None` for a custom field.
     pub fn as_builtin(&self) -> Option<FieldKey> {
         match self {
             MppFieldType::Builtin(key) => Some(*key),
@@ -76,7 +79,7 @@ impl MppFieldType {
         }
     }
 
-    /// 取自定义字段的共享句柄；内置字段返回 `None`。
+    /// Get the shared handle of a custom field; returns `None` for a built-in field.
     pub fn as_custom(&self) -> Option<&Rc<RefCell<UserDefinedField>>> {
         match self {
             MppFieldType::Builtin(_) => None,
@@ -84,12 +87,13 @@ impl MppFieldType {
         }
     }
 
-    /// 取该字段所属的实体类型。
+    /// Get the entity type this field belongs to.
     ///
-    /// 对应 Java: `FieldType.getFieldTypeClass()`
+    /// Corresponds to Java: `FieldType.getFieldTypeClass()`
     ///
-    /// `UserDefinedField` 的对应方法返回 `Option`（Java 侧该字段可能未设置），
-    /// 这里回落到 `UNKNOWN`（与 Java 返回 `null` 时各调用方的处理一致）。
+    /// The corresponding method of `UserDefinedField` returns `Option` (the field may be unset
+    /// on the Java side); here it falls back to `UNKNOWN` (consistent with how each caller
+    /// handles Java returning `null`).
     pub fn get_field_type_class(&self) -> FieldTypeClass {
         match self {
             MppFieldType::Builtin(key) => key.get_field_type_class(),
@@ -100,12 +104,12 @@ impl MppFieldType {
         }
     }
 
-    /// 取该字段的数据类型。
+    /// Get the data type of this field.
     ///
-    /// 对应 Java: `FieldType.getDataType()`
+    /// Corresponds to Java: `FieldType.getDataType()`
     ///
-    /// `UserDefinedField` 未设置数据类型时回落到 `CUSTOM`
-    /// （对应 Java `MPPTaskField.getInstance(project, value)` 传入的默认值）。
+    /// When `UserDefinedField` has no data type set it falls back to `CUSTOM`
+    /// (corresponding to the default passed to Java's `MPPTaskField.getInstance(project, value)`).
     pub fn get_data_type(&self) -> DataType {
         match self {
             MppFieldType::Builtin(key) => key.get_data_type(),
@@ -113,11 +117,11 @@ impl MppFieldType {
         }
     }
 
-    /// 取该字段的显示名。
+    /// Get the display name of this field.
     ///
-    /// 对应 Java: `FieldType.getName()`
+    /// Corresponds to Java: `FieldType.getName()`
     ///
-    /// 自定义字段优先取外部名，未设置时回落到内部名。
+    /// A custom field prefers the external name and falls back to the internal name when unset.
     pub fn get_name(&self) -> String {
         match self {
             MppFieldType::Builtin(key) => key.get_name().to_owned(),
@@ -144,15 +148,15 @@ impl std::fmt::Display for MppFieldType {
     }
 }
 
-/// [`MppFieldType`] 的可哈希等价标识，用作 `HashMap` 键。
+/// A hashable equivalent identity of [`MppFieldType`], used as a `HashMap` key.
 ///
-/// 内置字段用其 [`FieldKey`]；自定义字段用其 unique ID（对应 Java
-/// `UserDefinedField.getValue()`）。
+/// Built-in fields use their [`FieldKey`]; custom fields use their unique ID (corresponding to
+/// Java's `UserDefinedField.getValue()`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MppFieldKey {
-    /// 内置字段。
+    /// Built-in field.
     Builtin(FieldKey),
-    /// 自定义字段的 unique ID。
+    /// The unique ID of a custom field.
     Custom(i32),
 }
 

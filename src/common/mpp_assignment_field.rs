@@ -1,23 +1,24 @@
-//! 对应 Java: `org/mpxj/common/MPPAssignmentField.java`
+//! Corresponds to Java: `org/mpxj/common/MPPAssignmentField.java`
 //!
-//! MS Project 二进制文件中表示「资源分配字段」的整数 → MPXJ 字段枚举的映射工具类。
+//! A utility class that maps the integers representing "resource assignment fields" in Microsoft
+//! Project binary files to MPXJ's field enum.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - Java 的 `getInstance` / `getID` 使用 `FieldType` 接口，Rust 侧用
-//!   [`MppFieldType`]（内置 / 自定义两种情形）承载，见
-//!   [`crate::common::mpp_field_type`] 的说明。
-//! - Java 的 `null` 返回值 → `Option::None`；越界读表返回 `None` 而不抛
-//!   `ArrayIndexOutOfBoundsException`。
-//! - Java 的静态映射数组 `FIELD_ARRAY` / `ALTERNATE_FIELD_ARRAY` 原样照搬为
-//!   `const` 数组；`ID_ARRAY` 由 `FIELD_ARRAY` 在编译期按 Java 的静态初始化块
-//!   （先填 -1，再令 `ID_ARRAY[field.getValue()] = loop`）推导。
-//! - 企业自定义字段（`value & 0x8000 != 0`）在 Java 中直接返回
-//!   `project.getUserDefinedFields().getOrCreateAssignmentField(...)` 的结果；
-//!   Rust 侧的接线差异见 `MPPAssignmentField::get_or_create_assignment_field`，
-//!   上下文已被借用时返回 `None`（Java 无此情形）。
+//! - Java's `getInstance` / `getID` use the `FieldType` interface; the Rust side carries it with
+//!   [`MppFieldType`] (built-in / custom cases), see the notes in
+//!   [`crate::common::mpp_field_type`].
+//! - Java's `null` return value → `Option::None`; reading the table out of bounds returns `None`
+//!   instead of throwing `ArrayIndexOutOfBoundsException`.
+//! - Java's static mapping arrays `FIELD_ARRAY` / `ALTERNATE_FIELD_ARRAY` are copied as-is into
+//!   `const` arrays; `ID_ARRAY` is derived from `FIELD_ARRAY` at compile time following Java's
+//!   static initializer block (first fill with -1, then set `ID_ARRAY[field.getValue()] = loop`).
+//! - Enterprise custom fields (`value & 0x8000 != 0`) return the result of
+//!   `project.getUserDefinedFields().getOrCreateAssignmentField(...)` directly in Java; for the
+//!   Rust wiring differences see `MPPAssignmentField::get_or_create_assignment_field`, which
+//!   returns `None` when the context is already borrowed (no such case in Java).
 //!
-//! 被跳过的 Java 代码：无。未移植的 Java 方法：无。
+//! Skipped Java code: none. Unported Java methods: none.
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -35,55 +36,56 @@ use crate::project_file::ProjectFile;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 use crate::user_defined_field::Builder as UserDefinedFieldBuilder;
 
-/// 对应 Java: `org.mpxj.common.MPPAssignmentField`
+/// Corresponds to Java: `org.mpxj.common.MPPAssignmentField`
 pub struct MPPAssignmentField;
 
 impl MPPAssignmentField {
-    /// 映射表长度（`FIELD_ARRAY` 的元素个数）。
+    /// Mapping table length (the number of elements in `FIELD_ARRAY`).
     ///
-    /// 对应 Java: `public static final int MAX_VALUE`
+    /// Corresponds to Java: `public static final int MAX_VALUE`
     pub const MAX_VALUE: usize = 717;
 
-    /// 备用映射表长度（`ALTERNATE_FIELD_ARRAY` 的元素个数）。
+    /// Alternate mapping table length (the number of elements in `ALTERNATE_FIELD_ARRAY`).
     ///
-    /// 对应 Java: `public static final int MAX_ALTERNATE_VALUE`
+    /// Corresponds to Java: `public static final int MAX_ALTERNATE_VALUE`
     pub const MAX_ALTERNATE_VALUE: usize = 130;
 
-    /// 企业自定义字段的字段号基数。
+    /// The field ID base for enterprise custom fields.
     ///
-    /// 对应 Java: `public static final int ASSIGNMENT_FIELD_BASE = 0x0F400000;`
+    /// Corresponds to Java: `public static final int ASSIGNMENT_FIELD_BASE = 0x0F400000;`
     pub const ASSIGNMENT_FIELD_BASE: i32 = 0x0F40_0000;
 
-    /// 按 MS Project 文件中的字段号取对应的字段类型。
+    /// Get the corresponding field type from a field ID in a Microsoft Project file.
     ///
-    /// 对应 Java: `public static FieldType getInstance(ProjectFile project, int value)`
-    /// （Java 用 `DataType.CUSTOM` 调用下面的重载）
+    /// Corresponds to Java: `public static FieldType getInstance(ProjectFile project, int value)`
+    /// (Java calls the overload below with `DataType.CUSTOM`)
     pub fn get_instance(project: &Rc<RefCell<ProjectFile>>, value: i32) -> Option<MppFieldType> {
         // Java: return getInstance(project, value, DataType.CUSTOM);
         Self::get_instance_with_data_type(project, value, DataType::Custom)
     }
 
-    /// 按 MS Project 文件中的字段号取对应的字段类型，并指定自定义字段的数据类型。
+    /// Get the corresponding field type from a field ID in a Microsoft Project file, specifying
+    /// the data type of custom fields.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `public static FieldType getInstance(ProjectFile project, int value, DataType customFieldDataType)`
     ///
-    /// 参考 Java 第 64-96 行。
+    /// See Java lines 64-96.
     pub fn get_instance_with_data_type(
         project: &Rc<RefCell<ProjectFile>>,
         value: i32,
         custom_field_data_type: DataType,
     ) -> Option<MppFieldType> {
-        // Java 第 66-77 行：最高位为 1 表示企业自定义字段。
+        // Java lines 66-77: the highest bit being 1 indicates an enterprise custom field.
         if (value & 0x8000) != 0 {
             return Self::get_or_create_assignment_field(project, value, custom_field_data_type);
         }
 
-        // Java 第 79-87 行：某些 MPP14 文件中 0x4000 段的值用于表示自定义字段。
-        // 注意 Java 的判断条件是 `id >= 0 && value < ALTERNATE_FIELD_ARRAY.length`
-        // （比较的是 value 而不是 id），而此处 value 至少为 0x4000 > 130，
-        // 因此该分支实际永不成立、始终落到下面的 FIELD_ARRAY 查找并返回 null；
-        // 这里按原样保留，不做「修正」。
+        // Java lines 79-87: in some MPP14 files the 0x4000 range of values is used to represent custom fields.
+        // Note that Java's condition is `id >= 0 && value < ALTERNATE_FIELD_ARRAY.length`
+        // (it compares value rather than id), while here value is at least 0x4000 > 130,
+        // so this branch can never actually hold and always falls through to the FIELD_ARRAY
+        // lookup below and returns null; it is kept as-is here, without "fixing" it.
         if (value & 0x4000) != 0 {
             let id = value & 0xFFF;
             if id >= 0 && value < Self::MAX_ALTERNATE_VALUE as i32 {
@@ -91,7 +93,7 @@ impl MPPAssignmentField {
             }
         }
 
-        // Java 第 89-95 行。
+        // Java lines 89-95.
         let result = if value >= 0 && (value as usize) < Self::MAX_VALUE {
             FIELD_ARRAY[value as usize]
         } else {
@@ -101,24 +103,24 @@ impl MPPAssignmentField {
         result.map(as_builtin)
     }
 
-    /// 取字段在 MS Project 中使用的字段号。
+    /// Get the field ID used by the field in Microsoft Project.
     ///
-    /// 对应 Java: `public static int getID(FieldType value)`
+    /// Corresponds to Java: `public static int getID(FieldType value)`
     ///
-    /// 参考 Java 第 104-116 行：自定义字段返回其 `getValue()`（即 unique ID），
-    /// 内置字段返回 `ID_ARRAY[value.getValue()]`。
+    /// See Java lines 104-116: a custom field returns its `getValue()` (i.e. unique ID),
+    /// and a built-in field returns `ID_ARRAY[value.getValue()]`.
     pub fn get_id(value: &MppFieldType) -> i32 {
         match value {
             // Java: if (value instanceof UserDefinedField) { result = value.getValue(); }
-            // 自定义字段的「ID」即其 unique ID（`UserDefinedField::get_value`）；
-            // 字段已被可变借用时返回 -1（Java 无此情形）。
+            // A custom field's "ID" is its unique ID (`UserDefinedField::get_value`);
+            // returns -1 when the field is mutably borrowed (no such case in Java).
             MppFieldType::Custom(field) => field
                 .try_borrow()
                 .map(|field| field.get_value())
                 .unwrap_or(-1),
             // Java: result = ID_ARRAY[value.getValue()];
-            // 越界时 Java 抛 ArrayIndexOutOfBoundsException（传入非分配字段时可能发生），
-            // Rust 侧不 panic，退化为 ID_ARRAY 的默认值 -1。
+            // Java throws ArrayIndexOutOfBoundsException when out of bounds (can happen when a non-assignment field is passed),
+            // the Rust side does not panic and degrades gracefully to ID_ARRAY's default value -1.
             MppFieldType::Builtin(key) => usize::try_from(key.value())
                 .ok()
                 .and_then(|index| ID_ARRAY.get(index))
@@ -127,20 +129,20 @@ impl MPPAssignmentField {
         }
     }
 
-    /// 取某些 MPP14 文件使用的备用映射表。
+    /// Get the alternate mapping table used by some MPP14 files.
     ///
-    /// 对应 Java: `public static AssignmentField[] getAlternateFieldArray()`
+    /// Corresponds to Java: `public static AssignmentField[] getAlternateFieldArray()`
     ///
-    /// Java 返回内部数组本身；Rust 侧返回不可变切片（Java 中数组未赋值的下标为
-    /// `null`，这里为 `None`）。
+    /// Java returns the internal array itself; the Rust side returns an immutable slice (an
+    /// unassigned index in Java's array is `null`, here it is `None`).
     pub fn get_alternate_field_array() -> &'static [Option<AssignmentField>] {
         &ALTERNATE_FIELD_ARRAY
     }
 
-    /// 创建（或取回）企业自定义分配字段。
+    /// Create (or retrieve) an enterprise custom assignment field.
     ///
-    /// 对应 Java `MPPAssignmentField.getInstance` 第 68-76 行的
-    /// `project.getUserDefinedFields().getOrCreateAssignmentField(...)`：
+    /// Corresponds to Java `MPPAssignmentField.getInstance` lines 68-76:
+    /// `project.getUserDefinedFields().getOrCreateAssignmentField(...)`.
     ///
     /// ```java
     /// return project.getUserDefinedFields().getOrCreateAssignmentField(Integer.valueOf(value), (k) -> {
@@ -154,30 +156,32 @@ impl MPPAssignmentField {
     /// });
     /// ```
     ///
-    /// # Rust 特有接线
+    /// # Rust-specific wiring
     ///
-    /// Java 把 `project` 自身（实现了 `UniqueIdObjectSequenceProvider`）交给
-    /// `UserDefinedField.Builder`。Rust 的 `ProjectFile` 被 `Rc<RefCell<..>>` 包裹，
-    /// 无法转成 `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`，因此改用
-    /// [`ProjectSequenceProvider`] 转发给同样实现了该接口的 `ProjectContext`
-    /// （共享同一批 `ObjectSequence`，序号推进行为与 Java 一致）；并且**先构造字段、
-    /// 再写入容器**，避免容器可变借用期间重入借用上下文。上下文已被借用时返回 `None`
-    /// （Java 无此情形）。
+    /// Java hands `project` itself (which implements `UniqueIdObjectSequenceProvider`) to
+    /// `UserDefinedField.Builder`. Rust's `ProjectFile` is wrapped in `Rc<RefCell<..>>` and cannot
+    /// be converted to `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`, so
+    /// [`ProjectSequenceProvider`] is used to forward to `ProjectContext` (which also implements
+    /// that interface, sharing the same batch of `ObjectSequence`s, so the sequence advance
+    /// behavior matches Java); and the field is **built first, then written to the container**, to
+    /// avoid re-entering a borrow of the context during the container's mutable borrow. Returns
+    /// `None` when the context is already borrowed (no such case in Java).
     fn get_or_create_assignment_field(
         project: &Rc<RefCell<ProjectFile>>,
         value: i32,
         custom_field_data_type: DataType,
     ) -> Option<MppFieldType> {
-        // Java: project.getUserDefinedFields()（Rust 侧经由 ProjectContext）
+        // Java: project.getUserDefinedFields() (on the Rust side via ProjectContext)
         let context = project.try_borrow().ok()?.get_project_context();
 
-        // Rust 特有：`new UserDefinedField.Builder(project)` 里的 `project`（序号生成器
-        // 提供者）改为转发到上下文的适配器。此时尚未借用上下文，序号生成器会照常推进
-        // 项目的 `UserDefinedField` 序列，与 Java 一致。
+        // Rust-specific: the `project` (sequence generator provider) in
+        // `new UserDefinedField.Builder(project)` is replaced with an adapter that forwards to the
+        // context. The context is not borrowed yet at this point, so the sequence generator advances
+        // the project's `UserDefinedField` sequence as usual, matching Java.
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(ProjectSequenceProvider::new(Rc::clone(&context))));
 
-        // Java: `int id = (k.intValue() & 0xFFF) + 1;`（lambda 的 k 即容器键 value）
+        // Java: `int id = (k.intValue() & 0xFFF) + 1;` (the lambda's k is the container key value)
         let id = (value & 0xFFF) + 1;
         let field = UserDefinedFieldBuilder::new(provider)
             // Java: .uniqueID(Integer.valueOf(ASSIGNMENT_FIELD_BASE + k.intValue()))
@@ -188,8 +192,8 @@ impl MPPAssignmentField {
             .data_type(custom_field_data_type)
             .build();
 
-        // Java: getOrCreateAssignmentField 在字段已存在时直接返回既有实例
-        // （此时上面构造的实例被丢弃）。
+        // Java: getOrCreateAssignmentField returns the existing instance directly when the field already exists
+        // (the instance built above is then discarded).
         let mut context_ref = context.try_borrow_mut().ok()?;
         Some(MppFieldType::Custom(
             context_ref
@@ -199,34 +203,35 @@ impl MPPAssignmentField {
     }
 }
 
-/// 把 [`AssignmentField`] 包装成内置字段。
+/// Wrap [`AssignmentField`] as a built-in field.
 fn as_builtin(field: AssignmentField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Assignment(field))
 }
 
-/// 把用户自定义字段序号生成器的请求转发给 [`ProjectContext`]（Rust 特有接线，
-/// 见 [`MPPAssignmentField::get_or_create_assignment_field`]）。
+/// Forward the user-defined field sequence generator request to [`ProjectContext`] (Rust-specific
+/// wiring, see [`MPPAssignmentField::get_or_create_assignment_field`]).
 ///
-/// 上下文已被借用时（Java 无此情形）退化为一个独立序号生成器：`Builder::build()` 调用的
-/// `syncOrGetNext(Some(id))` 恒返回传入的 `id`（见
-/// [`crate::common::object_sequence::ObjectSequence::sync_or_get_next`]），故退化只影响
-/// 序号推进，不影响字段的 unique ID。
+/// When the context is already borrowed (no such case in Java) it degrades to a standalone
+/// sequence generator: the `syncOrGetNext(Some(id))` called by `Builder::build()` always returns
+/// the passed-in `id` (see
+/// [`crate::common::object_sequence::ObjectSequence::sync_or_get_next`]), so the degradation only
+/// affects sequence advancement, not the field's unique ID.
 struct ProjectSequenceProvider {
-    /// 目标上下文。
+    /// The target context.
     m_context: Rc<RefCell<ProjectContext>>,
 }
 
 impl ProjectSequenceProvider {
-    /// 构造方法。
+    /// Constructor.
     fn new(context: Rc<RefCell<ProjectContext>>) -> Self {
         Self { m_context: context }
     }
 }
 
 impl UniqueIdObjectSequenceProvider for ProjectSequenceProvider {
-    /// 取（必要时创建）指定类型的序号生成器。
+    /// Get (creating if necessary) the sequence generator of the specified type.
     ///
-    /// 对应 Java: 构造器收到的 `ProjectFile.getUniqueIdObjectSequence(Class<?>)`
+    /// Corresponds to Java: the `ProjectFile.getUniqueIdObjectSequence(Class<?>)` received by the constructor
     fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence> {
         match self.m_context.try_borrow_mut() {
             Ok(mut context) => context.get_unique_id_object_sequence(type_id),
@@ -235,12 +240,12 @@ impl UniqueIdObjectSequenceProvider for ProjectSequenceProvider {
     }
 }
 
-/// MS Project 字段号 → 分配字段。
+/// MS Project field ID → assignment field.
 ///
-/// 对应 Java: `MPPAssignmentField.java` 第 129-645 行的 `FIELD_ARRAY`
-/// （`private static final AssignmentField[] FIELD_ARRAY = new AssignmentField[MAX_VALUE]`
-/// 及其 `static {}` 初始化块）。Java 中未被赋值的下标为 `null`，Rust 侧为 `None`；
-/// 每个条目后的注释是 Java 中显式赋值的下标。
+/// Corresponds to Java: the `FIELD_ARRAY` at lines 129-645 of `MPPAssignmentField.java`
+/// (`private static final AssignmentField[] FIELD_ARRAY = new AssignmentField[MAX_VALUE]`
+/// and its `static {}` initializer block). In Java, an unassigned index is `null`; on the Rust
+/// side it is `None`; the comment after each entry is the index explicitly assigned in Java.
 const FIELD_ARRAY: [Option<AssignmentField>; MPPAssignmentField::MAX_VALUE] = [
     Some(AssignmentField::UniqueId), // 0
     Some(AssignmentField::TaskUniqueId), // 1
@@ -961,10 +966,10 @@ const FIELD_ARRAY: [Option<AssignmentField>; MPPAssignmentField::MAX_VALUE] = [
     Some(AssignmentField::RawTimephasedBaseline10BudgetCost), // 716
 ];
 
-/// 某些 MPP14 文件使用的备用映射表。
+/// The alternate mapping table used by some MPP14 files.
 ///
-/// 对应 Java: `MPPAssignmentField.java` 第 647-761 行的 `ALTERNATE_FIELD_ARRAY`
-/// （`new AssignmentField[MAX_ALTERNATE_VALUE]` 及其 `static {}` 初始化块）。
+/// Corresponds to Java: the `ALTERNATE_FIELD_ARRAY` at lines 647-761 of `MPPAssignmentField.java`
+/// (`new AssignmentField[MAX_ALTERNATE_VALUE]` and its `static {}` initializer block).
 const ALTERNATE_FIELD_ARRAY: [Option<AssignmentField>; MPPAssignmentField::MAX_ALTERNATE_VALUE] = [
     None, // 0
     None, // 1
@@ -1098,14 +1103,14 @@ const ALTERNATE_FIELD_ARRAY: [Option<AssignmentField>; MPPAssignmentField::MAX_A
     Some(AssignmentField::Text30), // 129
 ];
 
-/// 字段 → MS Project 字段号的逆向映射表。
+/// The reverse mapping table from field → MS Project field ID.
 ///
-/// 对应 Java: `MPPAssignmentField.java` 第 763-776 行的 `ID_ARRAY` 静态初始化块
-/// （先调用 `Arrays.fill(ID_ARRAY, -1)`，再遍历 `FIELD_ARRAY` 令
-/// `ID_ARRAY[field.getValue()] = loop`）。
+/// Corresponds to Java: the `ID_ARRAY` static initializer block at lines 763-776 of
+/// `MPPAssignmentField.java` (first calls `Arrays.fill(ID_ARRAY, -1)`, then iterates
+/// `FIELD_ARRAY` setting `ID_ARRAY[field.getValue()] = loop`).
 const ID_ARRAY: [i32; AssignmentField::MAX_VALUE] = build_id_array(&FIELD_ARRAY);
 
-/// 按 Java 的静态初始化块在编译期推导 `ID_ARRAY`。
+/// Derive `ID_ARRAY` at compile time following Java's static initializer block.
 const fn build_id_array(
     field_array: &[Option<AssignmentField>; MPPAssignmentField::MAX_VALUE],
 ) -> [i32; AssignmentField::MAX_VALUE] {
@@ -1126,17 +1131,17 @@ mod tests {
     use crate::field_type::FieldType;
     use crate::user_defined_field::UserDefinedField;
 
-    /// 新建一份项目文件。
+    /// Create a new project file.
     fn project() -> Rc<RefCell<ProjectFile>> {
         ProjectFile::new()
     }
 
-    /// 取内置分配字段（Java 中返回 `AssignmentField` 的情形）。
+    /// Get a built-in assignment field (the case where Java returns an `AssignmentField`).
     fn builtin(project: &Rc<RefCell<ProjectFile>>, value: i32) -> AssignmentField {
         match MPPAssignmentField::get_instance(project, value) {
             Some(MppFieldType::Builtin(FieldKey::Assignment(field))) => field,
             other => {
-                assert!(other.is_none(), "字段号 {value} 应为内置字段或 null");
+                assert!(other.is_none(), "field number {value} should be a built-in field or null");
                 AssignmentField::Unavailable
             }
         }
@@ -1146,7 +1151,7 @@ mod tests {
     fn representative_field_numbers_match_java() {
         let project = project();
 
-        // 与 Java `static {}` 块里的字段号逐一对齐（含区间首尾与稀疏下标）
+        // Aligned one by one with the field IDs in Java's `static {}` block (including range endpoints and sparse indexes)
         let cases: [(i32, AssignmentField); 16] = [
             (0, AssignmentField::UniqueId),
             (1, AssignmentField::TaskUniqueId),
@@ -1168,9 +1173,9 @@ mod tests {
 
         for (value, expected) in cases {
             let field = builtin(&project, value);
-            assert_eq!(field, expected, "字段号 {value}");
-            // 与 Java 常量名一致
-            assert_eq!(field.name(), expected.name(), "字段号 {value}");
+            assert_eq!(field, expected, "field number {value}");
+            // Consistent with the Java constant name
+            assert_eq!(field.name(), expected.name(), "field number {value}");
         }
     }
 
@@ -1178,22 +1183,22 @@ mod tests {
     fn unassigned_and_out_of_range_field_numbers_are_none() {
         let project = project();
 
-        // Java 中这些下标未赋值（即 null）
+        // These indexes are unassigned (i.e. null) in Java
         for value in [15, 17, 18, 33, 45, 54, 133, 245, 249, 575, 604, 606, 635, 667] {
             assert!(
                 MPPAssignmentField::get_instance(&project, value).is_none(),
-                "字段号 {value} 在 Java 中未赋值"
+                "field number {value} is unassigned in Java"
             );
         }
 
-        // 越界（Java 返回 null）；负值除外，见 negative_values_take_the_enterprise_branch
+        // Out of bounds (Java returns null); except negative values, see negative_values_take_the_enterprise_branch
         assert!(
             MPPAssignmentField::get_instance(&project, MPPAssignmentField::MAX_VALUE as i32).is_none()
         );
         assert!(MPPAssignmentField::get_instance(&project, 0x10000).is_none());
 
-        // Java 的 0x4000 分支条件写成 `value < ALTERNATE_FIELD_ARRAY.length`，
-        // 对 0x4000 段的值恒不成立，因此同样返回 null。
+        // Java's 0x4000 branch condition is written as `value < ALTERNATE_FIELD_ARRAY.length`,
+        // which never holds for values in the 0x4000 range, so it likewise returns null.
         assert!(MPPAssignmentField::get_instance(&project, 0x4000 | 10).is_none());
     }
 
@@ -1201,9 +1206,9 @@ mod tests {
     fn negative_values_take_the_enterprise_branch() {
         let project = project();
 
-        // Java: `(value & 0x8000) != 0` 对任何负值都成立（二进制补码高位全为 1），
-        // 因此 -1 在 Java 中同样被当作企业自定义字段处理，而不是返回 null。
-        let field = MPPAssignmentField::get_instance(&project, -1).expect("负值走企业自定义字段分支");
+        // Java: `(value & 0x8000) != 0` holds for any negative value (the high bits are all 1 in two's complement),
+        // so -1 is likewise treated as an enterprise custom field in Java, rather than returning null.
+        let field = MPPAssignmentField::get_instance(&project, -1).expect("negative value takes the enterprise custom field branch");
         assert!(field.is_custom());
         assert_eq!(
             MPPAssignmentField::get_id(&field),
@@ -1217,7 +1222,7 @@ mod tests {
 
         for value in 0..MPPAssignmentField::MAX_VALUE as i32 {
             if let Some(field) = MPPAssignmentField::get_instance(&project, value) {
-                assert_eq!(MPPAssignmentField::get_id(&field), value, "字段号 {value}");
+                assert_eq!(MPPAssignmentField::get_id(&field), value, "field number {value}");
             }
         }
     }
@@ -1244,15 +1249,15 @@ mod tests {
     fn enterprise_custom_fields_are_created_and_reused() {
         let project = project();
 
-        // 最高位为 1：企业自定义字段
+        // Highest bit is 1: enterprise custom field
         let value = 0x8000 | 5;
         let expected_unique_id = MPPAssignmentField::ASSIGNMENT_FIELD_BASE + value;
         let expected_name = format!("Enterprise Custom Field {}", (value & 0xFFF) + 1);
 
-        let field = MPPAssignmentField::get_instance(&project, value).expect("企业自定义字段");
+        let field = MPPAssignmentField::get_instance(&project, value).expect("enterprise custom field");
         let custom = match &field {
             MppFieldType::Custom(field) => Rc::clone(field),
-            MppFieldType::Builtin(_) => panic!("应为自定义字段"),
+            MppFieldType::Builtin(_) => panic!("should be a custom field"),
         };
 
         {
@@ -1261,24 +1266,24 @@ mod tests {
             assert_eq!(custom.name(), "ENTERPRISE_CUSTOM_FIELD6");
             assert_eq!(custom.get_name(), Some(expected_name.as_str()));
             assert_eq!(custom.get_field_type_class(), Some(FieldTypeClass::Assignment));
-            // 默认数据类型为 DataType.CUSTOM
+            // The default data type is DataType.CUSTOM
             assert_eq!(custom.get_data_type(), Some(DataType::Custom));
         }
 
-        // Java 的 getID 对 UserDefinedField 返回 value.getValue()，即企业字段的 unique ID
+        // Java's getID returns value.getValue() for a UserDefinedField, i.e. the enterprise field's unique ID
         assert_eq!(MPPAssignmentField::get_id(&field), expected_unique_id);
 
-        // 同一字段号再次查询：容器返回同一个实例（Java 的 getOrCreateAssignmentField）
-        let again = MPPAssignmentField::get_instance(&project, value).expect("企业自定义字段");
+        // Querying the same field ID again: the container returns the same instance (Java's getOrCreateAssignmentField)
+        let again = MPPAssignmentField::get_instance(&project, value).expect("enterprise custom field");
         match again {
             MppFieldType::Custom(again) => assert!(Rc::ptr_eq(&custom, &again)),
-            MppFieldType::Builtin(_) => panic!("应为自定义字段"),
+            MppFieldType::Builtin(_) => panic!("should be a custom field"),
         }
 
-        // 数据类型随参数写入
+        // The data type is written from the parameter
         let typed =
             MPPAssignmentField::get_instance_with_data_type(&project, 0x8000 | 6, DataType::Date)
-                .expect("企业自定义字段");
+                .expect("enterprise custom field");
         match typed {
             MppFieldType::Custom(typed) => {
                 assert_eq!(typed.borrow().get_data_type(), Some(DataType::Date));
@@ -1287,7 +1292,7 @@ mod tests {
                     MPPAssignmentField::ASSIGNMENT_FIELD_BASE + (0x8000 | 6)
                 );
             }
-            MppFieldType::Builtin(_) => panic!("应为自定义字段"),
+            MppFieldType::Builtin(_) => panic!("should be a custom field"),
         }
     }
 
@@ -1295,8 +1300,8 @@ mod tests {
     fn shared_sequence_keeps_allocating_after_enterprise_field() {
         let project = project();
 
-        // 企业字段用显式 unique ID，序号会同步到其后一位（Java 的 syncOrGetNext）
-        let field = MPPAssignmentField::get_instance(&project, 0x8000 | 5).expect("企业自定义字段");
+        // The enterprise field uses an explicit unique ID, and the sequence syncs to one past it (Java's syncOrGetNext)
+        let field = MPPAssignmentField::get_instance(&project, 0x8000 | 5).expect("enterprise custom field");
         let unique_id = MPPAssignmentField::get_id(&field);
 
         let next = project

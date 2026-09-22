@@ -1,49 +1,49 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStartEndType.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStartEndType.java`
 //!
-//! 甘特图条形「起点 / 终点」区域的样式（实心 / 框架 / 虚线）。
+//! Style of the "start / end" region of a Gantt bar (solid / framed / dashed).
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! - Java 用 `EnumHelper.createTypeArray(GanttBarStartEndType.class)` 反射生成
-//!   int → 枚举的查找表（数组长度 = 常量个数 3，取值 0..2 恰好填满，
-//!   `getInstance` 不会返回 `null`）；Rust 不用反射，改为
-//!   [`GanttBarStartEndType::ALL`] + [`GanttBarStartEndType::get_instance`] 的 `match`。
-//! - 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! - Java uses `EnumHelper.createTypeArray(GanttBarStartEndType.class)` to generate by reflection
+//! an int → enum lookup table (the array length equals the number of constants, 3, and the values 0..2 fill it exactly,
+//! so `getInstance` never returns `null`); Rust does not use reflection and instead uses
+//! a `match` over [`GanttBarStartEndType::ALL`] + [`GanttBarStartEndType::get_instance`].
+//! - Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use them.
 //!
-//! 未移植的 Java 成员：无。
+//! Java members not ported: none.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 甘特图条形起止区域的样式。
+/// Style of the start/end region of a Gantt bar.
 ///
-/// 对应 Java: `public enum GanttBarStartEndType implements MpxjEnum`
+/// Corresponds to Java: `public enum GanttBarStartEndType implements MpxjEnum`
 ///
-/// 声明顺序与 Java 一致，判别值即 Java 的 `m_value`。
+/// The declaration order matches Java, and the discriminant is Java's `m_value`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GanttBarStartEndType {
-    /// 对应 Java: `SOLID(0, "Solid")`
+    /// Corresponds to Java: `SOLID(0, "Solid")`
     Solid = 0,
-    /// 对应 Java: `FRAMED(1, "Framed")`
+    /// Corresponds to Java: `FRAMED(1, "Framed")`
     Framed = 1,
-    /// 对应 Java: `DASHED(2, "Dashed")`
+    /// Corresponds to Java: `DASHED(2, "Dashed")`
     Dashed = 2,
 }
 
 impl GanttBarStartEndType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as Java's declaration order.
     ///
-    /// 对应 Java: `private static final GanttBarStartEndType[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final GanttBarStartEndType[] TYPE_VALUES` (after removing the reflection-built table).
     pub const ALL: [GanttBarStartEndType; 3] = [
         GanttBarStartEndType::Solid,
         GanttBarStartEndType::Framed,
         GanttBarStartEndType::Dashed,
     ];
 
-    /// 根据 int 值取枚举实例，越界（含负值）时回落到 `SOLID`。
+/// Return the enum instance for an int value; out-of-bounds values (including negatives) fall back to `SOLID`.
     ///
-    /// 对应 Java: `public static GanttBarStartEndType getInstance(int type)`
+    /// Corresponds to Java: `public static GanttBarStartEndType getInstance(int type)`
     pub fn get_instance(value: i32) -> GanttBarStartEndType {
         match value {
             0 => GanttBarStartEndType::Solid,
@@ -54,16 +54,16 @@ impl GanttBarStartEndType {
         }
     }
 
-    /// 对应 Java: `public static GanttBarStartEndType getInstance(Number type)`
+    /// Corresponds to Java: `public static GanttBarStartEndType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `SOLID`。
+/// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `SOLID`.
     pub fn get_instance_optional(value: Option<i32>) -> GanttBarStartEndType {
         GanttBarStartEndType::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取样式名称（如 `"Framed"`），与 Java 一致，未做本地化。
+/// Return the style name (for example `"Framed"`), matching Java; no localization is performed.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             GanttBarStartEndType::Solid => "Solid",
@@ -74,14 +74,14 @@ impl GanttBarStartEndType {
 }
 
 impl MpxjEnum for GanttBarStartEndType {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for GanttBarStartEndType {
-    /// 对应 Java: `@Override public String toString()`，即 `getName()`。
+/// Corresponds to Java: `@Override public String toString()`, that is, `getName()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }

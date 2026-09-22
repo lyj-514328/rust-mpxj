@@ -1,28 +1,28 @@
-//! 对应 Java: `org/mpxj/mpp/DataLinkFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/DataLinkFactory.java`
 //!
-//! 从 MPP 文件的定长 / 变长数据块中提取「数据链接」（`DataLink`）：每条链接描述两个字段
-//! 之间的对应关系，可能在同一个项目内，也可能跨项目。
+//! Extract "data links" (`DataLink`) from the fixed-length / variable-length data blocks of an MPP file: each link describes two fields
+//! and their correspondence, possibly within the same project or across projects.
 //!
-//! 定长数据块的每条记录对应一条链接记录，其中偏移 0 处的整数是变长数据块的 unique ID，
-//! 偏移 112 处的 0x20 位表示该记录是否是一个「链接属性」块（置位则跳过）；变长数据块中
-//! 存放的是一段 `Props` 数据（MPP9 用键 1，其余版本用键 6），由它给出链接路径、字段类型
-//! 与行 unique ID。
+//! Each fixed-length data block record corresponds to one link record, where the integer at offset 0 is the unique ID of the variable-length data block,
+//! and the 0x20 bit at offset 112 indicates whether the record is a "link properties" block (if set, skip it); the variable-length data block
+//! stores a `Props` entry (key 1 for MPP9, key 6 for other versions), which gives the link path, field type,
+//! and row unique ID.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `DataLinkFactory(ProjectFile project, FixedData fixedData, Var2Data varData)` | [`DataLinkFactory::new`] 取三个参数的**所有权** | Java 只保存引用（`m_fixedData` / `m_varData`）；Rust 的 `FixedData` / `Var2Data` 没有共享句柄，`ProjectFile` 则用 `Rc<RefCell<..>>` |
-//! | `process() throws IOException` | [`DataLinkFactory::process`] 返回 `MpxjResult<()>` | Java 的 `IOException` 来自 `Props14` 构造；Rust 侧统一用 [`MpxjError`] |
-//! | `Map<String, DataLink> map = new HashMap<>()` | `BTreeMap<Option<String>, Rc<RefCell<DataLink>>>` | Java 的 `HashMap` 迭代顺序不确定；Rust 侧用 `BTreeMap` 让顺序稳定，并保留 `null` 与空串不同的键 |
-//! | `new DataLink(dataLinkID)`（`dataLinkID` 可为 `null`） | `DataLink::new_nullable(id)` | 与 Java 一样保留 `null` |
-//! | `m_project.getDataLinks().addAll(...)` | 逐条 `DataLinkContainer::add` | Rust 的容器没有 `addAll` |
-//! | `data[112]`（数组不足 113 字节时 Java 抛 `ArrayIndexOutOfBoundsException`） | 长度不足时跳过该条记录 | 不 panic |
+//! | `DataLinkFactory(ProjectFile project, FixedData fixedData, Var2Data varData)` | [`DataLinkFactory::new`] takes **ownership** of the three parameters | Java only stores references (`m_fixedData` / `m_varData`); Rust's `FixedData` / `Var2Data` have no shared handle, while `ProjectFile` uses `Rc<RefCell<..>>` |
+//! | `process() throws IOException` | [`DataLinkFactory::process`] returns `MpxjResult<()>` | Java's `IOException` comes from the `Props14` constructor; Rust uses [`MpxjError`] uniformly |
+//! | `Map<String, DataLink> map = new HashMap<>()` | `BTreeMap<Option<String>, Rc<RefCell<DataLink>>>` | Java's `HashMap` iteration order is unspecified; Rust uses `BTreeMap` to make the order stable and keeps `null` distinct from the empty string as keys |
+//! | `new DataLink(dataLinkID)` (`dataLinkID` may be `null`) | `DataLink::new_nullable(id)` | Preserves `null` as Java does |
+//! | `m_project.getDataLinks().addAll(...)` | `DataLinkContainer::add` one by one | Rust's container has no `addAll` |
+//! | `data[112]` (Java throws `ArrayIndexOutOfBoundsException` when the array is shorter than 113 bytes) | Skip the record when the length is insufficient | No panic |
 //!
-//! 跳过的 Java 成员：无（`process()` / 私有 `process(byte[], Map)` 均逐一翻译，
-//! 私有方法改名为 [`DataLinkFactory::process_data_link`] 以避免与公开的 `process` 重名）。
+//! Skipped Java members: none (`process()` / the private `process(byte[], Map)` are both translated one by one,
+//! and the private method is renamed to [`DataLinkFactory::process_data_link`] to avoid clashing with the public `process`).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -38,42 +38,42 @@ use crate::mpp::var2_data::Var2Data;
 use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 
-/// MPP9 使用的变长数据键。
+/// Variable-length data key used by MPP9.
 ///
-/// 对应 Java: `private static final Integer PROPS9 = Integer.valueOf(1)`
+/// Corresponds to Java: `private static final Integer PROPS9 = Integer.valueOf(1)`
 const PROPS9: i32 = 1;
 
-/// 其余版本使用的变长数据键。
+/// Variable-length data key used by other versions.
 ///
-/// 对应 Java: `private static final Integer PROPS = Integer.valueOf(6)`
+/// Corresponds to Java: `private static final Integer PROPS = Integer.valueOf(6)`
 const PROPS: i32 = 6;
 
-/// 定长数据块中「链接属性」标志所在的字节偏移。
+/// Byte offset of the "link properties" flag in the fixed-length data block.
 ///
-/// 对应 Java: `data[112]`
+/// Corresponds to Java: `data[112]`
 const LINK_PROPERTIES_OFFSET: usize = 112;
 
-/// 定长数据块中「链接属性」标志位。
+/// The "link properties" flag bit in the fixed-length data block.
 ///
-/// 对应 Java: `(data[112] & 0x20) == 0`
+/// Corresponds to Java: `(data[112] & 0x20) == 0`
 const LINK_PROPERTIES_MASK: u8 = 0x20;
 
-/// 数据链接提取。
+/// Data link extraction.
 ///
-/// 对应 Java: `class DataLinkFactory`
+/// Corresponds to Java: `class DataLinkFactory`
 pub struct DataLinkFactory {
-    /// 对应 Java: `private final ProjectFile m_project`
+    /// Corresponds to Java: `private final ProjectFile m_project`
     project: Rc<RefCell<ProjectFile>>,
-    /// 对应 Java: `private final FixedData m_fixedData`
+    /// Corresponds to Java: `private final FixedData m_fixedData`
     fixed_data: FixedData,
-    /// 对应 Java: `private final Var2Data m_varData`
+    /// Corresponds to Java: `private final Var2Data m_varData`
     var_data: Var2Data,
 }
 
 impl DataLinkFactory {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public DataLinkFactory(ProjectFile project, FixedData fixedData, Var2Data varData)`
+    /// Corresponds to Java: `public DataLinkFactory(ProjectFile project, FixedData fixedData, Var2Data varData)`
     pub fn new(project: &Rc<RefCell<ProjectFile>>, fixed_data: FixedData, var_data: Var2Data) -> Self {
         Self {
             project: Rc::clone(project),
@@ -82,9 +82,9 @@ impl DataLinkFactory {
         }
     }
 
-    /// 提取全部数据链接。
+/// Extract all data links.
     ///
-    /// 对应 Java: `public void process() throws IOException`
+    /// Corresponds to Java: `public void process() throws IOException`
     pub fn process(&self) -> MpxjResult<()> {
         // Java: Integer key = m_project.getProjectProperties().getMppFileType().intValue() == 9 ? PROPS9 : PROPS;
         let key = if self.project.borrow().get_project_properties().get_mpp_file_type() == Some(9) {
@@ -105,7 +105,7 @@ impl DataLinkFactory {
             };
 
             // Java: if (data != null && (data[112] & 0x20) == 0)
-            // 数据不足 113 字节时 Java 抛 ArrayIndexOutOfBoundsException，Rust 侧跳过。
+// When the data is shorter than 113 bytes Java throws ArrayIndexOutOfBoundsException; Rust skips it.
             if data.len() <= LINK_PROPERTIES_OFFSET {
                 continue;
             }
@@ -134,11 +134,11 @@ impl DataLinkFactory {
         Ok(())
     }
 
-    /// 提取单条数据链接。
+/// Extract a single data link.
     ///
-    /// 对应 Java: `private void process(byte[] data, Map<String, DataLink> map) throws IOException`
+    /// Corresponds to Java: `private void process(byte[] data, Map<String, DataLink> map) throws IOException`
     ///
-    /// Rust 无重载，故改名为 `process_data_link`。
+/// Rust has no overloading, so it is renamed to `process_data_link`.
     fn process_data_link(
         &self,
         data: &[u8],
@@ -191,16 +191,16 @@ mod tests {
     use crate::mpp::var_meta9::VarMeta9;
     use crate::task_field::TaskField;
 
-    /// 变长数据块中的 Props 数据键（非 MPP9 文件）。
+/// Props data key in the variable-length data block (non-MPP9 files).
     const VAR_DATA_KEY: i32 = PROPS;
 
-    /// 变长数据块中的条目 unique ID（与定长数据块偏移 0 处的取值一致）。
+/// Entry unique ID in the variable-length data block (same as the value at offset 0 of the fixed-length data block).
     const VAR_DATA_ID: i32 = 5;
 
-    /// 定长数据块的长度（需超过 112 字节并被 0x20 标志检查覆盖）。
+/// Length of the fixed-length data block (must exceed 112 bytes and be covered by the 0x20 flag check).
     const FIXED_DATA_SIZE: usize = 200;
 
-    /// 手工构造一段 `Props14` 数据（16 字节块头 + 若干「长度 + 键 + 保留 + 数据」记录）。
+/// Manually build a `Props14` payload (16-byte block header + several "length + key + reserved + data" records).
     fn props14_data(entries: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(entries.len() as u16).to_le_bytes());
@@ -210,7 +210,7 @@ mod tests {
             data.extend_from_slice(&key.to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
             data.extend_from_slice(value);
-            // Java: 对齐到两字节边界
+// Java: align to a two-byte boundary
             if value.len() % 2 != 0 {
                 data.push(0);
             }
@@ -219,7 +219,7 @@ mod tests {
         data
     }
 
-    /// UTF-16LE（NUL 结尾）编码。
+/// UTF-16LE (NUL-terminated) encoding.
     fn utf16(value: &str) -> Vec<u8> {
         let mut data = Vec::new();
         for unit in value.encode_utf16() {
@@ -229,7 +229,7 @@ mod tests {
         data
     }
 
-    /// 构造 VarMeta9 块（结构与 `crate::mpp::var2_data` 的测试一致）。
+/// Build a VarMeta9 block (structure matches the tests in `crate::mpp::var2_data`).
     fn var_meta9_bytes(entries: &[(i32, i32, usize)], offsets: &[i32], data_size: i32) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
@@ -248,7 +248,7 @@ mod tests {
         data
     }
 
-    /// 构造定长数据块（偏移 0 处为变长数据 unique ID，偏移 112 处的标志由参数决定）。
+/// Build a fixed-length data block (offset 0 holds the variable-length data unique ID, and the flag at offset 112 is set by the parameter).
     fn fixed_data(link_properties_flag: bool) -> FixedData {
         let mut data = vec![0u8; FIXED_DATA_SIZE];
         data[0..4].copy_from_slice(&VAR_DATA_ID.to_le_bytes());
@@ -258,9 +258,9 @@ mod tests {
         FixedData::with_fixed_size(FIXED_DATA_SIZE as i32, &data)
     }
 
-    /// 构造变长数据块，其中只含一条 Props 数据。
+/// Build a variable-length data block containing only one Props entry.
     ///
-    /// `entries` 为空时**不**在 VarMeta 中登记条目，用于验证「变长数据块中没有对应条目」的分支。
+/// When `entries` is empty, **no** entry is registered in VarMeta, used to exercise the "no matching entry in the variable-length data block" branch.
     fn var_data(file: &Rc<RefCell<ProjectFile>>, entries: &[(i32, Vec<u8>)]) -> Var2Data {
         let payload = props14_data(entries);
 
@@ -274,12 +274,12 @@ mod tests {
             vec![(VAR_DATA_ID, VAR_DATA_KEY, 0)]
         };
         let meta_bytes = var_meta9_bytes(&meta_entries, &[0], data.len() as i32);
-        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("元数据合法"));
+        let meta: Rc<dyn VarMeta> = Rc::new(VarMeta9::new(&meta_bytes).expect("valid metadata"));
 
         Var2Data::new(file, meta, &data)
     }
 
-    /// 一组能构成「指向任务字段的目标链接」的 Props 记录。
+/// A set of Props records that form a "target link pointing at a task field".
     fn target_link_entries() -> Vec<(i32, Vec<u8>)> {
         vec![
             (
@@ -297,7 +297,7 @@ mod tests {
         ]
     }
 
-    /// 目标链接：没有 VIEW_NAME 时写入 target 字段。
+/// Target link: writes the target field when there is no VIEW_NAME.
     #[test]
     fn extracts_a_target_data_link() {
         let file = ProjectFile::new();
@@ -307,13 +307,13 @@ mod tests {
             var_data(&file, &target_link_entries()),
         );
 
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         let file_ref = file.borrow();
         let links = file_ref.get_data_links();
         assert_eq!(links.len(), 1);
 
-        let link = links.get(0).expect("链接 0");
+        let link = links.get(0).expect("link 0");
         let link = link.borrow();
         assert_eq!(link.get_id(), "/path/to/file.mpp");
         assert_eq!(
@@ -325,7 +325,7 @@ mod tests {
         assert!(link.get_source_unique_id().is_none());
     }
 
-    /// 有 VIEW_NAME 时写入 source 字段。
+/// Writes the source field when VIEW_NAME is present.
     #[test]
     fn extracts_a_source_data_link() {
         let file = ProjectFile::new();
@@ -340,13 +340,13 @@ mod tests {
             fixed_data(false),
             var_data(&file, &entries),
         );
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         let file_ref = file.borrow();
         let links = file_ref.get_data_links();
         assert_eq!(links.len(), 1);
 
-        let link = links.get(0).expect("链接 0");
+        let link = links.get(0).expect("link 0");
         let link = link.borrow();
         assert_eq!(
             link.get_source_field(),
@@ -356,7 +356,7 @@ mod tests {
         assert!(link.get_target_field().is_none());
     }
 
-    /// 同一路径的多条记录合并为一个 `DataLink`（Java 的 `computeIfAbsent`）。
+/// Multiple records with the same path are merged into one `DataLink` (Java's `computeIfAbsent`).
     #[test]
     fn repeated_paths_share_a_single_data_link() {
         let file = ProjectFile::new();
@@ -369,13 +369,13 @@ mod tests {
         };
 
         let factory = DataLinkFactory::new(&file, fixed_data, var_data(&file, &target_link_entries()));
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         let file_ref = file.borrow();
         assert_eq!(file_ref.get_data_links().len(), 1);
     }
 
-    /// 记录的 0x20 标志置位时跳过（不产生链接）。
+/// Records with the 0x20 flag set are skipped (no link produced).
     #[test]
     fn link_properties_flag_skips_the_record() {
         let file = ProjectFile::new();
@@ -385,23 +385,23 @@ mod tests {
             var_data(&file, &target_link_entries()),
         );
 
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         assert_eq!(file.borrow().get_data_links().len(), 0);
     }
 
-    /// 变长数据块中没有对应条目时不产生链接（Java 的 `propsData == null` 分支）。
+/// No link is produced when there is no matching entry in the variable-length data block (Java's `propsData == null` branch).
     #[test]
     fn missing_var_data_entry_produces_no_link() {
         let file = ProjectFile::new();
         let factory = DataLinkFactory::new(&file, fixed_data(false), var_data(&file, &[]));
 
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         assert_eq!(file.borrow().get_data_links().len(), 0);
     }
 
-    /// 定长数据块过短时不 panic（Java 会抛 ArrayIndexOutOfBoundsException）。
+/// No panic when the fixed-length data block is too short (Java throws ArrayIndexOutOfBoundsException).
     #[test]
     fn short_fixed_data_does_not_panic() {
         let file = ProjectFile::new();
@@ -412,12 +412,12 @@ mod tests {
         };
 
         let factory = DataLinkFactory::new(&file, fixed_data, var_data(&file, &target_link_entries()));
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         assert_eq!(file.borrow().get_data_links().len(), 0);
     }
 
-    /// `FixedMeta` 的引用仅用于构造 `FixedData`（与 Java 相同的构造链）。
+/// The `FixedMeta` reference is only used to construct `FixedData` (the same construction chain as Java).
     #[test]
     fn fixed_meta_path_is_supported() {
         let mut meta_bytes = Vec::new();
@@ -429,14 +429,14 @@ mod tests {
         item[4..8].copy_from_slice(&0i32.to_le_bytes());
         meta_bytes.extend_from_slice(&item);
 
-        let meta = FixedMeta::with_item_size(&meta_bytes, 200).expect("元数据合法");
+        let meta = FixedMeta::with_item_size(&meta_bytes, 200).expect("valid metadata");
         let mut data = vec![0u8; FIXED_DATA_SIZE];
         data[0..4].copy_from_slice(&VAR_DATA_ID.to_le_bytes());
         let fixed_data = FixedData::with_item_size(&meta, FIXED_DATA_SIZE as i32, &data);
 
         let file = ProjectFile::new();
         let factory = DataLinkFactory::new(&file, fixed_data, var_data(&file, &target_link_entries()));
-        factory.process().expect("链接提取成功");
+        factory.process().expect("link extraction succeeded");
 
         assert_eq!(file.borrow().get_data_links().len(), 1);
     }

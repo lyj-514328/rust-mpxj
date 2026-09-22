@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/TimephasedCost.java`
+//! Corresponds to Java: `org/mpxj/TimephasedCost.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped / unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | （Java 侧无任何自有成员，只有注释 `// Empty block`） | `TimephasedCost::new()` 由 [`TimephasedItem::new`] 经类型别名提供，其余方法全部继承自 [`TimephasedItem`] |
+//! | (the Java side has no members of its own, only the comment `// Empty block`) | `TimephasedCost::new()` is provided by [`TimephasedItem::new`] via the type alias, and all other methods are inherited from [`TimephasedItem`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class uses none of these, so nothing is skipped.
 //!
-//! # 继承关系的还原方式：类型别名
+//! # Reproducing the inheritance relationship: type alias
 //!
-//! Java 的 `public final class TimephasedCost extends TimephasedItem<Number>` 在 Rust 侧
-//! 以**类型别名**承载：`pub type TimephasedCost = TimephasedItem<f64>;`。
-//! 由于 Java 侧本类没有任何自有成员或方法，别名即可完整表达。
+//! Java's `public final class TimephasedCost extends TimephasedItem<Number>` is represented on the Rust side
+//! by a **type alias**: `pub type TimephasedCost = TimephasedItem<f64>;`.
+//! Since this class has no members or methods of its own on the Java side, the alias expresses it completely.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`Number` → `f64`**：Java 的载荷类型是 `Number`，Rust 侧统一为 `f64`
-//!   （与本 crate 其它模块对 `Number` 的处理约定一致），取值为 `Option<f64>`。
-//! - **`equals` / `hashCode`**：继承自 [`TimephasedItem`]，其 Rust 侧取舍见该类型的文件头
-//!   （按 Java 的「四字段全部非空且相等」语义实现 `PartialEq`，不实现 `Eq` / `Hash`）。
+//! - **`Number` -> `f64`**: Java's payload type is `Number`, and the Rust side uniformly uses `f64`
+//!   (consistent with how other modules in this crate handle `Number`), with the value being `Option<f64>`.
+//! - **`equals` / `hashCode`**: inherited from [`TimephasedItem`]; the Rust-side trade-offs are described in that type's file header
+//!   (implements `PartialEq` per Java's "all four fields non-null and equal" semantics, and does not implement `Eq` / `Hash`).
 
 use crate::timephased_item::TimephasedItem;
 
-/// 分摊在一段时间上的成本。
+/// A cost spread over a period of time.
 ///
-/// 对应 Java: `public final class TimephasedCost extends TimephasedItem<Number>`
+/// Corresponds to Java: `public final class TimephasedCost extends TimephasedItem<Number>`
 ///
-/// （Rust 侧为 `TimephasedItem<f64>` 的类型别名，见文件头说明。）
+/// (On the Rust side this is a type alias for `TimephasedItem<f64>`; see the file header.)
 pub type TimephasedCost = TimephasedItem<f64>;
 
 #[cfg(test)]
@@ -38,7 +38,7 @@ mod tests {
     fn date(year: i32, month: u32, day: u32) -> NaiveDateTime {
         chrono::NaiveDate::from_ymd_opt(year, month, day)
             .and_then(|value| value.and_hms_opt(0, 0, 0))
-            .expect("合法日期")
+            .expect("valid date")
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
 
         assert_eq!(first, second);
 
-        // 任一字段为 null ⇒ 不相等
+        // Any field being null => not equal
         second.set_amount_per_hour(None);
         assert_ne!(first, second);
     }

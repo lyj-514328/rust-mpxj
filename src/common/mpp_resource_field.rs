@@ -1,25 +1,27 @@
-//! 对应 Java: `org/mpxj/common/MPPResourceField.java`
+//! Corresponds to Java: `org/mpxj/common/MPPResourceField.java`
 //!
-//! MS Project 二进制文件中表示「资源字段」的整数 → MPXJ 字段枚举的映射工具类。
+//! A utility class that maps the integers representing "resource fields" in Microsoft Project
+//! binary files to MPXJ's field enum.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - Java 的 `getInstance` 有 `(ProjectFile, int)` 与 `(ProjectFile, int, DataType)`
-//!   两个重载，Rust 侧后者命名为 [`MPPResourceField::get_instance_with_data_type`]
-//!   （Rust 无重载）。
-//! - Java 的 `null` 返回值 → `Option::None`（越界下标、映射表中空缺的下标、
-//!   无法取得项目上下文的场合）；越界读 `ID_ARRAY` 返回 `-1`，不抛
-//!   `ArrayIndexOutOfBoundsException`。
-//! - Java 返回 `FieldType`（可能是枚举，也可能是 `UserDefinedField`），Rust 侧用
-//!   [`MppFieldType`] 承载，见 [`crate::common::mpp_field_type`] 的说明。
-//! - 企业自定义字段分支（`0x8000` 位置位）在 Java 中直接调用
-//!   `project.getUserDefinedFields().getOrCreateResourceField(...)`，Rust 侧的容器接口
-//!   需要 `&mut`，故改写成等价的两步（先查重、未命中再构建并登记），
-//!   见 [`get_or_create_enterprise_field`]。
-//! - Java 的 `getID` 对 `ResourceField` 以外的字段同样按 `value.getValue()` 索引
-//!   `ID_ARRAY`（可能返回无关值或抛异常），Rust 侧保持一致（越界才退化为 `-1`）。
+//! - Java's `getInstance` has two overloads, `(ProjectFile, int)` and `(ProjectFile, int, DataType)`;
+//!   the Rust side names the latter [`MPPResourceField::get_instance_with_data_type`]
+//!   (Rust has no overloading).
+//! - Java's `null` return value → `Option::None` (an out-of-bounds index, an empty slot in the
+//!   mapping table, or a case where the project context cannot be obtained); reading `ID_ARRAY`
+//!   out of bounds returns `-1` and does not throw `ArrayIndexOutOfBoundsException`.
+//! - Java returns `FieldType` (which may be an enum or a `UserDefinedField`); the Rust side
+//!   carries it with [`MppFieldType`], see the notes in [`crate::common::mpp_field_type`].
+//! - The enterprise custom field branch (the `0x8000` bit set) calls
+//!   `project.getUserDefinedFields().getOrCreateResourceField(...)` directly in Java; the Rust
+//!   container interface requires `&mut`, so it is rewritten as the equivalent two steps (look up
+//!   first, and build and register on a miss), see [`get_or_create_enterprise_field`].
+//! - Java's `getID` indexes `ID_ARRAY` by `value.getValue()` for fields other than
+//!   `ResourceField` too (possibly returning an unrelated value or throwing); the Rust side stays
+//!   consistent (only degrading to `-1` when out of bounds).
 //!
-//! 被跳过的 Java 代码：无。未移植的 Java 方法：无。
+//! Skipped Java code: none. Unported Java methods: none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -34,29 +36,30 @@ use crate::resource_field::ResourceField;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 use crate::user_defined_field::{Builder, UserDefinedField};
 
-/// 对应 Java: `org.mpxj.common.MPPResourceField`
+/// Corresponds to Java: `org.mpxj.common.MPPResourceField`
 pub struct MPPResourceField;
 
 impl MPPResourceField {
-    /// 企业自定义字段的字段号基数。
+    /// The field ID base for enterprise custom fields.
     ///
-    /// 对应 Java: `public static final int RESOURCE_FIELD_BASE = 0x0C400000;`
+    /// Corresponds to Java: `public static final int RESOURCE_FIELD_BASE = 0x0C400000;`
     pub const RESOURCE_FIELD_BASE: i32 = 0x0C40_0000;
 
-    /// 按 MS Project 文件中的字段号取对应的字段类型。
+    /// Get the corresponding field type from a field ID in a Microsoft Project file.
     ///
-    /// 对应 Java: `public static FieldType getInstance(ProjectFile project, int value)`
+    /// Corresponds to Java: `public static FieldType getInstance(ProjectFile project, int value)`
     ///
-    /// 参考 Java 第 50-53 行：`return getInstance(project, value, DataType.CUSTOM);`
+    /// See Java lines 50-53: `return getInstance(project, value, DataType.CUSTOM);`
     pub fn get_instance(project: &Rc<RefCell<ProjectFile>>, value: i32) -> Option<MppFieldType> {
         Self::get_instance_with_data_type(project, value, DataType::Custom)
     }
 
-    /// 按 MS Project 文件中的字段号取对应的字段类型，并指定自定义字段的数据类型。
+    /// Get the corresponding field type from a field ID in a Microsoft Project file, specifying
+    /// the data type of custom fields.
     ///
-    /// 对应 Java: `public static FieldType getInstance(ProjectFile project, int value, DataType customFieldDataType)`
+    /// Corresponds to Java: `public static FieldType getInstance(ProjectFile project, int value, DataType customFieldDataType)`
     ///
-    /// 参考 Java 第 64-87 行。
+    /// See Java lines 64-87.
     pub fn get_instance_with_data_type(
         project: &Rc<RefCell<ProjectFile>>,
         value: i32,
@@ -80,21 +83,21 @@ impl MPPResourceField {
         None
     }
 
-    /// 取字段在 MS Project 中使用的字段号。
+    /// Get the field ID used by the field in Microsoft Project.
     ///
-    /// 对应 Java: `public static int getID(FieldType value)`
+    /// Corresponds to Java: `public static int getID(FieldType value)`
     ///
-    /// 参考 Java 第 95-107 行。
+    /// See Java lines 95-107.
     pub fn get_id(value: &MppFieldType) -> i32 {
         match value {
             // Java: `if (value instanceof UserDefinedField) { result = value.getValue(); }`
             MppFieldType::Custom(field) => match field.try_borrow() {
                 Ok(field) => field.get_value(),
-                // Rust 特有：字段正被可变借用时无法读取（Java 无此情形）。
+                // Rust-specific: cannot read while the field is mutably borrowed (no such case in Java).
                 Err(_) => -1,
             },
-            // Java: `result = ID_ARRAY[value.getValue()]`（下标越界时抛
-            // ArrayIndexOutOfBoundsException；Rust 侧退化为 -1 而不 panic）。
+            // Java: `result = ID_ARRAY[value.getValue()]` (throws
+            // ArrayIndexOutOfBoundsException when the index is out of bounds; the Rust side degrades gracefully to -1 instead of panicking).
             MppFieldType::Builtin(key) => match usize::try_from(key.value())
                 .ok()
                 .and_then(|index| ID_ARRAY.get(index))
@@ -106,19 +109,19 @@ impl MPPResourceField {
     }
 }
 
-/// 映射表长度（`FIELD_ARRAY` 的元素个数）。
+/// Mapping table length (the number of elements in `FIELD_ARRAY`).
 ///
-/// 对应 Java: `public static final int MAX_VALUE = 863;`
+/// Corresponds to Java: `public static final int MAX_VALUE = 863;`
 pub const MAX_VALUE: usize = 863;
 
-/// MS Project 字段号 → 资源字段。
+/// MS Project field ID → resource field.
 ///
-/// 对应 Java: `MPPResourceField.java` 第 111 行的 `FIELD_ARRAY` 声明
-/// （`private static final ResourceField[] FIELD_ARRAY = new ResourceField[MAX_VALUE]`）
-/// 与第 113-650 行的 `static {}` 初始化块。Java 中未被赋值的下标为 `null`，
-/// Rust 侧为 `None`；分组注释给出每组对应的 Java 源行号区间。
+/// Corresponds to Java: the `FIELD_ARRAY` declaration at line 111 of `MPPResourceField.java`
+/// (`private static final ResourceField[] FIELD_ARRAY = new ResourceField[MAX_VALUE]`)
+/// and the `static {}` initializer block at lines 113-650. In Java, an unassigned index is `null`;
+/// on the Rust side it is `None`; the group comments give the Java source line range for each group.
 const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
-    // Java 源 115-150：下标 0..=35
+    // Java source 115-150: indexes 0..=35
     Some(ResourceField::Id),                 // 0
     Some(ResourceField::Name),               // 1
     Some(ResourceField::Initials),           // 2
@@ -157,7 +160,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::EmailAddress),       // 35
     None,                                    // 36
     None,                                    // 37
-    // Java 源 151-153：下标 38..=40
+    // Java source 151-153: indexes 38..=40
     Some(ResourceField::RegularWork),            // 38
     Some(ResourceField::ActualOvertimeWork),     // 39
     Some(ResourceField::RemainingOvertimeWork),  // 40
@@ -167,24 +170,24 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 44
     None,                                    // 45
     None,                                    // 46
-    // Java 源 154-156：下标 47..=49
+    // Java source 154-156: indexes 47..=49
     Some(ResourceField::OvertimeCost),           // 47
     Some(ResourceField::ActualOvertimeCost),     // 48
     Some(ResourceField::RemainingOvertimeCost),  // 49
     None,                                    // 50
-    // Java 源 157-160：下标 51..=54
+    // Java source 157-160: indexes 51..=54
     Some(ResourceField::Bcws),               // 51
     Some(ResourceField::Bcwp),               // 52
     Some(ResourceField::Acwp),               // 53
     Some(ResourceField::Sv),                 // 54
     None,                                    // 55
     None,                                    // 56
-    // Java 源 161-162：下标 57..=58
+    // Java source 161-162: indexes 57..=58
     Some(ResourceField::AvailableFrom),      // 57
     Some(ResourceField::AvailableTo),        // 58
     None,                                    // 59
     None,                                    // 60
-    // Java 源 163-167：下标 61..=65
+    // Java source 163-167: indexes 61..=65
     Some(ResourceField::CostRateA),          // 61
     Some(ResourceField::CostRateB),          // 62
     Some(ResourceField::CostRateC),          // 63
@@ -194,7 +197,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 67
     None,                                    // 68
     None,                                    // 69
-    // Java 源 168-169：下标 70..=71
+    // Java source 168-169: indexes 70..=71
     Some(ResourceField::StandardRateUnits),  // 70
     Some(ResourceField::OvertimeRateUnits),  // 71
     None,                                    // 72
@@ -211,7 +214,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 83
     None,                                    // 84
     None,                                    // 85
-    // Java 源 170：下标 86
+    // Java source 170: indexes 86
     Some(ResourceField::Indicators),         // 86
     None,                                    // 87
     None,                                    // 88
@@ -223,7 +226,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 94
     None,                                    // 95
     None,                                    // 96
-    // Java 源 171-210：下标 97..=136
+    // Java source 171-210: indexes 97..=136
     Some(ResourceField::Text6),              // 97
     Some(ResourceField::Text7),              // 98
     Some(ResourceField::Text8),              // 99
@@ -265,14 +268,14 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::Flag9),              // 135
     Some(ResourceField::HyperlinkData),      // 136
     None,                                    // 137
-    // Java 源 211-214：下标 138..=141
+    // Java source 211-214: indexes 138..=141
     Some(ResourceField::Hyperlink),              // 138
     Some(ResourceField::HyperlinkAddress),       // 139
     Some(ResourceField::HyperlinkSubaddress),    // 140
     Some(ResourceField::HyperlinkHref),          // 141
     None,                                    // 142
     None,                                    // 143
-    // Java 源 215：下标 144
+    // Java source 215: indexes 144
     Some(ResourceField::Assignment),         // 144
     None,                                    // 145
     None,                                    // 146
@@ -281,7 +284,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 149
     None,                                    // 150
     None,                                    // 151
-    // Java 源 216：下标 152
+    // Java source 216: indexes 152
     Some(ResourceField::SubprojectResourceUniqueId), // 152
     None,                                    // 153
     None,                                    // 154
@@ -289,16 +292,16 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 156
     None,                                    // 157
     None,                                    // 158
-    // Java 源 217：下标 159
+    // Java source 217: indexes 159
     Some(ResourceField::TaskSummaryName),    // 159
     None,                                    // 160
     None,                                    // 161
     None,                                    // 162
-    // Java 源 218-219：下标 163..=164
+    // Java source 218-219: indexes 163..=164
     Some(ResourceField::CanLevel),           // 163
     Some(ResourceField::WorkContour),        // 164
     None,                                    // 165
-    // Java 源 220-307：下标 166..=253
+    // Java source 220-307: indexes 166..=253
     Some(ResourceField::Cost4),              // 166
     Some(ResourceField::Cost5),              // 167
     Some(ResourceField::Cost6),              // 168
@@ -390,7 +393,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 254
     None,                                    // 255
     None,                                    // 256
-    // Java 源 308-324：下标 257..=273
+    // Java source 308-324: indexes 257..=273
     Some(ResourceField::AssignmentDelay),    // 257
     Some(ResourceField::AssignmentUnits),    // 258
     Some(ResourceField::BaselineStart),      // 259
@@ -410,10 +413,10 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::Project),            // 273
     None,                                    // 274
     None,                                    // 275
-    // Java 源 325：下标 276
+    // Java source 325: indexes 276
     Some(ResourceField::AvailabilityData),   // 276
     None,                                    // 277
-    // Java 源 326-345：下标 278..=297
+    // Java source 326-345: indexes 278..=297
     Some(ResourceField::OutlineCode1),       // 278
     Some(ResourceField::OutlineCode1Index),  // 279
     Some(ResourceField::OutlineCode2),       // 280
@@ -435,7 +438,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::OutlineCode10),      // 296
     Some(ResourceField::OutlineCode10Index), // 297
     None,                                    // 298
-    // Java 源 346-348：下标 299..=301
+    // Java source 346-348: indexes 299..=301
     Some(ResourceField::MaterialLabel),      // 299
     Some(ResourceField::Type),               // 300
     Some(ResourceField::Vac),                // 301
@@ -443,13 +446,13 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 303
     None,                                    // 304
     None,                                    // 305
-    // Java 源 349：下标 306
+    // Java source 349: indexes 306
     Some(ResourceField::GroupBySummary),     // 306
     None,                                    // 307
     None,                                    // 308
     None,                                    // 309
     None,                                    // 310
-    // Java 源 350-351：下标 311..=312
+    // Java source 350-351: indexes 311..=312
     Some(ResourceField::WindowsUserAccount), // 311
     Some(ResourceField::HyperlinkScreenTip), // 312
     None,                                    // 313
@@ -479,7 +482,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 337
     None,                                    // 338
     None,                                    // 339
-    // Java 源 352-355：下标 340..=343
+    // Java source 352-355: indexes 340..=343
     Some(ResourceField::Wbs),                    // 340
     Some(ResourceField::EnterpriseData),         // 341
     Some(ResourceField::Baseline1Work),          // 342
@@ -488,125 +491,125 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 345
     None,                                    // 346
     None,                                    // 347
-    // Java 源 356-357：下标 348..=349
+    // Java source 356-357: indexes 348..=349
     Some(ResourceField::Baseline1Start),         // 348
     Some(ResourceField::Baseline1Finish),        // 349
     None,                                    // 350
     None,                                    // 351
-    // Java 源 358-359：下标 352..=353
+    // Java source 358-359: indexes 352..=353
     Some(ResourceField::Baseline2Work),          // 352
     Some(ResourceField::Baseline2Cost),          // 353
     None,                                    // 354
     None,                                    // 355
     None,                                    // 356
     None,                                    // 357
-    // Java 源 360-361：下标 358..=359
+    // Java source 360-361: indexes 358..=359
     Some(ResourceField::Baseline2Start),         // 358
     Some(ResourceField::Baseline2Finish),        // 359
     None,                                    // 360
     None,                                    // 361
-    // Java 源 362-363：下标 362..=363
+    // Java source 362-363: indexes 362..=363
     Some(ResourceField::Baseline3Work),          // 362
     Some(ResourceField::Baseline3Cost),          // 363
     None,                                    // 364
     None,                                    // 365
     None,                                    // 366
     None,                                    // 367
-    // Java 源 364-365：下标 368..=369
+    // Java source 364-365: indexes 368..=369
     Some(ResourceField::Baseline3Start),         // 368
     Some(ResourceField::Baseline3Finish),        // 369
     None,                                    // 370
     None,                                    // 371
-    // Java 源 366-367：下标 372..=373
+    // Java source 366-367: indexes 372..=373
     Some(ResourceField::Baseline4Work),          // 372
     Some(ResourceField::Baseline4Cost),          // 373
     None,                                    // 374
     None,                                    // 375
     None,                                    // 376
     None,                                    // 377
-    // Java 源 368-369：下标 378..=379
+    // Java source 368-369: indexes 378..=379
     Some(ResourceField::Baseline4Start),         // 378
     Some(ResourceField::Baseline4Finish),        // 379
     None,                                    // 380
     None,                                    // 381
-    // Java 源 370-371：下标 382..=383
+    // Java source 370-371: indexes 382..=383
     Some(ResourceField::Baseline5Work),          // 382
     Some(ResourceField::Baseline5Cost),          // 383
     None,                                    // 384
     None,                                    // 385
     None,                                    // 386
     None,                                    // 387
-    // Java 源 372-373：下标 388..=389
+    // Java source 372-373: indexes 388..=389
     Some(ResourceField::Baseline5Start),         // 388
     Some(ResourceField::Baseline5Finish),        // 389
     None,                                    // 390
     None,                                    // 391
-    // Java 源 374-375：下标 392..=393
+    // Java source 374-375: indexes 392..=393
     Some(ResourceField::Baseline6Work),          // 392
     Some(ResourceField::Baseline6Cost),          // 393
     None,                                    // 394
     None,                                    // 395
     None,                                    // 396
     None,                                    // 397
-    // Java 源 376-377：下标 398..=399
+    // Java source 376-377: indexes 398..=399
     Some(ResourceField::Baseline6Start),         // 398
     Some(ResourceField::Baseline6Finish),        // 399
     None,                                    // 400
     None,                                    // 401
-    // Java 源 378-379：下标 402..=403
+    // Java source 378-379: indexes 402..=403
     Some(ResourceField::Baseline7Work),          // 402
     Some(ResourceField::Baseline7Cost),          // 403
     None,                                    // 404
     None,                                    // 405
     None,                                    // 406
     None,                                    // 407
-    // Java 源 380-381：下标 408..=409
+    // Java source 380-381: indexes 408..=409
     Some(ResourceField::Baseline7Start),         // 408
     Some(ResourceField::Baseline7Finish),        // 409
     None,                                    // 410
     None,                                    // 411
-    // Java 源 382-383：下标 412..=413
+    // Java source 382-383: indexes 412..=413
     Some(ResourceField::Baseline8Work),          // 412
     Some(ResourceField::Baseline8Cost),          // 413
     None,                                    // 414
     None,                                    // 415
     None,                                    // 416
     None,                                    // 417
-    // Java 源 384-385：下标 418..=419
+    // Java source 384-385: indexes 418..=419
     Some(ResourceField::Baseline8Start),         // 418
     Some(ResourceField::Baseline8Finish),        // 419
     None,                                    // 420
     None,                                    // 421
-    // Java 源 386-387：下标 422..=423
+    // Java source 386-387: indexes 422..=423
     Some(ResourceField::Baseline9Work),          // 422
     Some(ResourceField::Baseline9Cost),          // 423
     None,                                    // 424
     None,                                    // 425
     None,                                    // 426
     None,                                    // 427
-    // Java 源 388-389：下标 428..=429
+    // Java source 388-389: indexes 428..=429
     Some(ResourceField::Baseline9Start),         // 428
     Some(ResourceField::Baseline9Finish),        // 429
     None,                                    // 430
     None,                                    // 431
-    // Java 源 390-391：下标 432..=433
+    // Java source 390-391: indexes 432..=433
     Some(ResourceField::Baseline10Work),         // 432
     Some(ResourceField::Baseline10Cost),         // 433
     None,                                    // 434
     None,                                    // 435
     None,                                    // 436
     None,                                    // 437
-    // Java 源 392-393：下标 438..=439
+    // Java source 392-393: indexes 438..=439
     Some(ResourceField::Baseline10Start),        // 438
     Some(ResourceField::Baseline10Finish),       // 439
     None,                                    // 440
     None,                                    // 441
-    // Java 源 394-395：下标 442..=443
+    // Java source 394-395: indexes 442..=443
     Some(ResourceField::TaskOutlineNumber),      // 442
     Some(ResourceField::EnterpriseUniqueId),     // 443
     None,                                    // 444
     None,                                    // 445
-    // Java 源 396-475：下标 446..=525
+    // Java source 396-475: indexes 446..=525
     Some(ResourceField::EnterpriseCost1),    // 446
     Some(ResourceField::EnterpriseCost2),    // 447
     Some(ResourceField::EnterpriseCost3),    // 448
@@ -707,7 +710,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 543
     None,                                    // 544
     None,                                    // 545
-    // Java 源 476-515：下标 546..=585
+    // Java source 476-515: indexes 546..=585
     Some(ResourceField::EnterpriseNumber1),  // 546
     Some(ResourceField::EnterpriseNumber2),  // 547
     Some(ResourceField::EnterpriseNumber3),  // 548
@@ -748,7 +751,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::EnterpriseNumber38), // 583
     Some(ResourceField::EnterpriseNumber39), // 584
     Some(ResourceField::EnterpriseNumber40), // 585
-    // Java 源 516-545：下标 586、588、…、642（步长 2）与 644
+    // Java source 516-545: indexes 586, 588, ..., 642 (step 2) and 644
     Some(ResourceField::EnterpriseOutlineCode1),  // 586
     None,                                         // 587
     Some(ResourceField::EnterpriseOutlineCode2),  // 588
@@ -809,7 +812,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                         // 643
     Some(ResourceField::EnterpriseRbs),           // 644
     None,                                         // 645
-    // Java 源 546-596：下标 646..=696
+    // Java source 546-596: indexes 646..=696
     Some(ResourceField::EnterpriseText1),    // 646
     Some(ResourceField::EnterpriseText2),    // 647
     Some(ResourceField::EnterpriseText3),    // 648
@@ -863,11 +866,11 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::Inactive),                // 696
     None,                                    // 697
     None,                                    // 698
-    // Java 源 597-598：下标 699..=700
+    // Java source 597-598: indexes 699..=700
     Some(ResourceField::BookingType),                    // 699
     Some(ResourceField::EnterpriseMultiValue20),         // 700
     None,                                                // 701
-    // Java 源 599-607：下标 702、704、…、718（步长 2）
+    // Java source 599-607: indexes 702, 704, ..., 718 (step 2)
     Some(ResourceField::EnterpriseMultiValue21),         // 702
     None,                                                // 703
     Some(ResourceField::EnterpriseMultiValue22),         // 704
@@ -886,17 +889,17 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                                // 717
     Some(ResourceField::EnterpriseMultiValue29),         // 718
     None,                                                // 719
-    // Java 源 608-609：下标 720..=721
+    // Java source 608-609: indexes 720..=721
     Some(ResourceField::ActualWorkProtected),            // 720
     Some(ResourceField::ActualOvertimeWorkProtected),    // 721
     None,                                    // 722
     None,                                    // 723
     None,                                    // 724
     None,                                    // 725
-    // Java 源 610：下标 726
+    // Java source 610: indexes 726
     Some(ResourceField::Created),            // 726
     None,                                    // 727
-    // Java 源 611-612：下标 728..=729
+    // Java source 611-612: indexes 728..=729
     Some(ResourceField::Guid),               // 728
     Some(ResourceField::CalendarGuid),       // 729
     None,                                    // 730
@@ -906,11 +909,11 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 734
     None,                                    // 735
     None,                                    // 736
-    // Java 源 613-614：下标 737..=738
+    // Java source 613-614: indexes 737..=738
     Some(ResourceField::Summary),            // 737
     Some(ResourceField::ErrorMessage),       // 738
     None,                                    // 739
-    // Java 源 615：下标 740
+    // Java source 615: indexes 740
     Some(ResourceField::DefaultAssignmentOwner), // 740
     None,                                    // 741
     None,                                    // 742
@@ -923,7 +926,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 749
     None,                                    // 750
     None,                                    // 751
-    // Java 源 616-621：下标 752..=757
+    // Java source 616-621: indexes 752..=757
     Some(ResourceField::Budget),             // 752
     Some(ResourceField::BudgetWork),         // 753
     Some(ResourceField::BudgetCost),         // 754
@@ -932,7 +935,7 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::BaselineBudgetCost), // 757
     None,                                    // 758
     None,                                    // 759
-    // Java 源 622-641：下标 760..=761、764..=765、…、796..=797
+    // Java source 622-641: indexes 760..=761, 764..=765, ..., 796..=797
     Some(ResourceField::Baseline1BudgetWork),  // 760
     Some(ResourceField::Baseline1BudgetCost),  // 761
     None,                                    // 762
@@ -973,17 +976,17 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     Some(ResourceField::Baseline10BudgetCost), // 797
     None,                                    // 798
     None,                                    // 799
-    // Java 源 642-643：下标 800..=801
+    // Java source 642-643: indexes 800..=801
     Some(ResourceField::TeamAssignmentPool), // 800
     Some(ResourceField::CostCenter),         // 801
     None,                                    // 802
-    // Java 源 644：下标 803
+    // Java source 644: indexes 803
     Some(ResourceField::AssignmentOwner),    // 803
     None,                                    // 804
     None,                                    // 805
     None,                                    // 806
     None,                                    // 807
-    // Java 源 645：下标 808
+    // Java source 645: indexes 808
     Some(ResourceField::Active),             // 808
     None,                                    // 809
     None,                                    // 810
@@ -1029,33 +1032,33 @@ const FIELD_ARRAY: [Option<ResourceField>; MAX_VALUE] = [
     None,                                    // 850
     None,                                    // 851
     None,                                    // 852
-    // Java 源 646：下标 853
+    // Java source 646: indexes 853
     Some(ResourceField::ProposedStart),      // 853
     None,                                    // 854
     None,                                    // 855
-    // Java 源 647：下标 856
+    // Java source 647: indexes 856
     Some(ResourceField::ProposedFinish),     // 856
     None,                                    // 857
     None,                                    // 858
-    // Java 源 648：下标 859
+    // Java source 648: indexes 859
     Some(ResourceField::ProposedMaxUnits),   // 859
     None,                                    // 860
     None,                                    // 861
-    // Java 源 649：下标 862
+    // Java source 649: indexes 862
     Some(ResourceField::EngagementStatus),   // 862
 ];
 
-/// 字段 → MS Project 字段号的逆向映射表。
+/// The reverse mapping table from field → MS Project field ID.
 ///
-/// 对应 Java: `MPPResourceField.java` 第 652 行的 `ID_ARRAY` 声明
-/// （`private static final int[] ID_ARRAY = new int[ResourceField.MAX_VALUE]`）
-/// 与第 653-665 行的 `static {}` 初始化块：先 `Arrays.fill(ID_ARRAY, -1)`，
-/// 再遍历 `FIELD_ARRAY` 令 `ID_ARRAY[resourceField.getValue()] = loop`
-/// （同一字段在表中出现多次时，后写的下标覆盖先写的 —— 本例只有 `NOTES`
-/// 同时出现在 20 与 28，最终值为 28）。
+/// Corresponds to Java: the `ID_ARRAY` declaration at line 652 of `MPPResourceField.java`
+/// (`private static final int[] ID_ARRAY = new int[ResourceField.MAX_VALUE]`)
+/// and the `static {}` initializer block at lines 653-665: first `Arrays.fill(ID_ARRAY, -1)`,
+/// then iterate `FIELD_ARRAY` setting `ID_ARRAY[resourceField.getValue()] = loop`
+/// (when the same field appears multiple times in the table, a later index overwrites an earlier
+/// one — in this case only `NOTES` appears at both 20 and 28, and the final value is 28).
 const ID_ARRAY: [i32; ResourceField::MAX_VALUE] = build_id_array(&FIELD_ARRAY);
 
-/// 按 Java 的静态初始化块在编译期推导 `ID_ARRAY`。
+/// Derive `ID_ARRAY` at compile time following Java's static initializer block.
 const fn build_id_array(
     field_array: &[Option<ResourceField>; MAX_VALUE],
 ) -> [i32; ResourceField::MAX_VALUE] {
@@ -1070,9 +1073,9 @@ const fn build_id_array(
     result
 }
 
-/// 取（必要时创建）企业自定义字段对应的 `UserDefinedField`。
+/// Get (creating if necessary) the `UserDefinedField` corresponding to an enterprise custom field.
 ///
-/// 对应 Java: `MPPResourceField.java` 第 66-78 行，即 `0x8000` 位置位时执行的
+/// Corresponds to Java: `MPPResourceField.java` lines 66-78, i.e. the code executed when the `0x8000` bit is set
 ///
 /// ```java
 /// return project.getUserDefinedFields().getOrCreateResourceField(Integer.valueOf(value), (k) -> {
@@ -1087,19 +1090,23 @@ const fn build_id_array(
 /// });
 /// ```
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 的 `getOrCreateResourceField` 以 MPP 字段号 `value` 为键，命中时直接返回既有
-///   字段、缺失时才调用创建函数；Rust 的
+/// - Java's `getOrCreateResourceField` keys on the MPP field ID `value`, returning the existing
+///   field on a hit and calling the create function only on a miss; Rust's
 ///   [`crate::user_defined_field_container::UserDefinedFieldContainer::get_or_create_resource_field`]
-///   需要 `&mut` 容器，而 `Builder::build()` 又要借同一个上下文取序号生成器，二者无法
-///   在一次借用内完成。因此这里改写成两步：先按**等价且一一对应**的 unique ID
-///   （`RESOURCE_FIELD_BASE + value`）在 unique ID 索引中查重，未命中才构建并登记。
-///   已存在时不构建，与 Java 一样不会多申请一次序号。
-/// - Java 用 `project`（`ProjectFile`）作序号生成器提供者；Rust 侧直接交给
-///   `ProjectContext`，因为 `impl UniqueIdObjectSequenceProvider for ProjectFile`
-///   本来就转发给上下文（共享同一批序号生成器，见 `crate::project_file`）。
-/// - 项目正在被可变借用等无法取到上下文的情形返回 `None`（Java 无此情形）。
+///   requires a `&mut` container, while `Builder::build()` also needs to borrow the same context
+///   to get the sequence generator, and the two cannot be done within a single borrow. So this is
+///   rewritten as two steps: first deduplicate in the unique ID index by the **equivalent,
+///   one-to-one** unique ID (`RESOURCE_FIELD_BASE + value`), and only build and register on a
+///   miss. When it already exists, nothing is built, so just like Java no extra sequence number
+///   is requested.
+/// - Java uses `project` (`ProjectFile`) as the sequence generator provider; the Rust side passes
+///   in `ProjectContext` directly, because `impl UniqueIdObjectSequenceProvider for ProjectFile`
+///   already forwards to the context (sharing the same batch of sequence generators, see
+///   `crate::project_file`).
+/// - Returns `None` in cases such as the project being mutably borrowed so the context cannot be
+///   obtained (no such case in Java).
 fn get_or_create_enterprise_field(
     project: &Rc<RefCell<ProjectFile>>,
     value: i32,
@@ -1129,8 +1136,8 @@ fn get_or_create_enterprise_field(
         .data_type(custom_field_data_type)
         .build();
 
-    // Java: `getOrCreateResourceField(...)`（上文已确认该字段不存在，故这里是新建）。
-    // 字段在取得可变借用之前构建完毕，避免与容器借用冲突。
+    // Java: `getOrCreateResourceField(...)` (we already confirmed above that the field does not exist, so this creates it).
+    // The field is fully built before acquiring the mutable borrow, avoiding a borrow conflict with the container.
     let created = context
         .try_borrow_mut()
         .ok()?
@@ -1145,20 +1152,20 @@ mod tests {
     use super::*;
     use crate::field_type::FieldType;
 
-    /// 新建一份项目文件（自定义字段分支需要项目上下文）。
+    /// Create a new project file (the custom field branch needs a project context).
     fn project() -> Rc<RefCell<ProjectFile>> {
         ProjectFile::new()
     }
 
-    /// 取字段号对应的内置资源字段。
+    /// Get the built-in resource field corresponding to a field ID.
     fn builtin(value: i32) -> ResourceField {
         match MPPResourceField::get_instance(&project(), value) {
             Some(MppFieldType::Builtin(FieldKey::Resource(field))) => field,
-            _ => panic!("字段号 {value} 应为资源字段"),
+            _ => panic!("field number {value} should be a resource field"),
         }
     }
 
-    /// 取字段号对应的 Java 枚举常量名。
+    /// Get the Java enum constant name corresponding to a field ID.
     fn java_name(value: i32) -> Option<&'static str> {
         MPPResourceField::get_instance(&project(), value)?
             .as_builtin()
@@ -1170,13 +1177,13 @@ mod tests {
         assert_eq!(MAX_VALUE, 863);
         assert_eq!(FIELD_ARRAY.len(), MAX_VALUE);
 
-        // Java 的 `static {}` 块共 535 条赋值（其中 NOTES 出现两次，故 534 个不同字段）。
+        // Java's `static {}` block has 535 assignments in total (NOTES appears twice, so there are 534 distinct fields).
         assert_eq!(FIELD_ARRAY.iter().filter(|entry| entry.is_some()).count(), 535);
     }
 
     #[test]
     fn field_numbers_match_java() {
-        // 与 Java `static {}` 块逐项对齐（含各区间的首尾与代表性下标）
+        // Aligned item by item with Java's `static {}` block (including the first and last of each range and representative indexes)
         let cases: &[(i32, &str)] = &[
             (0, "ID"),
             (1, "NAME"),
@@ -1372,8 +1379,8 @@ mod tests {
         ];
 
         for &(value, expected) in cases {
-            assert_eq!(java_name(value), Some(expected), "字段号 {value}");
-            assert_eq!(builtin(value).name(), expected, "字段号 {value}");
+            assert_eq!(java_name(value), Some(expected), "field number {value}");
+            assert_eq!(builtin(value).name(), expected, "field number {value}");
         }
     }
 
@@ -1381,7 +1388,7 @@ mod tests {
     fn unassigned_and_out_of_range_field_numbers_are_none() {
         let project = project();
 
-        // Java 的 `static {}` 块中未赋值（即 null）的代表性下标
+        // Representative indexes that are unassigned (i.e. null) in Java's `static {}` block
         for value in [
             36, 37, 41, 42, 43, 44, 45, 46, 50, 55, 56, 59, 60, 66, 67, 68, 69, 72, 73, 84, 85, 87,
             88, 95, 96, 137, 142, 143, 145, 146, 150, 151, 153, 154, 157, 158, 160, 161, 162, 165,
@@ -1396,17 +1403,17 @@ mod tests {
         ] {
             assert!(
                 MPPResourceField::get_instance(&project, value).is_none(),
-                "字段号 {value} 在 Java 中未赋值"
+                "field number {value} is unassigned in Java"
             );
         }
 
-        // 越界（Java 返回 null）
+        // Out of bounds (Java returns null)
         assert!(MPPResourceField::get_instance(&project, MAX_VALUE as i32).is_none());
         assert!(MPPResourceField::get_instance(&project, 0x7FFF).is_none());
-        // `i32::MIN` 的 `0x8000` 位为 0，走内置字段分支，而负下标越界 → None
+        // The `0x8000` bit of `i32::MIN` is 0, so it takes the built-in field branch, and a negative index is out of bounds → None
         assert!(MPPResourceField::get_instance(&project, i32::MIN).is_none());
-        // Java 的 `(value & 0x8000) != 0` 对 `-1`（位模式全 1）同样成立，
-        // 因此 `-1` 会走企业自定义字段分支而不是返回 null。
+        // Java's `(value & 0x8000) != 0` also holds for `-1` (all bits set),
+        // so `-1` takes the enterprise custom field branch instead of returning null.
         assert!(MPPResourceField::get_instance(&project, -1).is_some_and(|field| field.is_custom()));
     }
 
@@ -1421,30 +1428,30 @@ mod tests {
                 continue;
             };
 
-            // Java 的 ID_ARRAY 由 `ID_ARRAY[field.getValue()] = loop` 逐项覆盖写入，
-            // 同一字段出现多次时以**最后**一个下标为准。
+            // Java's ID_ARRAY is written item by item via `ID_ARRAY[field.getValue()] = loop`;
+            // when the same field appears multiple times, the **last** index wins.
             let expected = FIELD_ARRAY
                 .iter()
                 .rposition(|entry| *entry == Some(field))
-                .expect("取值范围来自 FIELD_ARRAY 本身");
+                .expect("value range comes from FIELD_ARRAY itself");
 
             assert_eq!(
                 MPPResourceField::get_id(&MppFieldType::Builtin(FieldKey::Resource(field))),
                 expected as i32,
-                "字段号 {value}"
+                "field number {value}"
             );
 
-            // NOTES 是表中唯一重复的字段（20 与 28 都映射到它），其余字段号与 getID 一一对应
+            // NOTES is the only duplicated field in the table (both 20 and 28 map to it); the other field IDs correspond one-to-one with getID
             if field != ResourceField::Notes {
-                assert_eq!(expected as i32, value, "字段号 {value}");
+                assert_eq!(expected as i32, value, "field number {value}");
             }
         }
     }
 
     #[test]
     fn id_array_matches_java_static_initialiser() {
-        // Java: FIELD_ARRAY[20] = NOTES 与 FIELD_ARRAY[28] = NOTES 先后写入
-        // ID_ARRAY[NOTES.getValue()]，最终取最后一个下标 28。
+        // Java: FIELD_ARRAY[20] = NOTES and FIELD_ARRAY[28] = NOTES are written in order into
+        // ID_ARRAY[NOTES.getValue()], and the last index 28 is taken.
         assert_eq!(builtin(20), ResourceField::Notes);
         assert_eq!(builtin(28), ResourceField::Notes);
         assert_eq!(
@@ -1466,7 +1473,7 @@ mod tests {
             862
         );
 
-        // Java 中未出现在 FIELD_ARRAY 的字段保持 Arrays.fill 的 -1
+        // Fields that do not appear in FIELD_ARRAY in Java keep the -1 from Arrays.fill
         assert_eq!(
             MPPResourceField::get_id(&MppFieldType::Builtin(FieldKey::Resource(
                 ResourceField::Unavailable
@@ -1480,9 +1487,9 @@ mod tests {
         let project = project();
         let value = 0x8000 | 5;
 
-        // Java: uniqueID = RESOURCE_FIELD_BASE + value，名称取 (value & 0xFFF) + 1
-        let field = MPPResourceField::get_instance(&project, value).expect("应为企业自定义字段");
-        let custom = field.as_custom().expect("应为自定义字段");
+        // Java: uniqueID = RESOURCE_FIELD_BASE + value, and the name is (value & 0xFFF) + 1
+        let field = MPPResourceField::get_instance(&project, value).expect("should be an enterprise custom field");
+        let custom = field.as_custom().expect("should be a custom field");
         assert!(field.is_custom());
         assert_eq!(
             custom.borrow().get_unique_id(),
@@ -1494,9 +1501,9 @@ mod tests {
         assert_eq!(custom.borrow().get_data_type(), Some(DataType::Custom));
         assert_eq!(MPPResourceField::get_id(&field), MPPResourceField::RESOURCE_FIELD_BASE + value);
 
-        // Java 的 getOrCreateResourceField 复用既有字段（不重建）
-        let again = MPPResourceField::get_instance(&project, value).expect("应为企业自定义字段");
-        let again = again.as_custom().expect("应为自定义字段");
+        // Java's getOrCreateResourceField reuses the existing field (does not rebuild)
+        let again = MPPResourceField::get_instance(&project, value).expect("should be an enterprise custom field");
+        let again = again.as_custom().expect("should be a custom field");
         assert!(Rc::ptr_eq(custom, again));
         assert_eq!(
             project
@@ -1514,8 +1521,8 @@ mod tests {
         let value = 0x8000 | 0x123;
 
         let field = MPPResourceField::get_instance_with_data_type(&project, value, DataType::String)
-            .expect("应为企业自定义字段");
-        let custom = field.as_custom().expect("应为自定义字段");
+            .expect("should be an enterprise custom field");
+        let custom = field.as_custom().expect("should be a custom field");
         assert_eq!(custom.borrow().get_data_type(), Some(DataType::String));
         // Java: id = (value & 0xFFF) + 1 = 0x124
         assert_eq!(

@@ -1,36 +1,39 @@
-//! 对应 Java: `org/mpxj/GroupContainer.java`
+//! Corresponds to Java: `org/mpxj/GroupContainer.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped / unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `@Override protected void added(Group group)` | 私有回调（在 [`GroupContainer::new`] 中注册到 [`crate::list_with_callbacks::ListWithCallbacks::set_added_callback`]） |
-//! | `@Override protected void removed(Group group)` | 私有回调（同上，注册到 `set_removed_callback`） |
+//! | `@Override protected void added(Group group)` | Private callback (registered in [`GroupContainer::new`] via [`crate::list_with_callbacks::ListWithCallbacks::set_added_callback`]) |
+//! | `@Override protected void removed(Group group)` | Private callback (same as above, registered via `set_removed_callback`) |
 //! | `public Group getByName(String name)` | [`GroupContainer::get_by_name`] |
-//! | 继承自 `ListWithCallbacks<Group>` 的 `add` / `add(int, T)` / `set` / `get` / `remove(int)` / `clear` / `size` / `isEmpty` / `iterator` | [`GroupContainer::add`] / [`GroupContainer::add_at`] / [`GroupContainer::set`] / [`GroupContainer::get`] / [`GroupContainer::remove`] / [`GroupContainer::clear`] / [`GroupContainer::len`] / [`GroupContainer::is_empty`] / [`GroupContainer::iter`]（另提供 [`GroupContainer::as_slice`]） |
-//! | 继承自 `ListWithCallbacks<Group>` 的 `remove(Object)` / `indexOf` / `contains` 等按元素查找的方法 | 未移植：Java 用 `equals`（对象同一性）查找，Rust 侧元素是 `Rc<RefCell<Group>>`，调用方可用 [`GroupContainer::as_slice`] 配合 `Rc::ptr_eq` 自行判断 |
+//! | `add` / `add(int, T)` / `set` / `get` / `remove(int)` / `clear` / `size` / `isEmpty` / `iterator` inherited from `ListWithCallbacks<Group>` | [`GroupContainer::add`] / [`GroupContainer::add_at`] / [`GroupContainer::set`] / [`GroupContainer::get`] / [`GroupContainer::remove`] / [`GroupContainer::clear`] / [`GroupContainer::len`] / [`GroupContainer::is_empty`] / [`GroupContainer::iter`] (also provides [`GroupContainer::as_slice`]) |
+//! | Element-lookup methods such as `remove(Object)` / `indexOf` / `contains` inherited from `ListWithCallbacks<Group>` | Unported: Java looks up with `equals` (object identity); the Rust elements are `Rc<RefCell<Group>>`, so callers can use [`GroupContainer::as_slice`] with `Rc::ptr_eq` to decide themselves |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 继承关系的还原方式：组合 + 转发
+//! # Reproducing the Inheritance Relationship: Composition + Forwarding
 //!
-//! Java 的 `GroupContainer extends ListWithCallbacks<Group>`。Rust 没有继承，本类改为
-//! **组合**一个 [`crate::list_with_callbacks::ListWithCallbacks`] 并转发其公开行为；
-//! Java 中由 `added` / `removed` 两个覆写钩子维护的**名称索引**则改用
-//! `ListWithCallbacks` 的回调字段实现（回调闭包捕获索引的 `Rc` 句柄，见
-//! [`GroupContainer::new`]），语义与 Java 一致。
+//! Java's `GroupContainer extends ListWithCallbacks<Group>`. Rust has no inheritance, so this
+//! class instead **composes** a [`crate::list_with_callbacks::ListWithCallbacks`] and forwards
+//! its public behavior; the **name index** maintained by the two override hooks `added` /
+//! `removed` in Java is instead implemented with `ListWithCallbacks`'s callback fields (the
+//! callback closures capture the index's `Rc` handle, see [`GroupContainer::new`]), semantically
+//! consistent with Java.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **元素形态**：Java 存 `Group` 引用；Rust 侧存 `Rc<RefCell<Group>>`（与本 crate
-//!   其它容器一致），使名称索引与列表共享同一批实例。
-//! - **名称为 `null` 的分组**：Java 的 `HashMap` 允许 `null` 键；Rust 的
-//!   `HashMap<String, _>` 无法表达 `null` 键，无名分组**不入索引**
-//!   （[`GroupContainer::get_by_name`] 因此恒为 `None`）。
-//! - **`replaced` 回调**：Java 的 `replaced` 未被覆写，[`GroupContainer::set`] 替换元素后
-//!   名称索引不会更新（与 Java 一致）。
-//! - **索引借用失败时降级**：回调通过 `try_borrow` 读取分组名称；若调用方正持有该分组的
-//!   可变借用（Java 无此情形），则该次索引更新被跳过，不会 panic。
+//! - **Element form**: Java stores `Group` references; the Rust side stores
+//!   `Rc<RefCell<Group>>` (consistent with this crate's other containers), so the name index
+//!   and the list share the same instances.
+//! - **Groups with a `null` name**: Java's `HashMap` allows a `null` key; Rust's
+//!   `HashMap<String, _>` cannot express a `null` key, so unnamed groups are **not indexed**
+//!   ([`GroupContainer::get_by_name`] therefore always returns `None`).
+//! - **`replaced` callback**: Java's `replaced` is not overridden, so the name index is not
+//!   updated after [`GroupContainer::set`] replaces an element (consistent with Java).
+//! - **Degrade gracefully on index borrow failure**: the callback reads the group name via
+//!   `try_borrow`; if the caller currently holds a mutable borrow of that group (a case that
+//!   does not exist in Java), that index update is skipped rather than panicking.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -40,26 +43,26 @@ use std::rc::Rc;
 use crate::group::Group;
 use crate::list_with_callbacks::ListWithCallbacks;
 
-/// 按名称索引的分组表（列表与索引共享同一批 `Rc` 实例）。
+/// Name-indexed group table (the list and the index share the same `Rc` instances).
 type GroupIndex = Rc<RefCell<HashMap<String, Rc<RefCell<Group>>>>>;
 
-/// 项目下的分组定义集合。
+/// A project's collection of group definitions.
 ///
-/// 对应 Java: `public class GroupContainer extends ListWithCallbacks<Group>`
+/// Corresponds to Java: `public class GroupContainer extends ListWithCallbacks<Group>`
 pub struct GroupContainer {
-    /// 列表本体（对应 Java 的 `extends ListWithCallbacks<Group>`）。
+    /// The list itself (corresponds to Java's `extends ListWithCallbacks<Group>`).
     items: ListWithCallbacks<Rc<RefCell<Group>>>,
 
-    /// 按名称索引的分组。
+    /// Groups indexed by name.
     ///
-    /// 对应 Java: `private final Map<String, Group> m_groupsByName = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<String, Group> m_groupsByName = new HashMap<>();`
     groups_by_name: GroupIndex,
 }
 
 impl GroupContainer {
-    /// 构造方法（并注册维护名称索引的 `added` / `removed` 回调）。
+    /// Constructor (also registers the `added` / `removed` callbacks that maintain the name index).
     ///
-    /// 对应 Java: 隐式默认构造方法 + `added` / `removed` 两个覆写钩子。
+    /// Corresponds to Java: implicit default constructor + the two override hooks `added` / `removed`.
     pub fn new() -> Self {
         let groups_by_name: GroupIndex = Rc::new(RefCell::new(HashMap::new()));
         let mut items = ListWithCallbacks::new();
@@ -90,96 +93,96 @@ impl GroupContainer {
         }
     }
 
-    /// 按名称取分组定义。
+    /// Return a group definition by name.
     ///
-    /// 对应 Java: `public Group getByName(String name)`
+    /// Corresponds to Java: `public Group getByName(String name)`
     pub fn get_by_name(&self, name: Option<&str>) -> Option<Rc<RefCell<Group>>> {
         let name = name?;
         self.groups_by_name.borrow().get(name).map(Rc::clone)
     }
 
-    /// 追加一个分组，并更新名称索引。
+    /// Append a group and update the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)`
     pub fn add(&mut self, group: Rc<RefCell<Group>>) {
         self.items.add(group);
     }
 
-    /// 在指定下标插入一个分组，并更新名称索引。
+    /// Insert a group at the given index and update the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     ///
-    /// 越界返回 `false`（Java 抛 `IndexOutOfBoundsException`）。
+    /// Returns `false` when out of bounds (Java throws `IndexOutOfBoundsException`).
     pub fn add_at(&mut self, index: usize, group: Rc<RefCell<Group>>) -> bool {
         self.items.add_at(index, group)
     }
 
-    /// 清空列表（与 Java 一致：不触发 `removed` 回调，名称索引因此不会清空）。
+    /// Clear the list (consistent with Java: does not trigger the `removed` callback, so the name index is not cleared).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.items.clear();
     }
 
-    /// 按下标取分组；越界返回 `None`。
+    /// Return the group at the given index; returns `None` when out of bounds.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<&Rc<RefCell<Group>>> {
         self.items.get(index)
     }
 
-    /// 替换指定下标的分组并返回旧元素（不更新名称索引，与 Java 一致）。
+    /// Replace the group at the given index and return the old element (does not update the name index, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(&mut self, index: usize, group: Rc<RefCell<Group>>) -> Option<Rc<RefCell<Group>>> {
         self.items.set(index, group)
     }
 
-    /// 移除指定下标的分组并返回它，同时更新名称索引。
+    /// Remove the group at the given index, return it, and update the name index.
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<Group>>> {
         self.items.remove(index)
     }
 
-    /// 分组个数。
+    /// Number of groups.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 列表是否为空。
+    /// Whether the list is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代列表中的分组。
+    /// Iterate over the groups in the list.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<Group>>> {
         self.items.iter()
     }
 
-    /// 以切片形式访问列表中的分组。
+    /// Access the groups in the list as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+    /// Corresponds to Java: `ListWithCallbacks`'s list view.
     pub fn as_slice(&self) -> &[Rc<RefCell<Group>>] {
         self.items.as_slice()
     }
 }
 
 impl Default for GroupContainer {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`GroupContainer::new`]。
+    /// Corresponds to Java: implicit default constructor, equivalent to [`GroupContainer::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for GroupContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出列表规模与名称索引键，便于诊断。
+    /// Java does not override `toString()`; the Rust side outputs the list size and name index keys for easier diagnosis.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut keys: Vec<String> = self.groups_by_name.borrow().keys().cloned().collect();
         keys.sort();
@@ -191,7 +194,7 @@ impl Debug for GroupContainer {
     }
 }
 
-/// 读取分组名称；已被可变借用时返回 `None`。
+/// Read the group name; returns `None` when already mutably borrowed.
 fn read_name(group: &Rc<RefCell<Group>>) -> Option<String> {
     group
         .try_borrow()
@@ -203,7 +206,7 @@ fn read_name(group: &Rc<RefCell<Group>>) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// 创建一个带名称的分组。
+    /// Create a group with a name.
     fn group(name: &str) -> Rc<RefCell<Group>> {
         Rc::new(RefCell::new(Group::new(
             Some(1),
@@ -286,10 +289,10 @@ mod tests {
             Some("B".to_owned())
         );
 
-        let replaced = container.set(0, group("C")).expect("替换成功");
+        let replaced = container.set(0, group("C")).expect("replaced successfully");
         assert_eq!(replaced.borrow().get_name(), Some("B"));
 
-        // 越界不修改列表
+        // Out of bounds does not modify the list
         assert!(!container.add_at(9, group("D")));
         assert_eq!(container.len(), 2);
 

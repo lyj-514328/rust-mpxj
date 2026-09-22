@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/ResourceType.java`
+//! Corresponds to Java: `org/mpxj/ResourceType.java`
 
-/// 资源类型的枚举。
+/// Enum for resource types.
 ///
-/// 对应 Java: `public enum ResourceType`
+/// Corresponds to Java: `public enum ResourceType`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`；
-/// Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// The Java enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`;
+/// the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ResourceType {
-    /// 材料资源。
+    /// Material resource.
     ///
-    /// 对应 Java: `MATERIAL(false)`
+    /// Corresponds to Java: `MATERIAL(false)`
     Material,
-    /// 工时（人工）资源。
+    /// Work (labor) resource.
     ///
-    /// 对应 Java: `WORK(true)`
+    /// Corresponds to Java: `WORK(true)`
     Work,
-    /// 成本资源。
+    /// Cost resource.
     ///
-    /// 对应 Java: `COST(false)`
+    /// Corresponds to Java: `COST(false)`
     Cost,
-    /// 非人工资源。
+    /// Non-labor resource.
     ///
-    /// 对应 Java: `NON_LABOR(true)`
+    /// Corresponds to Java: `NON_LABOR(true)`
     NonLabor,
 }
 
 impl ResourceType {
-    /// 全部取值，按 Java 声明顺序排列。
+    /// All values, in Java declaration order.
     ///
-    /// 对应 Java: `ResourceType.values()`
+    /// Corresponds to Java: `ResourceType.values()`
     pub const ALL: [ResourceType; 4] = [
         ResourceType::Material,
         ResourceType::Work,
@@ -37,11 +37,11 @@ impl ResourceType {
         ResourceType::NonLabor,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+    /// Returns the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`ResourceType::ALL`] 配套查表，
-    /// 对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+    /// No corresponding method in Java; added on the Rust side to pair with [`ResourceType::ALL`]
+    /// for lookups, corresponding to Java's `values()[value]` pattern. Java throws
+    /// `ArrayIndexOutOfBoundsException` out of bounds, while the Rust side returns `None` per this repo's convention.
     pub fn get_instance(value: i32) -> Option<ResourceType> {
         usize::try_from(value)
             .ok()
@@ -49,9 +49,9 @@ impl ResourceType {
             .copied()
     }
 
-    /// 该资源类型是否基于时间。
+    /// Whether this resource type is time based.
     ///
-    /// 对应 Java: `public boolean isTimeBased()`
+    /// Corresponds to Java: `public boolean isTimeBased()`
     pub fn is_time_based(&self) -> bool {
         match self {
             ResourceType::Material => false,

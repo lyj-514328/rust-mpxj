@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/TimeUnitDefaultsContainer.java`
+//! Corresponds to Java: `org/mpxj/TimeUnitDefaultsContainer.java`
 
-/// 提供时长单位换算所需默认值的接口。
+/// Interface providing the default values needed for duration unit conversion.
 ///
-/// 对应 Java: `public interface TimeUnitDefaultsContainer`
+/// Corresponds to Java: `public interface TimeUnitDefaultsContainer`
 pub trait TimeUnitDefaultsContainer {
-    /// 每天分钟数。
+    /// Minutes per day.
     ///
-    /// 对应 Java: `Integer getMinutesPerDay()`
+    /// Corresponds to Java: `Integer getMinutesPerDay()`
     fn get_minutes_per_day(&self) -> Option<i32>;
 
-    /// 每周分钟数。
+    /// Minutes per week.
     ///
-    /// 对应 Java: `Integer getMinutesPerWeek()`
+    /// Corresponds to Java: `Integer getMinutesPerWeek()`
     fn get_minutes_per_week(&self) -> Option<i32>;
 
-    /// 每月分钟数。
+    /// Minutes per month.
     ///
-    /// 对应 Java: `Integer getMinutesPerMonth()`
+    /// Corresponds to Java: `Integer getMinutesPerMonth()`
     fn get_minutes_per_month(&self) -> Option<i32>;
 
-    /// 每年分钟数。
+    /// Minutes per year.
     ///
-    /// 对应 Java: `Integer getMinutesPerYear()`
+    /// Corresponds to Java: `Integer getMinutesPerYear()`
     fn get_minutes_per_year(&self) -> Option<i32>;
 
-    /// 每月天数。
+    /// Days per month.
     ///
-    /// 对应 Java: `Integer getDaysPerMonth()`
+    /// Corresponds to Java: `Integer getDaysPerMonth()`
     fn get_days_per_month(&self) -> Option<i32>;
 }

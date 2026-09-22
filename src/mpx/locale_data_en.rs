@@ -1,20 +1,21 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_en.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_en.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_en` 是一个内容为空的资源包（`RESOURCE_DATA = {}`）：英语不覆盖任何
-//! 键，全部取值都来自基类 `LocaleData` 的默认资源。Rust 侧用
-//! [`LocaleOverrides::EMPTY`]（对应 `getContents()` 的返回值）表达同一事实，
-//! 取值逻辑见 `locale_data` 模块头部的说明。`ListResourceBundle` 的协议方法
-//! （`getContents` / `handleGetObject` / `getKeys`）由该常量替代，不移植。
+//! Java's `LocaleData_en` is an empty resource bundle (`RESOURCE_DATA = {}`): English overrides no
+//! keys, and all values come from the base class `LocaleData` default resource. On the Rust side
+//! [`LocaleOverrides::EMPTY`] (corresponding to the return value of `getContents()`) expresses the
+//! same fact; see the `locale_data` module header for the lookup logic. The `ListResourceBundle`
+//! protocol methods (`getContents` / `handleGetObject` / `getKeys`) are replaced by that constant
+//! and are not ported.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::mpx::locale_data::LocaleOverrides;
 
-/// 英语资源包的内容，即「不覆盖任何键」。
+/// Contents of the English resource bundle, i.e. "overrides no keys".
 ///
-/// 对应 Java: `LocaleData_en.RESOURCE_DATA`（长度为 0 的 `Object[][]`）。
+/// Corresponds to Java: `LocaleData_en.RESOURCE_DATA` (an `Object[][]` of length 0).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides::EMPTY;
 
 #[cfg(test)]
@@ -25,7 +26,7 @@ mod tests {
 
     #[test]
     fn english_bundle_overrides_nothing() {
-        // Java: LocaleData_en.RESOURCE_DATA = {}，所有取值都回落到 LocaleData 的默认资源
+        // Java: LocaleData_en.RESOURCE_DATA = {}, all values fall back to the LocaleData default resource
         assert_eq!(OVERRIDES.task_names, None);
         assert_eq!(OVERRIDES.time_units_array, None);
         assert_eq!(OVERRIDES.accrue_types, None);

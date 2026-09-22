@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/ProjectEntityWithID.java`
+//! Corresponds to Java: `org/mpxj/ProjectEntityWithID.java`
 
 use crate::project_entity_with_mutable_unique_id::ProjectEntityWithMutableUniqueID;
 
-/// 可以用 ID（区别于 unique ID）标识的实体。
+/// An entity that can be identified by ID (as distinct from unique ID).
 ///
-/// 对应 Java: `public interface ProjectEntityWithID extends ProjectEntityWithMutableUniqueID`
+/// Corresponds to Java: `public interface ProjectEntityWithID extends ProjectEntityWithMutableUniqueID`
 ///
-/// Rust 侧的接口继承用 supertrait 表达；实现本 trait 的类型必须同时实现
-/// [`ProjectEntityWithMutableUniqueID`]（进而实现
-/// [`crate::project_entity_with_unique_id::ProjectEntityWithUniqueID`]）。
+/// Interface inheritance on the Rust side is expressed with supertraits; a type implementing this trait must also implement
+/// [`ProjectEntityWithMutableUniqueID`] (and hence
+/// [`crate::project_entity_with_unique_id::ProjectEntityWithUniqueID`]).
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 的 `getID()` / `setID(Integer id)` 接受可空值，Rust 侧为 `Option<i32>`。
+/// Java's `getID()` / `setID(Integer id)` accept nullable values, while the Rust side uses `Option<i32>`.
 ///
-/// 被跳过的 Java 机制：无。
+/// Skipped Java mechanisms: none.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub trait ProjectEntityWithID: ProjectEntityWithMutableUniqueID {
-    /// 取实体的 ID。
+    /// Gets the entity ID.
     ///
-    /// 对应 Java: `Integer getID()`
+    /// Corresponds to Java: `Integer getID()`
     fn get_id(&self) -> Option<i32>;
 
-    /// 设置实体的 ID。
+    /// Sets the entity ID.
     ///
-    /// 对应 Java: `void setID(Integer id)`
+    /// Corresponds to Java: `void setID(Integer id)`
     fn set_id(&mut self, id: Option<i32>);
 }
 
@@ -34,7 +34,7 @@ mod tests {
     use super::*;
     use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 
-    /// 测试用实体：同时具备 ID 与 unique ID。
+    /// Test entity: has both an ID and a unique ID.
     struct Entity {
         id: Option<i32>,
         unique_id: Option<i32>,

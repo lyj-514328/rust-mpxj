@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/VarMeta12.java`
+//! Corresponds to Java: `org/mpxj/mpp/VarMeta12.java`
 //!
-//! MPP 12 及更新版本的 VarMeta 块解析：块头之后是 `条目数` 个「4 字节唯一 ID + 4 字节偏移 +
-//! 2 字节类型 + 2 字节未知」的定长记录（每条 12 字节）。
+//! VarMeta block parsing for MPP 12 and later: after the block header come `item count` records of "4-byte unique ID + 4-byte offset +
+//! 2-byte type + 2-byte unknown" (12 bytes each).
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Restoring inheritance (composition + forwarding)
 //!
-//! Java: `final class VarMeta12 extends AbstractVarMeta`。Rust 没有继承，因此：
-//! - [`VarMeta12`] **组合**一个 [`AbstractVarMeta`]（基类状态与实现）；
-//! - 基类的全部公开方法在本文件**逐一转发**，同时 `impl VarMeta`，使其可放进
-//!   `Rc<dyn VarMeta>` 交给 [`crate::mpp::var2_data::Var2Data`]。
+//! Java: `final class VarMeta12 extends AbstractVarMeta`. Rust has no inheritance, therefore:
+//! - [`VarMeta12`] **composes** an [`AbstractVarMeta`] (base class state and implementation);
+//! - all public methods of the base class are **forwarded one by one** in this file, and `impl VarMeta` makes it placeable in
+//! `Rc<dyn VarMeta>` handed to [`crate::mpp::var2_data::Var2Data`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `VarMeta12(InputStream is) throws IOException` | `VarMeta12::new(&[u8]) -> MpxjResult<VarMeta12>` | 按约定 `InputStream` → `&[u8]`；`IOException`（坏 magic）→ `MpxjError` |
-//! | `is.available() < 12` 时 `break` | `data.len() - position < 12` 时 `break` | 等价（Rust 侧没有流，用剩余字节数代替） |
-//! | `readInt` / `readShort`（继承自 `MPPComponent`，越界抛 `EOFException`） | [`read_int`] / [`read_short`] 返回 `None`，循环 `break` 提前结束解析 | 遵循「库代码不 panic」约定 |
-//! | `m_itemCount` 为负时 `new int[m_itemCount]` 抛 `NegativeArraySizeException` | 循环不执行，偏移数组为空 | 同上 |
-//! | `m_table.computeIfAbsent(..)` | `BTreeMap::entry` + `or_default()` | 等价 |
+//! | `VarMeta12(InputStream is) throws IOException` | `VarMeta12::new(&[u8]) -> MpxjResult<VarMeta12>` | By convention `InputStream` → `&[u8]`; `IOException` (bad magic) → `MpxjError` |
+//! | `break` when `is.available() < 12` | `break` when `data.len() - position < 12` | Equivalent (Rust has no stream, so the remaining byte count is used instead) |
+//! | `readInt` / `readShort` (inherited from `MPPComponent`, throws `EOFException` when out of bounds) | [`read_int`] / [`read_short`] return `None` and the loop `break`s to end parsing early | Follows the "library code must not panic" convention |
+//! | `new int[m_itemCount]` throws `NegativeArraySizeException` when `m_itemCount` is negative | The loop does not execute and the offset array is empty | Same as above |
+//! | `m_table.computeIfAbsent(..)` | `BTreeMap::entry` + `or_default()` | Equivalent |
 //!
-//! 注意：Java 注释指出，MS Project 本身能正常读取某些 magic 为 0 的文件，因此 **0 也是合法的
-//! magic number**（与 [`crate::mpp::var_meta9::VarMeta9`] 不同）。
+//! Note: Java's comment states that MS Project itself can read some files whose magic is 0, so **0 is also a valid
+//! magic number** (unlike [`crate::mpp::var_meta9::VarMeta9`]).
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
@@ -34,33 +34,33 @@ use crate::mpxj_exception::{MpxjError, MpxjResult};
 use crate::mpp::abstract_var_meta::{read_int, read_short, AbstractVarMeta};
 use crate::mpp::var_meta::{VarDataKeyResolver, VarMeta};
 
-/// magic number（Java 中 `int MAGIC = 0xFADFADBA` 是负数常量，此处保留同样的语义）。
+/// magic number (in Java `int MAGIC = 0xFADFADBA` is a negative constant; the same semantics are preserved here).
 const MAGIC: i32 = 0xFADF_ADBA_u32 as i32;
 
-/// 每条记录的字节数（4 + 4 + 2 + 2）。
+/// Number of bytes per record (4 + 4 + 2 + 2).
 ///
-/// 对应 Java: `if (is.available() < 12) { break; }` 中的字面量 12。
+/// Corresponds to Java: the literal 12 in `if (is.available() < 12) { break; }`.
 const ITEM_SIZE: usize = 12;
 
-/// MPP 12 及更新版本的变长块元数据。
+/// Var-length block metadata for MPP 12 and later.
 ///
-/// 对应 Java: `final class VarMeta12 extends AbstractVarMeta`
+/// Corresponds to Java: `final class VarMeta12 extends AbstractVarMeta`
 pub struct VarMeta12 {
-    /// 基类部分（Java 里 `VarMeta12` 本身就是 `AbstractVarMeta`）。
+/// The base class portion (in Java `VarMeta12` itself is `AbstractVarMeta`).
     meta: AbstractVarMeta,
 }
 
 impl VarMeta12 {
-    /// 构造：从 VarMeta 块的字节流中解析元数据。
+/// Constructor: parse metadata from the VarMeta block byte stream.
     ///
-    /// 对应 Java: `VarMeta12(InputStream is) throws IOException`
+    /// Corresponds to Java: `VarMeta12(InputStream is) throws IOException`
     ///
-    /// 块头固定 24 字节：magic(4) + 未知(4) + 条目数(4) + 未知(4) + 未知(4) + 数据区大小(4)；
-    /// 其后每条记录 12 字节：唯一 ID(4) + 偏移(4) + 类型(2) + 未知(2)。
+/// The block header is a fixed 24 bytes: magic(4) + unknown(4) + item count(4) + unknown(4) + unknown(4) + data area size(4);
+/// followed by 12 bytes per record: unique ID(4) + offset(4) + type(2) + unknown(2).
     pub fn new(data: &[u8]) -> MpxjResult<Self> {
         let mut position = 0usize;
 
-        // Java 注释：有一个样本里本该合法的 VarMeta 块 magic 为 0，MS Project 仍能读取，故把 0 视作合法。
+// Java comment: in one sample the VarMeta block magic, which should have been valid, was 0 and MS Project could still read it, so 0 is treated as valid.
         // Java: int magic = readInt(is); if (magic != 0 && magic != MAGIC) { throw new IOException("Bad magic number: " + magic); }
         let magic = read_int(data, &mut position).unwrap_or(0);
         if magic != 0 && magic != MAGIC {
@@ -120,144 +120,144 @@ impl VarMeta12 {
         Ok(Self { meta })
     }
 
-    /// 取基类部分（Rust 特有：Java 里 `VarMeta12` 本身就是 [`AbstractVarMeta`]）。
+/// Get the base class portion (Rust-specific: in Java `VarMeta12` itself is [`AbstractVarMeta`]).
     pub fn get_meta(&self) -> &AbstractVarMeta {
         &self.meta
     }
 
-    /// 取条目数（转发基类）。
+/// Get the item count (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getItemCount()`
+    /// Corresponds to Java: `AbstractVarMeta#getItemCount()`
     pub fn get_item_count(&self) -> i32 {
         self.meta.get_item_count()
     }
 
-    /// 取数据区大小（转发基类）。
+/// Get the data area size (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getDataSize()`
+    /// Corresponds to Java: `AbstractVarMeta#getDataSize()`
     pub fn get_data_size(&self) -> i32 {
         self.meta.get_data_size()
     }
 
-    /// 取全部唯一 ID（升序，转发基类）。
+/// Get all unique IDs (ascending, forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getUniqueIdentifierArray()`
+    /// Corresponds to Java: `AbstractVarMeta#getUniqueIdentifierArray()`
     pub fn get_unique_identifier_array(&self) -> Vec<i32> {
         self.meta.get_unique_identifier_array()
     }
 
-    /// 取全部唯一 ID 集合（升序，转发基类）。
+/// Get the set of all unique IDs (ascending, forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getUniqueIdentifierSet()`
+    /// Corresponds to Java: `AbstractVarMeta#getUniqueIdentifierSet()`
     pub fn get_unique_identifier_set(&self) -> BTreeSet<i32> {
         self.meta.get_unique_identifier_set()
     }
 
-    /// 按「唯一 ID + 类型」取偏移（转发基类）。
+/// Get the offset by "unique ID + type" (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getOffset(Integer id, Integer type)`
+    /// Corresponds to Java: `AbstractVarMeta#getOffset(Integer id, Integer type)`
     pub fn get_offset(&self, id: Option<i32>, type_: Option<i32>) -> Option<i32> {
         self.meta.get_offset(id, type_)
     }
 
-    /// 取排序后的偏移数组（转发基类）。
+/// Get the sorted offset array (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getOffsets()`
+    /// Corresponds to Java: `AbstractVarMeta#getOffsets()`
     pub fn get_offsets(&self) -> &[i32] {
         self.meta.get_offsets()
     }
 
-    /// 取指定唯一 ID 下定义过的类型（升序，转发基类）。
+/// Get the types defined under the given unique ID (ascending, forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#getTypes(Integer id)`
+    /// Corresponds to Java: `AbstractVarMeta#getTypes(Integer id)`
     pub fn get_types(&self, id: Option<i32>) -> BTreeSet<i32> {
         self.meta.get_types(id)
     }
 
-    /// 判断索引中是否存在给定唯一 ID（转发基类）。
+/// Check whether the given unique ID exists in the index (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#containsKey(Integer key)`
+    /// Corresponds to Java: `AbstractVarMeta#containsKey(Integer key)`
     pub fn contains_key(&self, key: Option<i32>) -> bool {
         self.meta.contains_key(key)
     }
 
-    /// 以调试用文本导出（转发基类）。
+/// Export as debug text (forwards to the base class).
     ///
-    /// 对应 Java: `AbstractVarMeta#toString(FieldMap fieldMap)`
+    /// Corresponds to Java: `AbstractVarMeta#toString(FieldMap fieldMap)`
     pub fn to_string_with_field_map(&self, field_map: Option<&dyn VarDataKeyResolver>) -> String {
         self.meta.to_string_with_field_map(field_map)
     }
 }
 
 impl VarMeta for VarMeta12 {
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getItemCount()`
+    /// Corresponds to Java: `AbstractVarMeta#getItemCount()`
     fn get_item_count(&self) -> i32 {
         VarMeta12::get_item_count(self)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getDataSize()`
+    /// Corresponds to Java: `AbstractVarMeta#getDataSize()`
     fn get_data_size(&self) -> i32 {
         VarMeta12::get_data_size(self)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getUniqueIdentifierArray()`
+    /// Corresponds to Java: `AbstractVarMeta#getUniqueIdentifierArray()`
     fn get_unique_identifier_array(&self) -> Vec<i32> {
         VarMeta12::get_unique_identifier_array(self)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getUniqueIdentifierSet()`
+    /// Corresponds to Java: `AbstractVarMeta#getUniqueIdentifierSet()`
     fn get_unique_identifier_set(&self) -> BTreeSet<i32> {
         VarMeta12::get_unique_identifier_set(self)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getOffset(Integer id, Integer type)`
+    /// Corresponds to Java: `AbstractVarMeta#getOffset(Integer id, Integer type)`
     fn get_offset(&self, id: Option<i32>, type_: Option<i32>) -> Option<i32> {
         VarMeta12::get_offset(self, id, type_)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getOffsets()`
+    /// Corresponds to Java: `AbstractVarMeta#getOffsets()`
     fn get_offsets(&self) -> &[i32] {
         VarMeta12::get_offsets(self)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#getTypes(Integer id)`
+    /// Corresponds to Java: `AbstractVarMeta#getTypes(Integer id)`
     fn get_types(&self, id: Option<i32>) -> BTreeSet<i32> {
         VarMeta12::get_types(self, id)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#containsKey(Integer key)`
+    /// Corresponds to Java: `AbstractVarMeta#containsKey(Integer key)`
     fn contains_key(&self, key: Option<i32>) -> bool {
         VarMeta12::contains_key(self, key)
     }
 
-    /// 转发基类实现。
+/// Forwards to the base class implementation.
     ///
-    /// 对应 Java: `AbstractVarMeta#toString(FieldMap fieldMap)`
+    /// Corresponds to Java: `AbstractVarMeta#toString(FieldMap fieldMap)`
     fn to_string_with_field_map(&self, field_map: Option<&dyn VarDataKeyResolver>) -> String {
         VarMeta12::to_string_with_field_map(self, field_map)
     }
 }
 
 impl Display for VarMeta12 {
-    /// 输出与 Java 的 `toString()` 相同的文本。
+/// Output the same text as Java's `toString()`.
     ///
-    /// 对应 Java: `AbstractVarMeta#toString()`
+    /// Corresponds to Java: `AbstractVarMeta#toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&self.meta.to_string_with_field_map(None))
     }
@@ -267,7 +267,7 @@ impl Display for VarMeta12 {
 mod tests {
     use super::*;
 
-    /// 拼装一个 VarMeta12 块：块头 + 每条记录「唯一 ID(4) + 偏移(4) + 类型(2) + 未知(2)」。
+/// Assemble a VarMeta12 block: header + per record "unique ID(4) + offset(4) + type(2) + unknown(2)".
     fn var_meta12_bytes(magic: i32, items: &[(i32, i32, i32)], data_size: i32) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&magic.to_le_bytes());
@@ -287,11 +287,11 @@ mod tests {
         data
     }
 
-    /// 解析条目数、索引与偏移数组。
+/// Parse the item count, index, and offset array.
     #[test]
     fn parses_items_offsets_and_types() {
         let bytes = var_meta12_bytes(MAGIC, &[(2, 40, 0x12), (1, 4, 0x34), (1, 8, 0x12)], 64);
-        let meta = VarMeta12::new(&bytes).expect("块头合法");
+        let meta = VarMeta12::new(&bytes).expect("valid block header");
 
         assert_eq!(meta.get_item_count(), 3);
         assert_eq!(meta.get_data_size(), 64);
@@ -302,45 +302,45 @@ mod tests {
         assert_eq!(meta.get_offset(Some(2), Some(0x12)), Some(40));
         assert!(meta.contains_key(Some(2)));
 
-        // 转发与 Display
+// Forwarding and Display
         assert_eq!(meta.get_meta().get_item_count(), 3);
         assert!(meta.to_string().ends_with("END: VarMeta\n\n"));
     }
 
-    /// magic 为 0 也被接受（Java 注释：某些合法文件如此）。
+/// A magic of 0 is also accepted (Java comment: some valid files are like this).
     #[test]
     fn accepts_zero_magic_number() {
         let bytes = var_meta12_bytes(0, &[(1, 4, 0x12)], 8);
-        let meta = VarMeta12::new(&bytes).expect("magic 为 0 合法");
+        let meta = VarMeta12::new(&bytes).expect("magic 0 is valid");
         assert_eq!(meta.get_unique_identifier_array(), vec![1]);
     }
 
-    /// 其它 magic 值 → 错误。
+/// Any other magic value → error.
     #[test]
     fn rejects_bad_magic_number() {
         let bytes = var_meta12_bytes(0x01020304, &[], 0);
-        let error = VarMeta12::new(&bytes).err().expect("magic 不匹配应报错");
+        let error = VarMeta12::new(&bytes).err().expect("magic mismatch should error");
         assert_eq!(error.message(), "Bad magic number: 16909060");
     }
 
-    /// 剩余字节不足一条记录（12 字节）时提前结束，且不 panic。
+/// Ends early without panicking when the remaining bytes are fewer than one record (12 bytes).
     #[test]
     fn stops_when_fewer_than_one_item_remains() {
-        // itemCount 声称 3 条，实际只给 1 条 + 6 个残字节
+// itemCount claims 3 records, but only 1 record + 6 leftover bytes are actually provided
         let mut bytes = var_meta12_bytes(MAGIC, &[(1, 4, 0x12), (2, 8, 0x12), (3, 12, 0x12)], 16);
         bytes.truncate(24 + 12 + 6);
 
-        let meta = VarMeta12::new(&bytes).expect("块头合法");
+        let meta = VarMeta12::new(&bytes).expect("valid block header");
         assert_eq!(meta.get_item_count(), 3);
         assert_eq!(meta.get_unique_identifier_array(), vec![1]);
         assert_eq!(meta.get_offsets(), [4]);
     }
 
-    /// 空输入不 panic。
+/// Empty input does not panic.
     #[test]
     fn empty_input_does_not_panic() {
-        // 块头读不到 → magic 视作 0（合法），条目数为 0
-        let meta = VarMeta12::new(&[]).expect("magic 0 合法");
+// Block header cannot be read → magic treated as 0 (valid), item count is 0
+        let meta = VarMeta12::new(&[]).expect("magic 0 is valid");
         assert_eq!(meta.get_item_count(), 0);
         assert!(meta.get_unique_identifier_array().is_empty());
     }

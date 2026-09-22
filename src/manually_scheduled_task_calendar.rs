@@ -1,19 +1,19 @@
-//! 对应 Java: `org/mpxj/ManuallyScheduledTaskCalendar.java`
+//! Corresponds to Java: `org/mpxj/ManuallyScheduledTaskCalendar.java`
 //!
-//! 手动排程分配的临时日历按分配起止日扩展有效工作时段。
+//! The temporary calendar for a manually scheduled assignment extends the effective working hours according to the assignment start/finish dates.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `extends ProjectCalendar`，覆写 `getRanges(LocalDate)` | `ManualSchedule` 存入临时 `ProjectCalendar` | 日历调用者持有具体 `Rc<RefCell<ProjectCalendar>>`，Rust 无继承 |
-//! | 在 `getRanges` 中重新读取分配的开始/结束时间 | 构造时保存时间快照 | 调用者可能持有分配的 `RefCell` 借用，不能反向借用；日历不随分配之后的变更同步 |
-//! | 边界日缺少分配自身的起止时间时抛 NPE | 保留原日历时段 | 库代码不 panic |
-//! | 构造时起止日期仍为空会抛 NPE | 返回 `None` | 库代码不 panic |
+//! | `extends ProjectCalendar`, overrides `getRanges(LocalDate)` | `ManualSchedule` stored in a temporary `ProjectCalendar` | the calendar caller holds a concrete `Rc<RefCell<ProjectCalendar>>`; Rust has no inheritance |
+//! | re-reads the assignment start/finish times in `getRanges` | saves a time snapshot at construction | the caller may hold a `RefCell` borrow of the assignment, so it cannot borrow back; the calendar does not stay in sync with later changes to the assignment |
+//! | throws an NPE when the boundary date lacks the assignment's own start/finish times | keeps the original calendar ranges | library code never panics |
+//! | throws an NPE when the start/finish dates are still empty at construction | returns `None` | library code never panics |
 //!
-//! # 跳过的 Java 成员 + 原因
+//! # Skipped Java members + reasons
 //!
-//! 无；构造函数、覆盖的时段计算和星期优先顺序均已还原。
+//! None; the constructor, the overridden range calculation, and the weekday priority order have all been ported.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -26,7 +26,7 @@ use crate::project_calendar::ProjectCalendar;
 use crate::project_calendar_hours::ProjectCalendarHours;
 use crate::resource_assignment::ResourceAssignment;
 
-/// Java `ManuallyScheduledTaskCalendar` 覆写的时段计算状态。
+/// The range calculation state overridden by Java `ManuallyScheduledTaskCalendar`.
 pub(crate) struct ManualSchedule {
     calendar: Rc<RefCell<ProjectCalendar>>,
     start_date: NaiveDate,
@@ -36,14 +36,14 @@ pub(crate) struct ManualSchedule {
 }
 
 impl ManualSchedule {
-    /// 对应 Java: `@Override protected ProjectCalendarHours getRanges(LocalDate date)`。
+    /// Corresponds to Java: `@Override protected ProjectCalendarHours getRanges(LocalDate date)`.
     pub(crate) fn get_ranges(&self, date: NaiveDate) -> ProjectCalendarHours {
         let Ok(calendar) = self.calendar.try_borrow() else {
             return ProjectCalendarHours::new();
         };
         let mut ranges = calendar.get_ranges(date);
         if ranges.size() == 0 && (date == self.start_date || date == self.finish_date) {
-            // Java 从周二起依次查找一周中第一个标准工作日，不考虑该日的例外。
+            // Java searches from Tuesday onward for the first standard working day of the week, ignoring that day's exceptions.
             for day in [
                 Weekday::Tue,
                 Weekday::Wed,
@@ -100,9 +100,9 @@ impl ManualSchedule {
     }
 }
 
-/// 构造 Java `ManuallyScheduledTaskCalendar` 对应的临时项目日历。
+/// Constructs the temporary project calendar corresponding to Java `ManuallyScheduledTaskCalendar`.
 ///
-/// 对应 Java: `public ManuallyScheduledTaskCalendar(ProjectCalendar calendar, ResourceAssignment assignment)`。
+/// Corresponds to Java: `public ManuallyScheduledTaskCalendar(ProjectCalendar calendar, ResourceAssignment assignment)`.
 pub fn new(
     calendar: Rc<RefCell<ProjectCalendar>>,
     assignment: &ResourceAssignment,
@@ -151,7 +151,7 @@ mod tests {
     use crate::project_file::ProjectFile;
     use crate::task_mode::TaskMode;
 
-    /// 工作日的分配起止时间可向当天正常工作时段外扩展。
+    /// The assignment start/finish times on a working day can extend outside that day's normal working hours.
     #[test]
     fn extends_start_and_finish_hours() {
         let context = ProjectContext::shared();
@@ -173,7 +173,7 @@ mod tests {
         );
     }
 
-    /// 分配起止日为非工作日时使用首个标准工作日的时段。
+    /// When the assignment start/finish dates fall on non-working days, the ranges of the first standard working day are used.
     #[test]
     fn boundary_on_non_working_date_uses_first_working_day() {
         let context = ProjectContext::shared();
@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(effective.borrow().get_ranges(sunday), expected);
     }
 
-    /// 资源分配入口对手动排程任务返回带扩展时段的临时日历。
+    /// The resource assignment entry point returns a temporary calendar with extended ranges for manually scheduled tasks.
     #[test]
     fn effective_calendar_wraps_manually_scheduled_assignment() {
         let file = ProjectFile::new();

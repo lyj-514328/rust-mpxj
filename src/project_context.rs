@@ -1,77 +1,77 @@
-//! 对应 Java: `org/mpxj/ProjectContext.java`
+//! Corresponds to Java: `org/mpxj/ProjectContext.java`
 //!
-//! `ProjectContext` 是领域模型的中枢：被 `ProjectFile` 持有，向多个项目共享的资源、
-//! 日历、自定义字段、班次、计量单位等容器提供统一入口。
+//! `ProjectContext` is the hub of the domain model: it is held by `ProjectFile` and provides a single entry point for resources,
+//! calendars, custom fields, shifts, units of measure, and other containers shared across multiple projects.
 //!
-//! # 未移植的 Java 字段与 getter（模块未在 `src/lib.rs` 声明）
+//! # Java fields and getters not ported (their modules are not declared in `src/lib.rs`)
 //!
-//! 下列容器属于 MPP/MPX reader 之外的格式（Primavera / Asta 等）所使用的数据，
-//! 对应模块未在 `src/lib.rs` 中声明，Rust 侧不提供字段与 getter：
+//! The following containers hold data used by formats other than the MPP/MPX readers (Primavera / Asta, etc.),
+//! and the corresponding modules are not declared in `src/lib.rs`; the Rust side provides neither fields nor getters:
 //!
-//! | Java 字段 / getter | 说明 |
+//! | Java field / getter | Notes |
 //! |---|---|
-//! | `m_locations` / `getLocations()` | `LocationContainer`（模块未声明） |
-//! | `m_expenseCategories` / `getExpenseCategories()` | `ExpenseCategoryContainer`（模块未声明） |
-//! | `m_costAccounts` / `getCostAccounts()` | `CostAccountContainer`（模块未声明） |
-//! | `m_activityCodes` / `getActivityCodes()` | `ActivityCodeContainer`（模块未声明） |
-//! | `m_projectCodes` / `getProjectCodes()` | `ProjectCodeContainer`（模块未声明） |
-//! | `m_resourceCodes` / `getResourceCodes()` | `ResourceCodeContainer`（模块未声明） |
-//! | `m_roleCodes` / `getRoleCodes()` | `RoleCodeContainer`（模块未声明） |
-//! | `m_resourceAssignmentCodes` / `getResourceAssignmentCodes()` | `ResourceAssignmentCodeContainer`（模块未声明） |
-//! | `m_currencies` / `getCurrencies()` | `CurrencyContainer`（模块未声明） |
+//! | `m_locations` / `getLocations()` | `LocationContainer` (module not declared) |
+//! | `m_expenseCategories` / `getExpenseCategories()` | `ExpenseCategoryContainer` (module not declared) |
+//! | `m_costAccounts` / `getCostAccounts()` | `CostAccountContainer` (module not declared) |
+//! | `m_activityCodes` / `getActivityCodes()` | `ActivityCodeContainer` (module not declared) |
+//! | `m_projectCodes` / `getProjectCodes()` | `ProjectCodeContainer` (module not declared) |
+//! | `m_resourceCodes` / `getResourceCodes()` | `ResourceCodeContainer` (module not declared) |
+//! | `m_roleCodes` / `getRoleCodes()` | `RoleCodeContainer` (module not declared) |
+//! | `m_resourceAssignmentCodes` / `getResourceAssignmentCodes()` | `ResourceAssignmentCodeContainer` (module not declared) |
+//! | `m_currencies` / `getCurrencies()` | `CurrencyContainer` (module not declared) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **对象生命周期**：Java 的 `ProjectContext` 由 GC 管理，实体直接持有它的强引用；
-//!   Rust 侧 `ProjectContext` 放在 `Rc<RefCell<ProjectContext>>` 中，实体以
-//!   `Weak<RefCell<ProjectContext>>` 回指它（见 [`ProjectContext::shared`]）。
-//! - **子容器持有方式**：`ProjectContext` 直接以普通字段持有各子容器（值语义）；
-//!   子容器对上下文的回指（如 [`crate::project_calendar_container::ProjectCalendarContainer`]）
-//!   用 `Weak`，由 [`ProjectContext::shared`] 完成接线。
-//! - **可变访问器**：Java 的 `getCalendars()` 等返回的是可变集合对象，调用方可以直接
-//!   `m_context.getCalendars().add(...)`。Rust 的 `&self` getter 无法提供该语义，
-//!   因此对以值语义持有的容器（`ProjectCalendarContainer` 等），除同名 getter 外另提供
-//!   `*_mut` 访问器（Rust 特有，非 Java 方法）；[`ProjectContext::get_custom_fields`]
-//!   返回的是 `Rc<RefCell<CustomFieldContainer>>`，变异经由其 `RefCell` 完成，故不另设 `_mut`。
-//! - **项目列表**：Java 的 `m_projects` 是 `ProjectFile` 的强引用（`ProjectFile`
-//!   构造方法里 `m_context.getProjects().add(this)`）。若 Rust 侧也用强引用会与
-//!   `ProjectFile → ProjectContext` 形成 `Rc` 循环，故改为 `Weak<RefCell<ProjectFile>>`
-//!   并按 [`ProjectContext::add_project`] 登记、[`ProjectContext::get_projects`] 升级返回。
-//! - **异常列表**：Java 的 `List<Exception>` 对应 Rust 侧的统一错误类型
-//!   [`crate::mpxj_exception::MpxjError`]。
-//! - **序号生成器提供者的接线**：Java 的 `new WorkContourContainer(this)` /
-//!   `new NotesTopicContainer(this)` 直接把上下文自己交给容器。Rust 侧若让容器强引用
-//!   上下文，会形成 `ProjectContext → 容器 → ProjectContext` 的 `Rc` 循环导致内存泄漏，
-//!   因此 Rust 侧插入一个**只持有上下文弱引用**的适配器
-//!   `ContextSequenceProvider`（见文件末尾），由 [`ProjectContext::shared`] 完成接线；
-//!   它把请求转发给上下文，从而与 Java 一样共享同一批序号生成器。
-//! - **`ProjectCalendarContainer` 的接线**：该容器同样只持有上下文弱引用，
-//!   由 [`ProjectContext::shared`] 调用 `set_context` 完成接线。
-//! - **日历编号的借用拆分**：Java 可在容器内回读上下文配置和序列；Rust 从
-//!   `get_calendars_mut()` 取得容器时已借用上下文，故通过本类型的创建入口预先领取
-//!   同一个 `ObjectSequence` 的 ID，再交给容器构造日历。
-//! - **`Class<?>` 参数**：Java 的 `getUniqueIdObjectSequence(Class<?> c)` /
-//!   `resetUniqueIdObjectSequence(Class<?> c)` 以 `c.getName()` 作为 map key。Rust 侧按已移植的
-//!   [`crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider`] 改用
-//!   [`std::any::TypeId`] 作键、返回共享的 [`ObjectSequence`]（`Rc<ObjectSequence>`，
-//!   与 Java 侧 `computeIfAbsent` 返回同一实例的语义一致）。
-//! - **跨模块接口已对齐**：`crate::structured_notes` 已改为按
-//!   `get_unique_id_object_sequence::<StructuredNotes>(context)`（[`std::any::TypeId`] 键）
-//!   取序列，并直接使用 `sync_or_get_next` 的 `i32` 返回值，与
+//! - **Object lifecycle**: Java's `ProjectContext` is managed by the GC, and entities hold a direct strong reference to it;
+//! on the Rust side `ProjectContext` lives in `Rc<RefCell<ProjectContext>>`, and entities refer back to it with
+//! a `Weak<RefCell<ProjectContext>>` (see [`ProjectContext::shared`]).
+//! - **How child containers are held**: `ProjectContext` holds each child container directly as a plain field (value semantics);
+//! the child containers' back-reference to the context (such as [`crate::project_calendar_container::ProjectCalendarContainer`])
+//! uses `Weak`, and [`ProjectContext::shared`] completes the wiring.
+//! - **Mutable accessors**: Java's `getCalendars()` and similar return mutable collection objects, so callers can directly
+//! call `m_context.getCalendars().add(...)`. Rust's `&self` getters cannot provide that semantics,
+//! so for containers held with value semantics (`ProjectCalendarContainer` and the like), besides the getter of the same name there is also
+//! a `*_mut` accessor (Rust-specific, not a Java method); [`ProjectContext::get_custom_fields`]
+//! returns an `Rc<RefCell<CustomFieldContainer>>`, and mutation goes through its `RefCell`, so no separate `_mut` is provided.
+//! - **Project list**: Java's `m_projects` holds strong references to `ProjectFile` (in the `ProjectFile`
+//! constructor, `m_context.getProjects().add(this)`). A strong reference on the Rust side would form an
+//! `Rc` cycle with `ProjectFile → ProjectContext`, so it is changed to `Weak<RefCell<ProjectFile>>`
+//! and registered via [`ProjectContext::add_project`], upgraded and returned by [`ProjectContext::get_projects`].
+//! - **Exception list**: Java's `List<Exception>` corresponds to the Rust side's unified error type
+//!   [`crate::mpxj_exception::MpxjError`].
+//! - **Wiring of the sequence provider**: Java's `new WorkContourContainer(this)` /
+//! `new NotesTopicContainer(this)` hands the context itself directly to the container. If the Rust side let the container strongly reference
+//! the context, it would form an `Rc` cycle of `ProjectContext → container → ProjectContext`, causing a memory leak,
+//! so the Rust side inserts an adapter that **holds only a weak reference to the context**,
+//! `ContextSequenceProvider` (see the end of the file), wired up by [`ProjectContext::shared`];
+//! it forwards requests to the context, thereby sharing the same set of sequence providers as Java.
+//! - **Wiring of `ProjectCalendarContainer`**: this container likewise holds only a weak reference to the context,
+//! and [`ProjectContext::shared`] calls `set_context` to complete the wiring.
+//! - **Borrow splitting for calendar numbering**: Java can read the context configuration and sequences back inside the container; on the Rust side,
+//! obtaining the container from `get_calendars_mut()` already borrows the context, so the same `ObjectSequence` ID is
+//! obtained in advance through this type's creation entry point and then handed to the container to construct calendars.
+//! - **The `Class<?>` parameter**: Java's `getUniqueIdObjectSequence(Class<?> c)` /
+//! `resetUniqueIdObjectSequence(Class<?> c)` use `c.getName()` as the map key. On the Rust side, following the ported
+//! [`crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider`], the key is changed to
+//! [`std::any::TypeId`], and it returns a shared [`ObjectSequence`] (`Rc<ObjectSequence>`,
+//! consistent with the semantics of Java's `computeIfAbsent` returning the same instance).
+//! - **Cross-module interfaces are aligned**: `crate::structured_notes` has been changed to obtain
+//! sequences via `get_unique_id_object_sequence::<StructuredNotes>(context)` ([`std::any::TypeId`] key)
+//! and to use the `i32` return value of `sync_or_get_next` directly, matching
 //!   [`crate::unique_id_object_sequence_provider`] / [`crate::common::object_sequence`]
-//!   完全一致（`crate::project_calendar` 同样已对齐到 `TypeId`）。
-//! - 未派生 `Debug`：字段类型里的 `EventManager`（以及 `ProjectFile`）未实现 `Debug`，
-//!   故本类型也只能手工实现（相关模块均已落地，缺的是各自的 `Debug` 实现）。
+//! this exactly (`crate::project_calendar` is likewise aligned to `TypeId`).
+//! - `Debug` is not derived: the `EventManager` (and `ProjectFile`) in the field types do not implement `Debug`,
+//! so this type can only be implemented by hand too (the relevant modules are all in place; what is missing is their own `Debug` implementations).
 //!
-//! # 用到的各容器构造签名（已核对一致）
+//! # Constructor signatures of the containers used (verified as consistent)
 //!
-//! 下列构造表达式按各模块已落地的签名书写：
-//! `UnitOfMeasureContainer::new()`、`WorkContourContainer::new(sequence_provider)`、
-//! `NotesTopicContainer::new(sequence_provider)`、`ProjectCalendarContainer::new_with_provider(sequence_provider)`、`CustomFieldContainer::new()`（返回
-//! `Rc<RefCell<Self>>`）、`UserDefinedFieldContainer::new()`、`ShiftContainer::new()`、
-//! `ShiftPeriodContainer::new()`、`ProjectCalendarContainer::new()`、`ResourceContainer::new()`、
-//! `TimeUnitDefaults::new()`、`ProjectConfig::new()`、`EventManager::new()`。
-//! 单元测试还会调用各容器的 `is_empty()`（对应 Java `ArrayList.isEmpty()`）。
+//! The following construction expressions are written according to the signatures already in place in each module:
+//! `UnitOfMeasureContainer::new()`,`WorkContourContainer::new(sequence_provider)`,
+//! `NotesTopicContainer::new(sequence_provider)`, `ProjectCalendarContainer::new_with_provider(sequence_provider)`, `CustomFieldContainer::new()` (returns
+//! `Rc<RefCell<Self>>`),`UserDefinedFieldContainer::new()`,`ShiftContainer::new()`,
+//! `ShiftPeriodContainer::new()`,`ProjectCalendarContainer::new()`,`ResourceContainer::new()`,
+//! `TimeUnitDefaults::new()`,`ProjectConfig::new()`,`EventManager::new()`.
+//! The unit tests also call each container's `is_empty()` (corresponding to Java `ArrayList.isEmpty()`).
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -96,65 +96,65 @@ use crate::unit_of_measure_container::UnitOfMeasureContainer;
 use crate::user_defined_field_container::UserDefinedFieldContainer;
 use crate::work_contour_container::WorkContourContainer;
 
-/// 可在多个 `ProjectFile` 实例之间共享的公共数据容器。
+/// A container for common data that can be shared among multiple `ProjectFile` instances.
 ///
-/// 对应 Java: `public class ProjectContext implements UniqueIdObjectSequenceProvider`
+/// Corresponds to Java: `public class ProjectContext implements UniqueIdObjectSequenceProvider`
 pub struct ProjectContext {
-    /// 对应 Java 字段 `private final UnitOfMeasureContainer m_unitsOfMeasure = new UnitOfMeasureContainer(this);`
+    /// Corresponds to Java field `private final UnitOfMeasureContainer m_unitsOfMeasure = new UnitOfMeasureContainer(this);`
     units_of_measure: UnitOfMeasureContainer,
-    /// 对应 Java 字段 `private final WorkContourContainer m_workContours = new WorkContourContainer(this);`
+    /// Corresponds to Java field `private final WorkContourContainer m_workContours = new WorkContourContainer(this);`
     work_contours: WorkContourContainer,
-    /// 对应 Java 字段 `private final NotesTopicContainer m_notesTopics = new NotesTopicContainer(this);`
+    /// Corresponds to Java field `private final NotesTopicContainer m_notesTopics = new NotesTopicContainer(this);`
     notes_topics: NotesTopicContainer,
-    /// 对应 Java 字段 `private final CustomFieldContainer m_customFields = new CustomFieldContainer();`
+    /// Corresponds to Java field `private final CustomFieldContainer m_customFields = new CustomFieldContainer();`
     ///
-    /// [`CustomFieldContainer::new`] 返回 `Rc<RefCell<Self>>`（`CustomField` 需要弱引用回指
-    /// 父容器），故 Rust 侧以 `Rc<RefCell<..>>` 持有。
+/// [`CustomFieldContainer::new`] returns `Rc<RefCell<Self>>` (`CustomField` needs a weak reference back to
+/// its parent container), so the Rust side holds it as `Rc<RefCell<..>>`.
     custom_fields: Rc<RefCell<CustomFieldContainer>>,
-    /// 对应 Java 字段 `private final UserDefinedFieldContainer m_userDefinedFields = new UserDefinedFieldContainer(m_customFields);`
+    /// Corresponds to Java field `private final UserDefinedFieldContainer m_userDefinedFields = new UserDefinedFieldContainer(m_customFields);`
     user_defined_fields: UserDefinedFieldContainer,
-    /// 对应 Java 字段 `private final ShiftContainer m_shifts = new ShiftContainer(this);`
+    /// Corresponds to Java field `private final ShiftContainer m_shifts = new ShiftContainer(this);`
     shifts: ShiftContainer,
-    /// 对应 Java 字段 `private final ShiftPeriodContainer m_shiftPeriods = new ShiftPeriodContainer(this);`
+    /// Corresponds to Java field `private final ShiftPeriodContainer m_shiftPeriods = new ShiftPeriodContainer(this);`
     shift_periods: ShiftPeriodContainer,
-    /// 对应 Java 字段 `private final ProjectCalendarContainer m_calendars = new ProjectCalendarContainer(this);`
+    /// Corresponds to Java field `private final ProjectCalendarContainer m_calendars = new ProjectCalendarContainer(this);`
     calendars: ProjectCalendarContainer,
-    /// 对应 Java 字段 `private final ResourceContainer m_resources = new ResourceContainer(this);`
+    /// Corresponds to Java field `private final ResourceContainer m_resources = new ResourceContainer(this);`
     resources: ResourceContainer,
-    /// 对应 Java 字段 `private final List<ProjectFile> m_projects = new ArrayList<>();`
+    /// Corresponds to Java field `private final List<ProjectFile> m_projects = new ArrayList<>();`
     ///
-    /// Rust 侧存弱引用，避免与 `ProjectFile → ProjectContext` 形成 `Rc` 循环。
+/// The Rust side stores a weak reference to avoid an `Rc` cycle with `ProjectFile → ProjectContext`.
     projects: Vec<Weak<RefCell<ProjectFile>>>,
-    /// 对应 Java 字段 `private final TimeUnitDefaults m_timeUnitDefaults = new TimeUnitDefaults();`
+    /// Corresponds to Java field `private final TimeUnitDefaults m_timeUnitDefaults = new TimeUnitDefaults();`
     time_unit_defaults: TimeUnitDefaults,
-    /// 对应 Java 字段 `private final ProjectConfig m_projectConfig = new ProjectConfig();`
+    /// Corresponds to Java field `private final ProjectConfig m_projectConfig = new ProjectConfig();`
     project_config: ProjectConfig,
-    /// 对应 Java 字段 `private final Map<String, ObjectSequence> m_uniqueIdObjectSequences = new HashMap<>();`
+    /// Corresponds to Java field `private final Map<String, ObjectSequence> m_uniqueIdObjectSequences = new HashMap<>();`
     ///
-    /// Java 的 key 是 `Class.getName()`，Rust 侧按已移植的 trait 改用
-    /// [`std::any::TypeId`]，值为共享的 `Rc<ObjectSequence>`。
+/// Java's key is `Class.getName()`; on the Rust side, following the ported trait, it is changed to
+/// [`std::any::TypeId`], with a shared `Rc<ObjectSequence>` as the value.
     unique_id_object_sequences: HashMap<TypeId, Rc<ObjectSequence>>,
-    /// 对应 Java 字段 `private final List<Exception> m_ignoredErrors = new ArrayList<>();`
+    /// Corresponds to Java field `private final List<Exception> m_ignoredErrors = new ArrayList<>();`
     ignored_errors: Vec<MpxjError>,
-    /// 对应 Java 字段 `private final EventManager m_eventManager = new EventManager();`
+    /// Corresponds to Java field `private final EventManager m_eventManager = new EventManager();`
     event_manager: EventManager,
-    /// 供子容器使用的序号生成器提供者（Rust 特有的接线，见文件头说明）。
+/// The sequence provider used by child containers (Rust-specific wiring; see the file header).
     ///
-    /// 对应 Java: 各容器构造方法里传入的 `this`（`ProjectContext` 自身即
-    /// `UniqueIdObjectSequenceProvider`）。
+/// Corresponds to Java: the `this` passed in each container's constructor (`ProjectContext` itself is
+    /// `UniqueIdObjectSequenceProvider`).
     sequence_provider: Rc<RefCell<ContextSequenceProvider>>,
 }
 
 impl ProjectContext {
-    /// 构造方法（各字段就地初始化）。
+/// Constructor (each field is initialized in place).
     ///
-    /// 对应 Java: 隐式无参构造方法 `ProjectContext()`。
+/// Corresponds to Java: the implicit no-argument constructor `ProjectContext()`.
     ///
-    /// 需要跨实体共享的用户应改用 [`ProjectContext::shared`]，它会额外完成子容器与上下文
-    /// 之间的反向引用接线。
+/// Users who need to share it across entities should use [`ProjectContext::shared`] instead, which additionally completes the back-reference wiring
+/// between the child containers and the context.
     pub fn new() -> Self {
-        // Java: 各容器构造时传入 `this`；Rust 侧改为传入只持有上下文弱引用的适配器
-        // （由 ProjectContext::shared 接线，见文件头说明）。
+// Java: passes `this` when constructing each container; the Rust side passes an adapter that holds only a weak reference to the context
+// (wired up by ProjectContext::shared; see the file header).
         let sequence_provider = Rc::new(RefCell::new(ContextSequenceProvider::new()));
         let work_contour_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             sequence_provider.clone();
@@ -183,26 +183,26 @@ impl ProjectContext {
         }
     }
 
-    /// 构造可共享的上下文（Rust 特有）。
+/// Construct a shareable context (Rust-specific).
     ///
-    /// Java 用 `new ProjectContext()` 得到可直接共享的引用，并在各子容器构造时把 `this`
-    /// 传给它们。Rust 无法在 `Self::new()` 内取得自身的 `Rc`，因此这里先构造
-    /// `Rc<RefCell<ProjectContext>>`，再为需要回指上下文的子容器（目前是
-    /// [`ProjectCalendarContainer`]）完成接线。
+/// Java uses `new ProjectContext()` to obtain a directly shareable reference and passes `this`
+/// to each child container at construction. Rust cannot obtain its own `Rc` inside `Self::new()`, so here an
+/// `Rc<RefCell<ProjectContext>>` is constructed first, then the wiring is completed for the child containers that need to refer back to the context
+/// (currently [`ProjectCalendarContainer`]).
     pub fn shared() -> Rc<RefCell<ProjectContext>> {
         let context = Rc::new(RefCell::new(ProjectContext::new()));
 
         {
             let mut context_ref = context.borrow_mut();
-            // Java: `new ProjectCalendarContainer(this)` —— 由本方法补上反向引用接线。
+// Java: `new ProjectCalendarContainer(this)` —— this method adds the back-reference wiring.
             context_ref.calendars.set_context(&context);
 
-            // Java: `new ResourceContainer(this)` —— 同上（`ResourceContainer` 的序号生成器
-            // 提供者也需要上下文才能与 Java 一样共享同一套 `ObjectSequence`）。
+// Java: `new ResourceContainer(this)` —— same as above (`ResourceContainer`'s sequence provider
+// also needs the context to share the same set of `ObjectSequence` instances as Java).
             context_ref.resources.set_context(&context);
 
             // Java: `new WorkContourContainer(this)` / `new NotesTopicContainer(this)`
-            // —— 把序号生成器提供者适配器接到本上下文（只写入弱引用，不会再借用上下文）。
+// —— attach the sequence provider adapter to this context (it only writes a weak reference and does not borrow the context again).
             let sequence_provider = Rc::clone(&context_ref.sequence_provider);
             sequence_provider.borrow_mut().set_context(&context);
         }
@@ -210,128 +210,128 @@ impl ProjectContext {
         context
     }
 
-    /// 取当前上下文可用的计量单位容器。
+/// Return the units of measure container available in the current context.
     ///
-    /// 对应 Java: `public UnitOfMeasureContainer getUnitsOfMeasure()`
+    /// Corresponds to Java: `public UnitOfMeasureContainer getUnitsOfMeasure()`
     pub fn get_units_of_measure(&self) -> &UnitOfMeasureContainer {
         &self.units_of_measure
     }
 
-    /// 取计量单位容器的可变引用（Rust 特有：Java 的 getter 返回可变集合对象）。
+/// Return a mutable reference to the units of measure container (Rust-specific: Java's getter returns a mutable collection object).
     pub fn get_units_of_measure_mut(&mut self) -> &mut UnitOfMeasureContainer {
         &mut self.units_of_measure
     }
 
-    /// 取当前上下文可用的工时分布容器。
+/// Return the work contour container available in the current context.
     ///
-    /// 对应 Java: `public WorkContourContainer getWorkContours()`
+    /// Corresponds to Java: `public WorkContourContainer getWorkContours()`
     pub fn get_work_contours(&self) -> &WorkContourContainer {
         &self.work_contours
     }
 
-    /// 取工时分布容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the work contour container (Rust-specific).
     pub fn get_work_contours_mut(&mut self) -> &mut WorkContourContainer {
         &mut self.work_contours
     }
 
-    /// 取当前上下文可用的笔记主题容器。
+/// Return the notes topic container available in the current context.
     ///
-    /// 对应 Java: `public NotesTopicContainer getNotesTopics()`
+    /// Corresponds to Java: `public NotesTopicContainer getNotesTopics()`
     pub fn get_notes_topics(&self) -> &NotesTopicContainer {
         &self.notes_topics
     }
 
-    /// 取笔记主题容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the notes topic container (Rust-specific).
     pub fn get_notes_topics_mut(&mut self) -> &mut NotesTopicContainer {
         &mut self.notes_topics
     }
 
-    /// 取当前上下文可用的自定义字段容器。
+/// Return the custom field container available in the current context.
     ///
-    /// 对应 Java: `public CustomFieldContainer getCustomFields()`
+    /// Corresponds to Java: `public CustomFieldContainer getCustomFields()`
     ///
-    /// [`crate::custom_field_container::CustomFieldContainer::new`] 返回 `Rc<RefCell<Self>>`，
-    /// 故 Rust 侧返回共享句柄的克隆；增删字段通过返回值的 `RefCell` 完成，
-    /// 因此不额外提供 `_mut` 访问器。
+/// [`crate::custom_field_container::CustomFieldContainer::new`] returns `Rc<RefCell<Self>>`,
+/// so the Rust side returns a clone of the shared handle; adding and removing fields is done through the returned `RefCell`,
+/// so no additional `_mut` accessor is provided.
     pub fn get_custom_fields(&self) -> Rc<RefCell<CustomFieldContainer>> {
         Rc::clone(&self.custom_fields)
     }
 
-    /// 取当前上下文可用的用户自定义字段容器。
+/// Return the user-defined field container available in the current context.
     ///
-    /// 对应 Java: `public UserDefinedFieldContainer getUserDefinedFields()`
+    /// Corresponds to Java: `public UserDefinedFieldContainer getUserDefinedFields()`
     pub fn get_user_defined_fields(&self) -> &UserDefinedFieldContainer {
         &self.user_defined_fields
     }
 
-    /// 取用户自定义字段容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the user-defined field container (Rust-specific).
     pub fn get_user_defined_fields_mut(&mut self) -> &mut UserDefinedFieldContainer {
         &mut self.user_defined_fields
     }
 
-    /// 取当前上下文可用的班次容器。
+/// Return the shift container available in the current context.
     ///
-    /// 对应 Java: `public ShiftContainer getShifts()`
+    /// Corresponds to Java: `public ShiftContainer getShifts()`
     pub fn get_shifts(&self) -> &ShiftContainer {
         &self.shifts
     }
 
-    /// 取班次容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the shift container (Rust-specific).
     pub fn get_shifts_mut(&mut self) -> &mut ShiftContainer {
         &mut self.shifts
     }
 
-    /// 取当前上下文可用的班次时段容器。
+/// Return the shift period container available in the current context.
     ///
-    /// 对应 Java: `public ShiftPeriodContainer getShiftPeriods()`
+    /// Corresponds to Java: `public ShiftPeriodContainer getShiftPeriods()`
     pub fn get_shift_periods(&self) -> &ShiftPeriodContainer {
         &self.shift_periods
     }
 
-    /// 取班次时段容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the shift period container (Rust-specific).
     pub fn get_shift_periods_mut(&mut self) -> &mut ShiftPeriodContainer {
         &mut self.shift_periods
     }
 
-    /// 取当前上下文可用的日历容器。
+/// Return the calendar container available in the current context.
     ///
-    /// 对应 Java: `public ProjectCalendarContainer getCalendars()`
+    /// Corresponds to Java: `public ProjectCalendarContainer getCalendars()`
     pub fn get_calendars(&self) -> &ProjectCalendarContainer {
         &self.calendars
     }
 
-    /// 取日历容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the calendar container (Rust-specific).
     pub fn get_calendars_mut(&mut self) -> &mut ProjectCalendarContainer {
         &mut self.calendars
     }
 
-    /// 创建日历，并在上下文尚可访问时按配置领取唯一 ID。
+/// Create a calendar and obtain a unique ID according to the configuration while the context is still accessible.
     ///
-    /// 对应 Java: `getCalendars().add()`；Rust 特有的借用拆分入口。
+/// Corresponds to Java: `getCalendars().add()`; a Rust-specific entry point for borrow splitting.
     pub(crate) fn add_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         let unique_id = self.next_calendar_unique_id(false);
         self.calendars.add_with_unique_id(unique_id)
     }
 
-    /// 创建默认基准日历。
+/// Create the default base calendar.
     ///
-    /// 对应 Java: `getCalendars().addDefaultBaseCalendar()`；Rust 特有的借用拆分入口。
+/// Corresponds to Java: `getCalendars().addDefaultBaseCalendar()`; a Rust-specific entry point for borrow splitting.
     pub(crate) fn add_default_base_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         let unique_id = self.next_calendar_unique_id(false);
         self.calendars.add_default_base_calendar_with_unique_id(unique_id)
     }
 
-    /// 创建默认派生日历。
+/// Create the default derived calendar.
     ///
-    /// 对应 Java: `getCalendars().addDefaultDerivedCalendar()`；Rust 特有的借用拆分入口。
+/// Corresponds to Java: `getCalendars().addDefaultDerivedCalendar()`; a Rust-specific entry point for borrow splitting.
     pub(crate) fn add_default_derived_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         let unique_id = self.next_calendar_unique_id(false);
         self.calendars.add_default_derived_calendar_with_unique_id(unique_id)
     }
 
-    /// 查找默认日历；空容器时即使自动编号关闭也按 Java 行为分配 ID。
+/// Find the default calendar; when the container is empty it allocates an ID following Java behavior even if automatic numbering is off.
     ///
-    /// 对应 Java: `getCalendars().findOrCreateDefaultCalendar()`；Rust 特有的借用拆分入口。
+/// Corresponds to Java: `getCalendars().findOrCreateDefaultCalendar()`; a Rust-specific entry point for borrow splitting.
     pub(crate) fn find_or_create_default_calendar(
         &mut self,
     ) -> Option<Rc<RefCell<ProjectCalendar>>> {
@@ -343,10 +343,10 @@ impl ProjectContext {
         self.calendars.find_or_create_default_calendar_with_unique_id(unique_id)
     }
 
-    /// 从 Java 日历构造方法使用的共享序列领取下一个 ID。
+/// Obtain the next ID from the shared sequence used by the Java calendar constructor.
     ///
-    /// 对应 Java: `ProjectCalendar(ProjectContext, boolean)` 中的自动编号；
-    /// `findOrCreateDefaultCalendar()` 空容器时可强制领取一次。
+/// Corresponds to Java: the automatic numbering in `ProjectCalendar(ProjectContext, boolean)`;
+/// `findOrCreateDefaultCalendar()` can force one allocation when the container is empty.
     fn next_calendar_unique_id(&mut self, force: bool) -> Option<i32> {
         if force || self.project_config.get_auto_calendar_unique_id() {
             Some(
@@ -358,115 +358,115 @@ impl ProjectContext {
         }
     }
 
-    /// 取当前上下文可用的资源容器。
+/// Return the resource container available in the current context.
     ///
-    /// 对应 Java: `public ResourceContainer getResources()`
+    /// Corresponds to Java: `public ResourceContainer getResources()`
     pub fn get_resources(&self) -> &ResourceContainer {
         &self.resources
     }
 
-    /// 取资源容器的可变引用（Rust 特有）。
+/// Return a mutable reference to the resource container (Rust-specific).
     pub fn get_resources_mut(&mut self) -> &mut ResourceContainer {
         &mut self.resources
     }
 
-    /// 取本上下文中的项目列表（Rust 侧返回已升级的强引用快照，已释放的项目会被忽略）。
+/// Return the project list in this context (the Rust side returns a snapshot of upgraded strong references; released projects are ignored).
     ///
-    /// 对应 Java: `public List<ProjectFile> getProjects()`
+    /// Corresponds to Java: `public List<ProjectFile> getProjects()`
     pub fn get_projects(&self) -> Vec<Rc<RefCell<ProjectFile>>> {
         self.projects.iter().filter_map(Weak::upgrade).collect()
     }
 
-    /// 把项目登记到本上下文中（Rust 特有入口）。
+/// Register a project in this context (a Rust-specific entry point).
     ///
-    /// 对应 Java: `ProjectFile` 构造方法中的 `m_context.getProjects().add(this)`
+/// Corresponds to Java: `m_context.getProjects().add(this)` in the `ProjectFile` constructor
     pub fn add_project(&mut self, project: &Rc<RefCell<ProjectFile>>) {
         self.projects.push(Rc::downgrade(project));
     }
 
-    /// 取上下文中时长单位相关的默认值。
+/// Return the duration-unit-related defaults in the context.
     ///
-    /// 对应 Java: `public TimeUnitDefaults getTimeUnitDefaults()`
+    /// Corresponds to Java: `public TimeUnitDefaults getTimeUnitDefaults()`
     pub fn get_time_unit_defaults(&self) -> &TimeUnitDefaults {
         &self.time_unit_defaults
     }
 
-    /// 取时长单位默认值的可变引用（Rust 特有）。
+/// Return a mutable reference to the duration unit defaults (Rust-specific).
     pub fn get_time_unit_defaults_mut(&mut self) -> &mut TimeUnitDefaults {
         &mut self.time_unit_defaults
     }
 
-    /// 取本上下文各项目共享的 MPXJ 配置。
+/// Return the MPXJ configuration shared by the projects in this context.
     ///
-    /// 对应 Java: `public ProjectConfig getProjectConfig()`
+    /// Corresponds to Java: `public ProjectConfig getProjectConfig()`
     pub fn get_project_config(&self) -> &ProjectConfig {
         &self.project_config
     }
 
-    /// 取 MPXJ 配置的可变引用（Rust 特有）。
+/// Return a mutable reference to the MPXJ configuration (Rust-specific).
     pub fn get_project_config_mut(&mut self) -> &mut ProjectConfig {
         &mut self.project_config
     }
 
-    /// 记录一个读取上下文数据时被忽略的错误。
+/// Record an error that was ignored while reading context data.
     ///
-    /// 对应 Java: `public void addIgnoredError(Exception ex)`
+    /// Corresponds to Java: `public void addIgnoredError(Exception ex)`
     pub fn add_ignored_error(&mut self, error: MpxjError) {
         self.ignored_errors.push(error);
     }
 
-    /// 取读取上下文数据时被忽略的错误列表。
+/// Return the list of errors ignored while reading context data.
     ///
-    /// 对应 Java: `public List<Exception> getIgnoredErrors()`
+    /// Corresponds to Java: `public List<Exception> getIgnoredErrors()`
     pub fn get_ignored_errors(&self) -> &[MpxjError] {
         &self.ignored_errors
     }
 
-    /// 取事件管理器。
+/// Return the event manager.
     ///
-    /// 对应 Java: `public EventManager getEventManager()`
+    /// Corresponds to Java: `public EventManager getEventManager()`
     pub fn get_event_manager(&self) -> &EventManager {
         &self.event_manager
     }
 
-    /// 取事件管理器的可变引用（Rust 特有：触发事件需要可变访问）。
+/// Return a mutable reference to the event manager (Rust-specific: triggering events requires mutable access).
     pub fn get_event_manager_mut(&mut self) -> &mut EventManager {
         &mut self.event_manager
     }
 
-    /// 移除指定类型的 unique ID 序列，使该类型的编号重新从 1 开始。
+/// Remove the unique ID sequence of the given type so that numbering for that type restarts from 1.
     ///
-    /// 对应 Java: `public void resetUniqueIdObjectSequence(Class<?> c)`
+    /// Corresponds to Java: `public void resetUniqueIdObjectSequence(Class<?> c)`
     ///
-    /// Java 用 `c.getName()` 作为 map key，Rust 侧按已移植的 trait 传入 [`TypeId`]。
+/// Java uses `c.getName()` as the map key; on the Rust side, following the ported trait, a [`TypeId`] is passed instead.
     pub fn reset_unique_id_object_sequence(&mut self, type_id: TypeId) {
         self.unique_id_object_sequences.remove(&type_id);
     }
 }
 
 impl Default for ProjectContext {
-    /// 对应 Java: 隐式无参构造方法 `ProjectContext()`。
+/// Corresponds to Java: the implicit no-argument constructor `ProjectContext()`.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl UniqueIdObjectSequenceProvider for ProjectContext {
-    /// 取（不存在时创建）指定类型的 unique ID 序列。
+/// Return (creating if absent) the unique ID sequence for the given type.
     ///
-    /// 对应 Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
+    /// Corresponds to Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
     ///
-    /// Java 的 map key 是 `Class.getName()`，Rust 侧按 trait 定义改用 [`TypeId`]；
-    /// Java 侧 `computeIfAbsent` 返回缓存中的同一个 `ObjectSequence` 实例，
-    /// Rust 侧用 `Rc<ObjectSequence>` 表达同一实例的共享。
+/// Java's map key is `Class.getName()`; on the Rust side, per the trait definition, it is changed to [`TypeId`];
+/// Java's `computeIfAbsent` returns the same cached `ObjectSequence` instance,
+/// and the Rust side uses `Rc<ObjectSequence>` to express the sharing of the same instance.
     fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence> {
         sequence_for(&mut self.unique_id_object_sequences, type_id)
     }
 }
 
-/// 取（或创建）指定类型对应的 unique ID 序列。
+/// Return (or create) the unique ID sequence corresponding to the given type.
 ///
-/// 对应 Java: `m_uniqueIdObjectSequences.computeIfAbsent(c.getName(), x -> new ObjectSequence(1))`
+/// Corresponds to Java: `m_uniqueIdObjectSequences.computeIfAbsent(c.getName(), x -> new ObjectSequence(1))`
 fn sequence_for(
     sequences: &mut HashMap<TypeId, Rc<ObjectSequence>>,
     type_id: TypeId,
@@ -478,20 +478,20 @@ fn sequence_for(
     )
 }
 
-/// 供子容器使用的序号生成器提供者（Rust 特有的接线，见文件头说明）。
+/// The sequence provider used by child containers (Rust-specific wiring; see the file header).
 ///
-/// Java 中 `new WorkContourContainer(this)` / `new NotesTopicContainer(this)` 把
-/// `ProjectContext` 自身（实现了 `UniqueIdObjectSequenceProvider`）交给容器；Rust 侧若让容器
-/// 强引用上下文，会形成 `ProjectContext → 容器 → ProjectContext` 的 `Rc` 循环导致内存泄漏。
-/// 因此这里提供一个**只持有上下文弱引用**的适配器：把请求转发给上下文的
-/// `getUniqueIdObjectSequence`，与 Java 一样共享同一批序号生成器。
+/// In Java, `new WorkContourContainer(this)` / `new NotesTopicContainer(this)` hand
+/// `ProjectContext` itself (which implements `UniqueIdObjectSequenceProvider`) to the container; if the Rust side let the container
+/// strongly reference the context, it would form an `Rc` cycle of `ProjectContext → container → ProjectContext`, causing a memory leak.
+/// So here an adapter that **holds only a weak reference to the context** is provided: it forwards requests to the context's
+/// `getUniqueIdObjectSequence`, sharing the same set of sequence providers as Java.
 ///
-/// 上下文尚未接线（[`ProjectContext::new`] 构造期间）或已被借用时，退化为本适配器自带的
-/// 独立序号生成器，保证不 panic、不失败（Java 无此情形）。
+/// When the context is not yet wired up (during [`ProjectContext::new`] construction) or is already borrowed, it degrades gracefully to this adapter's own
+/// standalone sequence provider, guaranteeing no panic and no failure (Java has no such case).
 pub(crate) struct ContextSequenceProvider {
-    /// 目标上下文（弱引用，避免 `Rc` 循环）。
+/// The target context (a weak reference, to avoid an `Rc` cycle).
     context: Weak<RefCell<ProjectContext>>,
-    /// 上下文不可用时的退化序号生成器。
+/// The fallback sequence provider used when the context is unavailable.
     fallback: HashMap<TypeId, Rc<ObjectSequence>>,
 }
 
@@ -503,7 +503,7 @@ impl ContextSequenceProvider {
         }
     }
 
-    /// 接线目标上下文（只写入弱引用）。
+/// Wire up the target context (only writes a weak reference).
     fn set_context(&mut self, context: &Rc<RefCell<ProjectContext>>) {
         self.context = Rc::downgrade(context);
     }
@@ -531,10 +531,10 @@ mod tests {
     use crate::project_calendar::{ProjectCalendar, DEFAULT_BASE_CALENDAR_NAME};
     use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
 
-    /// 测试用「实体」类型，仅用于区分 `TypeId`。
+/// A test "entity" type, used only to distinguish `TypeId`s.
     struct Alpha;
 
-    /// 测试用「实体」类型，仅用于区分 `TypeId`。
+/// A test "entity" type, used only to distinguish `TypeId`s.
     struct Beta;
 
     #[test]
@@ -590,7 +590,7 @@ mod tests {
     fn unique_id_sequences_are_per_type_and_resettable() {
         let mut context = ProjectContext::new();
 
-        // 同一类型共享同一序列
+// The same type shares the same sequence
         let sequence = context.get_unique_id_object_sequence(TypeId::of::<Alpha>());
         assert_eq!(sequence.get_next(), 1);
         assert_eq!(sequence.get_next(), 2);
@@ -599,7 +599,7 @@ mod tests {
             &context.get_unique_id_object_sequence(TypeId::of::<Alpha>())
         ));
 
-        // 不同类型各自独立计数
+// Different types count independently
         assert_eq!(
             context
                 .get_unique_id_object_sequence(TypeId::of::<Beta>())
@@ -607,12 +607,12 @@ mod tests {
             1
         );
 
-        // 与已知在用的编号同步后，序列跟随其后
+// After synchronizing with a known in-use number, the sequence follows after it
         let sequence = context.get_unique_id_object_sequence(TypeId::of::<Alpha>());
         assert_eq!(sequence.sync_or_get_next(Some(10)), 10);
         assert_eq!(sequence.get_next(), 11);
 
-        // reset 后重新从 1 开始
+// After reset, numbering restarts from 1
         context.reset_unique_id_object_sequence(TypeId::of::<Alpha>());
         assert_eq!(
             context
@@ -662,7 +662,7 @@ mod tests {
             assert_eq!(context_ref.get_calendars().len(), 1);
             calendar
         }
-        .expect("空上下文会创建默认基准日历");
+        .expect("empty context creates default base calendar");
 
         assert_eq!(
             created.borrow().get_name(),
@@ -670,11 +670,11 @@ mod tests {
         );
         assert_eq!(created.borrow().get_unique_id(), Some(1));
 
-        // 上下文本身仍然可用（弱引用未造成泄漏或悬垂）
+// The context itself is still available (the weak reference caused no leak or dangling)
         assert_eq!(context.borrow().get_calendars().len(), 1);
     }
 
-    /// 对应 Java: `ProjectCalendarContainer.add()` 与构造器共用上下文日历序列。
+/// Corresponds to Java: `ProjectCalendarContainer.add()` shares the context calendar sequence with the constructor.
     #[test]
     fn calendar_creation_uses_shared_sequence_while_context_is_borrowed() {
         let context = ProjectContext::shared();
@@ -700,7 +700,7 @@ mod tests {
         );
     }
 
-    /// 对应 Java: 自动编号关闭时只有 `findOrCreateDefaultCalendar` 强制补上 ID。
+/// Corresponds to Java: when automatic numbering is off, only `findOrCreateDefaultCalendar` forcibly supplies an ID.
     #[test]
     fn default_calendar_gets_id_even_when_auto_ids_are_disabled() {
         let context = ProjectContext::shared();
@@ -711,7 +711,7 @@ mod tests {
         let default = context
             .borrow_mut()
             .find_or_create_default_calendar()
-            .expect("默认日历");
+            .expect("default calendar");
         let ordinary = context.borrow_mut().add_calendar();
 
         assert_eq!(default.borrow().get_unique_id(), Some(1));

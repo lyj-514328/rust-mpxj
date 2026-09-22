@@ -1,47 +1,58 @@
-//! 对应 Java: `org/mpxj/reader/AbstractProjectReader.java`
+//! Corresponds to Java: `org/mpxj/reader/AbstractProjectReader.java`
 //!
-//! [`ProjectReader`] 的抽象实现：承载「监听器注册」以及「把监听器分发给项目文件 /
-//! 项目上下文 / 另一个 reader」这三段公共逻辑。
+//! Abstract implementation of [`ProjectReader`]: it carries the common logic for
+//! "listener registration" and "dispatching listeners to a project file / project context /
+//! another reader".
 //!
-//! # Java 继承链 → Rust trait 默认方法
+//! # Java inheritance chain → Rust trait default methods
 //!
-//! Java: `public abstract class AbstractProjectReader implements ProjectReader`。
-//! Rust 没有继承，还原方式：
+//! Java: `public abstract class AbstractProjectReader implements ProjectReader`.
+//! Rust has no inheritance; the mapping is:
 //!
-//! - [`AbstractProjectReader`] 以 [`ProjectReader`] 为 supertrait，把 Java 抽象基类的
-//!   公共实现写成 trait **默认方法**，具体 reader 只需 `impl` 并给出监听器存储；
-//! - Java 的私有字段 `private List<ProjectListener> m_projectListeners` 在 trait 中无处安放，
-//!   改为要求实现者提供两个访问器（Rust 特有，见
-//!   [`AbstractProjectReader::project_listeners`] / [`AbstractProjectReader::project_listeners_mut`]）。
+//! - [`AbstractProjectReader`] uses [`ProjectReader`] as a supertrait and writes the common
+//!   implementation of the Java abstract base class as trait **default methods**, so a concrete
+//!   reader only needs to `impl` it and provide listener storage;
+//! - Java's private field `private List<ProjectListener> m_projectListeners` has no place in a
+//!   trait, so implementors are instead required to provide two accessors (Rust-specific, see
+//!   [`AbstractProjectReader::project_listeners`] / [`AbstractProjectReader::project_listeners_mut`]).
 //!
-//! # 监听器的存储与转发（Rust 特有的取舍）
+//! # Listener storage and forwarding (a Rust-specific trade-off)
 //!
-//! Java 的 `m_projectListeners` 是 `List<ProjectListener>`：同一个监听器**对象**会被同时
-//! 注册到项目文件的 `EventManager`、项目上下文的 `EventManager`，以及另一个 reader
-//! （`addListenersToProject` / `addListenersToContext` / `addListenersToReader`），三处共享
-//! 同一实例。而 Rust 的 [`crate::event_manager::EventManager::add_project_listeners`]
-//! 以 `Box<dyn ProjectListener>` **接管所有权**（`addProjectListeners` 消费传入列表）。
+//! Java's `m_projectListeners` is a `List<ProjectListener>`: the same listener **object** is
+//! registered simultaneously on the project file's `EventManager`, the project context's
+//! `EventManager`, and another reader
+//! (`addListenersToProject` / `addListenersToContext` / `addListenersToReader`), sharing the
+//! same instance in all three places. In contrast, Rust's
+//! [`crate::event_manager::EventManager::add_project_listeners`] **takes ownership** as
+//! `Box<dyn ProjectListener>` (`addProjectListeners` consumes the passed list).
 //!
-//! 因此本模块引入共享句柄 [`SharedProjectListener`]（`Rc<RefCell<Box<dyn ProjectListener>>>`）：
+//! This module therefore introduces the shared handle [`SharedProjectListener`]
+//! (`Rc<RefCell<Box<dyn ProjectListener>>>`):
 //!
-//! - **注册**：默认方法 [`AbstractProjectReader::add_project_listener_default`] 把收到的
-//!   `Box<dyn ProjectListener>` 装进共享句柄后存入 `Vec`；
-//! - **分发**：需要交给 `EventManager` 时，克隆共享句柄再装箱（`Box::new(handle.clone())`）。
-//!   该 `Box` 自身实现了 [`ProjectListener`]，回调逐项转发到句柄内**同一个**监听器实例，
-//!   等价于 Java「同一监听器对象被注册到多处」；
-//! - **可观察行为与 Java 一致**：同一监听器被注册到 N 处即收到 N 次通知；
-//!   [`AbstractProjectReader::add_listeners_to_reader`] 会把监听器（经共享句柄）转交给
-//!   另一个 reader，被转交方再分发时仍作用在同一监听器上。
-//! - **不会 panic**：句柄内部借用冲突（Rust 特有情形，Java 无）时转发被跳过，
-//!   见 [`SharedProjectListener::try_borrow_mut`]。
+//! - **Registration**: the default method
+//!   [`AbstractProjectReader::add_project_listener_default`] wraps the received
+//!   `Box<dyn ProjectListener>` in a shared handle and stores it in a `Vec`;
+//! - **Dispatch**: when it must be handed to an `EventManager`, the shared handle is cloned and
+//!   boxed again (`Box::new(handle.clone())`). That `Box` itself implements [`ProjectListener`],
+//!   and each callback is forwarded to the **same** listener instance inside the handle, which
+//!   is equivalent to Java's "the same listener object registered in multiple places";
+//! - **Observable behavior matches Java**: a listener registered in N places receives N
+//!   notifications; [`AbstractProjectReader::add_listeners_to_reader`] hands the listener (via
+//!   the shared handle) to another reader, and when that reader dispatches, it still acts on the
+//!   same listener.
+//! - **No panic**: when there is a borrow conflict inside the handle (a Rust-specific situation
+//!   that Java does not have), forwarding is skipped; see
+//!   [`SharedProjectListener::try_borrow_mut`].
 //!
-//! # 命名约定：抽象层对 `ProjectReader` 方法的实现加 `_default` 后缀
+//! # Naming convention: implementations of `ProjectReader` methods in the abstract layer get a `_default` suffix
 //!
-//! Java 中子类可以覆盖接口方法并沿继承链复用。Rust 的 trait 默认方法**不能**覆盖
-//! supertrait 的同名方法：子 trait 若声明同名方法，任何调用点（如 `reader.read_file(..)`）
-//! 都会因存在两个候选而报 E0034（方法解析歧义）。故本 crate 约定：
+//! In Java a subclass can override interface methods and reuse them along the inheritance chain.
+//! A Rust trait default method **cannot** override a same-named method of a supertrait: if a
+//! subtrait declares a same-named method, any call site (such as `reader.read_file(..)`) reports
+//! E0034 (method resolution ambiguity) because two candidates exist. This crate therefore
+//! adopts the following convention:
 //!
-//! | 层次 | Java 方法 | Rust 默认方法 |
+//! | Layer | Java method | Rust default method |
 //! |---|---|---|
 //! | `AbstractProjectReader` | `addProjectListener(ProjectListener)` | [`AbstractProjectReader::add_project_listener_default`] |
 //! | `AbstractProjectFileReader` | `readAll(File)` | `read_all_file_default` |
@@ -51,11 +62,12 @@
 //! | `AbstractProjectStreamReader` | `readAll(File)` | `read_all_file_default` |
 //! | `AbstractProjectStreamReader` | `readAll(InputStream)` | `read_all_reader_default` |
 //!
-//! 具体 reader 在自己的 `impl ProjectReader` 中把接口方法转调对应抽象层的 `_default` 方法，
-//! 并在所属抽象层 trait 上实现该层仍为「抽象」的方法：
+//! A concrete reader, in its own `impl ProjectReader`, forwards the interface methods to the
+//! corresponding `_default` methods of the abstract layer, and implements on the abstract-layer
+//! trait those methods that are still "abstract" in that layer:
 //!
 //! ```ignore
-//! // 例：流式 reader（对应 Java `class MyReader extends AbstractProjectStreamReader`）
+//! // Example: stream reader (corresponds to Java `class MyReader extends AbstractProjectStreamReader`)
 //! impl ProjectReader for MyStreamReader {
 //!     fn add_project_listener(&mut self, listener: Box<dyn ProjectListener>) {
 //!         AbstractProjectReader::add_project_listener_default(self, listener);
@@ -67,7 +79,7 @@
 //!         AbstractProjectStreamReader::read_all_file_default(self, path)
 //!     }
 //!     fn read_reader(&mut self, reader: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
-//!         // Java: 具体 reader 实现的 read(InputStream)
+//!         // Java: read(InputStream) implemented by the concrete reader
 //!         // ...
 //!     }
 //!     fn read_all_reader(
@@ -79,25 +91,31 @@
 //! }
 //! ```
 //!
-//! 文件型 reader（对应 Java `extends AbstractProjectFileReader`）同理，只是把
-//! `read_file` 留给自己实现、其余转调 `AbstractProjectFileReader::*_default`。
+//! The same applies to a file-based reader (corresponds to Java `extends AbstractProjectFileReader`),
+//! except that `read_file` is left for it to implement and the rest are forwarded to
+//! `AbstractProjectFileReader::*_default`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`addListenersToProject(ProjectFile)`**：Java 写 `project.getEventManager().addProjectListeners(..)`；
-//!   Rust 侧 [`ProjectFile::get_event_manager`] 只提供不可变访问，故经
-//!   `project.getProjectContext()` 取上下文后在其 `EventManager` 上注册（`ProjectFile` 的事件
-//!   管理器本就委托上下文，见 [`crate::project_file`] 文件头，两者等价）；
-//! - **借用冲突的退化**：上述过程需要临时借用 `ProjectFile` 与 `ProjectContext`
-//!   （`RefCell`）。调用方若已持有它们的可变借用（Java 无此情形），Rust 侧退化为「不注册」
-//!   而不 panic；
-//! - **`m_projectListeners == null`**：Java 首次注册时惰性建表并多处判空；Rust 侧是始终存在的
-//!   `Vec`，空表自然即空操作。
+//! - **`addListenersToProject(ProjectFile)`**: Java writes
+//!   `project.getEventManager().addProjectListeners(..)`; on the Rust side
+//!   [`ProjectFile::get_event_manager`] only provides immutable access, so the context is
+//!   obtained via `project.getProjectContext()` and the listeners are registered on its
+//!   `EventManager` (`ProjectFile`'s event manager delegates to the context anyway, see the file
+//!   header of [`crate::project_file`]; the two are equivalent);
+//! - **Degradation on borrow conflict**: the process above needs a temporary borrow of
+//!   `ProjectFile` and `ProjectContext` (`RefCell`). If the caller already holds a mutable borrow
+//!   of them (a situation Java does not have), the Rust side degrades to "do not register"
+//!   instead of panicking;
+//! - **`m_projectListeners == null`**: Java lazily creates the list on first registration and
+//!   null-checks in several places; on the Rust side the `Vec` always exists, and an empty list
+//!   naturally means a no-op.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! 本类未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`，也无引用
-//! `UniversalProjectReader` / `ProjectReaderUtility` 的代码，故无跳过项。
+//! This class does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`, nor
+//! does it contain code referencing `UniversalProjectReader` / `ProjectReaderUtility`, so there
+//! are no skipped items.
 
 use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
@@ -112,132 +130,138 @@ use crate::resource::Resource;
 use crate::resource_assignment::ResourceAssignment;
 use crate::task::Task;
 
-/// 可共享、可克隆的监听器句柄（Rust 特有，见文件头说明）。
+/// A shareable, cloneable listener handle (Rust-specific, see the file header).
 ///
-/// Java 侧 `AbstractProjectReader.m_projectListeners` 直接保存监听器对象的引用，
-/// 同一对象可被注册到多个 `EventManager`；Rust 侧用本句柄表达「同一监听器实例被多处持有」：
-/// 句柄克隆只增加引用计数，本体实现 [`ProjectListener`] 并把回调转发给内部的监听器。
+/// On the Java side `AbstractProjectReader.m_projectListeners` directly stores references to
+/// listener objects, and the same object can be registered on multiple `EventManager`s; on the
+/// Rust side this handle expresses "the same listener instance held in multiple places": cloning
+/// the handle only increments the reference count, while the handle itself implements
+/// [`ProjectListener`] and forwards callbacks to the inner listener.
 pub struct SharedProjectListener(Rc<RefCell<Box<dyn ProjectListener>>>);
 
 impl SharedProjectListener {
-    /// 把监听器装箱后存入共享句柄。
+    /// Box the listener and store it in the shared handle.
     ///
-    /// 对应 Java: `m_projectListeners.add(listener)`（保存引用）
+    /// Corresponds to Java: `m_projectListeners.add(listener)` (keeps a reference)
     pub fn new(listener: Box<dyn ProjectListener>) -> Self {
         Self(Rc::new(RefCell::new(listener)))
     }
 
-    /// 可变借出内部的监听器；句柄正被借用时返回 `None`。
+    /// Mutably borrow the inner listener; returns `None` while the handle is already borrowed.
     ///
-    /// Rust 特有（Java 无借用检查）：调用方据此在借用冲突时跳过转发，而不是 panic。
+    /// Rust-specific (Java has no borrow checking): the caller uses this to skip forwarding on a
+    /// borrow conflict instead of panicking.
     pub fn try_borrow_mut(&self) -> Option<RefMut<'_, Box<dyn ProjectListener>>> {
         self.0.try_borrow_mut().ok()
     }
 }
 
 impl Clone for SharedProjectListener {
-    /// 克隆共享句柄（只增加引用计数，仍指向同一个监听器实例）。
+    /// Clone the shared handle (only increments the reference count; still points to the same
+    /// listener instance).
     ///
-    /// 对应 Java: `m_projectListeners.forEach(reader::addProjectListener)` 中传递同一个对象引用
+    /// Corresponds to Java: passing the same object reference in `m_projectListeners.forEach(reader::addProjectListener)`
     fn clone(&self) -> Self {
         Self(Rc::clone(&self.0))
     }
 }
 
 impl ProjectListener for SharedProjectListener {
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.taskRead(task)`
+    /// Corresponds to Java: `listener.taskRead(task)`
     fn task_read(&mut self, task: &Rc<RefCell<Task>>) {
         forward(self, |listener| listener.task_read(task));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.taskWritten(task)`
+    /// Corresponds to Java: `listener.taskWritten(task)`
     fn task_written(&mut self, task: &Rc<RefCell<Task>>) {
         forward(self, |listener| listener.task_written(task));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.resourceRead(resource)`
+    /// Corresponds to Java: `listener.resourceRead(resource)`
     fn resource_read(&mut self, resource: &Rc<RefCell<Resource>>) {
         forward(self, |listener| listener.resource_read(resource));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.resourceWritten(resource)`
+    /// Corresponds to Java: `listener.resourceWritten(resource)`
     fn resource_written(&mut self, resource: &Rc<RefCell<Resource>>) {
         forward(self, |listener| listener.resource_written(resource));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.calendarRead(calendar)`
+    /// Corresponds to Java: `listener.calendarRead(calendar)`
     fn calendar_read(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         forward(self, |listener| listener.calendar_read(calendar));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.calendarWritten(calendar)`
+    /// Corresponds to Java: `listener.calendarWritten(calendar)`
     fn calendar_written(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) {
         forward(self, |listener| listener.calendar_written(calendar));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.assignmentRead(assignment)`
+    /// Corresponds to Java: `listener.assignmentRead(assignment)`
     fn assignment_read(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
         forward(self, |listener| listener.assignment_read(assignment));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.assignmentWritten(assignment)`
+    /// Corresponds to Java: `listener.assignmentWritten(assignment)`
     fn assignment_written(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
         forward(self, |listener| listener.assignment_written(assignment));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.relationRead(relation)`
+    /// Corresponds to Java: `listener.relationRead(relation)`
     fn relation_read(&mut self, relation: &Rc<RefCell<Relation>>) {
         forward(self, |listener| listener.relation_read(relation));
     }
 
-    /// 转发给句柄内的监听器。
+    /// Forward to the listener inside the handle.
     ///
-    /// 对应 Java: `listener.relationWritten(relation)`
+    /// Corresponds to Java: `listener.relationWritten(relation)`
     fn relation_written(&mut self, relation: &Rc<RefCell<Relation>>) {
         forward(self, |listener| listener.relation_written(relation));
     }
 }
 
-/// [`ProjectReader`] 的抽象实现。
+/// Abstract implementation of [`ProjectReader`].
 ///
-/// 对应 Java: `public abstract class AbstractProjectReader implements ProjectReader`
+/// Corresponds to Java: `public abstract class AbstractProjectReader implements ProjectReader`
 pub trait AbstractProjectReader: ProjectReader {
-    /// 取本 reader 已注册的监听器列表。
+    /// Return the list of listeners registered on this reader.
     ///
-    /// Rust 特有（Java 侧 `m_projectListeners` 是私有字段，无对应方法）：trait 无法带字段，
-    /// 故由实现者暴露存储。具体 reader 通常写成 `&self.listeners`。
+    /// Rust-specific (on the Java side `m_projectListeners` is a private field with no
+    /// corresponding method): a trait cannot carry fields, so the implementor exposes the
+    /// storage. A concrete reader typically writes `&self.listeners`.
     fn project_listeners(&self) -> &[SharedProjectListener];
 
-    /// 取本 reader 已注册的监听器列表（可变）。
+    /// Return the list of listeners registered on this reader (mutable).
     ///
-    /// Rust 特有（同上）：具体 reader 通常写成 `&mut self.listeners`。
+    /// Rust-specific (same as above): a concrete reader typically writes `&mut self.listeners`.
     fn project_listeners_mut(&mut self) -> &mut Vec<SharedProjectListener>;
 
-    /// 注册一个监听器。
+    /// Register a listener.
     ///
-    /// 对应 Java: `@Override public void addProjectListener(ProjectListener listener)`
+    /// Corresponds to Java: `@Override public void addProjectListener(ProjectListener listener)`
     ///
-    /// Java 首次注册时惰性建表；Rust 侧存储恒存在，故只做一件事：装箱入共享句柄。
-    /// 具体 reader 请在 `impl ProjectReader::add_project_listener` 中转调本方法
-    /// （原因见文件头「命名约定」）。
+    /// Java lazily creates the list on first registration; on the Rust side the storage always
+    /// exists, so this only does one thing: box the listener into a shared handle. A concrete
+    /// reader should forward to this method in `impl ProjectReader::add_project_listener`
+    /// (for the reason see "Naming convention" in the file header).
     fn add_project_listener_default(&mut self, listener: Box<dyn ProjectListener>) {
         // Java: if (m_projectListeners == null) { m_projectListeners = new ArrayList<>(); }
         //       m_projectListeners.add(listener);
@@ -245,31 +269,33 @@ pub trait AbstractProjectReader: ProjectReader {
             .push(SharedProjectListener::new(listener));
     }
 
-    /// 把本 reader 已注册的监听器加入目标项目的 `EventManager`。
+    /// Add the listeners registered on this reader to the target project's `EventManager`.
     ///
-    /// 对应 Java: `protected void addListenersToProject(ProjectFile project)`
+    /// Corresponds to Java: `protected void addListenersToProject(ProjectFile project)`
     ///
-    /// Java 写 `project.getEventManager().addProjectListeners(m_projectListeners)`；Rust 侧
-    /// `ProjectFile` 的事件管理器只提供不可变访问，故经其项目上下文注册（等价，见文件头）。
+    /// Java writes `project.getEventManager().addProjectListeners(m_projectListeners)`; on the
+    /// Rust side `ProjectFile`'s event manager only provides immutable access, so registration
+    /// goes through its project context (equivalent, see the file header).
     fn add_listeners_to_project(&self, project: &Rc<RefCell<ProjectFile>>) {
-        // Java: 项目文件的事件管理器即其上下文的事件管理器（ProjectFile.getEventManager()
-        //       → m_context.getEventManager()），故这里先取上下文再注册。
+        // Java: the project file's event manager is its context's event manager
+        //       (ProjectFile.getEventManager() → m_context.getEventManager()),
+        //       so the context is obtained first and then registration happens.
         let context = match project.try_borrow() {
             Ok(project) => project.get_project_context(),
-            // Java 无此分支；Rust 侧避免借用冲突 panic（见文件头）
+            // Java has no such branch; the Rust side avoids a borrow-conflict panic (see the file header)
             Err(_) => return,
         };
 
         self.add_listeners_to_context(&context);
     }
 
-    /// 把本 reader 已注册的监听器加入目标项目上下文的 `EventManager`。
+    /// Add the listeners registered on this reader to the target project context's `EventManager`.
     ///
-    /// 对应 Java: `protected void addListenersToContext(ProjectContext context)`
+    /// Corresponds to Java: `protected void addListenersToContext(ProjectContext context)`
     fn add_listeners_to_context(&self, context: &Rc<RefCell<ProjectContext>>) {
         // Java: context.getEventManager().addProjectListeners(m_projectListeners);
         let Ok(mut context) = context.try_borrow_mut() else {
-            // Java 无此分支；Rust 侧避免借用冲突 panic（见文件头）
+            // Java has no such branch; the Rust side avoids a borrow-conflict panic (see the file header)
             return;
         };
 
@@ -284,11 +310,11 @@ pub trait AbstractProjectReader: ProjectReader {
             .add_project_listeners(listeners);
     }
 
-    /// 把本 reader 已注册的监听器转交给另一个 reader。
+    /// Hand the listeners registered on this reader over to another reader.
     ///
-    /// 对应 Java: `protected void addListenersToReader(ProjectReader reader)`
+    /// Corresponds to Java: `protected void addListenersToReader(ProjectReader reader)`
     ///
-    /// Java 判 `m_projectListeners != null`；Rust 侧空 `Vec` 即空操作。
+    /// Java checks `m_projectListeners != null`; on the Rust side an empty `Vec` means a no-op.
     fn add_listeners_to_reader(&self, reader: &mut dyn ProjectReader) {
         // Java: m_projectListeners.forEach(reader::addProjectListener);
         for listener in self.project_listeners() {
@@ -297,9 +323,10 @@ pub trait AbstractProjectReader: ProjectReader {
     }
 }
 
-/// 把回调转发给共享句柄内的监听器；句柄正被借用时跳过（不 panic）。
+/// Forward the callback to the listener inside the shared handle; skip it when the handle is
+/// already borrowed (no panic).
 ///
-/// 对应 Java: `listener.xxx(event)`（Java 直接调用监听器对象的方法）
+/// Corresponds to Java: `listener.xxx(event)` (Java calls the listener object's method directly)
 fn forward<T>(
     handle: &SharedProjectListener,
     call: impl FnOnce(&mut dyn ProjectListener) -> T,
@@ -315,7 +342,7 @@ mod tests {
     use std::io::Read;
     use std::path::Path;
 
-    /// 事件记录器：把收到的事件名按顺序写入共享日志。
+    /// Event recorder: writes the received event names into a shared log in order.
     type EventLog = Rc<RefCell<Vec<&'static str>>>;
 
     struct Recorder {
@@ -323,7 +350,7 @@ mod tests {
     }
 
     impl Recorder {
-        /// 返回监听器与其事件日志（日志与监听器共享同一 `Rc`）。
+        /// Returns the listener and its event log (the log and the listener share the same `Rc`).
         fn shared() -> (Self, EventLog) {
             let log: EventLog = Rc::new(RefCell::new(Vec::new()));
             (Self { log: log.clone() }, log)
@@ -356,7 +383,8 @@ mod tests {
         fn relation_written(&mut self, _relation: &Rc<RefCell<Relation>>) {}
     }
 
-    /// 最小 reader 实现：只提供监听器存储，读取方法全部走抽象层默认实现。
+    /// Minimal reader implementation: only provides listener storage; all read methods go through
+    /// the abstract layer's default implementations.
     #[derive(Default)]
     struct StubReader {
         listeners: Vec<SharedProjectListener>,
@@ -397,7 +425,7 @@ mod tests {
         }
     }
 
-    /// 触发一次 `taskRead` 事件（经项目上下文的事件管理器）。
+    /// Fire one `taskRead` event (through the project context's event manager).
     fn fire_task_read(context: &Rc<RefCell<ProjectContext>>) {
         context
             .borrow_mut()
@@ -435,7 +463,7 @@ mod tests {
         let file = ProjectFile::new();
         let context = file.borrow().get_project_context();
 
-        // Java: 同一监听器对象可被注册到「项目」与「上下文」两处，各自都会通知它一次
+        // Java: the same listener object can be registered on both the project and the context, and each notifies it once
         reader.add_listeners_to_project(&file);
         reader.add_listeners_to_context(&context);
 
@@ -451,11 +479,11 @@ mod tests {
         source.add_project_listener_default(Box::new(recorder));
 
         // Java: m_projectListeners.forEach(reader::addProjectListener)
-        // —— 把**本** reader 的监听器逐个注册到目标 reader
+        // -- register **this** reader's listeners one by one on the target reader
         source.add_listeners_to_reader(&mut target);
         assert_eq!(target.project_listeners().len(), 1);
 
-        // 被转交的监听器仍然是同一个实例
+        // The handed-over listener is still the same instance
         let context = ProjectContext::shared();
         target.add_listeners_to_context(&context);
         fire_task_read(&context);
@@ -468,7 +496,7 @@ mod tests {
         let source = StubReader::default();
         let mut target = StubReader::default();
 
-        // 来源 reader 未注册任何监听器：目标 reader 不会被改动（等价 Java 的判空）
+        // The source reader has no listeners registered: the target reader is not modified (equivalent to Java's null check)
         source.add_listeners_to_reader(&mut target);
 
         assert!(target.project_listeners().is_empty());
@@ -481,7 +509,7 @@ mod tests {
 
         reader.add_listeners_to_project(&file);
 
-        // 未注册监听器时事件照常派发（无接收者）
+        // Events are still dispatched when no listener is registered (no receiver)
         fire_task_read(&file.borrow().get_project_context());
     }
 
@@ -493,7 +521,7 @@ mod tests {
 
         let context = ProjectContext::shared();
 
-        // 已经持有上下文的可变借用（Java 无此情形）：Rust 侧退化为「不注册」，不 panic
+        // A mutable borrow of the context is already held (a situation Java does not have): the Rust side degrades to "do not register" and does not panic
         let guard = context.borrow_mut();
         reader.add_listeners_to_context(&context);
         drop(guard);

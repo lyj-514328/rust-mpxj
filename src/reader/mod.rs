@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/reader` 包
+//! Corresponds to Java: `org/mpxj/reader` package
 
 pub mod abstract_project_file_reader;
 pub mod abstract_project_reader;

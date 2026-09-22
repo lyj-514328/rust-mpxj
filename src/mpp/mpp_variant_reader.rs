@@ -1,14 +1,14 @@
-//! 对应 Java: `org/mpxj/mpp/MPPVariantReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPPVariantReader.java`
 //!
-//! 四个 MPP 变体 reader（[`MPP8Reader`](crate::mpp::mpp8_reader::MPP8Reader) /
+//! The shared contract of the four MPP variant readers ([`MPP8Reader`](crate::mpp::mpp8_reader::MPP8Reader) /
 //! [`MPP9Reader`](crate::mpp::mpp9_reader::MPP9Reader) /
 //! [`MPP12Reader`](crate::mpp::mpp12_reader::MPP12Reader) /
-//! [`MPP14Reader`](crate::mpp::mpp14_reader::MPP14Reader)）的共同契约：每个变体负责
-//! 「按自己的字节布局读完整份 MPP 文件并填充 [`ProjectFile`]」。
-//! [`MPPReader::read`](crate::mpp::mpp_reader::MPPReader::read) 从 `\1CompObj` 流拿到
-//! 文件格式字符串后，据此选出一个变体并调用 [`MPPVariantReader::process`]。
+//! [`MPP14Reader`](crate::mpp::mpp14_reader::MPP14Reader)): each variant is responsible for
+//! "reading a whole MPP file according to its own byte layout and populating [`ProjectFile`]".
+//! After [`MPPReader::read`](crate::mpp::mpp_reader::MPPReader::read) obtains the file format string from the `\1CompObj` stream,
+//! it selects a variant accordingly and calls [`MPPVariantReader::process`].
 //!
-//! # 最终确定的 trait 签名（四个变体 reader 的对接点）
+//! # Finalized trait signature (the interface point of the four variant readers)
 //!
 //! ```ignore
 //! pub trait MPPVariantReader {
@@ -21,38 +21,38 @@
 //! }
 //! ```
 //!
-//! 逐项理由（Java → Rust）：
+//! Item-by-item rationale (Java → Rust):
 //!
-//! | Java | Rust | 理由 |
+//! | Java | Rust | Rationale |
 //! |---|---|---|
-//! | `interface MPPVariantReader`（包私有） | `pub trait MPPVariantReader` | Java 里接口与四个实现都在 `org.mpxj.mpp` 包内，包私有足够；Rust 的模块即包，跨模块使用必须 `pub` |
-//! | `MPPReader reader` | `&MPPReader` | 变体 reader 对父 reader 只**读**五个开关（`getReadPropertiesOnly` / `getReadPresentationData` / `getRespectPasswordProtection` / `getReadPassword` / `getUseRawTimephasedData`），Java 源码中没有任何 `reader.setXxx(..)` 调用，故不需要 `&mut`。`&MPPReader` 还让 [`MPPReader::read`](crate::mpp::mpp_reader::MPPReader::read) 可以取 `&self`（Java 的 `read` 同样不修改 reader 自身状态），从而在 `read` 内部直接把 `self` 交给 `process` |
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 按本工程约定，`ProjectFile` 一律以 `Rc<RefCell<..>>` 共享持有（见 [`crate::project_file`] 文件头）；按引用传入使 `MPPReader` 保留所有权，同时变体 reader 内部仍可 `Rc::clone` 到任意内部 reader |
-//! | `DirectoryEntry root` | `&DirectoryEntry` | POI 的 `DirectoryEntry` 是一个句柄对象；Rust 侧 [`DirectoryEntry`] 是 `#[derive(Clone)]` 的轻量句柄，按引用传入即可，需要长期持有（例如转交内部 reader）时 `root.clone()` |
-//! | `throws MPXJException, IOException` | `MpxjResult<()>` | 统一返回 [`MpxjResult`]；`IOException` 经 `From<std::io::Error>` 转为消息前缀 `Error reading file` 的 [`MpxjError`]（与 Java 侧 `new MPXJException(MPXJException.READ_ERROR, ex)` 一致） |
-//! | `void process(MPPReader, ProjectFile, DirectoryEntry)`（实例状态可写） | `fn process(&self, ..)` | **本 trait 固定为 `&self`**。Java 侧 `MPP9Reader` 等无参构造 + 在 `populateMemberData` 里把 `m_reader` / `m_file` / `m_root` / `m_projectProps` 等写入实例字段，`process` 结束时 `clearMemberData` 清空 —— 这依赖可变实例状态。Rust 实现者三选一：(1) 把可变状态放进 `RefCell` / `Cell` 字段（`new()` 保持无参）；(2) `process` 内把状态装进一个局部结构体，再把 `&mut` 局部结构体传给各私有方法（最贴近 Java 的逐方法翻译，且不引入内部可变性）；(3) 在 `new(...)` 里接收固定引用，使 `process` 内的状态天然不可变。**签名不因实现风格而变化** |
+//! | `interface MPPVariantReader` (package-private) | `pub trait MPPVariantReader` | In Java the interface and its four implementations all live in the `org.mpxj.mpp` package, so package-private suffices; Rust modules are packages, so cross-module use requires `pub` |
+//! | `MPPReader reader` | `&MPPReader` | The variant reader only **reads** five flags from the parent reader (`getReadPropertiesOnly` / `getReadPresentationData` / `getRespectPasswordProtection` / `getReadPassword` / `getUseRawTimephasedData`); there is no `reader.setXxx(..)` call anywhere in the Java source, so `&mut` is unnecessary. `&MPPReader` also lets [`MPPReader::read`](crate::mpp::mpp_reader::MPPReader::read) take `&self` (Java's `read` likewise does not modify the reader's own state), so `read` can pass `self` directly to `process` |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | Per this project's convention, `ProjectFile` is always held shared as `Rc<RefCell<..>>` (see the [`crate::project_file`] file header); passing it by reference lets `MPPReader` retain ownership while the variant reader can still `Rc::clone` it into any internal reader |
+//! | `DirectoryEntry root` | `&DirectoryEntry` | POI's `DirectoryEntry` is a handle object; the Rust [`DirectoryEntry`] is a lightweight handle deriving `#[derive(Clone)]`, so passing it by reference is enough, and `root.clone()` is used when long-term ownership is needed (for example handing it to an internal reader) |
+//! | `throws MPXJException, IOException` | `MpxjResult<()>` | Uniformly returns [`MpxjResult`]; `IOException` is converted via `From<std::io::Error>` into an [`MpxjError`] with the message prefix `Error reading file` (consistent with Java's `new MPXJException(MPXJException.READ_ERROR, ex)`) |
+//! | `void process(MPPReader, ProjectFile, DirectoryEntry)` (mutable instance state) | `fn process(&self, ..)` | **This trait is fixed to `&self`**. On the Java side `MPP9Reader` etc. have no-arg constructors and write `m_reader` / `m_file` / `m_root` / `m_projectProps` etc. into instance fields in `populateMemberData`, then `clearMemberData` clears them when `process` finishes — this relies on mutable instance state. Rust implementers have three options: (1) put the mutable state in `RefCell` / `Cell` fields (keeping `new()` no-arg); (2) inside `process`, place the state in a local struct and pass `&mut` to that local struct to each private method (closest to Java's method-by-method translation and introduces no interior mutability); (3) accept fixed references in `new(...)` so the state inside `process` is naturally immutable. **The signature does not change with the implementation style** |
 //!
-//! # 实现者必须遵守的三条约定
+//! # Three conventions implementers must follow
 //!
-//! 1. **借用**：`file` 是 `Rc<RefCell<ProjectFile>>`，`ProjectFile` 与 `ProjectContext`
-//!    的所有访问一律用 `try_borrow` / `try_borrow_mut`，冲突时返回 `Err` 或跳过并在注释说明
-//!    （Java 是稳定引用，Rust 会 panic）。
-//! 2. **不要持有 `ProjectFile` 借用去调用会反向借用同一文件的方法**：例如
-//!    `Task::remove_predecessor` 内部会 `file.borrow_mut()`；必须先克隆出
-//!    `Vec<Rc<RefCell<Task>>>` 之类的快照并释放文件借用。
-//! 3. **流的读取**：Java 的 `new DocumentInputStream((DocumentEntry) root.getEntry(name))` 在
-//!    Rust 侧一律写成 `root.get_document(name)`（取 [`DocumentEntry`]）后
-//!    `entry.get_data()` → `Rc<Vec<u8>>`，再按 `&[u8]` 交给 `Props` / `Var2Data` 等。
+//! 1. **Borrowing**: `file` is `Rc<RefCell<ProjectFile>>`; all accesses to `ProjectFile` and `ProjectContext`
+//! must use `try_borrow` / `try_borrow_mut`, and on conflict return `Err` or skip with an explanatory comment
+//! (Java has stable references, whereas Rust would panic).
+//! 2. **Do not hold a `ProjectFile` borrow while calling methods that borrow the same file back**: for example
+//! `Task::remove_predecessor` internally does `file.borrow_mut()`; you must first clone out
+//! a snapshot such as `Vec<Rc<RefCell<Task>>>` and release the file borrow.
+//! 3. **Stream reading**: Java's `new DocumentInputStream((DocumentEntry) root.getEntry(name))` is
+//! always written on the Rust side as `root.get_document(name)` (obtaining a [`DocumentEntry`]) followed by
+//! `entry.get_data()` → `Rc<Vec<u8>>`, then passing it as `&[u8]` to `Props` / `Var2Data` etc.
 //!
-//! # 会由 `MPPReader` 负责、变体 reader 不必重复做的事
+//! # Work handled by `MPPReader` that variant readers need not repeat
 //!
-//! `MPPReader.read(POIFSFileSystem)` 在 `process` 返回后统一完成：`updateStructure()`、
-//! `task.setSummary(...)` / 关系校验 / 估算基线回填、清理未使用的派生日历、资源日历与
-//! 计量单位后处理、`readComplete()`。变体 reader 只需填数据。
+//! After `process` returns, `MPPReader.read(POIFSFileSystem)` uniformly performs: `updateStructure()`,
+//! `task.setSummary(...)` / relation validation / estimated baseline backfill, cleanup of unused derived calendars, resource calendar and
+//! unit-of-measure post-processing, `readComplete()`. Variant readers only need to fill in data.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! 本接口未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`，故无跳过项。
+//! This interface uses none of reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`, so there are no skipped items.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -62,22 +62,22 @@ use crate::mpp::ole::DirectoryEntry;
 use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 
-/// 能够读取某一种 MPP 文件格式的 reader。
+/// A reader able to read one particular MPP file format.
 ///
-/// 对应 Java: `interface MPPVariantReader`
+/// Corresponds to Java: `interface MPPVariantReader`
 ///
-/// 对象安全（trait object safe）：四个实现均以 `Box<dyn MPPVariantReader>` 由
-/// [`crate::mpp::mpp_reader::MPPReader`] 按 `\1CompObj` 给出的格式名选择并调用。
+/// Object safe (trait object safe): all four implementations are selected and invoked by
+/// [`crate::mpp::mpp_reader::MPPReader`] as `Box<dyn MPPVariantReader>` according to the format name given by `\1CompObj`.
 pub trait MPPVariantReader {
-    /// 读取一份 MPP 文件并填充传入的数据结构。
+/// Read an MPP file and populate the passed-in data structures.
     ///
-    /// 对应 Java: `void process(MPPReader reader, ProjectFile file, DirectoryEntry root) throws MPXJException, IOException`
+    /// Corresponds to Java: `void process(MPPReader reader, ProjectFile file, DirectoryEntry root) throws MPXJException, IOException`
     ///
-    /// - `reader`：父 reader，变体 reader 只从中读取
+/// - `reader`: the parent reader, from which the variant reader only reads
     ///   `getReadPropertiesOnly` / `getReadPresentationData` / `getRespectPasswordProtection` /
-    ///   `getReadPassword` / `getUseRawTimephasedData` 五个开关；
-    /// - `file`：待填充的项目文件；
-    /// - `root`：POI 文件系统的根存储（Rust 侧为 [`DirectoryEntry`] 句柄）。
+/// the five flags `getReadPassword` / `getUseRawTimephasedData`;
+/// - `file`: the project file to populate;
+/// - `root`: the root storage of the POI filesystem (a [`DirectoryEntry`] handle on the Rust side).
     fn process(
         &self,
         reader: &MPPReader,
@@ -96,9 +96,9 @@ mod tests {
     use std::io::Cursor;
     use std::path::Path;
 
-    /// 最小实现：只记录收到的三个参数，用于验证签名可用（含 trait object 调用）。
+/// Minimal implementation: records only the three received parameters, used to verify the signature works (including trait object calls).
     struct StubVariantReader {
-        /// 调用 `process` 时读到的 `getReadPropertiesOnly()`。
+/// The `getReadPropertiesOnly()` value read when `process` is called.
         read_properties_only: RefCell<Option<bool>>,
     }
 
@@ -117,21 +117,21 @@ mod tests {
             _file: &Rc<RefCell<ProjectFile>>,
             root: &DirectoryEntry,
         ) -> MpxjResult<()> {
-            // 变体 reader 只需要 &MPPReader 上的只读开关
+// the variant reader only needs the read-only flags on &MPPReader
             *self.read_properties_only.borrow_mut() = Some(reader.get_read_properties_only());
-            // root 句柄可用（含控制字符名的流同样能被枚举出来）
+// the root handle is usable (streams with control-character names can also be enumerated)
             let _names = root.get_entry_names();
             Err(MpxjError::new("stub"))
         }
     }
 
-    /// 构造一个空复合文档，取回其根存储。
+/// Create an empty compound document and retrieve its root storage.
     fn empty_root() -> (PoifsFileSystem, DirectoryEntry) {
         let bytes = cfb::CompoundFile::create(Cursor::new(Vec::new()))
-            .expect("创建复合文档")
+            .expect("create compound document")
             .into_inner()
             .into_inner();
-        let fs = PoifsFileSystem::new(Cursor::new(bytes)).expect("打开复合文档");
+        let fs = PoifsFileSystem::new(Cursor::new(bytes)).expect("open compound document");
         let root = fs.get_root();
         (fs, root)
     }
@@ -147,20 +147,20 @@ mod tests {
         let error = variant
             .process(&reader, &file, &root)
             .err()
-            .expect("stub 按约定返回 Err");
+            .expect("stub returns Err by convention");
 
         assert_eq!(error.message(), "stub");
     }
 
-    /// 保证 trait 可用 `read_file` 那种「按路径读取」的入口间接触发（编译期检查）。
+/// Ensure the trait can be triggered indirectly through a path-based entry point like `read_file` (compile-time check).
     #[test]
     fn stub_reader_can_be_driven_through_mpp_reader_public_api() {
         let mut reader = MPPReader::new();
-        // 不存在的路径：Java 抛 IOException → MPXJException.READ_ERROR
+// non-existent path: Java throws IOException → MPXJException.READ_ERROR
         let error = reader
             .read_file(Path::new("no-such-dir/no-such-file.mpp"))
             .err()
-            .expect("不存在的路径应报错");
+            .expect("non-existent path should error");
         assert!(error.message().starts_with(MpxjError::READ_ERROR));
     }
 }

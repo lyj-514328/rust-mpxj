@@ -1,22 +1,22 @@
-//! 对应 Java: `org/mpxj/mpp/GenericView14.java`
+//! Corresponds to Java: `org/mpxj/mpp/GenericView14.java`
 //!
-//! MPP14 文件的通用视图：与 [`GenericView`] 完全相同，只是属性块的数据类型 ID 固定为 6
-//! （与 MPP12 相同）。
+//! Generic view for MPP14 files: identical to [`GenericView`], except the properties block's data type ID is fixed at 6
+//! (same as MPP12).
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `InputStream`（经父类） | 按本工程约定改为直接接收 `&[u8]` |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `InputStream` (via the parent class) | Per this project's convention, changed to accept `&[u8]` directly |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # How inheritance is reproduced: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `GenericView14 extends GenericView` | [`GenericView14`] **持有**一个 [`GenericView`]，转发访问器 / setter / `toString()`；`View` 的 5 个方法按继承链逐级转发 |
-//! | `public GenericView14(ProjectFile parent, byte[] data, Var2Data varData) throws IOException` | [`GenericView14::new`]（`IOException` → `Err(MpxjError)`） |
-//! | `@Override protected Integer getPropertiesID()` | [`GenericView14::PROPERTIES`] 常量 + 构造时传给 [`GenericView::new`]；[`GenericView14::get_properties_id`] 转发父类取值 |
+//! | `GenericView14 extends GenericView` | [`GenericView14`] **holds** a [`GenericView`] and forwards accessors / setters / `toString()`; the 5 `View` methods are forwarded level by level along the inheritance chain |
+//! | `public GenericView14(ProjectFile parent, byte[] data, Var2Data varData) throws IOException` | [`GenericView14::new`](`IOException` → `Err(MpxjError)`) |
+//! | `@Override protected Integer getPropertiesID()` | The [`GenericView14::PROPERTIES`] constant plus passing it to [`GenericView::new`] at construction; [`GenericView14::get_properties_id`] forwards the parent class's value |
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -30,23 +30,23 @@ use crate::table::Table;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// MPP14 通用视图。
+/// MPP14 generic view.
 ///
-/// 对应 Java: `public class GenericView14 extends GenericView`
+/// Corresponds to Java: `public class GenericView14 extends GenericView`
 pub struct GenericView14 {
-    /// 对应 Java: `extends GenericView`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends GenericView` (Rust uses composition instead of inheritance)
     view: GenericView,
 }
 
 impl GenericView14 {
-    /// 属性块的数据类型 ID。
+/// Data type ID of the properties block.
     ///
-    /// 对应 Java: `private static final Integer PROPERTIES = Integer.valueOf(6);`
+    /// Corresponds to Java: `private static final Integer PROPERTIES = Integer.valueOf(6);`
     pub const PROPERTIES: i32 = 6;
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public GenericView14(ProjectFile parent, byte[] data, Var2Data varData) throws IOException`
+    /// Corresponds to Java: `public GenericView14(ProjectFile parent, byte[] data, Var2Data varData) throws IOException`
     ///
     /// Java: `super(parent, data, varData);`
     pub fn new(
@@ -59,92 +59,92 @@ impl GenericView14 {
         })
     }
 
-    /// 取属性块的数据类型 ID。
+/// Get the data type ID of the properties block.
     ///
-    /// 对应 Java: `@Override protected Integer getPropertiesID()`
+    /// Corresponds to Java: `@Override protected Integer getPropertiesID()`
     pub fn get_properties_id(&self) -> i32 {
         self.view.get_properties_id()
     }
 
-    /// 取父项目文件。
+/// Get the parent project file.
     ///
-    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+/// Corresponds to Java: `AbstractView.m_file` (protected field)
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.view.get_file()
     }
 
-    /// 设置视图 ID。
+/// Set the view ID.
     ///
-    /// 对应 Java: `AbstractView.m_id`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_id` (assignment to a protected field)
     pub fn set_id(&mut self, id: Option<i32>) {
         self.view.set_id(id);
     }
 
-    /// 设置视图名称。
+/// Set the view name.
     ///
-    /// 对应 Java: `AbstractView.m_name`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_name` (assignment to a protected field)
     pub fn set_name(&mut self, name: Option<String>) {
         self.view.set_name(name);
     }
 
-    /// 设置视图类型。
+/// Set the view type.
     ///
-    /// 对应 Java: `AbstractView.m_type`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_type` (assignment to a protected field)
     pub fn set_type(&mut self, type_: Option<ViewType>) {
         self.view.set_type(type_);
     }
 
-    /// 设置视图中表格部分的名称。
+/// Set the name of the table part of the view.
     ///
-    /// 对应 Java: `AbstractView.m_tableName`（protected 字段赋值）
+/// Corresponds to Java: `AbstractView.m_tableName` (assignment to a protected field)
     pub fn set_table_name(&mut self, table_name: Option<String>) {
         self.view.set_table_name(table_name);
     }
 
-    /// 取内部持有的 `GenericView` 实例。
+/// Get the internally held `GenericView` instance.
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达。
+/// Rust-specific: Java inheritance is expressed by composition on the Rust side.
     pub fn as_generic_view(&self) -> &GenericView {
         &self.view
     }
 
-    /// 取内部持有的 `GenericView` 实例（可变）。
+/// Get the internally held `GenericView` instance (mutable).
     ///
-    /// Rust 特有：见 [`GenericView14::as_generic_view`]。
+/// Rust-specific: see [`GenericView14::as_generic_view`].
     pub fn as_generic_view_mut(&mut self) -> &mut GenericView {
         &mut self.view
     }
 }
 
 impl View for GenericView14 {
-    /// 对应 Java: `AbstractView.getID()`（继承）
+/// Corresponds to Java: `AbstractView.getID()` (inherited)
     fn get_id(&self) -> Option<i32> {
         self.view.get_id()
     }
 
-    /// 对应 Java: `AbstractView.getName()`（继承）
+/// Corresponds to Java: `AbstractView.getName()` (inherited)
     fn get_name(&self) -> Option<&str> {
         self.view.get_name()
     }
 
-    /// 对应 Java: `AbstractView.getType()`（继承）
+/// Corresponds to Java: `AbstractView.getType()` (inherited)
     fn get_type(&self) -> Option<ViewType> {
         self.view.get_type()
     }
 
-    /// 对应 Java: `AbstractView.getTableName()`（继承）
+/// Corresponds to Java: `AbstractView.getTableName()` (inherited)
     fn get_table_name(&self) -> Option<&str> {
         self.view.get_table_name()
     }
 
-    /// 对应 Java: `AbstractView.getTable()`（继承）
+/// Corresponds to Java: `AbstractView.getTable()` (inherited)
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
 }
 
 impl Display for GenericView14 {
-    /// 对应 Java: `AbstractView.toString()`（本类未覆写）
+/// Corresponds to Java: `AbstractView.toString()` (not overridden by this class)
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.view, f)
     }
@@ -155,7 +155,7 @@ mod tests {
     use super::*;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 构造固定数据块（ID + UTF-16LE 名称 + 偏移 112 处的视图类型）。
+/// Build the fixed data block (ID + UTF-16LE name + view type at offset 112).
     fn fixed_data(id: i32, name: &str, view_type: i32) -> Vec<u8> {
         let mut data = vec![0u8; 116];
         data[0..4].copy_from_slice(&id.to_le_bytes());
@@ -167,7 +167,7 @@ mod tests {
         data
     }
 
-    /// 空 var data 块。
+/// Empty var data block.
     fn empty_var_data(file: &Rc<RefCell<ProjectFile>>) -> Var2Data {
         let mut meta = Vec::new();
         meta.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
@@ -177,17 +177,17 @@ mod tests {
         meta.extend_from_slice(&0i32.to_le_bytes());
         meta.extend_from_slice(&0i32.to_le_bytes());
 
-        let meta = VarMeta9::new(&meta).expect("元数据合法");
+        let meta = VarMeta9::new(&meta).expect("valid metadata");
         Var2Data::new(file, Rc::new(meta), &[])
     }
 
-    /// 属性块类型 ID 为 6，且视图属性按 Java 的偏移解析。
+/// The properties block type ID is 6, and view properties are parsed at Java's offsets.
     #[test]
     fn properties_id_is_six() {
         let file = ProjectFile::new();
         let var_data = empty_var_data(&file);
         let view = GenericView14::new(&file, &fixed_data(11, "Task Usage", 14), &var_data)
-            .expect("应能解析");
+            .expect("should parse");
 
         assert_eq!(GenericView14::PROPERTIES, 6);
         assert_eq!(view.get_properties_id(), 6);
@@ -196,12 +196,12 @@ mod tests {
         assert_eq!(view.get_type(), Some(ViewType::TaskUsage));
     }
 
-    /// 数据过短时不 panic。
+/// Does not panic when the data is too short.
     #[test]
     fn short_data_does_not_panic() {
         let file = ProjectFile::new();
         let var_data = empty_var_data(&file);
-        let view = GenericView14::new(&file, &[0xFF; 113], &var_data).expect("应能解析");
+        let view = GenericView14::new(&file, &[0xFF; 113], &var_data).expect("should parse");
 
         assert_eq!(view.get_id(), Some(-1));
         assert_eq!(view.get_type(), Some(ViewType::Unknown));

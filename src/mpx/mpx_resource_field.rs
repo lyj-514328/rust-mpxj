@@ -1,53 +1,53 @@
-//! 对应 Java: `org/mpxj/mpx/MPXResourceField.java`
+//! Corresponds to Java: `org/mpxj/mpx/MPXResourceField.java`
 //!
-//! MPX 文件中资源字段编号（MPX field type）与 MPXJ 的
-//! [`ResourceField`] 之间的双向映射表。
+//! Bidirectional mapping table between MPX file resource field numbers (MPX field type) and MPXJ's
+//! [`ResourceField`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `final class MPXResourceField`（私有构造器） | [`MPXResourceField`] | 空结构体作为命名空间，语义为无状态工具类 |
-//! | `public static ResourceField getMpxjField(int value)` | [`MPXResourceField::get_mpxj_field`] | Java 越界/未映射返回 `null` → `None` |
-//! | `public static int getMpxField(int value)` | [`MPXResourceField::get_mpx_field`] | 入参是 `ResourceField` 的 int 值（即枚举 ordinal），越界/未映射返回 `0` |
+//! | `final class MPXResourceField` (private constructor) | [`MPXResourceField`] | An empty struct acts as a namespace, semantically a stateless utility class |
+//! | `public static ResourceField getMpxjField(int value)` | [`MPXResourceField::get_mpxj_field`] | Java returns `null` for out-of-bounds/unmapped -> `None` |
+//! | `public static int getMpxField(int value)` | [`MPXResourceField::get_mpx_field`] | The argument is the int value of `ResourceField` (that is, the enum ordinal); out-of-bounds/unmapped returns `0` |
 //! | `public static final int MAX_FIELDS` | [`MPXResourceField::MAX_FIELDS`] | |
-//! | `private static final ResourceField[] MPX_MPXJ_ARRAY`（静态初始化块逐项赋值） | [`MPXResourceField::get_mpxj_field`] 内的 `match` | `match` 臂按 MPX 字段号升序排列，便于与 Java 静态块逐条比对 |
-//! | `private static final int[] MPXJ_MPX_ARRAY`（静态初始化块按 MPX 数组回填） | [`MPXResourceField::get_mpx_field`] + 模块私有函数 [`mpx_number_of`] 内的 `match` | 臂顺序与 Java 静态块一致（按 Java 枚举常量名字母序） |
-//! | `public static final List<FieldType> CUSTOM_FIELDS` | [`MPXResourceField::CUSTOM_FIELDS`] | Java 类型是 `List<FieldType>`（元素全是 `ResourceField`），Rust 侧用 `&'static [ResourceField]` |
+//! | `private static final ResourceField[] MPX_MPXJ_ARRAY` (assigned item by item in a static initializer block) | The `match` inside [`MPXResourceField::get_mpxj_field`] | The `match` arms are ordered by ascending MPX field number, to ease item-by-item comparison with the Java static block |
+//! | `private static final int[] MPXJ_MPX_ARRAY` (back-filled from the MPX array in a static initializer block) | The `match` inside [`MPXResourceField::get_mpx_field`] + the module-private function [`mpx_number_of`] | Arm order matches the Java static block (alphabetical by Java enum constant name) |
+//! | `public static final List<FieldType> CUSTOM_FIELDS` | [`MPXResourceField::CUSTOM_FIELDS`] | Java's type is `List<FieldType>` (all elements are `ResourceField`); the Rust side uses `&'static [ResourceField]` |
 //!
-//! 几点取舍：
+//! Several trade-offs:
 //!
-//! - Java 的 `MPX_MPXJ_ARRAY` 是定长 52 的稀疏数组（大量 `null`），Rust 侧用
-//!   `match` 表达稀疏映射，语义等价。
-//! - `get_mpx_field` 用 [`ResourceField::get_instance`] 做边界检查：Java 的
-//!   `MPXJ_MPX_ARRAY.length == ResourceField.MAX_VALUE`，与 `get_instance` 的合法区间一致，
-//!   未命中的下标在 Java 中取数组默认值 `0`，Rust 侧同样返回 `0`。
-//! - `CUSTOM_FIELDS`：Java 在静态块中用
-//!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(ResourceFieldLists.CUSTOM_FIELDS::contains)`
-//!   生成。Rust 侧 `ResourceFieldLists`（`src/common/resource_field_lists.rs`）已落地；
-//!   本文件为避免跨模块依赖，仍直接给出过滤结果（与 Java 完全一致，共 5 项）。
+//! - Java's `MPX_MPXJ_ARRAY` is a fixed-length sparse array of 52 entries (many `null`); the Rust side uses a
+//!   `match` to express the sparse mapping, which is semantically equivalent.
+//! - `get_mpx_field` uses [`ResourceField::get_instance`] for bounds checking: Java's
+//!   `MPXJ_MPX_ARRAY.length == ResourceField.MAX_VALUE`, which matches the valid range of `get_instance`;
+//!   an index that does not match takes the array default value `0` in Java, and the Rust side likewise returns `0`.
+//! - `CUSTOM_FIELDS`: Java generates it in a static block with
+//!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(ResourceFieldLists.CUSTOM_FIELDS::contains)`.
+//!   The Rust-side `ResourceFieldLists` (`src/common/resource_field_lists.rs`) is already in place;
+//!   to avoid a cross-module dependency, this file still gives the filter result directly (exactly matching Java, 5 entries).
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
-//! 未移植的方法：无。
+//! Reflection / JDBC / XML (JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
+//! Skipped Java methods: none.
 
 use crate::resource_field::ResourceField;
 
-/// MPX 资源字段编号与 [`ResourceField`] 的映射工具。
+/// Mapping utility between MPX resource field numbers and [`ResourceField`].
 ///
-/// 对应 Java: `final class MPXResourceField`
+/// Corresponds to Java: `final class MPXResourceField`
 pub struct MPXResourceField;
 
 impl MPXResourceField {
-    /// MPX 文件中资源字段编号的最大个数（可用编号为 `0..MAX_FIELDS`）。
+    /// Maximum number of resource field numbers in an MPX file (usable numbers are `0..MAX_FIELDS`).
     ///
-    /// 对应 Java: `public static final int MAX_FIELDS`
+    /// Corresponds to Java: `public static final int MAX_FIELDS`
     pub const MAX_FIELDS: usize = 52;
 
-    /// 根据 MPX 文件中读到的字段编号取 [`ResourceField`]。
+    /// Return the [`ResourceField`] for a field number read from an MPX file.
     ///
-    /// 对应 Java: `public static ResourceField getMpxjField(int value)`
+    /// Corresponds to Java: `public static ResourceField getMpxjField(int value)`
     ///
-    /// Java 对越界或未映射的编号返回 `null`，Rust 侧返回 `None`。
+    /// Java returns `null` for an out-of-bounds or unmapped number; the Rust side returns `None`.
     pub fn get_mpxj_field(value: i32) -> Option<ResourceField> {
         match value {
             1 => Some(ResourceField::Name),
@@ -88,13 +88,13 @@ impl MPXResourceField {
         }
     }
 
-    /// 取 [`ResourceField`] 在 MPX 文件中对应的字段编号。
+    /// Return the field number corresponding to a [`ResourceField`] in an MPX file.
     ///
-    /// 对应 Java: `public static int getMpxField(int value)`
+    /// Corresponds to Java: `public static int getMpxField(int value)`
     ///
-    /// `value` 是 `ResourceField` 的 int 值（`getValue()`，即本 crate 中的
-    /// `*field as i32` / [`crate::mpxj_enum::MpxjEnum::value`]）；越界或未在
-    /// MPX 映射表中出现的字段返回 `0`（与 Java 的数组默认值一致）。
+    /// `value` is the int value of `ResourceField` (`getValue()`, that is, in this crate
+    /// `*field as i32` / [`crate::mpxj_enum::MpxjEnum::value`]); a field that is out of bounds or absent from the
+    /// MPX mapping table returns `0` (consistent with Java's array default).
     pub fn get_mpx_field(value: i32) -> i32 {
         match ResourceField::get_instance(value) {
             Some(field) => mpx_number_of(field),
@@ -102,13 +102,13 @@ impl MPXResourceField {
         }
     }
 
-    /// MPX 映射表中属于「自定义字段」的字段列表，按 MPX 字段号升序。
+    /// List of fields in the MPX mapping table that are "custom fields", ordered by ascending MPX field number.
     ///
-    /// 对应 Java: `public static final List<FieldType> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<FieldType> CUSTOM_FIELDS`
     ///
-    /// 与 Java 的静态初始化块 `Arrays.stream(MPX_MPXJ_ARRAY).filter(
-    /// ResourceFieldLists.CUSTOM_FIELDS::contains).forEach(CUSTOM_FIELDS::add)` 结果一致：
-    /// MPX 映射表中只有 `TEXT1..TEXT5` 属于自定义字段。
+    /// Matches Java's static initializer block `Arrays.stream(MPX_MPXJ_ARRAY).filter(
+    /// ResourceFieldLists.CUSTOM_FIELDS::contains).forEach(CUSTOM_FIELDS::add)`:
+    /// only `TEXT1..TEXT5` are custom fields in the MPX mapping table.
     pub const CUSTOM_FIELDS: &'static [ResourceField] = &[
         ResourceField::Text1,
         ResourceField::Text2,
@@ -118,12 +118,12 @@ impl MPXResourceField {
     ];
 }
 
-/// 取 [`ResourceField`] 对应的 MPX 字段编号，未在 MPX 映射表中出现时返回 `0`。
+/// Return the MPX field number for a [`ResourceField`], or `0` when it does not appear in the MPX mapping table.
 ///
-/// 对应 Java: `private static final int[] MPXJ_MPX_ARRAY` 的静态初始化块
-/// （按 `MPX_MPXJ_ARRAY` 下标升序回填）。
+/// Corresponds to Java: the static initializer block of `private static final int[] MPXJ_MPX_ARRAY`
+/// (back-filled by ascending `MPX_MPXJ_ARRAY` index).
 ///
-/// 臂的顺序与 Java 静态块中的书写顺序一致（按 Java 枚举常量名字母序）。
+/// Arm order matches the writing order in Java's static block (alphabetical by Java enum constant name).
 fn mpx_number_of(field: ResourceField) -> i32 {
     match field {
         ResourceField::AccrueAt => 45,
@@ -170,8 +170,8 @@ mod tests {
     use crate::mpxj_enum::MpxjEnum;
     use std::collections::HashMap;
 
-    /// Java `MPXResourceField` 静态初始化块中 `MPX_MPXJ_ARRAY[...]` 的全部赋值
-    /// （共 34 条），此处按 MPX 字段号升序排列。
+    /// All assignments to `MPX_MPXJ_ARRAY[...]` in Java's `MPXResourceField` static initializer block
+    /// (34 entries), arranged here by ascending MPX field number.
     const JAVA_TABLE: [(i32, ResourceField); 34] = [
         (1, ResourceField::Name),
         (2, ResourceField::Initials),
@@ -209,8 +209,8 @@ mod tests {
         (51, ResourceField::LinkedFields),
     ];
 
-    /// Java `Arrays.stream(MPX_MPXJ_ARRAY).filter(ResourceFieldLists.CUSTOM_FIELDS::contains)`
-    /// 的过滤结果。
+    /// Filter result of Java's `Arrays.stream(MPX_MPXJ_ARRAY).filter(
+    /// ResourceFieldLists.CUSTOM_FIELDS::contains)`.
     const JAVA_CUSTOM_FIELDS: [ResourceField; 5] = [
         ResourceField::Text1,
         ResourceField::Text2,
@@ -219,7 +219,7 @@ mod tests {
         ResourceField::Text5,
     ];
 
-    /// 逐一核对 MPX 字段号 → `ResourceField` 的映射（含全部未映射编号都返回 `None`）。
+    /// Verify the MPX field number -> `ResourceField` mapping item by item (including that every unmapped number returns `None`).
     #[test]
     fn get_mpxj_field_matches_java_table() {
         assert_eq!(MPXResourceField::MAX_FIELDS, 52);
@@ -233,7 +233,7 @@ mod tests {
             assert_eq!(
                 MPXResourceField::get_mpxj_field(number),
                 expected[number as usize],
-                "MPX 字段号 {number}"
+                "MPX field number {number}"
             );
         }
 
@@ -244,7 +244,7 @@ mod tests {
         );
     }
 
-    /// 逐一核对 `ResourceField` → MPX 字段号的反向映射。
+    /// Verify the reverse mapping `ResourceField` -> MPX field number item by item.
     #[test]
     fn get_mpx_field_matches_java_table() {
         let mut expected: HashMap<ResourceField, i32> = HashMap::new();
@@ -268,7 +268,7 @@ mod tests {
         );
     }
 
-    /// 反向映射未覆盖的字段必须返回 `0`（Java 数组默认值）。
+    /// Fields not covered by the reverse mapping must return `0` (Java's array default).
     #[test]
     fn unmapped_fields_return_zero() {
         for field in [
@@ -300,7 +300,7 @@ mod tests {
         }
     }
 
-    /// 两个方向互相往返：有映射的字段必须回到自身，无映射的字段落到 `None`。
+    /// Round trip in both directions: mapped fields must return to themselves, and unmapped fields fall to `None`.
     #[test]
     fn mappings_round_trip() {
         for field in ResourceField::ALL {
@@ -318,12 +318,12 @@ mod tests {
             assert_eq!(
                 MPXResourceField::get_mpxj_field(MPXResourceField::get_mpx_field(field.value())),
                 Some(field),
-                "MPX 字段号 {number}"
+                "MPX field number {number}"
             );
         }
     }
 
-    /// 自定义字段列表与 Java 的过滤结果一致，且按 MPX 字段号升序。
+    /// The custom field list matches Java's filter result and is ordered by ascending MPX field number.
     #[test]
     fn custom_fields_match_java() {
         assert_eq!(MPXResourceField::CUSTOM_FIELDS, &JAVA_CUSTOM_FIELDS);

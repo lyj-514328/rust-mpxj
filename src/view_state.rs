@@ -1,29 +1,29 @@
-//! 对应 Java: `org/mpxj/ViewState.java`
+//! Corresponds to Java: `org/mpxj/ViewState.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped / unported Java methods and reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `public ViewState(ProjectFile file, String viewName, List<Integer> uniqueIdList, int filterID)` | [`ViewState::new`]（Rust 侧接收 `Weak<RefCell<ProjectFile>>`，见下） |
+//! | `public ViewState(ProjectFile file, String viewName, List<Integer> uniqueIdList, int filterID)` | [`ViewState::new`] (the Rust side takes `Weak<RefCell<ProjectFile>>`, see below) |
 //! | `public String getViewName()` | [`ViewState::get_view_name`] |
 //! | `public List<Integer> getUniqueIdList()` | [`ViewState::get_unique_id_list`] |
 //! | `public Filter getFilter()` | [`ViewState::get_filter`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **父项目引用**：Java 的 `m_file` 是强引用；Rust 侧存
-//!   `Weak<RefCell<ProjectFile>>`（`ProjectFile` 持有 `ViewContainer`，而
-//!   `ViewContainer` 又持有 `ViewState`，用强引用会形成 `Rc` 循环）。
-//!   [`ViewState::get_filter`] 在父文件已释放 / 已被借用时返回 `None`
-//!   （Java 会抛 `NullPointerException`）。
-//! - **对相关模块的接口假设**：`getFilter()` 依赖
-//!   `ProjectFile::get_filters(&self) -> &FilterContainer`（Java 的
-//!   `ProjectFile.getFilters()` 返回 `FilterContainer`），与本 crate 其它模块对
-//!   `ProjectFile` 的取用方式一致。
-//! - **`equals` / `hashCode`**：Java 未覆写（对象同一性）；Rust 侧不实现
-//!   `PartialEq` / `Eq` / `Hash`。
+//! - **Parent project reference**: Java's `m_file` is a strong reference; the Rust side stores
+//! `Weak<RefCell<ProjectFile>>` (`ProjectFile` holds `ViewContainer`, and
+//! `ViewContainer` in turn holds `ViewState`; using a strong reference would form an `Rc` cycle).
+//! [`ViewState::get_filter`] returns `None` when the parent file has been dropped / is already borrowed
+//! (Java throws `NullPointerException`).
+//! - **Interface assumptions about related modules**: `getFilter()` relies on
+//! `ProjectFile::get_filters(&self) -> &FilterContainer` (Java's
+//! `ProjectFile.getFilters()` returns `FilterContainer`), consistent with how other modules in this crate
+//! use `ProjectFile`.
+//! - **`equals` / `hashCode`**: Java does not override them (object identity); the Rust side does not implement
+//!   `PartialEq` / `Eq` / `Hash`.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -31,37 +31,37 @@ use std::rc::{Rc, Weak};
 use crate::filter::Filter;
 use crate::project_file::ProjectFile;
 
-/// 项目文件中保存的视图状态。
+/// A view state saved in the project file.
 ///
-/// 对应 Java: `public final class ViewState`
+/// Corresponds to Java: `public final class ViewState`
 pub struct ViewState {
-    /// 父项目（弱引用）。
+/// Parent project (weak reference).
     ///
-    /// 对应 Java: `private final ProjectFile m_file;`
+    /// Corresponds to Java: `private final ProjectFile m_file;`
     m_file: Weak<RefCell<ProjectFile>>,
 
-    /// 视图名称。
+/// View name.
     ///
-    /// 对应 Java: `private final String m_viewName;`
+    /// Corresponds to Java: `private final String m_viewName;`
     m_view_name: Option<String>,
 
-    /// 视图内容的 unique ID 列表。
+/// List of unique IDs of the view contents.
     ///
-    /// 对应 Java: `private final List<Integer> m_uniqueIdList;`
+    /// Corresponds to Java: `private final List<Integer> m_uniqueIdList;`
     m_unique_id_list: Vec<i32>,
 
-    /// 当前应用的筛选器 ID。
+/// ID of the currently applied filter.
     ///
-    /// 对应 Java: `private final Integer m_filterID;`
+    /// Corresponds to Java: `private final Integer m_filterID;`
     m_filter_id: i32,
 }
 
 impl ViewState {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ViewState(ProjectFile file, String viewName, List<Integer> uniqueIdList, int filterID)`
+    /// Corresponds to Java: `public ViewState(ProjectFile file, String viewName, List<Integer> uniqueIdList, int filterID)`
     ///
-    /// Rust 侧以弱引用接收父项目（见文件头说明）。
+/// The Rust side takes the parent project as a weak reference (see the file header).
     pub fn new(
         file: Weak<RefCell<ProjectFile>>,
         view_name: Option<String>,
@@ -76,26 +76,26 @@ impl ViewState {
         }
     }
 
-    /// 取视图名称。
+/// Get the view name.
     ///
-    /// 对应 Java: `public String getViewName()`
+    /// Corresponds to Java: `public String getViewName()`
     pub fn get_view_name(&self) -> Option<&str> {
         self.m_view_name.as_deref()
     }
 
-    /// 取视图内容的 unique ID 列表。
+/// Get the list of unique IDs of the view contents.
     ///
-    /// 对应 Java: `public List<Integer> getUniqueIdList()`
+    /// Corresponds to Java: `public List<Integer> getUniqueIdList()`
     pub fn get_unique_id_list(&self) -> &[i32] {
         &self.m_unique_id_list
     }
 
-    /// 取当前应用的筛选器。
+/// Get the currently applied filter.
     ///
-    /// 对应 Java: `public Filter getFilter()`
+    /// Corresponds to Java: `public Filter getFilter()`
     ///
-    /// 父项目未接线 / 已释放 / 已被借用时返回 `None`（Java 抛
-    /// `NullPointerException`）。
+/// Return `None` when the parent project is not wired up / has been dropped / is already borrowed (Java throws
+    /// `NullPointerException`).
     pub fn get_filter(&self) -> Option<Rc<RefCell<Filter>>> {
         let file = self.m_file.upgrade()?;
         let file_ref = file.try_borrow().ok()?;
@@ -105,7 +105,7 @@ impl ViewState {
 }
 
 impl std::fmt::Debug for ViewState {
-    /// Java 未覆写 `toString()`；Rust 侧输出字段（不输出父项目，避免 `Rc` 循环打印）。
+/// Java does not override `toString()`; the Rust side outputs the fields (not the parent project, to avoid recursive `Rc` printing).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ViewState")
             .field("view_name", &self.m_view_name)

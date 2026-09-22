@@ -1,47 +1,47 @@
-//! 对应 Java: `org/mpxj/mpp/LinkStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/LinkStyle.java`
 //!
-//! 甘特图上关系（链接）线的画法。
+//! The way relation (link) lines are drawn on the Gantt chart.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum LinkStyle implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final LinkStyle[] TYPE_VALUES = EnumHelper.createTypeArray(LinkStyle.class)` | [`LinkStyle::get_instance`] 的 `match` + [`LinkStyle::ALL`] | 表长 3（偏移 0），取值 0..2 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getInstance(Number type)` | [`LinkStyle::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀 |
-//! | `getName()` / `toString()` | [`LinkStyle::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum LinkStyle implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final LinkStyle[] TYPE_VALUES = EnumHelper.createTypeArray(LinkStyle.class)` | the `match` in [`LinkStyle::get_instance`] + [`LinkStyle::ALL`] | The table length is 3 (offset 0); values 0..2 are all filled, so Java's `getInstance` never returns `null` |
+//! | `getInstance(Number type)` | [`LinkStyle::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added |
+//! | `getName()` / `toString()` | [`LinkStyle::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 关系线的画法。
+/// How relation lines are drawn.
 ///
-/// 对应 Java: `public enum LinkStyle`
+/// Corresponds to Java: `public enum LinkStyle`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LinkStyle {
-    /// 对应 Java: `NONE(0, "None")`
+    /// Corresponds to Java: `NONE(0, "None")`
     None = 0,
-    /// 对应 Java: `END_TOP(1, "End Top")`
+    /// Corresponds to Java: `END_TOP(1, "End Top")`
     EndTop = 1,
-    /// 对应 Java: `END_START(2, "End Start")`
+    /// Corresponds to Java: `END_START(2, "End Start")`
     EndStart = 2,
 }
 
 impl LinkStyle {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final LinkStyle[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final LinkStyle[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [LinkStyle; 3] = [LinkStyle::None, LinkStyle::EndTop, LinkStyle::EndStart];
 
-    /// 按 int 值取枚举实例。
+/// Get the enum instance by int value.
     ///
-    /// 对应 Java: `public static LinkStyle getInstance(int type)`
+    /// Corresponds to Java: `public static LinkStyle getInstance(int type)`
     ///
-    /// 越界时 Java 先回落到 `END_TOP.getValue()`（1）再取表，故不会返回 `null`。
+/// On out of bounds, Java first falls back to `END_TOP.getValue()` (1) before indexing the table, so it never returns `null`.
     pub fn get_instance(value: i32) -> LinkStyle {
         match value {
             0 => LinkStyle::None,
@@ -52,16 +52,16 @@ impl LinkStyle {
         }
     }
 
-    /// 对应 Java: `public static LinkStyle getInstance(Number type)`
+    /// Corresponds to Java: `public static LinkStyle getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `END_TOP`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `END_TOP`.
     pub fn get_instance_optional(value: Option<i32>) -> LinkStyle {
         LinkStyle::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取名称（未做本地化）。
+/// Get the name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             LinkStyle::None => "None",
@@ -70,30 +70,30 @@ impl LinkStyle {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for LinkStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for LinkStyle {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<LinkStyle> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`LinkStyle::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`LinkStyle::get_value`].
     fn from(value: LinkStyle) -> i32 {
         value.get_value()
     }
@@ -103,7 +103,7 @@ impl From<LinkStyle> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in LinkStyle::ALL.iter().enumerate() {
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 END_TOP（Java 不会返回 null）。
+/// Out of bounds falls back to END_TOP (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_end_top() {
         for value in [-1, -100, 3, 4, 1000, i32::MAX, i32::MIN] {
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(LinkStyle::get_instance_optional(Some(0)), LinkStyle::None);
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(LinkStyle::None.get_name(), "None");

@@ -1,22 +1,22 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStyleFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStyleFactory.java`
 //!
-//! 从 MPP 文件中读取甘特图条形样式的工厂接口。
+//! Factory interface for reading Gantt bar styles from an MPP file.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `interface GanttBarStyleFactory`（包级可见） | `pub trait GanttBarStyleFactory` | 接口 → `trait`；改为 `pub` 是因为工厂类型本身也是 `pub`，Rust 不允许公开类型的 trait 实现指向私有 trait |
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 本工程约定：`ProjectFile` 以 `Rc<RefCell<..>>` 共享 |
-//! | `Props props`（基类） | `&Props` | `Props9` / `Props12` / `Props14` 在 Rust 侧是「组合 + `Deref`」实现的独立类型（见 `crate::mpp::props9` 等模块说明），`&Props9` 等会经 `Deref` 自动强转成 `&Props`，因此 Java 的「子类实例传给基类形参」在 Rust 侧同样成立，签名与 Java 完全一致 |
-//! | `GanttBarStyle[]` / `GanttBarStyleException[]` | `Vec<GanttBarStyle>` / `Vec<GanttBarStyleException>` | 数组 → `Vec` |
+//! | `interface GanttBarStyleFactory` (package-visible) | `pub trait GanttBarStyleFactory` | interface → `trait`; changed to `pub` because the factory type itself is also `pub`, and Rust does not allow a public type's trait implementation to reference a private trait |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | Convention in this project: `ProjectFile` is shared via `Rc<RefCell<..>>` |
+//! | `Props props` (base class) | `&Props` | On the Rust side, `Props9` / `Props12` / `Props14` are standalone types implemented as "composition + `Deref`" (see the module docs such as `crate::mpp::props9`); `&Props9` and the like are automatically coerced to `&Props` via `Deref`, so Java's "passing a subclass instance to a base class parameter" also holds on the Rust side, and the signature matches Java exactly |
+//! | `GanttBarStyle[]` / `GanttBarStyleException[]` | `Vec<GanttBarStyle>` / `Vec<GanttBarStyleException>` | array → `Vec` |
 //!
-//! Java 的两个实现类 `GanttBarStyleFactoryCommon` 与 `GanttBarStyleFactory14` 都是**直接**
-//! `implements GanttBarStyleFactory`，彼此之间没有继承关系（任务说明中提到的
-//! 「`GanttBarStyleFactory14 extends GanttBarStyleFactoryCommon`」在实际 Java 源码中并不存在，
-//! 已按源码为准），因此 Rust 侧不需要组合 + 转发。
+//! Java's two implementation classes `GanttBarStyleFactoryCommon` and `GanttBarStyleFactory14` both **directly**
+//! `implements GanttBarStyleFactory`, with no inheritance relationship between them (the
+//! "`GanttBarStyleFactory14 extends GanttBarStyleFactoryCommon`" mentioned in the task description does not exist in the actual Java source,
+//! and the source has been taken as authoritative), so the Rust side does not need composition + forwarding.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -26,22 +26,22 @@ use crate::mpp::gantt_bar_style_exception::GanttBarStyleException;
 use crate::mpp::props::Props;
 use crate::project_file::ProjectFile;
 
-/// 读取甘特图条形样式的工厂。
+/// Factory for reading Gantt bar styles.
 ///
-/// 对应 Java: `interface GanttBarStyleFactory`
+/// Corresponds to Java: `interface GanttBarStyleFactory`
 pub trait GanttBarStyleFactory {
-    /// 读取默认的甘特图条形样式集合。
+/// Read the default set of Gantt bar styles.
     ///
-    /// 对应 Java: `GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `GanttBarStyle[] processDefaultStyles(ProjectFile file, Props props)`
     fn process_default_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
         props: &Props,
     ) -> Vec<GanttBarStyle>;
 
-    /// 读取单任务例外条形样式集合。
+/// Read the set of single-task exception bar styles.
     ///
-    /// 对应 Java: `GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
+    /// Corresponds to Java: `GanttBarStyleException[] processExceptionStyles(ProjectFile file, Props props)`
     fn process_exception_styles(
         &self,
         file: &Rc<RefCell<ProjectFile>>,

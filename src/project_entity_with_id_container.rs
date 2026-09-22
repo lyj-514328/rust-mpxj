@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/ProjectEntityWithIDContainer.java`
+//! Corresponds to Java: `org/mpxj/ProjectEntityWithIDContainer.java`
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -10,57 +10,57 @@ use crate::project_entity_container::ProjectEntityContainer;
 use crate::project_entity_with_id::ProjectEntityWithID;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 在 [`ProjectEntityContainer`] 之上增加「ID → 实体」索引的容器。
+/// A container that adds an `ID → entity` index on top of [`ProjectEntityContainer`].
 ///
-/// 对应 Java:
+/// Corresponds to Java:
 /// `public abstract class ProjectEntityWithIDContainer<T extends ProjectEntityWithID & Comparable<T>> extends ProjectEntityContainer<T>`
 ///
-/// # 继承体系的还原方式：组合 + 转发
+/// # How the inheritance hierarchy is emulated: composition + forwarding
 ///
-/// Rust 没有继承，无法让本类「是」[`ProjectEntityContainer`]。这里采用**组合 + 转发**：
-/// 内部持有一个 [`ProjectEntityContainer<T>`]，把基类的公开行为逐个转发（见各方法说明），
-/// 再叠加本类新增的 ID 索引与重编号逻辑。
+/// Rust has no inheritance, so this class cannot "be" a [`ProjectEntityContainer`]. Here **composition + forwarding** is used:
+/// it internally holds a [`ProjectEntityContainer<T>`] and forwards the base class's public behavior method by method (see each method's description),
+/// then layers on the ID index and renumbering logic added by this class.
 ///
 /// | Java | Rust |
 /// |---|---|
-/// | `extends ProjectEntityContainer<T>` | 字段 `container: ProjectEntityContainer<T>` |
-/// | `private final ObjectSequence m_idSequence = new ObjectSequence(1)` | 字段 `id_sequence: ObjectSequence` |
-/// | `protected final Map<Integer, T> m_idMap` | 字段 `id_map: HashMap<i32, Rc<RefCell<T>>>` |
+/// | `extends ProjectEntityContainer<T>` | Field `container: ProjectEntityContainer<T>` |
+/// | `private final ObjectSequence m_idSequence = new ObjectSequence(1)` | Field `id_sequence: ObjectSequence` |
+/// | `protected final Map<Integer, T> m_idMap` | Field `id_map: HashMap<i32, Rc<RefCell<T>>>` |
 ///
-/// 之所以选择组合而不是「用一个 trait 提供基类行为」，是因为 Java 中基类的
-/// `added` / `removed` 钩子与 unique ID 索引是**状态**，用 trait 默认方法无法持有这些状态
-/// （trait 无法有字段）；组合则能完整保留行为与状态。
+/// Composition was chosen over "providing the base class behavior through a trait" because in Java the base class's
+/// `added` / `removed` hooks and the unique ID index are **state**, and trait default methods cannot hold this state
+/// (traits cannot have fields); composition can fully preserve both behavior and state.
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - **元素引用模型**：与基类一致，元素为 `Rc<RefCell<T>>`。
-/// - **`Comparable<T>`**：Java 用 `Collections.sort(this)` 依据元素自身的自然序排序；Rust 侧
-///   约束为 `T: Ord`，对应元素实现的 `compareTo`。
-/// - **`null` 键**：`m_idMap` 在 Java 中允许 `null` 键，Rust 侧键为 `i32`，不提供 `null` 键
-///   （等价于「查不到」）。
-/// - **`NumberHelper.getInt(null)`**：Java 对 `null` 的 ID 取 0；Rust 侧用 `unwrap_or(0)` 等价表达。
+/// - **Element reference model**: consistent with the base class, elements are `Rc<RefCell<T>>`.
+/// - **`Comparable<T>`**: Java uses `Collections.sort(this)` to sort by the elements' own natural order; the Rust side
+/// constrains it to `T: Ord`, corresponding to the elements' `compareTo` implementation.
+/// - **`null` keys**: `m_idMap` allows `null` keys in Java; the Rust key is `i32` and no `null` key is provided
+/// (equivalent to "not found").
+/// - **`NumberHelper.getInt(null)`**: Java takes 0 for a `null` ID; the Rust side expresses this equivalently with `unwrap_or(0)`.
 ///
-/// 被跳过的 Java 机制：无。
+/// Skipped Java mechanisms: none.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub struct ProjectEntityWithIDContainer<T> {
-    /// 基类容器（Java 的 `extends ProjectEntityContainer<T>`）。
+/// The base class container (Java's `extends ProjectEntityContainer<T>`).
     container: ProjectEntityContainer<T>,
-    /// ID 序号生成器，从 1 开始。
+/// ID sequence generator, starting from 1.
     ///
-    /// 对应 Java: `private final ObjectSequence m_idSequence = new ObjectSequence(1);`
+    /// Corresponds to Java: `private final ObjectSequence m_idSequence = new ObjectSequence(1);`
     id_sequence: ObjectSequence,
-    /// ID → 实体索引，由调用方通过
-    /// [`map_id`](ProjectEntityWithIDContainer::map_id) 维护。
+/// The ID → entity index, maintained by the caller through
+/// [`map_id`](ProjectEntityWithIDContainer::map_id).
     ///
-    /// 对应 Java: `protected final Map<Integer, T> m_idMap = new HashMap<>();`
+    /// Corresponds to Java: `protected final Map<Integer, T> m_idMap = new HashMap<>();`
     id_map: HashMap<i32, Rc<RefCell<T>>>,
 }
 
 impl<T: ProjectEntityWithID + Ord + 'static> ProjectEntityWithIDContainer<T> {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ProjectEntityWithIDContainer(UniqueIdObjectSequenceProvider projectFile)`
+    /// Corresponds to Java: `public ProjectEntityWithIDContainer(UniqueIdObjectSequenceProvider projectFile)`
     pub fn new(sequence_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>) -> Self {
         Self {
             container: ProjectEntityContainer::new(sequence_provider),
@@ -69,12 +69,12 @@ impl<T: ProjectEntityWithID + Ord + 'static> ProjectEntityWithIDContainer<T> {
         }
     }
 
-    /// 让所有实体的 ID 连续排列。
+/// Make the IDs of all entities contiguous.
     ///
-    /// 对应 Java: `public void renumberIDs()`
+    /// Corresponds to Java: `public void renumberIDs()`
     ///
-    /// 先按自然序排序，再依次赋 ID：如果排序后第一个实体的 ID 非 0 则从 1 开始，
-    /// 否则从 0 开始（与 Java 一致）。
+/// Sort by natural order first, then assign IDs in turn: if the first entity after sorting has a non-zero ID, start from 1,
+/// otherwise start from 0 (consistent with Java).
     pub fn renumber_ids(&mut self) {
         if self.container.is_empty() {
             return;
@@ -97,146 +97,146 @@ impl<T: ProjectEntityWithID + Ord + 'static> ProjectEntityWithIDContainer<T> {
         }
     }
 
-    /// 按 ID 查找实体，找不到时返回 `None`。
+/// Find an entity by ID; return `None` when not found.
     ///
-    /// 对应 Java: `public T getByID(Integer id)`
+    /// Corresponds to Java: `public T getByID(Integer id)`
     pub fn get_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<T>>> {
         let id = id?;
         self.id_map.get(&id).cloned()
     }
 
-    /// 删除一条 ID 映射。
+/// Remove an ID mapping.
     ///
-    /// 对应 Java: `public void unmapID(Integer id)`
+    /// Corresponds to Java: `public void unmapID(Integer id)`
     pub fn unmap_id(&mut self, id: Option<i32>) {
         if let Some(id) = id {
             self.id_map.remove(&id);
         }
     }
 
-    /// 添加一条 ID 映射。
+/// Add an ID mapping.
     ///
-    /// 对应 Java: `public void mapID(Integer id, T entity)`
+    /// Corresponds to Java: `public void mapID(Integer id, T entity)`
     pub fn map_id(&mut self, id: i32, entity: Rc<RefCell<T>>) {
         self.id_map.insert(id, entity);
     }
 
-    /// 取下一个可用 ID。
+/// Get the next available ID.
     ///
-    /// 对应 Java: `public Integer getNextID()`
+    /// Corresponds to Java: `public Integer getNextID()`
     pub fn get_next_id(&self) -> i32 {
         self.id_sequence.get_next()
     }
 
-    /// 访问内部的基类容器。
+/// Access the inner base class container.
     ///
-    /// 对应 Java 的 `extends ProjectEntityContainer<T>` 关系；Rust 侧用组合表达，
-    /// 因此需要显式暴露基类实例。
+/// Corresponds to Java's `extends ProjectEntityContainer<T>` relationship; the Rust side expresses it with composition,
+/// so the base class instance must be exposed explicitly.
     pub fn container(&self) -> &ProjectEntityContainer<T> {
         &self.container
     }
 
-    /// 取序号生成器提供者。
+/// Get the sequence generator provider.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getSequenceProvider()`
+    /// Corresponds to Java: `ProjectEntityContainer.getSequenceProvider()`
     pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
         self.container.get_sequence_provider()
     }
 
-    /// 重排 unique ID 时使用的第一个值。
+/// The first value used when renumbering unique IDs.
     ///
-    /// 对应 Java: `ProjectEntityContainer.firstUniqueID()`
+    /// Corresponds to Java: `ProjectEntityContainer.firstUniqueID()`
     pub fn first_unique_id(&self) -> i32 {
         self.container.first_unique_id()
     }
 
-    /// 按 unique ID 查找实体。
+/// Find an entity by unique ID.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<T>>> {
         self.container.get_by_unique_id(id)
     }
 
-    /// 追加实体。
+/// Append an entity.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)`
     pub fn add(&mut self, element: Rc<RefCell<T>>) {
         self.container.add(element);
     }
 
-    /// 在指定下标插入实体（越界返回 `false`）。
+/// Insert an entity at the given index (returns `false` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     pub fn add_at(&mut self, index: usize, element: Rc<RefCell<T>>) -> bool {
         self.container.add_at(index, element)
     }
 
-    /// 替换指定下标的实体（越界返回 `None`）。
+/// Replace the entity at the given index (returns `None` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(&mut self, index: usize, element: Rc<RefCell<T>>) -> Option<Rc<RefCell<T>>> {
         self.container.set(index, element)
     }
 
-    /// 移除指定下标的实体（越界返回 `None`）。
+/// Remove the entity at the given index (returns `None` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<T>>> {
         self.container.remove(index)
     }
 
-    /// 清空实体列表（不触发 `removed` 回调，与 Java 一致）。
+/// Clear the entity list (does not fire the `removed` callback, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.container.clear();
     }
 
-    /// 按下标取实体。
+/// Get the entity by index.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<T>>> {
         self.container.get(index)
     }
 
-    /// 实体个数。
+/// Number of entities.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.container.len()
     }
 
-    /// 实体列表是否为空。
+/// Whether the entity list is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.container.is_empty()
     }
 
-    /// 迭代实体列表。
+/// Iterate over the entity list.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<T>>> {
         self.container.iter()
     }
 
-    /// 以切片形式访问实体列表。
+/// Access the entity list as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the list view of `ListWithCallbacks`.
     pub fn as_slice(&self) -> &[Rc<RefCell<T>>] {
         self.container.as_slice()
     }
 
-    /// 按元素自然序排序。
+/// Sort by the elements' natural order.
     ///
-    /// 对应 Java: `Collections.sort(this)`
+    /// Corresponds to Java: `Collections.sort(this)`
     pub fn sort(&mut self) {
         self.container.sort();
     }
 
-    /// 更新 unique ID 索引。
+/// Update the unique ID index.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     pub fn update_unique_id(
         &mut self,
         element: &Rc<RefCell<T>>,
@@ -247,16 +247,16 @@ impl<T: ProjectEntityWithID + Ord + 'static> ProjectEntityWithIDContainer<T> {
             .update_unique_id(element, old_unique_id, new_unique_id);
     }
 
-    /// 为所有 unique ID 冲突的实体重新分配 unique ID。
+/// Reassign unique IDs for all entities with conflicting unique IDs.
     ///
-    /// 对应 Java: `ProjectEntityContainer.fixUniqueIdClashes()`
+    /// Corresponds to Java: `ProjectEntityContainer.fixUniqueIdClashes()`
     pub fn fix_unique_id_clashes(&mut self) {
         self.container.fix_unique_id_clashes();
     }
 }
 
 impl<T: Debug> Debug for ProjectEntityWithIDContainer<T> {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出内部容器与 ID 索引。
+/// `toString()` is not overridden on the Java side; the Rust side outputs the inner container and the ID index.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectEntityWithIDContainer")
             .field("container", &self.container)
@@ -272,7 +272,7 @@ mod tests {
     use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
     use std::any::TypeId;
 
-    /// 测试用实体：同时具备 ID 与 unique ID。
+/// Test entity: has both an ID and a unique ID.
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct Entity {
         id: Option<i32>,
@@ -301,7 +301,7 @@ mod tests {
         }
     }
 
-    /// 测试用序号生成器提供者。
+/// Test sequence generator provider.
     #[derive(Default)]
     struct TestProvider {
         sequences: HashMap<TypeId, Rc<ObjectSequence>>,
@@ -317,14 +317,14 @@ mod tests {
         }
     }
 
-    /// 构造一个容器。
+/// Construct a container.
     fn container() -> ProjectEntityWithIDContainer<Entity> {
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(TestProvider::default()));
         ProjectEntityWithIDContainer::new(provider)
     }
 
-    /// 构造一个实体。
+/// Construct an entity.
     fn entity(id: i32, unique_id: i32) -> Rc<RefCell<Entity>> {
         Rc::new(RefCell::new(Entity {
             id: Some(id),
@@ -356,7 +356,7 @@ mod tests {
 
         container.map_id(1, Rc::clone(&first));
         assert!(Rc::ptr_eq(
-            &container.get_by_id(Some(1)).expect("已映射"),
+            &container.get_by_id(Some(1)).expect("mapped"),
             &first
         ));
 
@@ -383,7 +383,7 @@ mod tests {
 
         container.renumber_ids();
 
-        // 排序后最小 ID 为 1（非 0），因此从 1 开始连续编号
+// After sorting the smallest ID is 1 (non-zero), so contiguous numbering starts from 1
         let ids: Vec<Option<i32>> = container
             .iter()
             .map(|entity| entity.borrow().get_id())
@@ -423,7 +423,7 @@ mod tests {
 
         container.fix_unique_id_clashes();
 
-        // 冲突者取序列中的下一个值
+// Conflicting entries take the next value in the sequence
         assert_eq!(second.borrow().get_unique_id(), Some(1));
         assert_eq!(first.borrow().get_unique_id(), Some(10));
     }

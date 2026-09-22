@@ -1,131 +1,131 @@
-//! 对应 Java: `org/mpxj/TaskContainer.java`
+//! Corresponds to Java: `org/mpxj/TaskContainer.java`
 //!
-//! 管理项目任务集合的容器，同时承载任务的**层级结构**（父子任务、大纲级别、WBS）。
+//! Container that manages the project's task collection and also carries the task **hierarchy** (parent/child tasks, outline level, WBS).
 //!
-//! # Java → Rust 方法对照
+//! # Java → Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `public TaskContainer(ProjectFile projectFile)` | [`TaskContainer::new`] + [`TaskContainer::set_context`]（Java 在构造时拿到父文件，Rust 侧拆成两步，见下） |
-//! | `@Override public List<Task> getChildTasks()`（`ChildTaskContainer`） | [`TaskContainer::get_child_tasks`] / [`TaskContainer::get_child_tasks_mut`]（Java 返回可变列表，Rust 侧拆成读写两个方法） |
-//! | `@Override public Task addTask()`（`ChildTaskContainer`） | [`TaskContainer::add_task`]（方法体与 `add()` 相同，Rust 侧因 `add` 已被元素版占用故保留两个方法名） |
+//! | `public TaskContainer(ProjectFile projectFile)` | [`TaskContainer::new`] + [`TaskContainer::set_context`] (Java receives the parent file at construction time; the Rust side splits this into two steps, see below) |
+//! | `@Override public List<Task> getChildTasks()` (`ChildTaskContainer`) | [`TaskContainer::get_child_tasks`] / [`TaskContainer::get_child_tasks_mut`] (Java returns a mutable list; the Rust side splits this into separate read and write methods) |
+//! | `@Override public Task addTask()` (`ChildTaskContainer`) | [`TaskContainer::add_task`] (the method body is identical to `add()`; the Rust side keeps two method names because `add` is already taken by the element variant) |
 //! | `public Task add()` | [`TaskContainer::add`] |
-//! | `@Override public void removed(Task task)` | [`TaskContainer::removed`]（由 [`TaskContainer::remove_at`] / [`TaskContainer::remove_task`] 调用） |
+//! | `@Override public void removed(Task task)` | [`TaskContainer::removed`] (called by [`TaskContainer::remove_at`] / [`TaskContainer::remove_task`]) |
 //! | `public void synchronizeTaskIDToHierarchy()` | [`TaskContainer::synchronize_task_id_to_hierarchy`] |
-//! | `private int synchroizeTaskIDToHierarchy(ChildTaskContainer, int, int)` | 私有方法 [`TaskContainer::synchronize_task_id_to_hierarchy_for`]（参数改为「子任务列表」，见下） |
-//! | `void updateStructure()` | [`TaskContainer::update_structure`]（`pub(crate)`，与 Java 的包级可见性对应） |
-//! | `public Set<FieldType> getPopulatedFields()` | [`TaskContainer::get_populated_fields`]（默认值和自定义字段由父文件传入） |
+//! | `private int synchroizeTaskIDToHierarchy(ChildTaskContainer, int, int)` | private method [`TaskContainer::synchronize_task_id_to_hierarchy_for`] (the parameter is changed to a "child task list", see below) |
+//! | `void updateStructure()` | [`TaskContainer::update_structure`] (`pub(crate)`, corresponding to Java's package-level visibility) |
+//! | `public Set<FieldType> getPopulatedFields()` | [`TaskContainer::get_populated_fields`] (the default values and custom fields are passed in by the parent file) |
 //! | `public List<CustomField> getCustomFields()` | [`TaskContainer::get_custom_fields`] |
-//! | `public FieldType getFieldTypeByAlias(String alias)` | [`TaskContainer::get_field_type_by_alias`]（返回 `Option<FieldKey>`，见下） |
+//! | `public FieldType getFieldTypeByAlias(String alias)` | [`TaskContainer::get_field_type_by_alias`] (returns `Option<FieldKey>`, see below) |
 //! | `@Override protected int firstUniqueID()` | [`TaskContainer::first_unique_id`] |
-//! | 继承自 `ProjectEntityWithIDContainer` 的 `getByID` / `mapID` / `unmapID` / `getNextID` / `renumberIDs` | [`TaskContainer::get_by_id`] / [`TaskContainer::map_id`] / [`TaskContainer::unmap_id`] / [`TaskContainer::get_next_id`] / [`TaskContainer::renumber_ids`] |
-//! | 继承自 `ProjectEntityContainer` 的 `getByUniqueID` / `updateUniqueID` / `fixUniqueIdClashes` | [`TaskContainer::get_by_unique_id`] / [`TaskContainer::update_unique_id`] / [`TaskContainer::fix_unique_id_clashes`] |
-//! | 继承自 `ListWithCallbacks` 的 `add(T)` / `add(int, T)` / `set(int, T)` / `remove(int)` / `clear()` / `get(int)` / `size()` / `isEmpty()` / `iterator()` | [`TaskContainer::add_task`]（元素版）/ [`TaskContainer::add_at`] / [`TaskContainer::set`] / [`TaskContainer::remove_at`] / [`TaskContainer::clear`] / [`TaskContainer::get`] / [`TaskContainer::len`] / [`TaskContainer::is_empty`] / [`TaskContainer::iter`] |
-//! | `ListWithCallbacks.remove(Object)` | [`TaskContainer::remove_task`]（Java 用引用相等定位，Rust 用 `Rc::ptr_eq`，语义一致） |
-//! | `Collections.sort(this)` | [`TaskContainer::sort`]（按 `Task::get_id()`，等价 Java 的 `Task.compareTo`） |
-//! | `implements ChildTaskContainer` | 见下「`ChildTaskContainer` 的还原」 |
+//! | The `getByID` / `mapID` / `unmapID` / `getNextID` / `renumberIDs` inherited from `ProjectEntityWithIDContainer` | [`TaskContainer::get_by_id`] / [`TaskContainer::map_id`] / [`TaskContainer::unmap_id`] / [`TaskContainer::get_next_id`] / [`TaskContainer::renumber_ids`] |
+//! | The `getByUniqueID` / `updateUniqueID` / `fixUniqueIdClashes` inherited from `ProjectEntityContainer` | [`TaskContainer::get_by_unique_id`] / [`TaskContainer::update_unique_id`] / [`TaskContainer::fix_unique_id_clashes`] |
+//! | The `add(T)` / `add(int, T)` / `set(int, T)` / `remove(int)` / `clear()` / `get(int)` / `size()` / `isEmpty()` / `iterator()` inherited from `ListWithCallbacks` | [`TaskContainer::add_task`] (element variant) / [`TaskContainer::add_at`] / [`TaskContainer::set`] / [`TaskContainer::remove_at`] / [`TaskContainer::clear`] / [`TaskContainer::get`] / [`TaskContainer::len`] / [`TaskContainer::is_empty`] / [`TaskContainer::iter`] |
+//! | `ListWithCallbacks.remove(Object)` | [`TaskContainer::remove_task`] (Java locates by reference equality; Rust uses `Rc::ptr_eq`; semantics are identical) |
+//! | `Collections.sort(this)` | [`TaskContainer::sort`] (by `Task::get_id()`, equivalent to Java's `Task.compareTo`) |
+//! | `implements ChildTaskContainer` | see "Restoring `ChildTaskContainer`" below |
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `removed(Task)` 中「删除 `getResourceAssignments()` 里 taskUniqueID 匹配的资源分配」 | **已接线**：Java 经 `m_projectFile.getResourceAssignments()` 遍历删除，Rust 侧在 [`TaskContainer::removed`] 中经父 `ProjectFile` 弱引用取容器并逐个 `remove`（调用方正持有 `ProjectFile` 借用时退化为不清理，不 panic）。 |
-//! | 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | 本类未使用这些机制 |
+//! | In `removed(Task)`, "delete the resource assignments whose taskUniqueID matches in `getResourceAssignments()`" | **Wired up**: Java iterates and deletes via `m_projectFile.getResourceAssignments()`; on the Rust side [`TaskContainer::removed`] obtains the container through the weak parent `ProjectFile` reference and calls `remove` one by one (when the caller holds a `ProjectFile` borrow it degrades gracefully to skipping the cleanup, without panicking). |
+//! | Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` | this class does not use these mechanisms |
 //!
-//! # 继承体系的还原：组合 + 转发
+//! # Restoring the inheritance hierarchy: composition + forwarding
 //!
-//! Java 的 `TaskContainer extends ProjectEntityWithIDContainer<Task>`（后者又继承
-//! `ProjectEntityContainer<Task>` → `ListWithCallbacks<Task>`），并实现 `ChildTaskContainer`。
-//! Rust 没有继承，故按「组合 + 转发」还原：
+//! Java's `TaskContainer extends ProjectEntityWithIDContainer<Task>` (which in turn extends
+//! `ProjectEntityContainer<Task>` → `ListWithCallbacks<Task>`) and implements `ChildTaskContainer`.
+//! Rust has no inheritance, so it is restored using "composition + forwarding":
 //!
-//! - 内部用 `Vec<Rc<RefCell<Task>>>` 保存全部任务（对应 `ListWithCallbacks` 的列表），
-//!   把基类的公开行为逐个实现（见上表），与
-//!   [`crate::project_calendar_container::ProjectCalendarContainer`] 的做法一致。
-//! - `ChildTaskContainer` 的两个方法（`getChildTasks` / `addTask`）在本类型上以**固有方法**
-//!   [`TaskContainer::get_child_tasks`] / [`TaskContainer::add_task`] 提供：`src/lib.rs`
-//!   至今没有声明 `child_task_container` 模块，故本类型不实现该接口（`Task` 侧同样是按需的
-//!   固有方法，见 `crate::task`）；如需共享该接口，可抽出 trait 并把这里的两个方法改为
-//!   trait 实现（行为不变）。
-//! - Java 的私有递归 `synchroizeTaskIDToHierarchy(ChildTaskContainer parentTask, ...)` 同时被
-//!   「项目文件」（`m_projectFile`，其 `getChildTasks()` 就是本容器的 `m_childTasks`）与
-//!   「任务」（`Task implements ChildTaskContainer`）调用。Rust 侧不引入 `ChildTaskContainer`
-//!   trait，改为私有方法 [`TaskContainer::synchronize_task_id_to_hierarchy_for`]
-//!   接收「子任务列表」：根层传入本容器的 `m_childTasks`，任务层传入 `task.get_child_tasks()`，
-//!   与 Java 的两处调用等价。
+//! - Internally uses `Vec<Rc<RefCell<Task>>>` to hold all tasks (corresponding to the `ListWithCallbacks` list),
+//!   implementing the base class's public behavior one by one (see the table above), consistent with
+//!   the approach of [`crate::project_calendar_container::ProjectCalendarContainer`].
+//! - The two `ChildTaskContainer` methods (`getChildTasks` / `addTask`) are provided on this type as **inherent methods**
+//!   [`TaskContainer::get_child_tasks`] / [`TaskContainer::add_task`]: `src/lib.rs`
+//!   has not yet declared a `child_task_container` module, so this type does not implement that interface (the `Task` side likewise uses on-demand
+//!   inherent methods, see `crate::task`); if this interface needs to be shared, a trait can be extracted and these two methods turned into
+//!   trait implementations (behavior unchanged).
+//! - Java's private recursive `synchroizeTaskIDToHierarchy(ChildTaskContainer parentTask, ...)` is called by both
+//!   the "project file" (`m_projectFile`, whose `getChildTasks()` is this container's `m_childTasks`) and
+//!   the "task" (`Task implements ChildTaskContainer`). The Rust side does not introduce the `ChildTaskContainer`
+//!   trait, and instead uses the private method [`TaskContainer::synchronize_task_id_to_hierarchy_for`],
+//!   which receives a "child task list": the root level passes this container's `m_childTasks`, the task level passes `task.get_child_tasks()`,
+//!   equivalent to the two call sites in Java.
 //!
-//! # 未组合基类（`ProjectEntityContainer` / `ProjectEntityWithIDContainer`）
+//! # Base classes not composed (`ProjectEntityContainer` / `ProjectEntityWithIDContainer`)
 //!
-//! 本 crate 已移植这两个基类，但它们要求元素实现 `ProjectEntityWithID` 且满足 `Ord`
-//! （用于 `Collections.sort`），并以 weak 反向引用与回调组合工作；而本容器的
-//! `m_idMap`、`m_childTasks`、`removed` 递归删除等都与任务自身的 setter（`setID` 会回调
-//! `getTasks().mapID(...)`）交织，组合后会引入额外的借用重入问题。因此改为自行实现：
+//! This crate has ported these two base classes, but they require elements to implement `ProjectEntityWithID` and satisfy `Ord`
+//! (used for `Collections.sort`) and work by composition with a weak back-reference and callbacks; however this container's
+//! `m_idMap`, `m_childTasks`, recursive deletion in `removed`, etc. are all interwoven with the task's own setters (`setID` calls back into
+//! `getTasks().mapID(...)`), and composing them would introduce additional borrow-reentrancy problems. It is therefore implemented directly instead:
 //!
-//! - `m_uniqueIDMap`（unique ID 索引）→ **按 unique ID 线性查找**（[`TaskContainer::get_by_unique_id`]）；
-//!   线性查找不会因 unique ID 变化而失效，故不再需要索引维护，`update_unique_id` 只维护
-//!   冲突列表与序号生成器。
-//! - `m_idMap`（任务 ID 索引）→ 保留 `HashMap<i32, Rc<RefCell<Task>>>`（Java 由 MPX/MPP
-//!   reader 经 `mapID` 填充、`Task.setID` 维护），提供 [`TaskContainer::map_id`] /
-//!   [`TaskContainer::unmap_id`] / [`TaskContainer::get_by_id`]。
-//! - `m_idSequence` → [`crate::common::object_sequence::ObjectSequence`]，供
-//!   [`TaskContainer::get_next_id`] 使用。
+//! - `m_uniqueIDMap` (the unique ID index) → **linear search by unique ID** ([`TaskContainer::get_by_unique_id`]);
+//!   linear search does not become stale when a unique ID changes, so index maintenance is no longer needed; `update_unique_id` only maintains
+//!   the conflict list and the sequence generator.
+//! - `m_idMap` (the task ID index) → keeps `HashMap<i32, Rc<RefCell<Task>>>` (in Java it is populated by the MPX/MPP
+//!   reader via `mapID` and maintained by `Task.setID`); provides [`TaskContainer::map_id`] /
+//!   [`TaskContainer::unmap_id`] / [`TaskContainer::get_by_id`].
+//! - `m_idSequence` → [`crate::common::object_sequence::ObjectSequence`], used by
+//!   [`TaskContainer::get_next_id`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `getPopulatedFields()` 从父文件取默认值与自定义字段 | 调用者显式传入 | `ProjectFile` 已被借用时容器无法反向借用父文件 |
+//! | `getPopulatedFields()` takes default values and custom fields from the parent file | the caller passes them in explicitly | when `ProjectFile` is already borrowed the container cannot borrow the parent file back |
 //!
-//! - **父文件的反向引用**：Java 的构造方法接收 `ProjectFile` 并保存为强引用
-//!   （`m_projectFile`，同时由基类作为序号生成器提供者）。Rust 侧若强引用会形成
-//!   「`ProjectFile` → 容器 → `ProjectFile`」的 `Rc` 循环，故改为
-//!   `Weak<RefCell<ProjectFile>>`，先以空弱引用构造，再由 [`TaskContainer::set_context`]
-//!   接线（Java 在构造方法里完成）。
-//! - **`ProjectFile.getChildTasks()` 的直接使用**：Java 的 `add()` / `removed()` /
-//!   `updateStructure()` 通过 `m_projectFile.getChildTasks()` 访问**同一个** `m_childTasks`
-//!   列表（`ProjectFile.getChildTasks()` 即 `m_tasks.getChildTasks()`）。Rust 侧
-//!   直接访问本容器的 `child_tasks` 字段，结果完全等价（也避免了在持有 `&mut self` 时
-//!   再去借用父文件）。
-//! - **集合返回值**：Java 的 `getChildTasks()` 返回可变列表视图；Rust 侧返回切片
-//!   [`TaskContainer::get_child_tasks`] 与可变引用 [`TaskContainer::get_child_tasks_mut`]。
-//! - **`getFieldTypeByAlias`**：Java 返回 `FieldType`；Rust 侧按已落地的
-//!   [`crate::custom_field_container::CustomFieldContainer`] 返回 `Option<FieldKey>`
-//!   （`FieldKey` 是本 crate 对 `FieldType` 接口的运行时擦除）。
-//! - **空值语义**：`NumberHelper.getInt(null)` 在 Java 中为 0，Rust 侧用 `unwrap_or(0)`
-//!   等价表达；Java 对 `task.getChildTasks()` 等返回的非空集合直接使用，Rust 侧在借用
-//!   失败（`try_borrow` 出错）时退化为空集合或跳过，不 panic。
-//! - **重入借用**：Java 中 `Task.setID` 会回调 `m_projectFile.getTasks().mapID(...)`，
-//!   `Task` 的构造方法（`new_in_file`）与 `Task.generateWBS` / `generateOutlineNumber` /
-//!   `addChildTask` 都会读取父文件的任务数、配置或序号生成器；而 `updateStructure` /
-//!   `synchronizeTaskIDToHierarchy` / `renumberIDs` 又由 `ProjectFile` 发起。
-//!   在 Rust 中若调用方正可变借用 `ProjectFile`，上述任务方法内部再借父文件会失败。
-//!   处理方式：
-//!   - [`TaskContainer::update_structure`] 需要的三个自动编号开关改由调用方
-//!     [`crate::ProjectFile::update_structure`] 传入（`ProjectConfig` 在 `ProjectContext`
-//!     的 `RefCell` 中，读取它与持有 `ProjectFile` 借用不冲突），WBS / 大纲编号所需的
-//!     任务计数则由容器自身提供；`Task::add_child_task_with_auto_outline_level` 同理。
-//!     因此整条 `update_structure` 路径**完全不回调父文件**，可在持有借用时原地调用。
-//!   - [`TaskContainer::add_task`] 登记任务自身的弱引用，`Task::set_id` 据此还原
-//!     `mapID` / `unmapID` 回调；父文件被借用时该回调退化为「不维护索引」，不 panic。
-//!   - 本文件**自身**的父文件访问（[`TaskContainer::custom_field_container`] /
-//!     [`TaskContainer::sequence`]）一律使用 `try_borrow` 退化处理，不 panic。
-//!   - [`TaskContainer::add`] 建任务所需的配置、序号与顶层任务计数分别取自
-//!     `ProjectContext` 与容器自身（见 [`TaskContainer::creation_context`]），
-//!     因此同样可以在调用方持有 `ProjectFile` 借用时调用。
-//!   - `Task::new_in_file`（读父文件的便捷入口）改用 `try_borrow`：父文件被借用时
-//!     退化为「不做自动赋值」而不 panic；持有借用时应改用
-//!     `Task::new_in_file_with_context` 并传入 [`TaskCreationContext`]。
-//! - **`updateStructure` 中的排序**：Java 用 `Collections.sort(this)`（`Task.compareTo`
-//!   按任务 ID 比较）；Rust 侧用 [`TaskContainer::sort`]（按 `Task::get_id()`），结果一致。
-//! - **`removed` 中的递归删除**：Java 用 `while (true) { ... remove(childTaskList.get(0)); }`，
-//!   其终止依赖「`removed` 会把子任务从父任务的子任务列表移除」（即 `child.m_parent`）。
-//!   Rust 侧改为遍历子任务快照后逐个移除：移除集合与递归顺序一致，且不依赖子任务的反向指针。
-//! - **`updateStructure` 中的父任务回填**：Java 的 `parent.addChildTask(task)` 会同时设置
-//!   `child.m_parent = this`，后文的 `lastTask.getParentTask()` 依赖这一点。Rust 侧同样
-//!   依赖 `Task::add_child_task` 维护 `child.get_parent_task()`（见下「使用的模型层接口」）。
+//! - **Back-reference to the parent file**: Java's constructor receives `ProjectFile` and stores it as a strong reference
+//!   (`m_projectFile`, which the base class also uses as the sequence provider). A strong reference on the Rust side would create
+//!   an `Rc` cycle of "`ProjectFile` → container → `ProjectFile`", so it is changed to
+//!   `Weak<RefCell<ProjectFile>>`, constructed first with an empty weak reference and then wired up by [`TaskContainer::set_context`]
+//!   (Java does this in the constructor).
+//! - **Direct use of `ProjectFile.getChildTasks()`**: Java's `add()` / `removed()` /
+//!   `updateStructure()` access the **same** `m_childTasks` list through `m_projectFile.getChildTasks()`
+//!   (`ProjectFile.getChildTasks()` is `m_tasks.getChildTasks()`). The Rust side
+//!   accesses this container's `child_tasks` field directly, which is fully equivalent (and also avoids having to
+//!   borrow the parent file again while holding `&mut self`).
+//! - **Collection return value**: Java's `getChildTasks()` returns a mutable list view; the Rust side returns a slice
+//!   [`TaskContainer::get_child_tasks`] and a mutable reference [`TaskContainer::get_child_tasks_mut`].
+//! - **`getFieldTypeByAlias`**: Java returns `FieldType`; the Rust side, following the already-ported
+//!   [`crate::custom_field_container::CustomFieldContainer`], returns `Option<FieldKey>`
+//!   (`FieldKey` is this crate's runtime-erased form of the `FieldType` interface).
+//! - **Null semantics**: `NumberHelper.getInt(null)` is 0 in Java; the Rust side expresses this equivalently with `unwrap_or(0)`
+//!   ; Java uses the non-null collections returned by `task.getChildTasks()` etc. directly, while the Rust side, when the borrow
+//!   fails (`try_borrow` errors), degrades gracefully to an empty collection or skips, without panicking.
+//! - **Reentrant borrow**: in Java `Task.setID` calls back into `m_projectFile.getTasks().mapID(...)`,
+//!   and `Task`'s constructor (`new_in_file`) together with `Task.generateWBS` / `generateOutlineNumber` /
+//!   `addChildTask` all read the parent file's task count, configuration, or sequence generator; while `updateStructure` /
+//!   `synchronizeTaskIDToHierarchy` / `renumberIDs` are in turn initiated by `ProjectFile`.
+//!   In Rust, if the caller is mutably borrowing `ProjectFile`, the above task methods borrowing the parent file internally will fail.
+//!   Handling:
+//!   - The three auto-numbering switches needed by [`TaskContainer::update_structure`] are instead passed by the caller
+//!     [`crate::ProjectFile::update_structure`] (`ProjectConfig` lives in `ProjectContext`'s
+//!     `RefCell`, and reading it does not conflict with holding a `ProjectFile` borrow), while the task count needed for WBS / outline numbering
+//!     is provided by the container itself; likewise for `Task::add_child_task_with_auto_outline_level`.
+//!     The entire `update_structure` path therefore **never calls back into the parent file** and can be called in place while a borrow is held.
+//!   - [`TaskContainer::add_task`] registers the task's own weak reference, and `Task::set_id` uses it to restore
+//!     the `mapID` / `unmapID` callbacks; when the parent file is borrowed, that callback degrades gracefully to "do not maintain the index", without panicking.
+//!   - This file's **own** parent file accesses ([`TaskContainer::custom_field_container`] /
+//!     [`TaskContainer::sequence`]) all use `try_borrow` to degrade gracefully, without panicking.
+//!   - The configuration, sequence, and top-level task count needed by [`TaskContainer::add`] to create a task are taken from
+//!     `ProjectContext` and the container itself (see [`TaskContainer::creation_context`]),
+//!     so it can likewise be called while the caller holds a `ProjectFile` borrow.
+//!   - `Task::new_in_file` (the convenience entry point that reads the parent file) now uses `try_borrow`: when the parent file is borrowed
+//!     it degrades gracefully to "do no automatic assignment" rather than panicking; when a borrow is held, use
+//!     `Task::new_in_file_with_context` and pass in [`TaskCreationContext`] instead.
+//! - **Sorting in `updateStructure`**: Java uses `Collections.sort(this)` (`Task.compareTo`
+//!   compares by task ID); the Rust side uses [`TaskContainer::sort`] (by `Task::get_id()`), with identical results.
+//! - **Recursive deletion in `removed`**: Java uses `while (true) { ... remove(childTaskList.get(0)); }`,
+//!   whose termination relies on "`removed` removing the child task from the parent task's child task list" (that is, `child.m_parent`).
+//!   The Rust side instead iterates over a snapshot of the child tasks and removes them one by one: the removal set matches the recursive order and does not rely on the child task's back-pointer.
+//! - **Parent task back-fill in `updateStructure`**: Java's `parent.addChildTask(task)` also sets
+//!   `child.m_parent = this`, which the later `lastTask.getParentTask()` relies on. The Rust side likewise
+//!   relies on `Task::add_child_task` maintaining `child.get_parent_task()` (see "Model-layer interfaces used" below).
 //!
-//! # 使用的模型层接口（均已落地，此处仅作索引）
+//! # Model-layer interfaces used (all already in place; listed here only as an index)
 //!
-//! `Task`（`src/task.rs`）按下列签名使用：
+//! `Task` (`src/task.rs`) is used with the following signatures:
 //!
 //! ```text
 //! Task::new() -> Task
@@ -139,12 +139,12 @@
 //! Task::get_wbs(&self) -> Option<String>
 //! Task::generate_wbs(&mut self, Option<&Rc<RefCell<Task>>>)
 //! Task::generate_outline_number(&mut self, Option<&Rc<RefCell<Task>>>)
-//! Task::add_child_task(&Rc<RefCell<Task>>, &Rc<RefCell<Task>>)     // `this` 为首参的关联函数
-//! Task::remove_child_task(&Rc<RefCell<Task>>, &Rc<RefCell<Task>>)  // 同上
-//! Task::clear_child_tasks(&Rc<RefCell<Task>>)                      // 同上
+//! Task::add_child_task(&Rc<RefCell<Task>>, &Rc<RefCell<Task>>)     // associated function with `this` as the first parameter
+//! Task::remove_child_task(&Rc<RefCell<Task>>, &Rc<RefCell<Task>>)  // same as above
+//! Task::clear_child_tasks(&Rc<RefCell<Task>>)                      // same as above
 //! ```
 //!
-//! `ProjectFile`（`src/project_file.rs`）按下列签名使用：
+//! `ProjectFile` (`src/project_file.rs`) is used with the following signatures:
 //!
 //! ```text
 //! ProjectFile::new() -> Rc<RefCell<ProjectFile>>
@@ -152,8 +152,8 @@
 //! ProjectFile::get_custom_fields(&self) -> Rc<RefCell<CustomFieldContainer>>
 //! ProjectFile::get_resource_assignments_mut(&mut self) -> &mut ResourceAssignmentContainer
 //! ProjectFile::get_unique_id_object_sequence(&mut self, TypeId) -> Rc<ObjectSequence>
-//!         // 或 `ProjectFile: UniqueIdObjectSequenceProvider`（Java 一致），
-//!         // 本文件的方法调用形态对两种写法都成立
+//!         // or `ProjectFile: UniqueIdObjectSequenceProvider` (as in Java),
+//!         // the method call forms in this file hold for both versions
 //! ```
 
 use std::any::TypeId;
@@ -170,64 +170,64 @@ use crate::field_type_class::FieldTypeClass;
 use crate::project_file::ProjectFile;
 use crate::resource_assignment::ResourceAssignment;
 use crate::task::{Task, TaskCreationContext};
-// `ProjectFile` 可能以「实现本 trait」或「提供同签名固有方法」两种形式给出（见文件头
-// 「接口假设」）；前者需要本导入，后者不会用到它，故显式允许未使用。
+// `ProjectFile` may be provided either as "implementing this trait" or as "providing an inherent method with the same signature" (see the file header
+// "Interface assumptions"); the former requires this import, while the latter does not use it, so it is explicitly allowed to be unused.
 #[allow(unused_imports)]
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 项目任务集合。
+/// The project's task collection.
 ///
-/// 对应 Java:
+/// Corresponds to Java:
 /// `public class TaskContainer extends ProjectEntityWithIDContainer<Task> implements ChildTaskContainer`
 pub struct TaskContainer {
-    /// 容器内的全部任务。
+    /// All tasks in the container.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer` / `ProjectEntityContainer` /
-    /// `ListWithCallbacks` 继承而来的列表存储。
+    /// Corresponds to Java: `ProjectEntityWithIDContainer` / `ProjectEntityContainer` /
+    /// The list storage inherited from `ListWithCallbacks`.
     items: Vec<Rc<RefCell<Task>>>,
 
-    /// 项目的顶层任务列表（不含子任务）。
+    /// The project's top-level task list (excluding child tasks).
     ///
-    /// 对应 Java 字段: `private final List<Task> m_childTasks = new ArrayList<>();`
-    /// （也是 `ProjectFile.getChildTasks()` 返回的列表）
+    /// Corresponds to Java field: `private final List<Task> m_childTasks = new ArrayList<>();`
+    /// (also the list returned by `ProjectFile.getChildTasks()`)
     child_tasks: Vec<Rc<RefCell<Task>>>,
 
-    /// 任务 ID → 任务 索引。
+    /// Task ID → task index.
     ///
-    /// 对应 Java 字段: `ProjectEntityWithIDContainer.m_idMap`
+    /// Corresponds to Java field: `ProjectEntityWithIDContainer.m_idMap`
     id_map: HashMap<i32, Rc<RefCell<Task>>>,
 
-    /// 任务 ID 序号生成器。
+    /// Task ID sequence generator.
     ///
-    /// 对应 Java 字段: `ProjectEntityWithIDContainer.m_idSequence`
+    /// Corresponds to Java field: `ProjectEntityWithIDContainer.m_idSequence`
     id_sequence: ObjectSequence,
 
-    /// unique ID 冲突列表。
+    /// Unique ID conflict list.
     ///
-    /// 对应 Java 字段: `ProjectEntityContainer.m_uniqueIDClashList`
+    /// Corresponds to Java field: `ProjectEntityContainer.m_uniqueIDClashList`
     unique_id_clash_list: Vec<Rc<RefCell<Task>>>,
 
-    /// 父项目文件（弱引用，避免 `Rc` 循环）。
+    /// Parent project file (weak reference, to avoid an `Rc` cycle).
     ///
-    /// 对应 Java 字段: `private final ProjectFile m_projectFile;`
-    /// （同时是基类的序号生成器提供者 `m_sequenceProvider`）
+    /// Corresponds to Java field: `private final ProjectFile m_projectFile;`
+    /// (also the base class's sequence provider `m_sequenceProvider`)
     context: Weak<RefCell<ProjectFile>>,
 
-    /// 项目上下文（弱引用）。
+    /// Project context (weak reference).
     ///
-    /// Rust 特有：Java 的 `TaskContainer` 只持 `m_projectFile`，经它间接访问上下文。
-    /// Rust 侧单独记一份，是为了让「新建任务」所需的 `ProjectConfig` 与 unique ID 序号
-    /// 能在**不借用 `ProjectFile`** 的前提下读到 —— `ProjectContext` 是独立的 `RefCell`，
-    /// 因此调用方持有 `ProjectFile` 借用时也能安全访问（见
-    /// [`TaskContainer::creation_context`]）。
+    /// Rust-specific: Java's `TaskContainer` only holds `m_projectFile` and accesses the context indirectly through it.
+    /// The Rust side keeps a separate copy so that the `ProjectConfig` and unique ID sequence needed to "create a task" can be
+    /// read **without borrowing `ProjectFile`** — `ProjectContext` is a separate `RefCell`,
+    /// so it can be safely accessed even while the caller holds a `ProjectFile` borrow (see
+    /// [`TaskContainer::creation_context`]).
     project_context: Weak<RefCell<crate::project_context::ProjectContext>>,
 }
 
 impl TaskContainer {
-    /// 返回任务中至少有一个非默认缓存值的字段。
+    /// Returns the fields for which at least one task has a non-default cached value.
     ///
-    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；父文件借用期间由
-    /// 调用者传入默认值及自定义字段，避免通过弱引用反向借用父文件。
+    /// Corresponds to Java: `public Set<FieldType> getPopulatedFields()`; while the parent file is borrowed, the
+    /// caller passes in the default values and custom fields, avoiding a reverse borrow of the parent file through the weak reference.
     pub fn get_populated_fields(
         &self,
         custom: impl IntoIterator<Item = FieldKey>,
@@ -242,11 +242,11 @@ impl TaskContainer {
         )
     }
 
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public TaskContainer(ProjectFile projectFile)`
+    /// Corresponds to Java: `public TaskContainer(ProjectFile projectFile)`
     ///
-    /// Rust 侧先以空父文件弱引用构造，由 [`TaskContainer::set_context`] 完成接线。
+    /// The Rust side constructs first with an empty parent file weak reference, and [`TaskContainer::set_context`] completes the wiring.
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -259,23 +259,23 @@ impl TaskContainer {
         }
     }
 
-    /// 接线父项目文件（Rust 特有：Java 在构造方法中直接接收 `ProjectFile`）。
+    /// Wires up the parent project file (Rust-specific: Java receives `ProjectFile` directly in the constructor).
     ///
-    /// 对应 Java: 构造方法中的 `m_projectFile = projectFile;` 与基类的 `super(projectFile)`
+    /// Corresponds to Java: `m_projectFile = projectFile;` in the constructor and the base class's `super(projectFile)`
     pub(crate) fn set_context(&mut self, project_file: &Rc<RefCell<ProjectFile>>) {
         self.context = Rc::downgrade(project_file);
 
-        // Rust 特有：同时记下 `ProjectContext`（见字段说明）。
+        // Rust-specific: also record `ProjectContext` (see the field documentation).
         self.project_context = match project_file.try_borrow() {
             Ok(file_ref) => Rc::downgrade(&file_ref.get_project_context()),
             Err(_) => Weak::new(),
         };
     }
 
-    /// 构造父文件时接线已持有的项目上下文。
+    /// Wires up the project context already held when the parent file was constructed.
     ///
-    /// 对应 Java: `TaskContainer(ProjectFile)` 中经父文件获取的 `ProjectContext`；
-    /// Rust 构造阶段父文件正被可变借用，需由拥有上下文的调用者显式传入。
+    /// Corresponds to Java: the `ProjectContext` obtained through the parent file in `TaskContainer(ProjectFile)`;
+    /// during Rust construction the parent file is being mutably borrowed, so it must be passed in explicitly by the caller that owns the context.
     pub(crate) fn set_project_context(
         &mut self,
         context: &Rc<RefCell<crate::project_context::ProjectContext>>,
@@ -283,28 +283,28 @@ impl TaskContainer {
         self.project_context = Rc::downgrade(context);
     }
 
-    /// 取父项目文件（未接线时返回 `None`）。
+    /// Gets the parent project file (returns `None` when not wired up).
     ///
-    /// 对应 Java: `private final ProjectFile m_projectFile;`
+    /// Corresponds to Java: `private final ProjectFile m_projectFile;`
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.context.upgrade()
     }
 
-    /// 读取「新建任务」所需的上下文快照（Rust 特有）。
+    /// Reads the context snapshot needed to "create a task" (Rust-specific).
     ///
-    /// 对应 Java: `Task` 构造方法内部直接读取的 `ProjectConfig` 开关、
-    /// `file.getUniqueIdObjectSequence(Task.class).getNext()`、
-    /// `file.getTasks().getNextID()`，以及 `generateWBS(null)` 需要的
-    /// `file.getChildTasks().size()`。
+    /// Corresponds to Java: the `ProjectConfig` switches read directly inside the `Task` constructor,
+    /// `file.getUniqueIdObjectSequence(Task.class).getNext()`,
+    /// `file.getTasks().getNextID()`, and the
+    /// `file.getChildTasks().size()`.
     ///
-    /// Rust 侧这些值分别来自 `ProjectContext`（配置与 unique ID 序号生成器）与容器自身
-    /// （ID 序号、顶层任务数），**均不经过 `ProjectFile`** —— 因此本方法可在调用方持有
-    /// `ProjectFile` 借用时安全调用。
+    /// On the Rust side these values come from `ProjectContext` (configuration and unique ID sequence generator) and the container itself
+    /// (ID sequence, top-level task count), and **all bypass `ProjectFile`** — so this method can be called while the caller holds
+    /// a `ProjectFile` borrow.
     fn creation_context(&self) -> TaskCreationContext {
         let mut creation = TaskCreationContext::default();
 
         if let Some(project_context) = self.project_context.upgrade() {
-            // Java: ProjectConfig config = file.getProjectConfig();（这五个自动开关）
+            // Java: ProjectConfig config = file.getProjectConfig(); (these five auto switches)
             if let Ok(project_context_ref) = project_context.try_borrow() {
                 let config = project_context_ref.get_project_config();
                 creation.auto_task_unique_id = config.get_auto_task_unique_id();
@@ -316,7 +316,7 @@ impl TaskContainer {
 
             if creation.auto_task_unique_id {
                 // Java: file.getUniqueIdObjectSequence(Task.class).getNext();
-                // （序号生成器内部用 Cell，取到 Rc 后即可推进，无需再持上下文借用）
+                // (the sequence generator uses a Cell internally; once the Rc is obtained it can be advanced without holding a context borrow)
                 if let Ok(mut project_context_ref) = project_context.try_borrow_mut() {
                     creation.next_unique_id =
                         crate::unique_id_object_sequence_provider::get_unique_id_object_sequence::<
@@ -328,47 +328,47 @@ impl TaskContainer {
         }
 
         if creation.auto_task_id {
-            // Java: file.getTasks().getNextID(); —— 即本容器自身的 ID 序号生成器
+            // Java: file.getTasks().getNextID(); — that is, this container's own ID sequence generator
             creation.next_id = self.get_next_id();
         }
 
-        // Java: file.getChildTasks().size();（此刻当前任务尚未登记进 child_tasks）
+        // Java: file.getChildTasks().size(); (at this point the current task has not yet been registered in child_tasks)
         creation.top_level_task_count = self.child_tasks.len();
 
         creation
     }
 
-    /// 取项目顶层任务列表。
+    /// Gets the project's top-level task list.
     ///
-    /// 对应 Java: `@Override public List<Task> getChildTasks()`（`ChildTaskContainer`）
+    /// Corresponds to Java: `@Override public List<Task> getChildTasks()`(`ChildTaskContainer`)
     pub fn get_child_tasks(&self) -> &[Rc<RefCell<Task>>] {
         &self.child_tasks
     }
 
-    /// 取项目顶层任务列表的可变引用（Rust 特有：Java 的 `getChildTasks()` 返回可变列表）。
+    /// Gets a mutable reference to the project's top-level task list (Rust-specific: Java's `getChildTasks()` returns a mutable list).
     pub fn get_child_tasks_mut(&mut self) -> &mut Vec<Rc<RefCell<Task>>> {
         &mut self.child_tasks
     }
 
-    /// 向容器追加一个已有任务。
+    /// Appends an existing task to the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`（进而触发基类的 `added`）
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)` (which in turn triggers the base class's `added`)
     ///
-    /// Rust 侧无重载，元素版与无参版 [`TaskContainer::add`] 以名称区分
-    /// （与 [`crate::project_calendar_container::ProjectCalendarContainer::add_calendar`] 的做法一致）。
-    /// 注意：本方法**不**把任务加入项目的顶层任务列表（Java 中由调用方另行调用
-    /// `m_projectFile.getChildTasks().add(task)`），需要该行为时用
-    /// [`TaskContainer::get_child_tasks_mut`]。
+    /// Rust has no overloading, so the element variant and the no-argument variant [`TaskContainer::add`] are distinguished by name
+    /// (consistent with the approach of [`crate::project_calendar_container::ProjectCalendarContainer::add_calendar`]).
+    /// Note: this method does **not** add the task to the project's top-level task list (in Java the caller separately calls
+    /// `m_projectFile.getChildTasks().add(task)`); when that behavior is needed, use
+    /// [`TaskContainer::get_child_tasks_mut`].
     pub fn add_task(&mut self, task: Rc<RefCell<Task>>) {
-        // Rust 特有：登记任务自身的共享句柄，供 `Task::set_id` 还原 Java
-        // `setID` 中 `mapID(val, this)` 的回调（见 `Task::set_self_reference`）。
+        // Rust-specific: register the task's own shared handle, so that `Task::set_id` can restore Java's
+        // `mapID(val, this)` callback in `setID` (see `Task::set_self_reference`).
         if let Ok(mut task_ref) = task.try_borrow_mut() {
             task_ref.set_self_reference(&task);
         }
 
-        // Java: `Task` 构造方法里的 `setID(...)` 会立即 `mapID(...)`；Rust 侧构造时
-        // 尚拿不到 `Rc<RefCell<Task>>`（`set_self_reference` 需要它），那次回调会落空，
-        // 故在此补做一次登记 —— 与 Java 的最终状态等价（入容器即登记当前 ID）。
+        // Java: `setID(...)` in the `Task` constructor immediately calls `mapID(...)`; on the Rust side, at construction time
+        // the `Rc<RefCell<Task>>` is not yet available (`set_self_reference` needs it), so that callback is a no-op,
+        // so the registration is performed once more here — equivalent to Java's final state (entering the container registers the current ID).
         if let Some(id) = read_task(&task, |task| task.get_id()).flatten() {
             self.map_id(id, Rc::clone(&task));
         }
@@ -377,16 +377,16 @@ impl TaskContainer {
         self.added(&task);
     }
 
-    /// 新建一个任务并加入容器（同时登记为项目顶层任务）。
+    /// Creates a new task and adds it to the container (also registering it as a project top-level task).
     ///
-    /// 对应 Java: `public Task add()`（`ChildTaskContainer.addTask()` 的实现体）
+    /// Corresponds to Java: `public Task add()` (the implementation body of `ChildTaskContainer.addTask()`)
     pub fn add(&mut self) -> Rc<RefCell<Task>> {
         // Java: Task task = new Task(m_projectFile, null);
         let task = match self.context.upgrade() {
             Some(project_file) => {
-                // Rust 特有：先读好建任务所需的上下文快照（取自 `ProjectContext` 与
-                // 容器自身，**不触碰 `ProjectFile`**），再构造任务 —— 因此本方法可以在
-                // 调用方持有 `ProjectFile` 借用时调用（Java 无此限制）。
+                // Rust-specific: first read the context snapshot needed to create a task (taken from `ProjectContext` and
+                // the container itself, **without touching `ProjectFile`**), then construct the task — so this method can be
+                // called while the caller holds a `ProjectFile` borrow (Java has no such restriction).
                 let creation = self.creation_context();
                 Rc::new(RefCell::new(Task::new_in_file_with_context(
                     &project_file,
@@ -394,27 +394,27 @@ impl TaskContainer {
                     creation,
                 )))
             }
-            // Java 中 m_projectFile 必然存在；Rust 侧未接线时退化为无父文件的任务（见文件头）
+            // In Java m_projectFile always exists; on the Rust side, when not wired up it degrades gracefully to a task without a parent file (see the file header)
             None => Rc::new(RefCell::new(Task::new())),
         };
 
         self.add_task(Rc::clone(&task));
 
         // Java: m_projectFile.getChildTasks().add(task);
-        // ProjectFile.getChildTasks() 即本容器的 m_childTasks（见文件头）
+        // ProjectFile.getChildTasks() is this container's m_childTasks (see the file header)
         self.child_tasks.push(Rc::clone(&task));
 
         task
     }
 
-    /// 任务被移除后的清理：从 ID 索引、父任务的子任务列表、项目顶层任务列表移除，
-    /// 并递归移除其子任务。
+    /// Cleanup after a task is removed: remove it from the ID index, the parent task's child task list, and the project's top-level task list,
+    /// and recursively remove its child tasks.
     ///
-    /// 对应 Java: `@Override public void removed(Task task)`
+    /// Corresponds to Java: `@Override public void removed(Task task)`
     pub fn removed(&mut self, task: &Rc<RefCell<Task>>) {
         //
-        // Java: super.removed(task); —— 基类把该元素从 unique ID 索引中移除。
-        // Rust 侧按 unique ID 线性查找（见文件头），没有需要维护的索引。
+        // Java: super.removed(task); — the base class removes the element from the unique ID index.
+        // The Rust side uses linear search by unique ID (see the file header), so there is no index to maintain.
         //
 
         // Java: m_idMap.remove(task.getID());
@@ -428,7 +428,7 @@ impl TaskContainer {
         let parent_task = read_task(task, |task| task.get_parent_task()).flatten();
         match parent_task {
             // Java: parentTask.removeChildTask(task);
-            // （`Task::remove_child_task` 为以 `this` 为首参的关联函数，见 `crate::task` 文件头）
+            // (`Task::remove_child_task` is an associated function with `this` as the first parameter, see the `crate::task` file header)
             Some(parent_task) => Task::remove_child_task(&parent_task, task),
             // Java: m_projectFile.getChildTasks().remove(task);
             None => {
@@ -442,16 +442,16 @@ impl TaskContainer {
         // while (iter.hasNext()) { ResourceAssignment assignment = iter.next();
         //    if (assignment.getTaskUniqueID().equals(task.getUniqueID())) { iter.remove(); } }
         //
-        // Java 的 `m_projectFile.getResourceAssignments()` 即父文件的资源分配容器，
-        // Rust 侧经 `context`（父 `ProjectFile` 弱引用）取得。任务 unique ID 为 `null`
-        // 时 Java 的 `equals` 恒不匹配（`Integer.equals(null)` 为 false），故此处跳过；
-        // 调用方正持有 `ProjectFile` 借用时无法清理（Java 无此情形），退化为不清理而不 panic。
+        // Java's `m_projectFile.getResourceAssignments()` is the parent file's resource assignment container,
+        // and the Rust side obtains it through `context` (the weak parent `ProjectFile` reference). When the task unique ID is `null`
+        // Java's `equals` never matches (`Integer.equals(null)` is false), so it is skipped here;
+        // when the caller holds a `ProjectFile` borrow the cleanup cannot be performed (Java has no such case) and degrades gracefully to skipping it rather than panicking.
         if let Some(task_unique_id) = read_task(task, |task| task.get_unique_id()).flatten() {
             if let Some(project_file) = self.context.upgrade() {
                 if let Ok(mut project_file) = project_file.try_borrow_mut() {
                     let assignments = project_file.get_resource_assignments_mut();
 
-                    // 先收集再删除：`remove` 需要 `&mut`，不能与遍历的借用共存。
+                    // Collect first, then remove: `remove` needs `&mut`, which cannot coexist with the borrow used for iteration.
                     let targets: Vec<Rc<RefCell<ResourceAssignment>>> = assignments
                         .iter()
                         .filter(|assignment| {
@@ -472,12 +472,12 @@ impl TaskContainer {
         }
 
         //
-        // Java: 递归移除子任务
+        // Java: recursively remove child tasks
         // while (true) { List<Task> childTaskList = task.getChildTasks();
         //    if (childTaskList.isEmpty()) break; remove(childTaskList.get(0)); }
         //
-        // Java 的循环依赖“removed 会把子任务从**父任务**的子任务列表移除”（通过 child.m_parent），
-        // Rust 侧改为遍历子任务快照：移除的集合与递归顺序一致，且不依赖子任务的反向指针。
+        // Java's loop relies on "removed removes the child task from the **parent task**'s child task list" (via child.m_parent),
+        // while the Rust side iterates over a snapshot of the child tasks: the removal set matches the recursive order and does not rely on the child task's back-pointer.
         let child_tasks: Vec<Rc<RefCell<Task>>> =
             read_task(task, |task| task.get_child_tasks().iter().cloned().collect())
                 .unwrap_or_default();
@@ -487,26 +487,26 @@ impl TaskContainer {
         }
     }
 
-    /// 按 ID 顺序重排任务的 ID（Microsoft Project 依据 ID 决定显示顺序），
-    /// 并同步任务的大纲级别。
+    /// Renumbers task IDs in ID order (Microsoft Project determines the display order from the ID),
+    /// and synchronizes the tasks' outline level.
     ///
-    /// 对应 Java: `public void synchronizeTaskIDToHierarchy()`
+    /// Corresponds to Java: `public void synchronizeTaskIDToHierarchy()`
     pub fn synchronize_task_id_to_hierarchy(&mut self) {
         // Java: int currentID = (getByID(Integer.valueOf(0)) == null ? 1 : 0);
         let current_id = self.first_unique_id();
 
         // Java: synchroizeTaskIDToHierarchy(m_projectFile, currentID, currentID);
-        // ProjectFile.getChildTasks() 即本容器的 m_childTasks（见文件头）
+        // ProjectFile.getChildTasks() is this container's m_childTasks (see the file header)
         let child_tasks = self.child_tasks.clone();
         self.synchronize_task_id_to_hierarchy_for(child_tasks, current_id, current_id);
     }
 
-    /// 递归重排子任务的 ID 并更新大纲级别。
+    /// Recursively renumbers child task IDs and updates the outline level.
     ///
-    /// 对应 Java: `private int synchroizeTaskIDToHierarchy(ChildTaskContainer parentTask, int currentID, int currentLevel)`
+    /// Corresponds to Java: `private int synchroizeTaskIDToHierarchy(ChildTaskContainer parentTask, int currentID, int currentLevel)`
     ///
-    /// Java 用 `ChildTaskContainer` 统一「项目文件」与「任务」两种父容器；Rust 侧改为直接
-    /// 接收子任务列表（见文件头）。
+    /// Java uses `ChildTaskContainer` to unify the two kinds of parent container, "project file" and "task"; the Rust side instead
+    /// receives a child task list directly (see the file header).
     fn synchronize_task_id_to_hierarchy_for(
         &mut self,
         tasks: Vec<Rc<RefCell<Task>>>,
@@ -533,17 +533,17 @@ impl TaskContainer {
         current_id
     }
 
-    /// 依据任务的 `outlineLevel` 字段重建项目的层级结构（父 / 子任务、WBS、大纲编号）。
+    /// Rebuilds the project's hierarchy (parent / child tasks, WBS, outline numbering) from the tasks' `outlineLevel` field.
     ///
-    /// 对应 Java: `void updateStructure()`
+    /// Corresponds to Java: `void updateStructure()`
     ///
-    /// Java 在本方法内部回调 `m_projectFile.getProjectConfig()` 读取三个自动编号开关；
-    /// Rust 侧改由调用方 [`crate::ProjectFile::update_structure`] 显式传入 ——
-    /// `ProjectConfig` 存放在 `ProjectContext` 的 `RefCell` 中，调用方读取它不会与
-    /// 「持有 `ProjectFile` 借用」冲突，而容器自身在被可变借用时无法安全回调父文件。
+    /// Java calls back into `m_projectFile.getProjectConfig()` inside this method to read the three auto-numbering switches;
+    /// the Rust side instead has the caller [`crate::ProjectFile::update_structure`] pass them in explicitly —
+    /// `ProjectConfig` lives in `ProjectContext`'s `RefCell`, and the caller reading it does not conflict with
+    /// "holding a `ProjectFile` borrow", while the container itself cannot safely call back into the parent file while it is mutably borrowed.
     ///
-    /// 因此本方法**完全不回调父文件**：可以在 `ProjectFile` 已被借用的情况下直接对
-    /// 容器取可变借用执行，无需把容器临时移出 `ProjectFile`。
+    /// This method therefore **never calls back into the parent file**: it can be called directly on the container while `ProjectFile`
+    /// is already borrowed, without temporarily moving the container out of `ProjectFile`.
     pub(crate) fn update_structure(
         &mut self,
         auto_wbs: bool,
@@ -554,20 +554,20 @@ impl TaskContainer {
             return;
         }
 
-        // Java: Collections.sort(this);（Task.compareTo 按 ID 比较）
+        // Java: Collections.sort(this); (Task.compareTo compares by ID)
         self.sort();
 
         // Java: m_projectFile.getChildTasks().clear();
-        // ProjectFile.getChildTasks() 即本容器的 m_childTasks（见文件头）
+        // ProjectFile.getChildTasks() is this container's m_childTasks (see the file header)
         self.child_tasks.clear();
 
         let mut last_task: Option<Rc<RefCell<Task>>> = None;
         let mut last_level: i32 = -1;
 
-        // 先克隆一份列表：循环体内会修改 child_tasks（Java 迭代的是同一列表，但只读）
+        // Clone the list first: the loop body modifies child_tasks (Java iterates over the same list, but read-only)
         for task in self.items.clone() {
             // Java: task.clearChildTasks();
-            // （`Task::clear_child_tasks` 为以 `this` 为首参的关联函数）
+            // (`Task::clear_child_tasks` is an associated function with `this` as the first parameter)
             Task::clear_child_tasks(&task);
 
             let mut parent: Option<Rc<RefCell<Task>>> = None;
@@ -615,11 +615,11 @@ impl TaskContainer {
 
                 // Java: if (autoWbs || task.getWBS() == null) { task.generateWBS(parent); }
                 //
-                // Java 的 `generateWBS(null)` 读取 `m_projectFile.getChildTasks().size()`；
-                // 本方法正是该计数的权威来源（`TaskContainer.child_tasks` 即
-                // `ProjectFile.getChildTasks()`），且此刻调用方可能正持有 `ProjectFile`
-                // 的借用而无法安全回调，故显式传入（与 Java 取值完全一致：当前任务尚未
-                // 登记进 child_tasks，因此 len() 即「前面已登记的顶层任务数」）。
+                // Java's `generateWBS(null)` reads `m_projectFile.getChildTasks().size()`;
+                // this method is exactly the authoritative source of that count (`TaskContainer.child_tasks` is
+                // `ProjectFile.getChildTasks()`), and at this moment the caller may be holding a `ProjectFile`
+                // borrow and cannot safely call back, so it is passed in explicitly (fully consistent with Java's value: the current task has not yet
+                // been registered in child_tasks, so len() is "the number of top-level tasks already registered before it").
                 let has_wbs = read_task(&task, |task| task.get_wbs().is_some()).unwrap_or(false);
                 if auto_wbs || !has_wbs {
                     if let Ok(mut task_ref) = task.try_borrow_mut() {
@@ -642,8 +642,8 @@ impl TaskContainer {
             //       else { parent.addChildTask(task); }
             match parent {
                 // Java: parent.addChildTask(task);
-                // （`Task::add_child_task` 为以 `this` 为首参的关联函数；
-                //   这里传入已读取好的 `autoOutlineLevel`，避免回调父文件）
+                // (`Task::add_child_task` is an associated function with `this` as the first parameter;
+                //   the already-read `autoOutlineLevel` is passed in here to avoid calling back into the parent file)
                 Some(parent) => {
                     Task::add_child_task_with_auto_outline_level(&parent, &task, auto_outline_level)
                 }
@@ -653,12 +653,12 @@ impl TaskContainer {
         }
     }
 
-    /// 取任务自定义字段列表。
+    /// Gets the task custom field list.
     ///
-    /// 对应 Java: `public List<CustomField> getCustomFields()`
+    /// Corresponds to Java: `public List<CustomField> getCustomFields()`
     ///
-    /// Java: `m_projectFile.getCustomFields().getCustomFieldsByFieldTypeClass(FieldTypeClass.TASK)`；
-    /// 父文件未接线时返回空列表（Java 必然可用）。
+    /// Java: `m_projectFile.getCustomFields().getCustomFieldsByFieldTypeClass(FieldTypeClass.TASK)`;
+    /// Returns an empty list when the parent file is not wired up (in Java it is always available).
     pub fn get_custom_fields(&self) -> Vec<Rc<RefCell<CustomField>>> {
         let Some(custom_fields) = self.custom_field_container() else {
             return Vec::new();
@@ -670,11 +670,11 @@ impl TaskContainer {
         result
     }
 
-    /// 按别名取字段类型。
+    /// Gets the field type by alias.
     ///
-    /// 对应 Java: `public FieldType getFieldTypeByAlias(String alias)`
+    /// Corresponds to Java: `public FieldType getFieldTypeByAlias(String alias)`
     ///
-    /// Java 返回 `FieldType`，Rust 侧返回 [`FieldKey`]（见文件头）；父文件未接线时返回 `None`。
+    /// Java returns `FieldType`, the Rust side returns [`FieldKey`] (see the file header); returns `None` when the parent file is not wired up.
     pub fn get_field_type_by_alias(&self, alias: &str) -> Option<FieldKey> {
         let custom_fields = self.custom_field_container()?;
         let field_type = custom_fields
@@ -683,9 +683,9 @@ impl TaskContainer {
         field_type
     }
 
-    /// 重排 unique ID 时使用的第一个值：存在 ID 为 0 的任务时从 0 开始，否则从 1 开始。
+    /// The first value used when renumbering unique IDs: starts from 0 if a task with ID 0 exists, otherwise from 1.
     ///
-    /// 对应 Java: `@Override protected int firstUniqueID()`
+    /// Corresponds to Java: `@Override protected int firstUniqueID()`
     pub fn first_unique_id(&self) -> i32 {
         // Java: Task firstEntity = getByID(Integer.valueOf(0));
         //       return firstEntity == null ? 1 : 0;
@@ -696,43 +696,43 @@ impl TaskContainer {
         }
     }
 
-    /// 按 ID 查找任务，找不到时返回 `None`。
+    /// Finds a task by ID; returns `None` when not found.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.getByID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.getByID(Integer id)`
     pub fn get_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Task>>> {
         let id = id?;
         self.id_map.get(&id).cloned()
     }
 
-    /// 登记一条 ID 映射。
+    /// Registers an ID mapping.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.mapID(Integer id, T entity)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.mapID(Integer id, T entity)`
     pub fn map_id(&mut self, id: i32, task: Rc<RefCell<Task>>) {
         self.id_map.insert(id, task);
     }
 
-    /// 删除一条 ID 映射。
+    /// Removes an ID mapping.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.unmapID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.unmapID(Integer id)`
     pub fn unmap_id(&mut self, id: Option<i32>) {
         if let Some(id) = id {
             self.id_map.remove(&id);
         }
     }
 
-    /// 取下一个可用的任务 ID。
+    /// Gets the next available task ID.
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.getNextID()`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.getNextID()`
     pub fn get_next_id(&self) -> i32 {
         self.id_sequence.get_next()
     }
 
-    /// 让所有任务的 ID 连续排列（先按 ID 排序，再依次赋值）。
+    /// Makes all task IDs consecutive (sort by ID first, then assign in order).
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer.renumberIDs()`
+    /// Corresponds to Java: `ProjectEntityWithIDContainer.renumberIDs()`
     ///
-    /// Java 中 `Collections.sort` 会经 `set(int, T)` 触发 `replaced` 回调；`TaskContainer`
-    /// 未覆写 `replaced`，故无额外效果，Rust 侧直接排序。
+    /// In Java `Collections.sort` triggers the `replaced` callback through `set(int, T)`; `TaskContainer`
+    /// does not override `replaced`, so there is no additional effect, and the Rust side sorts directly.
     pub fn renumber_ids(&mut self) {
         if self.items.is_empty() {
             return;
@@ -758,11 +758,11 @@ impl TaskContainer {
         }
     }
 
-    /// 按 unique ID 查找任务，找不到时返回 `None`。
+    /// Finds a task by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     ///
-    /// Rust 侧按 unique ID 线性查找（无索引，见文件头）。
+    /// The Rust side uses linear search by unique ID (no index, see the file header).
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Task>>> {
         let id = id?;
         self.items
@@ -771,11 +771,11 @@ impl TaskContainer {
             .map(Rc::clone)
     }
 
-    /// 任务的 unique ID 变化时更新容器状态。
+    /// Updates the container state when a task's unique ID changes.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     ///
-    /// Rust 侧按 unique ID 线性查找，因此只需维护冲突列表与序号生成器。
+    /// The Rust side uses linear search by unique ID, so it only needs to maintain the conflict list and the sequence generator.
     pub fn update_unique_id(
         &mut self,
         element: &Rc<RefCell<Task>>,
@@ -783,14 +783,14 @@ impl TaskContainer {
         new_unique_id: Option<i32>,
     ) {
         // Java: if (oldUniqueID != null) { m_uniqueIDMap.remove(oldUniqueID); }
-        // Rust 侧为线性查找，没有需要移除的索引项。
+        // The Rust side uses linear search, so there is no index entry to remove.
         let _ = old_unique_id;
 
         // Java: T currentElement = m_uniqueIDMap.get(newUniqueID);
         //       if (currentElement == element) return;
         //       if (currentElement instanceof ProjectEntityWithMutableUniqueID)
         //       { m_uniqueIDClashList.add(element); }
-        // Task 的 unique ID 可变，故与 Java 一致地记录冲突。
+        // A Task's unique ID is mutable, so a conflict is recorded consistently with Java.
         if self
             .find_other_with_unique_id(new_unique_id, element)
             .is_some()
@@ -805,9 +805,9 @@ impl TaskContainer {
         }
     }
 
-    /// 为出现 unique ID 冲突的任务重新分配 unique ID。
+    /// Reallocates unique IDs for tasks that have unique ID conflicts.
     ///
-    /// 对应 Java: `ProjectEntityContainer.fixUniqueIdClashes()`
+    /// Corresponds to Java: `ProjectEntityContainer.fixUniqueIdClashes()`
     pub fn fix_unique_id_clashes(&mut self) {
         if self.unique_id_clash_list.is_empty() {
             return;
@@ -815,8 +815,8 @@ impl TaskContainer {
 
         // Java: ObjectSequence sequence = m_sequenceProvider.getUniqueIdObjectSequence(
         //          m_uniqueIDClashList.get(0).getClass());
-        // Rust 侧父文件未接线时无法取得序号生成器（Java 此时必然可用），
-        // 保留冲突列表待接线后再处理。
+        // On the Rust side, when the parent file is not wired up the sequence generator cannot be obtained (in Java it is always available),
+        // so the conflict list is kept and processed once wiring is complete.
         let Some(sequence) = self.sequence() else {
             return;
         };
@@ -829,12 +829,12 @@ impl TaskContainer {
         }
 
         // Java: m_uniqueIDMap.clear(); forEach(i -> m_uniqueIDMap.put(...));
-        // Rust 侧按 unique ID 线性查找，没有索引需要重建。
+        // The Rust side uses linear search by unique ID, so there is no index to rebuild.
     }
 
-    /// 在指定下标插入任务（越界返回 `false`）。
+    /// Inserts a task at the given index (returns `false` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     pub fn add_at(&mut self, index: usize, task: Rc<RefCell<Task>>) -> bool {
         if index > self.items.len() {
             return false;
@@ -845,11 +845,11 @@ impl TaskContainer {
         true
     }
 
-    /// 替换指定下标的任务，返回被替换掉的旧任务（越界返回 `None`）。
+    /// Replaces the task at the given index, returning the old task that was replaced (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     ///
-    /// 与 Java 一致：`TaskContainer` 未覆写 `replaced`，故替换**不**更新 ID / unique ID 索引。
+    /// Consistent with Java: `TaskContainer` does not override `replaced`, so replacement does **not** update the ID / unique ID index.
     pub fn set(&mut self, index: usize, task: Rc<RefCell<Task>>) -> Option<Rc<RefCell<Task>>> {
         if index >= self.items.len() {
             return None;
@@ -858,9 +858,9 @@ impl TaskContainer {
         Some(std::mem::replace(&mut self.items[index], task))
     }
 
-    /// 移除指定下标的任务并返回它（越界返回 `None`）。
+    /// Removes and returns the task at the given index (returns `None` if out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove_at(&mut self, index: usize) -> Option<Rc<RefCell<Task>>> {
         if index >= self.items.len() {
             return None;
@@ -871,9 +871,9 @@ impl TaskContainer {
         Some(removed)
     }
 
-    /// 按任务身份移除一个任务（等效于 Java 的 `ListWithCallbacks.remove(Object)`）。
+    /// Removes a task by its identity (equivalent to Java's `ListWithCallbacks.remove(Object)`).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(Object o)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(Object o)`
     pub fn remove_task(&mut self, task: &Rc<RefCell<Task>>) -> bool {
         let index = self
             .items
@@ -890,63 +890,63 @@ impl TaskContainer {
         }
     }
 
-    /// 清空任务列表（不触发 `removed`，与 Java 一致）。
+    /// Clears the task list (does not trigger `removed`, consistent with Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     ///
-    /// 与 Java 相同：`clear()` 不清空 `m_idMap`（因此不清空 Rust 侧的 `id_map`）。
-    /// 顶层任务列表也按 Java 的行为保持不变（`updateStructure` 会显式清空它）。
+    /// Same as Java: `clear()` does not clear `m_idMap` (and therefore does not clear the Rust side's `id_map`).
+    /// The top-level task list also remains unchanged as in Java (`updateStructure` clears it explicitly).
     pub fn clear(&mut self) {
         self.items.clear();
     }
 
-    /// 按下标取任务；越界返回 `None`。
+    /// Gets the task at the given index; returns `None` if out of bounds.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<Task>>> {
         self.items.get(index).map(Rc::clone)
     }
 
-    /// 任务个数。
+    /// The number of tasks.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 容器是否为空。
+    /// Whether the container is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代容器内的任务。
+    /// Iterates over the tasks in the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<Task>>> {
         self.items.iter()
     }
 
-    /// 以切片形式访问容器内的任务。
+    /// Accesses the tasks in the container as a slice.
     ///
-    /// 对应 Java: 基类（`ArrayList`）的列表视图。
+    /// Corresponds to Java: the base class's (`ArrayList`) list view.
     pub fn as_slice(&self) -> &[Rc<RefCell<Task>>] {
         self.items.as_slice()
     }
 
-    /// 按任务 ID 就地排序（等价于 Java 的 `Collections.sort(this)`）。
+    /// Sorts in place by task ID (equivalent to Java's `Collections.sort(this)`).
     ///
-    /// 对应 Java: `ProjectEntityWithIDContainer` 中的 `Collections.sort(this)`
-    /// （经 `Task.compareTo` 按 ID 比较）
+    /// Corresponds to Java: `Collections.sort(this)` in `ProjectEntityWithIDContainer`
+    /// (compared by ID via `Task.compareTo`)
     pub fn sort(&mut self) {
         self.items
             .sort_by_key(|task| read_task(task, |task| task.get_id()).flatten().unwrap_or(0));
     }
 
-    /// 任务加入后的索引维护。
+    /// Index maintenance after a task is added.
     ///
-    /// 对应 Java: `ProjectEntityContainer.added(T element)`
+    /// Corresponds to Java: `ProjectEntityContainer.added(T element)`
     fn added(&mut self, element: &Rc<RefCell<Task>>) {
         // Java: if (element.getUniqueID() == null) return;
         let Some(unique_id) = read_task(element, |task| task.get_unique_id()).flatten() else {
@@ -956,41 +956,41 @@ impl TaskContainer {
         // Java: T currentElement = m_uniqueIDMap.get(uniqueID); if (currentElement == element) return;
         //       if (currentElement instanceof ProjectEntityWithMutableUniqueID)
         //       { m_uniqueIDClashList.add(element); }
-        // Task 的 unique ID 可变，故与 Java 一致地记录冲突。
+        // A Task's unique ID is mutable, so a conflict is recorded consistently with Java.
         if self.find_other_with_unique_id(Some(unique_id), element).is_some() {
             self.unique_id_clash_list.push(Rc::clone(element));
         }
 
         // Java: m_uniqueIDMap.put(element.getUniqueID(), element);
-        // Rust 侧按 unique ID 线性查找，没有索引需要写入。
+        // The Rust side uses linear search by unique ID, so there is no index to write.
     }
 
-    /// 取父项目文件提供的 `Task` 序号生成器（父文件未接线或已被借用时返回 `None`）。
+    /// Gets the `Task` sequence generator provided by the parent project file (returns `None` when the parent file is not wired up or is already borrowed).
     ///
-    /// 对应 Java: `m_sequenceProvider.getUniqueIdObjectSequence(Task.class)`
+    /// Corresponds to Java: `m_sequenceProvider.getUniqueIdObjectSequence(Task.class)`
     fn sequence(&self) -> Option<Rc<ObjectSequence>> {
         let project_file = self.context.upgrade()?;
         let mut project_file = project_file.try_borrow_mut().ok()?;
 
-        // 兼容两种形态：ProjectFile 作为 `UniqueIdObjectSequenceProvider` 的实现
-        //（Java 一致），或提供同签名的固有方法（`crate::task` 的假设）。
+        // Compatible with two forms: ProjectFile implementing `UniqueIdObjectSequenceProvider`
+        // (as in Java), or providing an inherent method with the same signature (the assumption in `crate::task`).
         Some(project_file.get_unique_id_object_sequence(TypeId::of::<Task>()))
     }
 
-    /// 取父项目文件的自定义字段容器。
+    /// Gets the custom field container of the parent project file.
     ///
-    /// 对应 Java: `m_projectFile.getCustomFields()`
+    /// Corresponds to Java: `m_projectFile.getCustomFields()`
     fn custom_field_container(&self) -> Option<Rc<RefCell<CustomFieldContainer>>> {
         let project_file = self.context.upgrade()?;
         let project_file = project_file.try_borrow().ok()?;
         Some(project_file.get_custom_fields())
     }
 
-    /// 查找另一个占用指定 unique ID 的任务（Java 用 unique ID 索引判断「该 ID 已被占用」）。
+    /// Finds another task occupying the given unique ID (Java uses the unique ID index to determine "that ID is already occupied").
     ///
-    /// Java 的索引在同一 unique ID 被多次登记时保存**最后**加入的元素；Rust 侧按列表顺序取
-    /// 第一个同 ID 的**其他**元素，等价表达「已被占用」的判定（仅可能影响冲突列表中元素的
-    /// 顺序，不影响最终分配结果）。
+    /// Java's index stores the **last** element added when the same unique ID is registered multiple times; the Rust side takes, in list order,
+    /// the first **other** element with the same ID, equivalently expressing the "already occupied" determination (this can only affect the
+    /// order of elements in the conflict list, not the final allocation result).
     fn find_other_with_unique_id(
         &self,
         unique_id: Option<i32>,
@@ -1008,16 +1008,16 @@ impl TaskContainer {
 }
 
 impl Default for TaskContainer {
-    /// 对应 Java: 显式声明的 `TaskContainer(ProjectFile)`，
-    /// Rust 侧等价于 [`TaskContainer::new`]（父文件由 `set_context` 接线）。
+    /// Corresponds to Java: the explicitly declared `TaskContainer(ProjectFile)`,
+    /// equivalent on the Rust side to [`TaskContainer::new`] (the parent file is wired up by `set_context`).
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for TaskContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出容器规模、顶层任务数与父文件接线情况
-    /// （避免依赖 `Task` 的 `Debug` 实现）。
+    /// Java does not override `toString()`; the Rust side outputs the container size, top-level task count, and parent file wiring state
+    /// (to avoid depending on `Task`'s `Debug` implementation).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("TaskContainer")
             .field("size", &self.items.len())
@@ -1027,7 +1027,7 @@ impl Debug for TaskContainer {
     }
 }
 
-/// 以 `try_borrow` 读取任务字段，已被可变借用时返回 `None`（不 panic）。
+/// Reads a task field with `try_borrow`, returning `None` when it is already mutably borrowed (without panicking).
 fn read_task<T>(task: &Rc<RefCell<Task>>, read: impl FnOnce(&Task) -> T) -> Option<T> {
     task.try_borrow().ok().map(|task| read(&task))
 }
@@ -1036,7 +1036,7 @@ fn read_task<T>(task: &Rc<RefCell<Task>>, read: impl FnOnce(&Task) -> T) -> Opti
 mod tests {
     use super::*;
 
-    /// 接线到新建父文件的任务容器。
+    /// Wires up to the new parent file's task container.
     fn container() -> (TaskContainer, Rc<RefCell<ProjectFile>>) {
         let project_file = ProjectFile::new();
         let mut container = TaskContainer::new();
@@ -1044,12 +1044,12 @@ mod tests {
         (container, project_file)
     }
 
-    /// 在指定父文件下新建一个任务（不入容器）。
+    /// Creates a new task under the given parent file (not added to the container).
     fn task(project_file: &Rc<RefCell<ProjectFile>>) -> Rc<RefCell<Task>> {
         Rc::new(RefCell::new(Task::new_in_file(project_file, None)))
     }
 
-    /// 在指定父文件下新建一个带 ID 与大纲级别的任务，并加入容器。
+    /// Creates a new task with an ID and outline level under the given parent file, and adds it to the container.
     fn add_task(
         container: &mut TaskContainer,
         project_file: &Rc<RefCell<ProjectFile>>,
@@ -1077,19 +1077,19 @@ mod tests {
         assert!(!container.is_empty());
         assert_eq!(container.get_child_tasks().len(), 1);
         assert!(Rc::ptr_eq(
-            &container.get(0).expect("下标 0 存在"),
+            &container.get(0).expect("index 0 exists"),
             &task
         ));
         assert!(Rc::ptr_eq(
             &container.get_child_tasks()[0],
-            &container.get(0).expect("下标 0 存在")
+            &container.get(0).expect("index 0 exists")
         ));
         assert!(container.get(1).is_none());
     }
 
     #[test]
     fn add_without_context_still_creates_task() {
-        // Java 中 m_projectFile 必然存在；Rust 侧未接线时退化为无父文件的任务（见文件头）
+        // In Java m_projectFile always exists; on the Rust side, when not wired up it degrades gracefully to a task without a parent file (see the file header)
         let mut container = TaskContainer::new();
         let task = container.add();
 
@@ -1111,27 +1111,27 @@ mod tests {
         assert_eq!(container.iter().count(), 2);
         assert_eq!(container.as_slice().len(), 2);
 
-        // add_at 插入
+        // add_at insertion
         assert!(container.add_at(1, Rc::clone(&third)));
-        assert!(Rc::ptr_eq(&container.get(1).expect("下标 1 存在"), &third));
+        assert!(Rc::ptr_eq(&container.get(1).expect("index 1 exists"), &third));
         assert!(!container.add_at(9, Rc::clone(&first)));
 
-        // set 替换（与 Java 一致：不更新索引）
+        // set replacement (consistent with Java: does not update the index)
         let replacement = task(&project_file);
-        let old = container.set(0, Rc::clone(&replacement)).expect("下标 0 存在");
+        let old = container.set(0, Rc::clone(&replacement)).expect("index 0 exists");
         assert!(Rc::ptr_eq(&old, &first));
         assert!(container.set(9, Rc::clone(&first)).is_none());
 
-        // remove_at 移除
-        let removed = container.remove_at(0).expect("下标 0 存在");
+        // remove_at removal
+        let removed = container.remove_at(0).expect("index 0 exists");
         assert!(Rc::ptr_eq(&removed, &replacement));
         assert!(container.remove_at(9).is_none());
 
-        // remove_task 按身份移除
+        // remove_task removal by identity
         assert!(container.remove_task(&third));
         assert!(!container.remove_task(&third));
 
-        // clear 清空列表（与 Java 一致：不清空 ID 索引）
+        // clear the list (consistent with Java: does not clear the ID index)
         container.clear();
         assert!(container.is_empty());
     }
@@ -1146,7 +1146,7 @@ mod tests {
 
         container.map_id(7, Rc::clone(&task));
         assert!(Rc::ptr_eq(
-            &container.get_by_id(Some(7)).expect("已映射"),
+            &container.get_by_id(Some(7)).expect("mapped"),
             &task
         ));
 
@@ -1154,7 +1154,7 @@ mod tests {
         assert!(container.get_by_id(Some(7)).is_none());
         container.unmap_id(None);
 
-        // Java: ProjectEntityWithIDContainer.m_idSequence 从 1 开始
+        // Java: ProjectEntityWithIDContainer.m_idSequence starts from 1
         assert_eq!(container.get_next_id(), 1);
         assert_eq!(container.get_next_id(), 2);
     }
@@ -1183,13 +1183,13 @@ mod tests {
         container.add_task(Rc::clone(&second));
 
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(3)).expect("已登记"),
+            &container.get_by_unique_id(Some(3)).expect("registered"),
             &first
         ));
         assert!(container.get_by_unique_id(Some(9)).is_none());
         assert!(container.get_by_unique_id(None).is_none());
 
-        // 把 second 的 unique ID 改成与 first 相同 → 进入冲突列表
+        // Change second's unique ID to be the same as first → it enters the conflict list
         container.update_unique_id(&second, Some(4), Some(3));
         assert!(container
             .get_by_unique_id(Some(3))
@@ -1199,14 +1199,14 @@ mod tests {
         container.fix_unique_id_clashes();
 
         let renumbered =
-            read_task(&second, |task| task.get_unique_id()).flatten().expect("仍有 unique ID");
+            read_task(&second, |task| task.get_unique_id()).flatten().expect("still has a unique ID");
         assert_ne!(renumbered, 3);
         assert_eq!(
             read_task(&first, |task| task.get_unique_id()).flatten(),
             Some(3)
         );
 
-        // 序号生成器来自父文件（ProjectFile 实现 UniqueIdObjectSequenceProvider）
+        // The sequence generator comes from the parent file (ProjectFile implements UniqueIdObjectSequenceProvider)
         let next = UniqueIdObjectSequenceProvider::get_unique_id_object_sequence(
             &mut *project_file.borrow_mut(),
             TypeId::of::<Task>(),
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn fix_unique_id_clashes_without_context_keeps_clash_list() {
-        // 父文件未接线：Java 会因序号生成器不可用而抛异常，Rust 侧退化为不做任何事
+        // Parent file not wired up: Java throws an exception because the sequence generator is unavailable; the Rust side degrades gracefully to doing nothing
         let mut container = TaskContainer::new();
         let project_file = ProjectFile::new();
 
@@ -1249,12 +1249,12 @@ mod tests {
         container.add_task(Rc::clone(&grandchild));
         container.get_child_tasks_mut().push(Rc::clone(&parent));
 
-        // 将 child 挂到 parent 之下（Java: Task.addChildTask）
+        // Attach child under parent (Java: Task.addChildTask)
         Task::add_child_task(&parent, &child);
 
         assert_eq!(container.len(), 3);
 
-        // Java: removed 会递归移除子任务，并从父 / 项目顶层列表移除
+        // Java: removed recursively removes child tasks and removes from the parent / project top-level list
         container.remove_task(&parent);
 
         assert!(container.is_empty());
@@ -1266,7 +1266,7 @@ mod tests {
     fn update_structure_builds_hierarchy_from_outline_levels() {
         let (mut container, project_file) = container();
 
-        // 层级：0 / 1 / 2 / 0（最后一个任务回到顶层）
+        // Hierarchy: 0 / 1 / 2 / 0 (the last task returns to the top level)
         let root = add_task(&mut container, &project_file, 1, 0);
         let child = add_task(&mut container, &project_file, 2, 1);
         let grandchild = add_task(&mut container, &project_file, 3, 2);
@@ -1274,7 +1274,7 @@ mod tests {
 
         container.update_structure(true, true, true);
 
-        // 顶层任务：root 与 second_root
+        // Top-level tasks: root and second_root
         let root_tasks = container.get_child_tasks();
         assert_eq!(root_tasks.len(), 2);
         assert!(Rc::ptr_eq(&root_tasks[0], &root));
@@ -1289,14 +1289,14 @@ mod tests {
         assert_eq!(child_children.len(), 1);
         assert!(Rc::ptr_eq(&child_children[0], &grandchild));
 
-        // Java: autoWbs / autoOutlineNumber 默认开启 → 生成 WBS 与大纲编号
+        // Java: autoWbs / autoOutlineNumber are enabled by default → generate WBS and outline numbering
         assert!(read_task(&root, |task| task.get_wbs().is_some()).unwrap_or(false));
         assert!(read_task(&child, |task| task.get_wbs().is_some()).unwrap_or(false));
         assert!(read_task(&grandchild, |task| task.get_wbs().is_some()).unwrap_or(false));
     }
 
-    /// Java: `removed(Task)` 会删除该任务的全部资源分配
-    /// （`assignment.getTaskUniqueID().equals(task.getUniqueID())`）。
+    /// Java: `removed(Task)` deletes all resource assignments of that task
+    /// (`assignment.getTaskUniqueID().equals(task.getUniqueID())`).
     #[test]
     fn removed_deletes_the_tasks_resource_assignments() {
         let (mut container, project_file) = container();
@@ -1323,7 +1323,7 @@ mod tests {
 
         container.remove_task(&task);
 
-        // 只删除 taskUniqueID 匹配的那一条
+        // Delete only the one whose taskUniqueID matches
         let assignments = project_file.borrow();
         let remaining = assignments.get_resource_assignments().as_slice();
         assert_eq!(remaining.len(), 2);
@@ -1349,7 +1349,7 @@ mod tests {
 
         assert_eq!(container.len(), 1);
         assert_eq!(container.get_child_tasks().len(), 0);
-        // Java: autoWbs 默认开启，任务创建时就已生成 WBS；updateStructure 对单任务不再改变它
+        // Java: autoWbs is enabled by default, so WBS is already generated when the task is created; updateStructure does not change it for a single task
         assert_eq!(
             read_task(&only, |task| task.get_wbs()).flatten(),
             wbs_before
@@ -1361,7 +1361,7 @@ mod tests {
         let (mut container, project_file) = container();
         let mut tasks = Vec::new();
 
-        // 模拟「文件里没有 WBS / 大纲编号列」：清掉构造时自动生成的值
+        // Simulate "the file has no WBS / outline numbering column": clear the values generated automatically at construction time
         for id in 1..=3 {
             let task = add_task(&mut container, &project_file, id, 0);
             {
@@ -1383,7 +1383,7 @@ mod tests {
             .map(|task| read_task(task, |task| task.get_outline_number()).flatten())
             .collect();
 
-        // Java: 顶层任务按调用时刻的 getChildTasks().size() + 1 依次得到 1、2、3
+        // Java: top-level tasks get 1, 2, 3 in turn, based on getChildTasks().size() + 1 at call time
         assert_eq!(
             wbs,
             vec![
@@ -1400,38 +1400,38 @@ mod tests {
         let (mut container, project_file) = container();
         let task = add_task(&mut container, &project_file, 7, 0);
 
-        // ID 变更发生在任务入容器之后 —— 此时 `Task::set_self_reference` 已接线，
-        // `set_id` 应像 Java 的 `setID` 一样回调容器的 map_id / unmap_id
+        // The ID change happens after the task enters the container — at this point `Task::set_self_reference` is wired up,
+        // and `set_id` should call back into the container's map_id / unmap_id just like Java's `setID`
         task.borrow_mut().set_id(Some(9));
 
         let file = project_file.borrow();
         assert!(
             file.get_task_by_id(Some(9)).is_some(),
-            "新 ID 应登记进父文件的任务索引"
+            "new ID should be registered in the parent file's task index"
         );
         assert!(
             file.get_task_by_id(Some(7)).is_none(),
-            "旧 ID 应从父文件的任务索引中解除"
+            "old ID should be removed from the parent file's task index"
         );
     }
 
     #[test]
     fn update_structure_is_safe_while_the_file_is_borrowed() {
-        // 回归：修复前 `TaskContainer::update_structure` 会经
-        // `Task::generate_wbs` / `Task::add_child_task` 重入借用父文件，若调用方正持有
-        // `ProjectFile` 的可变借用就会 panic，调用方只能把任务容器临时移出文件再处理
-        // （代价是顶层任务计数丢失、WBS 恒为 1）。此测试直接复现该调用姿势。
+        // Regression: before the fix, `TaskContainer::update_structure` would re-enter and borrow the parent file through
+        // `Task::generate_wbs` / `Task::add_child_task`; if the caller held a `ProjectFile`
+        // mutable borrow it would panic, and the caller could only temporarily move the task container out of the file for processing
+        // (at the cost of losing the top-level task count and always getting a WBS of 1). This test reproduces that call pattern directly.
         let (mut container, project_file) = container();
 
         for id in 1..=3 {
             let task = add_task(&mut container, &project_file, id, 0);
             let mut task_ref = task.borrow_mut();
-            // 模拟「文件里没有 WBS / 大纲编号列」
+            // Simulate "the file has no WBS / outline numbering column"
             task_ref.set_wbs(None);
             task_ref.set_outline_number(None);
         }
 
-        // 把容器装回父文件，然后**持有其可变借用**原地调用
+        // Put the container back into the parent file, then call in place **while holding its mutable borrow**
         *project_file.borrow_mut().get_tasks_mut() = container;
         project_file.borrow_mut().update_structure();
 
@@ -1455,26 +1455,26 @@ mod tests {
 
     #[test]
     fn add_is_safe_while_the_file_is_borrowed() {
-        // 回归：修复前 `TaskContainer::add` 会经 `Task::new_in_file` 借用父文件，而调用方
-        // （`ProjectFile::add_task`）必然持有 `ProjectFile` 的可变借用 → 必然 panic。
-        // 此测试直接复现该调用姿势。
+        // Regression: before the fix, `TaskContainer::add` would borrow the parent file through `Task::new_in_file`, while the caller
+        // (`ProjectFile::add_task`) necessarily held a mutable `ProjectFile` borrow → it would necessarily panic.
+        // This test reproduces that call pattern directly.
         let (container, project_file) = container();
         *project_file.borrow_mut().get_tasks_mut() = container;
 
         let first = project_file.borrow_mut().add_task();
         let second = project_file.borrow_mut().add_task();
 
-        // 自动赋值确实发生了（而不是因借用失败被静默跳过）
+        // Automatic assignment really happened (rather than being silently skipped due to a failed borrow)
         assert!(first.borrow().get_unique_id().is_some());
         assert!(second.borrow().get_unique_id().is_some());
         assert_ne!(first.borrow().get_id(), None);
         assert_ne!(second.borrow().get_id(), None);
 
-        // 顶层任务的 WBS 依次递增
+        // The WBS of top-level tasks increases in turn
         assert_eq!(first.borrow().get_wbs(), Some("1".to_owned()));
         assert_eq!(second.borrow().get_wbs(), Some("2".to_owned()));
 
-        // 自动分配的任务 ID 已登记进索引
+        // The automatically assigned task ID has been registered in the index
         let first_id = first.borrow().get_id();
         assert!(project_file.borrow().get_task_by_id(first_id).is_some());
     }
@@ -1483,7 +1483,7 @@ mod tests {
     fn synchronize_task_id_to_hierarchy_renumbers_depth_first() {
         let (mut container, project_file) = container();
 
-        // ID 与大纲级别一致：5（顶层）→ 6 → 7
+        // ID and outline level agree: 5 (top level) → 6 → 7
         let root = add_task(&mut container, &project_file, 5, 0);
         let child = add_task(&mut container, &project_file, 6, 1);
         let grandchild = add_task(&mut container, &project_file, 7, 2);
@@ -1491,12 +1491,12 @@ mod tests {
         container.update_structure(true, true, true);
         container.synchronize_task_id_to_hierarchy();
 
-        // Java: currentID 从 firstUniqueID()（1）开始，深度优先依次编号
+        // Java: currentID starts from firstUniqueID() (1) and numbers depth-first in order
         assert_eq!(read_task(&root, |task| task.get_id()).flatten(), Some(1));
         assert_eq!(read_task(&child, |task| task.get_id()).flatten(), Some(2));
         assert_eq!(read_task(&grandchild, |task| task.get_id()).flatten(), Some(3));
 
-        // Java: 同时更新大纲级别（currentLevel 初始值等于 currentID，即 1）
+        // Java: also updates the outline level (currentLevel's initial value equals currentID, i.e. 1)
         assert_eq!(
             read_task(&root, |task| task.get_outline_level()).flatten(),
             Some(1)
@@ -1522,8 +1522,8 @@ mod tests {
         assert_eq!(read_task(&second, |task| task.get_id()).flatten(), Some(1));
         assert_eq!(read_task(&first, |task| task.get_id()).flatten(), Some(2));
 
-        // ID 为 0 的任务存在时从 0 开始
-        // （这里不再调用 container()，其上文的同名局部变量会遮蔽该测试辅助函数）
+        // Starts from 0 when a task with ID 0 exists
+        // (container() is no longer called here, since the same-named local variable above would shadow that test helper function)
         let second_project_file = ProjectFile::new();
         let mut second_container = TaskContainer::new();
         second_container.set_context(&second_project_file);
@@ -1543,7 +1543,7 @@ mod tests {
         assert!(container.get_custom_fields().is_empty());
         assert_eq!(container.get_field_type_by_alias("MyAlias"), None);
 
-        // 父文件未接线时同样退化为空
+        // Also degrades gracefully to empty when the parent file is not wired up
         let container = TaskContainer::new();
         assert!(container.get_custom_fields().is_empty());
         assert_eq!(container.get_field_type_by_alias("MyAlias"), None);
@@ -1565,7 +1565,7 @@ mod tests {
     fn context_can_be_read_back() {
         let (container, project_file) = container();
         assert!(Rc::ptr_eq(
-            &container.get_context().expect("已接线"),
+            &container.get_context().expect("wired up"),
             &project_file
         ));
         assert!(TaskContainer::new().get_context().is_none());

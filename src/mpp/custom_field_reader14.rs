@@ -1,23 +1,23 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldReader14.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldReader14.java`
 //!
-//! 读取 MPP14 的字段别名（`Props` 里的 `CUSTOM_FIELDS` 块）。块结构与 MPP12 相同
-//!（别名块 → 两个未知块 → 字段定义块），差别是字段定义块用固定的 88 字节记录，
-//! 且 Java 侧对每个偏移都做了显式的边界检查。
+//! Reads MPP14 field aliases (the `CUSTOM_FIELDS` block in `Props`). The block structure is the same as MPP12
+//! (alias block -> two unknown blocks -> field definition block); the difference is that the field definition block uses fixed 88-byte records,
+//! and the Java side performs explicit bounds checks for every offset.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `CustomFieldReader14(ProjectFile file, byte[] data)` | `new(&Rc<RefCell<ProjectFile>>, Option<&[u8]>)` | 与 [`CustomFieldReader12`](crate::mpp::custom_field_reader12::CustomFieldReader12) 一致：`ProjectFile` 共享为 `Rc<RefCell<..>>`，可空 `byte[]` → `Option<&[u8]>`（构造时复制为 `Option<Vec<u8>>`） |
-//! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | 同 Java |
-//! | `if (offset + N > m_data.length) { return; }` | `if !has(data, offset, N) { return; }` | 语义相同，且避免 `offset + N` 溢出 |
-//! | `offset += size`（`int`，可为负） | [`advance_offset`] 返回 `Option<usize>`，回退到负偏移时中断解析 | Java 的显式边界检查随后同样会 `return` |
-//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（`crate::mpp::enterprise_custom_field_data_type` 已落地） |
-//! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | 逐个 `CustomFieldContainer::get_or_create` + `set_alias` | `FieldTypeHelper` 未识别字段号时 Java 会传 `null` 并抛 NPE；Rust 的 `FieldKey` 无「未知」变体，故跳过 |
+//! | `CustomFieldReader14(ProjectFile file, byte[] data)` | `new(&Rc<RefCell<ProjectFile>>, Option<&[u8]>)` | Consistent with [`CustomFieldReader12`](crate::mpp::custom_field_reader12::CustomFieldReader12): `ProjectFile` is shared as `Rc<RefCell<..>>`, nullable `byte[]` -> `Option<&[u8]>` (copied into `Option<Vec<u8>>` at construction) |
+//! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | Same as Java |
+//! | `if (offset + N > m_data.length) { return; }` | `if !has(data, offset, N) { return; }` | Same semantics, and avoids `offset + N` overflow |
+//! | `offset += size` (`int`, may be negative) | [`advance_offset`] returns `Option<usize>`, and parsing is interrupted when it falls back to a negative offset | Java's explicit bounds check would likewise `return` afterwards |
+//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | Delegates to that utility class as in Java (`crate::mpp::enterprise_custom_field_data_type` is already in place) |
+//! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | per-item `CustomFieldContainer::get_or_create` + `set_alias` | When `FieldTypeHelper` does not recognize the field number, Java passes `null` and throws an NPE; Rust's `FieldKey` has no "unknown" variant, so it is skipped |
 //!
-//! 跳过的 Java 方法：无（`process()` 逐行翻译，源文件中被注释掉的调试语句按原样保留注释）。
+//! Skipped Java methods: none (`process()` is translated line by line; debug statements commented out in the source are kept as comments as-is).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,33 +30,33 @@ use crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::project_file::ProjectFile;
 
-/// 读取 MPP14 的字段别名。
+/// Reads MPP14 field aliases.
 ///
-/// 对应 Java: `class CustomFieldReader14`
+/// Corresponds to Java: `class CustomFieldReader14`
 pub struct CustomFieldReader14 {
-    /// 项目文件。
+/// Project file.
     ///
-    /// 对应 Java 字段: `private final ProjectFile m_file;`
+    /// Corresponds to Java field: `private final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 
-    /// 自定义字段容器。
+/// Custom field container.
     ///
-    /// 对应 Java 字段: `private final CustomFieldContainer m_fields;`
+    /// Corresponds to Java field: `private final CustomFieldContainer m_fields;`
     fields: Rc<RefCell<CustomFieldContainer>>,
 
-    /// `Props` 中的 `CUSTOM_FIELDS` 数据块。
+/// The `CUSTOM_FIELDS` data block in `Props`.
     ///
-    /// 对应 Java 字段: `private final byte[] m_data;`
+    /// Corresponds to Java field: `private final byte[] m_data;`
     data: Option<Vec<u8>>,
 }
 
 impl CustomFieldReader14 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldReader14(ProjectFile file, byte[] data)`
+    /// Corresponds to Java: `public CustomFieldReader14(ProjectFile file, byte[] data)`
     pub fn new(file: &Rc<RefCell<ProjectFile>>, data: Option<&[u8]>) -> Self {
         // Java: m_fields = file.getCustomFields();
-        // 文件正被可变借用时（正常调用路径不会发生）退化为一枚独立容器，避免 panic。
+// When the file is already mutably borrowed (which does not happen on the normal call path), degrade gracefully to a standalone container to avoid panicking.
         let fields = match file.try_borrow() {
             Ok(file) => file.get_custom_fields(),
             Err(_) => CustomFieldContainer::new(),
@@ -69,9 +69,9 @@ impl CustomFieldReader14 {
         }
     }
 
-    /// 处理字段别名。
+/// Process field aliases.
     ///
-    /// 对应 Java: `public void process()`
+    /// Corresponds to Java: `public void process()`
     pub fn process(&self) {
         // Java: if (m_data == null) { return; }
         let Some(data) = self.data.as_deref() else {
@@ -86,7 +86,7 @@ impl CustomFieldReader14 {
         let mut offset = 0usize;
 
         // Java: int aliasBlockSize = ByteArrayHelper.getInt(m_data, offset); offset += 8;
-        //（Java 注释：先出现两次「长度」，故跳过 8 字节）
+// (Java comment: "length" appears twice first, so skip 8 bytes)
         let Some(alias_block_size) = checked_int(data, offset) else {
             return;
         };
@@ -98,7 +98,7 @@ impl CustomFieldReader14 {
         };
         offset += 4;
 
-        // Java 把 `aliasBlockSize` 当作循环上界使用：负值时循环体不执行，Rust 侧同样处理。
+// Java uses `aliasBlockSize` as the loop upper bound: a negative value means the loop body does not execute; the Rust side does the same.
         let alias_block_limit = usize::try_from(alias_block_size).unwrap_or(0);
 
         // Java: while (index < numberOfAliases && offset < aliasBlockSize)
@@ -184,11 +184,11 @@ impl CustomFieldReader14 {
         };
         offset += 4;
 
-        // Java 注释（原文保留）：//int definitionsBlockSize = MPPUtility.getInt(m_data, offset);
+// Java comment (kept verbatim): //int definitionsBlockSize = MPPUtility.getInt(m_data, offset);
         // Java: offset += 4;
         offset += 4;
 
-        // Java 注释：88 byte blocks
+// Java comment: 88 byte blocks
         for _ in 0..number_of_definitions {
             // Java: if (offset + 88 > m_data.length) { break; }
             if !has(data, offset, 88) {
@@ -201,7 +201,7 @@ impl CustomFieldReader14 {
             );
 
             // Java: FieldTypeHelper.getInstance(m_file, ByteArrayHelper.getInt(m_data, offset), customFieldDataType);
-            //（Java 只用其副作用：确保企业自定义字段被创建；返回值被丢弃）
+// (Java uses it only for its side effect: ensuring the enterprise custom field is created; the return value is discarded)
             if let Some(field_id) = checked_int(data, offset) {
                 let _ = FieldTypeHelper::get_instance_with_data_type(
                     &self.file,
@@ -216,7 +216,7 @@ impl CustomFieldReader14 {
 
         // Java: aliasMap.forEach((k, v) -> m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k.intValue())).setAlias(v));
         for (field_id, alias) in alias_map {
-            // Java 会把 `null` 传给 `getOrCreate`（随后抛 NPE）；Rust 侧跳过未识别的字段号
+// Java passes `null` to `getOrCreate` (then throws an NPE); the Rust side skips unrecognized field numbers
             let Some(field) = FieldTypeHelper::get_instance(&self.file, field_id) else {
                 continue;
             };
@@ -228,20 +228,20 @@ impl CustomFieldReader14 {
     }
 }
 
-/// 判断 `offset` 起 `size` 个字节是否落在数据块内。
+/// Determine whether `size` bytes starting at `offset` fall within the data block.
 ///
-/// 对应 Java: `offset + N > m_data.length`（Rust 侧避免加法溢出）。
+/// Corresponds to Java: `offset + N > m_data.length` (the Rust side avoids addition overflow).
 fn has(data: &[u8], offset: usize, size: usize) -> bool {
     offset
         .checked_add(size)
         .is_some_and(|end| end <= data.len())
 }
 
-/// 按 Java 的 `offset += size` 推进偏移。
+/// Advance the offset as Java's `offset += size` does.
 ///
-/// 对应 Java: `offset = 4 + aliasBlockSize` / `offset += unknownBlock1Size` 等。
-/// 结果为负时返回 `None`（Java 会在随后的越界读取中抛 `ArrayIndexOutOfBoundsException`，
-/// Rust 侧中断解析）。
+/// Corresponds to Java: `offset = 4 + aliasBlockSize` / `offset += unknownBlock1Size`, etc.
+/// Returns `None` when the result is negative (Java would throw `ArrayIndexOutOfBoundsException` in the subsequent out-of-bounds read,
+/// and the Rust side interrupts parsing).
 fn advance_offset(offset: usize, size: i32) -> Option<usize> {
     let result = i64::try_from(offset).ok()? + i64::from(size);
     usize::try_from(result).ok()
@@ -255,7 +255,7 @@ mod tests {
     use crate::field_type_class::FieldTypeClass;
     use crate::task_field::TaskField;
 
-    /// UTF-16LE（NUL 结尾）字节。
+/// UTF-16LE (NUL-terminated) bytes.
     fn utf16(text: &str) -> Vec<u8> {
         let mut bytes = Vec::new();
         for unit in text.encode_utf16() {
@@ -265,21 +265,21 @@ mod tests {
         bytes
     }
 
-    /// 拼装完整的 `CUSTOM_FIELDS` 数据块。
+/// Assemble the complete `CUSTOM_FIELDS` data block.
     ///
-    /// 与 MPP12 的差别：字段定义块的长度字段与条数是「条数在前、块大小在后」的顺序，
-    /// 且定义记录固定 88 字节，字段号在记录起始处。
+/// Difference from MPP12: the field definition block's length field and count are ordered "count first, block size second",
+/// and the definition records are fixed at 88 bytes, with the field number at the start of the record.
     ///
     /// ```text
-    /// [0..4)        别名块大小（自偏移 4 起算）
-    /// [4..8)        别名块大小（重复一次）
-    /// [8..12)       别名条数
-    /// [12..12+8n)   每条别名：字段号 + 别名偏移（Java 解析时 +4）
-    /// 其后          别名文本（UTF-16LE、NUL 结尾）
-    /// 其后          未知块 1：4 字节大小 + 内容
-    /// 其后          未知块 2：4 字节大小（0）
-    /// 其后          定义条数（4 字节）+ 定义块大小（4 字节）
-    /// 其后          定义记录：每 88 字节，起始处 4 字节字段号，+12 类型 ID
+/// [0..4)        alias block size (counted from offset 4)
+/// [4..8)        alias block size (repeated once)
+/// [8..12)       alias count
+/// [12..12+8n)   each alias: field number + alias offset (Java adds +4 when parsing)
+/// then          alias text (UTF-16LE, NUL-terminated)
+/// then          unknown block 1: 4-byte size + content
+/// then          unknown block 2: 4-byte size (0)
+/// then          definition count (4 bytes) + definition block size (4 bytes)
+/// then          definition records: 88 bytes each, 4-byte field number at the start, +12 type ID
     /// ```
     fn custom_fields_block(aliases: &[(i32, &str)], definitions: &[(i32, i32)]) -> Vec<u8> {
         let count = aliases.len();
@@ -304,17 +304,17 @@ mod tests {
         }
         data.extend_from_slice(&texts);
 
-        // 未知块 1：4 字节大小 + 内容
+// Unknown block 1: 4-byte size + content
         data.extend_from_slice(&4i32.to_le_bytes());
         data.extend_from_slice(&[0u8; 4]);
-        // 未知块 2：4 字节大小（0）
+// Unknown block 2: 4-byte size (0)
         data.extend_from_slice(&0i32.to_le_bytes());
 
-        // 定义条数 + 定义块大小
+// Definition count + definition block size
         data.extend_from_slice(&(definitions.len() as i32).to_le_bytes());
         data.extend_from_slice(&(definitions.len() as i32 * 88).to_le_bytes());
 
-        // 88 字节定义记录
+// 88-byte definition records
         for (field_id, type_id) in definitions {
             let mut record = vec![0u8; 88];
             record[0..4].copy_from_slice(&field_id.to_le_bytes());
@@ -325,17 +325,17 @@ mod tests {
         data
     }
 
-    /// 内置任务字段 NAME 的字段号。
+/// Field number of the built-in task field NAME.
     fn name_field_id() -> i32 {
         MPPTaskField::TASK_FIELD_BASE | 14
     }
 
-    /// 内置任务字段 ID 的字段号。
+/// Field number of the built-in task field ID.
     fn id_field_id() -> i32 {
         MPPTaskField::TASK_FIELD_BASE | 23
     }
 
-    /// 别名被登记到对应字段的配置上。
+/// The alias is registered on the configuration of the corresponding field.
     #[test]
     fn process_registers_aliases() {
         let block = custom_fields_block(
@@ -365,10 +365,10 @@ mod tests {
         );
     }
 
-    /// 企业自定义字段（字段号带 0x8000 位）在解析定义记录时被创建。
+/// Enterprise custom fields (field numbers with the 0x8000 bit) are created while parsing definition records.
     #[test]
     fn process_creates_enterprise_custom_fields() {
-        // 0x8000 位表示企业自定义字段，类型 ID 7 = STRING
+// The 0x8000 bit indicates an enterprise custom field; type ID 7 = STRING
         let block = custom_fields_block(&[], &[(MPPTaskField::TASK_FIELD_BASE | 0x8000, 7)]);
 
         let file = ProjectFile::new();
@@ -376,26 +376,26 @@ mod tests {
 
         CustomFieldReader14::new(&file, Some(&block)).process();
 
-        // Java 只用 `FieldTypeHelper.getInstance` 的副作用：确保企业自定义字段被创建
+// Java uses `FieldTypeHelper.getInstance` only for its side effect: ensuring the enterprise custom field is created
         assert_eq!(file.borrow().get_user_defined_fields().get_task_fields().len(), 1);
-        // 别名映射为空，故自定义字段容器里没有配置
+// The alias map is empty, so there is no configuration in the custom field container
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 数据块为 `None` / 空 / 被截断时不 panic，也不登记别名。
+/// Does not panic when the data block is `None` / empty / truncated, and does not register aliases.
     #[test]
     fn process_handles_missing_and_truncated_data() {
         let file = ProjectFile::new();
 
-        // Java: m_data == null → 直接返回
+// Java: m_data == null -> return directly
         CustomFieldReader14::new(&file, None).process();
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
 
-        // 空块
+// Empty block
         CustomFieldReader14::new(&file, Some(&[])).process();
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
 
-        // 只有别名块头：别名条目读不出来（Java 抛越界异常）
+// Only the alias block header: alias entries cannot be read (Java throws an out-of-bounds exception)
         let block = [
             32i32.to_le_bytes().as_slice(),
             32i32.to_le_bytes().as_slice(),
@@ -405,12 +405,12 @@ mod tests {
         CustomFieldReader14::new(&file, Some(&block)).process();
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
 
-        // 未知块大小越界（Java 的 `if (offset > m_data.length) { return; }`）
+// The unknown block size is out of bounds (Java's `if (offset > m_data.length) { return; }`)
         let block = [
             8i32.to_le_bytes().as_slice(),
             8i32.to_le_bytes().as_slice(),
             0i32.to_le_bytes().as_slice(),
-            // 别名块之后：未知块 1 的大小超出数据块
+// After the alias block: the size of unknown block 1 exceeds the data block
             0xFFFFi32.to_le_bytes().as_slice(),
         ]
         .concat();
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 名为空的别名不登记（Java 的 `!alias.isEmpty()`）。
+/// An alias with an empty name is not registered (Java's `!alias.isEmpty()`).
     #[test]
     fn process_skips_empty_aliases() {
         let block = custom_fields_block(&[(name_field_id(), "")], &[]);
@@ -429,7 +429,7 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 未识别的字段号不登记别名（Java 会把 null 传给 `getOrCreate` 并抛 NPE）。
+/// An unrecognized field number does not register an alias (Java passes null to `getOrCreate` and throws an NPE).
     #[test]
     fn process_skips_unknown_field_ids() {
         let block = custom_fields_block(&[(0x1234_0005, "Unknown Alias")], &[]);
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// `has` / `advance_offset` 与 Java 的边界判断一致。
+/// `has` / `advance_offset` are consistent with Java's bounds checks.
     #[test]
     fn bounds_helpers_match_java() {
         let data = [0u8; 8];
@@ -452,7 +452,7 @@ mod tests {
 
         assert_eq!(advance_offset(4, 8), Some(12));
         assert_eq!(advance_offset(4, -4), Some(0));
-        // 负数回退到负偏移 → None（Java 会抛越界异常）
+// A negative size falls back to a negative offset -> None (Java throws an out-of-bounds exception)
         assert_eq!(advance_offset(4, -8), None);
     }
 }

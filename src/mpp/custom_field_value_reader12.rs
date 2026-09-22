@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldValueReader12.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldValueReader12.java`
 //!
-//! MPP12 的取值列表读取器：只是把 [`CustomFieldValueReader`] 的三个偏移设成 MPP12 的布局。
+//! MPP12 value list reader: it just sets the three offsets of [`CustomFieldValueReader`] to the MPP12 layout.
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Restoring inheritance (composition + forwarding)
 //!
-//! Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`。Rust 无继承，按约定
-//! 改为**组合 + 转发**：
+//! Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`. Rust has no inheritance, so by convention
+//! it is changed to **composition + forwarding**:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends CustomFieldValueReader` | 结构体持有私有字段 `base: CustomFieldValueReader` |
-//! | 继承来的 `process()` / `getTypedValue(...)` / `protected` 字段 | 逐一转发到 `base`（见各方法说明） |
-//! | 构造方法中 `m_parentOffset = 8; m_typeOffset = 48; m_fieldOffset = 32;` | 构造后调用 `base.set_*_offset` |
+//! | `extends CustomFieldValueReader` | the struct holds a private field `base: CustomFieldValueReader` |
+//! | inherited `process()` / `getTypedValue(...)` / `protected` fields | forwarded one by one to `base` (see each method's documentation) |
+//! | `m_parentOffset = 8; m_typeOffset = 48; m_fieldOffset = 32;` in the constructor | call `base.set_*_offset` after construction |
 //!
-//! 跳过的 Java 方法：无（本类只有 1 个构造方法，无其它方法）。
+//! Skipped Java methods: none (this class has only 1 constructor and no other methods).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -32,20 +32,20 @@ use crate::mpp::var2_data::Var2Data;
 use crate::mpp::var_meta::VarMeta;
 use crate::project_file::ProjectFile;
 
-/// MPP12 取值列表读取器。
+/// MPP12 value list reader.
 ///
-/// 对应 Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`
+/// Corresponds to Java: `class CustomFieldValueReader12 extends CustomFieldValueReader`
 pub struct CustomFieldValueReader12 {
-    /// 组合进来的基类实例。
+/// The composed base class instance.
     ///
-    /// 对应 Java: `extends CustomFieldValueReader`
+    /// Corresponds to Java: `extends CustomFieldValueReader`
     base: CustomFieldValueReader,
 }
 
 impl CustomFieldValueReader12 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldValueReader12(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
+    /// Corresponds to Java: `public CustomFieldValueReader12(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
     pub fn new(
         file: &Rc<RefCell<ProjectFile>>,
         lookup_table_map: HashMap<Uuid, MppFieldType>,
@@ -72,16 +72,16 @@ impl CustomFieldValueReader12 {
         Self { base }
     }
 
-    /// 读取全部取值项。
+/// Read all value items.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.process()`
+/// Corresponds to Java: inherited from `CustomFieldValueReader.process()`
     pub fn process(&self) {
         self.base.process();
     }
 
-    /// 把原始字节转换成 Java 类型的取值。
+/// Convert raw bytes into a Java-typed value.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.getTypedValue(...)`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.getTypedValue(...)` (`protected`)
     pub fn get_typed_value(
         &self,
         type_: Option<CustomFieldValueDataType>,
@@ -90,44 +90,44 @@ impl CustomFieldValueReader12 {
         self.base.get_typed_value(type_, value)
     }
 
-    /// 取「父级 unique ID」的偏移。
+/// Get the offset of the "parent unique ID".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_parentOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_parentOffset` (`protected`)
     pub fn get_parent_offset(&self) -> usize {
         self.base.get_parent_offset()
     }
 
-    /// 设置「父级 unique ID」的偏移。
+/// Set the offset of the "parent unique ID".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_parentOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_parentOffset` (`protected`)
     pub fn set_parent_offset(&mut self, offset: usize) {
         self.base.set_parent_offset(offset);
     }
 
-    /// 取「取值类型」的偏移。
+/// Get the offset of the "value type".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_typeOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_typeOffset` (`protected`)
     pub fn get_type_offset(&self) -> usize {
         self.base.get_type_offset()
     }
 
-    /// 设置「取值类型」的偏移。
+/// Set the offset of the "value type".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_typeOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_typeOffset` (`protected`)
     pub fn set_type_offset(&mut self, offset: usize) {
         self.base.set_type_offset(offset);
     }
 
-    /// 取「查找表 GUID」的偏移。
+/// Get the offset of the "lookup table GUID".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_fieldOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_fieldOffset` (`protected`)
     pub fn get_field_offset(&self) -> usize {
         self.base.get_field_offset()
     }
 
-    /// 设置「查找表 GUID」的偏移。
+/// Set the offset of the "lookup table GUID".
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_fieldOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_fieldOffset` (`protected`)
     pub fn set_field_offset(&mut self, offset: usize) {
         self.base.set_field_offset(offset);
     }
@@ -142,7 +142,7 @@ mod tests {
         empty_fixed_data, var_data_with_meta,
     };
 
-    /// 构造一个空数据的读取器。
+/// Construct a reader with empty data.
     fn reader() -> (CustomFieldValueReader12, Rc<RefCell<ProjectFile>>) {
         let (meta, var_data) = var_data_with_meta(&[]);
         let file = ProjectFile::new();
@@ -158,7 +158,7 @@ mod tests {
         (reader, file)
     }
 
-    /// 构造方法写入 MPP12 的三个偏移（Java 的 `m_parentOffset = 8` 等）。
+/// The constructor writes MPP12's three offsets (Java's `m_parentOffset = 8`, etc.).
     #[test]
     fn constructor_sets_mpp12_offsets() {
         let (reader, _file) = reader();
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(reader.get_field_offset(), 32);
     }
 
-    /// 转发的方法可用：空数据下 `process` 不 panic，`getTypedValue` 走基类实现。
+/// The forwarded methods work: with empty data `process` does not panic, and `getTypedValue` uses the base class implementation.
     #[test]
     fn forwards_to_base_reader() {
         let (mut reader, file) = reader();
@@ -176,7 +176,7 @@ mod tests {
         reader.process();
         assert!(file.borrow().get_custom_fields().borrow().is_empty());
 
-        // TEXT 分支：UTF-16LE 字符串
+// TEXT branch: UTF-16LE string
         assert_eq!(
             reader.get_typed_value(
                 Some(CustomFieldValueDataType::Text),
@@ -185,7 +185,7 @@ mod tests {
             Some(FieldValue::String("A".to_owned()))
         );
 
-        // 转发的 setter 同样作用于基类
+// the forwarded setters also act on the base class
         reader.set_parent_offset(1);
         assert_eq!(reader.get_parent_offset(), 1);
         reader.set_type_offset(2);

@@ -1,12 +1,12 @@
-//! 对应 Java: `org/mpxj/ProjectCalendarWeek.java`
+//! Corresponds to Java: `org/mpxj/ProjectCalendarWeek.java`
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! # 用到的 `RecurringData` 接口
+//! # The `RecurringData` interface used
 //!
-//! [`ProjectCalendarWeek::convert_to_recurring_exceptions`] 依赖 `org.mpxj.RecurringData`
-//! （对应已落地的 [`crate::recurring_data::RecurringData`]；`src/lib.rs` 已声明
-//! `pub mod recurring_data;`）。本文件按下列签名使用 `RecurringData`：
+//! [`ProjectCalendarWeek::convert_to_recurring_exceptions`] relies on `org.mpxj.RecurringData`
+//! (corresponding to the already-ported [`crate::recurring_data::RecurringData`]; `src/lib.rs` already declares
+//! `pub mod recurring_data;`). This file uses `RecurringData` with the following signature:
 //!
 //! ```text
 //! RecurringData::new() -> RecurringData
@@ -17,21 +17,21 @@
 //! set_weekly_day(Weekday, bool)
 //! ```
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - Java 的 `ProjectCalendarWeek extends ProjectCalendarDays`；Rust 无继承，
-//!   [`ProjectCalendarWeek`] 以字段组合持有 [`ProjectCalendarDays`]，并把基类方法
-//!   逐个转发（见文件末尾「转发 ProjectCalendarDays」一节）。
-//! - Java 在 `m_dateRange == null` 时抛 `UnsupportedOperationException`，Rust 侧
-//!   [`ProjectCalendarWeek::convert_to_recurring_exceptions`] 返回 `None`；
-//!   日期区间起止为 `null` 时（Java 抛 NPE）同样返回 `None`。
-//! - Java 未覆写 `equals` / `hashCode`（沿用 `Object` 的引用语义），但实现了
-//!   `compareTo`。Rust 的 `Ord` 需要 `Eq` 作为父 trait，因此 `PartialEq` / `Hash`
-//!   与 `Ord` 保持一致：都只依据日期区间的起始日期。
-//! - `toString()` 使用 `PrintWriter.println`，Java 会输出平台相关的换行符，且末尾会附加
-//!   一个换行符；Rust 侧固定使用 `\n` 且末尾不带换行符。`DayType` 在 Java 侧未覆写
-//!   `toString`，输出为枚举常量名（`WORKING` / `NON_WORKING` / `DEFAULT`），
-//!   Rust 侧按同样文本输出。
+//! - Java's `ProjectCalendarWeek extends ProjectCalendarDays`; Rust has no inheritance, so
+//! [`ProjectCalendarWeek`] holds a [`ProjectCalendarDays`] by field composition and forwards each
+//! base class method (see the "Forwarding ProjectCalendarDays" section at the end of the file).
+//! - Java throws `UnsupportedOperationException` when `m_dateRange == null`; the Rust side
+//! [`ProjectCalendarWeek::convert_to_recurring_exceptions`] returns `None`;
+//! when the date range start or end is `null` (Java throws an NPE) it likewise returns `None`.
+//! - Java does not override `equals` / `hashCode` (it keeps `Object`'s reference semantics), but implements
+//! `compareTo`. Rust's `Ord` requires `Eq` as a supertrait, so `PartialEq` / `Hash`
+//! are kept consistent with `Ord`: they all use only the start date of the date range.
+//! - `toString()` uses `PrintWriter.println`, so Java outputs a platform-dependent line separator and appends
+//! a line separator at the end; the Rust side always uses `\n` with no trailing line separator. `DayType` does not override
+//! `toString` in Java, so it prints the enum constant name (`WORKING` / `NON_WORKING` / `DEFAULT`),
+//! and the Rust side prints the same text.
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -49,21 +49,21 @@ use crate::project_calendar_hours::ProjectCalendarHours;
 use crate::recurrence_type::RecurrenceType;
 use crate::recurring_data::RecurringData;
 
-/// 一段有效期为指定日期区间的工作周（不含例外日期）。
+/// A work week valid for a specified date range (excluding exception dates).
 ///
-/// 对应 Java: `public class ProjectCalendarWeek extends ProjectCalendarDays implements Comparable<ProjectCalendarWeek>`
+/// Corresponds to Java: `public class ProjectCalendarWeek extends ProjectCalendarDays implements Comparable<ProjectCalendarWeek>`
 #[derive(Debug, Clone)]
 pub struct ProjectCalendarWeek {
-    /// 对应 Java 的继承关系 `extends ProjectCalendarDays`
+/// Corresponds to Java's inheritance `extends ProjectCalendarDays`
     days: ProjectCalendarDays,
-    /// 对应 Java 字段 `private LocalDateRange m_dateRange`（`null` 表示默认工作周）
+/// Corresponds to Java field `private LocalDateRange m_dateRange` (`null` means the default work week)
     date_range: Option<LocalDateRange>,
 }
 
 impl ProjectCalendarWeek {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式无参构造方法 `ProjectCalendarWeek()`
+/// Corresponds to Java: the implicit no-argument constructor `ProjectCalendarWeek()`
     pub fn new() -> Self {
         Self {
             days: ProjectCalendarDays::new(),
@@ -71,28 +71,28 @@ impl ProjectCalendarWeek {
         }
     }
 
-    /// 取本工作周的有效日期区间（默认工作周返回 `None`）。
+/// Get the effective date range of this work week (returns `None` for the default work week).
     ///
-    /// 对应 Java: `public LocalDateRange getDateRange()`
+    /// Corresponds to Java: `public LocalDateRange getDateRange()`
     pub fn get_date_range(&self) -> Option<LocalDateRange> {
         self.date_range
     }
 
-    /// 设置本工作周的有效日期区间（设为 `None` 表示默认工作周）。
+/// Set the effective date range of this work week (`None` means the default work week).
     ///
-    /// 对应 Java: `public void setDateRange(LocalDateRange range)`
+    /// Corresponds to Java: `public void setDateRange(LocalDateRange range)`
     pub fn set_date_range(&mut self, range: Option<LocalDateRange>) {
         self.date_range = range;
     }
 
-    /// 把本工作周转换为等价的重复例外列表。
+/// Convert this work week into the equivalent list of recurring exceptions.
     ///
-    /// 对应 Java: `public List<ProjectCalendarException> convertToRecurringExceptions(LocalDate earliestStartDate, LocalDate latestFinishDate)`
+    /// Corresponds to Java: `public List<ProjectCalendarException> convertToRecurringExceptions(LocalDate earliestStartDate, LocalDate latestFinishDate)`
     ///
-    /// 默认工作周（`date_range` 为 `None`）无法展开，Java 抛
-    /// `UnsupportedOperationException`，Rust 侧返回 `None`。
-    /// 每个「非 `DEFAULT`」的星期都会生成一个按周重复的例外，重复区间被限制在
-    /// 传入的边界与本工作周区间之内。
+/// The default work week (`date_range` is `None`) cannot be expanded; Java throws
+/// `UnsupportedOperationException`, and the Rust side returns `None`.
+/// Each day that is not `DEFAULT` generates a weekly recurring exception, with the recurrence range limited to
+/// the passed-in bounds and this work week's range.
     pub fn convert_to_recurring_exceptions(
         &self,
         earliest_start_date: Option<NaiveDate>,
@@ -101,7 +101,7 @@ impl ProjectCalendarWeek {
         // Java: We can't expand the default week
         let date_range = self.date_range?;
 
-        // 避免生成超出传入边界的例外
+// Avoid generating exceptions beyond the passed-in bounds
         let mut from_date = date_range.get_start()?;
         if let Some(earliest_start_date) = earliest_start_date {
             if LocalDateHelper::compare(Some(earliest_start_date), Some(from_date)) > 0 {
@@ -118,7 +118,7 @@ impl ProjectCalendarWeek {
 
         let mut result = Vec::new();
 
-        // Java: for (DayOfWeek day : DayOfWeek.values())  —— 周一在前
+// Java: for (DayOfWeek day : DayOfWeek.values())  —— Monday first
         for day in JAVA_DAY_OF_WEEK_ORDER {
             if self.get_calendar_day_type(day) == Some(DayType::Default) {
                 continue;
@@ -144,30 +144,30 @@ impl ProjectCalendarWeek {
     }
 
     //
-    // 以下方法对应 Java 从 ProjectCalendarDays 继承的方法（转发）
+// The following methods correspond to the methods Java inherits from ProjectCalendarDays (forwarding)
     //
 
-    /// 对应 Java: `setName(String name)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `setName(String name)` (inherited from `ProjectCalendarDays`)
     pub fn set_name(&mut self, name: Option<String>) {
         self.days.set_name(name);
     }
 
-    /// 对应 Java: `getName()`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `getName()` (inherited from `ProjectCalendarDays`)
     pub fn get_name(&self) -> Option<&str> {
         self.days.get_name()
     }
 
-    /// 对应 Java: `getCalendarHours()`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `getCalendarHours()` (inherited from `ProjectCalendarDays`)
     pub fn get_calendar_hours(&self) -> &[Option<ProjectCalendarHours>; 7] {
         self.days.get_calendar_hours()
     }
 
-    /// 对应 Java: `getCalendarHours(DayOfWeek day)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `getCalendarHours(DayOfWeek day)` (inherited from `ProjectCalendarDays`)
     pub fn get_calendar_hours_for_day(&self, day: Weekday) -> Option<&ProjectCalendarHours> {
         self.days.get_calendar_hours_for_day(day)
     }
 
-    /// 对应 Java: `getCalendarHours(DayOfWeek day)` 的可变版本（Rust 侧补充）
+/// Corresponds to Java: the mutable version of `getCalendarHours(DayOfWeek day)` (added on the Rust side)
     pub fn get_calendar_hours_for_day_mut(
         &mut self,
         day: Weekday,
@@ -175,57 +175,57 @@ impl ProjectCalendarWeek {
         self.days.get_calendar_hours_for_day_mut(day)
     }
 
-    /// 对应 Java: `addDefaultCalendarHours()`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `addDefaultCalendarHours()` (inherited from `ProjectCalendarDays`)
     pub fn add_default_calendar_hours(&mut self) {
         self.days.add_default_calendar_hours();
     }
 
-    /// 对应 Java: `addDefaultCalendarDays()`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `addDefaultCalendarDays()` (inherited from `ProjectCalendarDays`)
     pub fn add_default_calendar_days(&mut self) {
         self.days.add_default_calendar_days();
     }
 
-    /// 对应 Java: `addDefaultCalendarHours(DayOfWeek day)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `addDefaultCalendarHours(DayOfWeek day)` (inherited from `ProjectCalendarDays`)
     pub fn add_default_calendar_hours_for_day(&mut self, day: Weekday) {
         self.days.add_default_calendar_hours_for_day(day);
     }
 
-    /// 对应 Java: `addCalendarHours(DayOfWeek day)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `addCalendarHours(DayOfWeek day)` (inherited from `ProjectCalendarDays`)
     pub fn add_calendar_hours(&mut self, day: Weekday) -> &mut ProjectCalendarHours {
         self.days.add_calendar_hours(day)
     }
 
-    /// 对应 Java: `removeCalendarHours(DayOfWeek day)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `removeCalendarHours(DayOfWeek day)` (inherited from `ProjectCalendarDays`)
     pub fn remove_calendar_hours(&mut self, day: Weekday) {
         self.days.remove_calendar_hours(day);
     }
 
-    /// 对应 Java: `getCalendarDayTypes()`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `getCalendarDayTypes()` (inherited from `ProjectCalendarDays`)
     pub fn get_calendar_day_types(&self) -> &[Option<DayType>; 7] {
         self.days.get_calendar_day_types()
     }
 
-    /// 对应 Java: `getCalendarDayType(DayOfWeek day)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `getCalendarDayType(DayOfWeek day)` (inherited from `ProjectCalendarDays`)
     pub fn get_calendar_day_type(&self, day: Weekday) -> Option<DayType> {
         self.days.get_calendar_day_type(day)
     }
 
-    /// 对应 Java: `setWorkingDay(DayOfWeek day, boolean working)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `setWorkingDay(DayOfWeek day, boolean working)` (inherited from `ProjectCalendarDays`)
     pub fn set_working_day(&mut self, day: Weekday, working: bool) {
         self.days.set_working_day(day, working);
     }
 
-    /// 对应 Java: `setCalendarDayType(DayOfWeek day, DayType type)`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `setCalendarDayType(DayOfWeek day, DayType type)` (inherited from `ProjectCalendarDays`)
     pub fn set_calendar_day_type(&mut self, day: Weekday, r#type: DayType) {
         self.days.set_calendar_day_type(day, r#type);
     }
 
-    /// 对应 Java: `DEFAULT_WORKING_MORNING`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `DEFAULT_WORKING_MORNING` (inherited from `ProjectCalendarDays`)
     pub fn default_working_morning() -> LocalTimeRange {
         ProjectCalendarDays::default_working_morning()
     }
 
-    /// 对应 Java: `DEFAULT_WORKING_AFTERNOON`（继承自 `ProjectCalendarDays`）
+/// Corresponds to Java: `DEFAULT_WORKING_AFTERNOON` (inherited from `ProjectCalendarDays`)
     pub fn default_working_afternoon() -> LocalTimeRange {
         ProjectCalendarDays::default_working_afternoon()
     }
@@ -238,8 +238,8 @@ impl Default for ProjectCalendarWeek {
 }
 
 impl Ord for ProjectCalendarWeek {
-    /// 对应 Java: `@Override public int compareTo(ProjectCalendarWeek o)`：
-    /// 比较日期区间的起始日期（`null` 视为更大）。
+    /// Corresponds to Java: `@Override public int compareTo(ProjectCalendarWeek o)`:
+/// Compares the start date of the date range (`null` is treated as greater).
     fn cmp(&self, other: &Self) -> Ordering {
         let lhs = self.date_range.and_then(|range| range.get_start());
         let rhs = other.date_range.and_then(|range| range.get_start());
@@ -259,8 +259,8 @@ impl PartialOrd for ProjectCalendarWeek {
 }
 
 impl PartialEq for ProjectCalendarWeek {
-    /// 说明：Java 未覆写 `equals`（沿用引用相等），Rust 侧为与 `Ord` 保持一致，
-    /// 按日期区间起始日期比较。
+/// Note: Java does not override `equals` (it keeps reference equality); to stay consistent with `Ord`, the Rust side
+/// compares by the start date of the date range.
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
@@ -269,7 +269,7 @@ impl PartialEq for ProjectCalendarWeek {
 impl Eq for ProjectCalendarWeek {}
 
 impl Hash for ProjectCalendarWeek {
-    /// 与 [`ProjectCalendarWeek::eq`] 保持一致：只使用日期区间起始日期。
+/// Consistent with [`ProjectCalendarWeek::eq`]: only the start date of the date range is used.
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.date_range
             .and_then(|range| range.get_start())
@@ -278,7 +278,7 @@ impl Hash for ProjectCalendarWeek {
 }
 
 impl Display for ProjectCalendarWeek {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "[ProjectCalendarWeek")?;
         writeln!(f, "   name={}", self.get_name().unwrap_or("null"))?;
@@ -300,12 +300,12 @@ impl Display for ProjectCalendarWeek {
     }
 }
 
-/// 按 Java 习惯输出可空的日期区间（`null` → `null`）。
+/// Prints a nullable date range following Java conventions (`null` → `null`).
 fn optional_range(range: Option<LocalDateRange>) -> String {
     range.map_or_else(|| "null".to_string(), |range| range.to_string())
 }
 
-/// 对应 Java 枚举 `DayOfWeek` 的 `name()`（`MONDAY` … `SUNDAY`）。
+/// Corresponds to Java enum `DayOfWeek`'s `name()` (`MONDAY` … `SUNDAY`).
 fn java_day_of_week_name(day: Weekday) -> &'static str {
     match day {
         Weekday::Mon => "MONDAY",
@@ -318,7 +318,7 @@ fn java_day_of_week_name(day: Weekday) -> &'static str {
     }
 }
 
-/// 对应 Java 枚举 `DayType` 的 `name()`（`DayType` 未覆写 `toString`）。
+/// Corresponds to Java enum `DayType`'s `name()` (`DayType` does not override `toString`).
 fn day_type_name(day_type: Option<DayType>) -> &'static str {
     match day_type {
         None => "null",
@@ -333,7 +333,7 @@ mod tests {
     use super::*;
 
     fn date(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).expect("合法日期")
+        NaiveDate::from_ymd_opt(year, month, day).expect("valid date")
     }
 
     fn week() -> ProjectCalendarWeek {
@@ -400,17 +400,17 @@ mod tests {
     #[test]
     fn convert_to_recurring_exceptions_skips_default_days() {
         let mut week = week();
-        // 不设置任何 DayType 时全部为 null（非 DEFAULT），7 天都会生成例外
+// When no DayType is set all are null (not DEFAULT), so all 7 days generate exceptions
         let exceptions = week
             .convert_to_recurring_exceptions(None, None)
-            .expect("工作周可以展开");
+            .expect("working week can be expanded");
         assert_eq!(exceptions.len(), 7);
 
-        // DEFAULT 的星期会被跳过
+// Days marked DEFAULT are skipped
         week.set_calendar_day_type(Weekday::Mon, DayType::Default);
         let exceptions = week
             .convert_to_recurring_exceptions(None, None)
-            .expect("工作周可以展开");
+            .expect("working week can be expanded");
         assert_eq!(exceptions.len(), 6);
         assert!(exceptions.iter().all(|exception| exception.get_recurring().is_some()));
     }
@@ -423,10 +423,10 @@ mod tests {
 
         let exceptions = week
             .convert_to_recurring_exceptions(Some(date(2024, 1, 1)), Some(date(2024, 1, 7)))
-            .expect("工作周可以展开");
+            .expect("working week can be expanded");
 
         assert_eq!(exceptions.len(), 7);
-        // 每个例外都带有对应星期的工作时段（周末为空）
+// Each exception carries the working hours of the corresponding day (empty for weekends)
         let sizes: Vec<usize> = exceptions.iter().map(ProjectCalendarException::size).collect();
         assert_eq!(sizes, vec![2, 2, 2, 2, 2, 0, 0]);
     }

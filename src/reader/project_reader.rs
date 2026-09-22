@@ -1,52 +1,61 @@
-//! 对应 Java: `org/mpxj/reader/ProjectReader.java`
+//! Corresponds to Java: `org/mpxj/reader/ProjectReader.java`
 //!
-//! 所有能读取项目文件、并据此生成 [`ProjectFile`] 的 reader 都实现本 trait。
+//! All readers that can read a project file and produce a [`ProjectFile`] from it implement
+//! this trait.
 //!
-//! # Java → Rust 方法对照
+//! # Java to Rust method mapping
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `void addProjectListener(ProjectListener listener)` | [`ProjectReader::add_project_listener`] | 监听器以 `Box<dyn ProjectListener>` 移交所有权 |
-//! | `ProjectFile read(String fileName)` | [`ProjectReader::read_file`] | 与 `read(File)` 合并 |
-//! | `ProjectFile read(File file)` | [`ProjectReader::read_file`] | 同上（Rust 无重载，`String` / `File` 两个重载合并为「按路径」一套） |
-//! | `List<ProjectFile> readAll(String fileName)` | [`ProjectReader::read_all_file`] | 与 `readAll(File)` 合并 |
-//! | `List<ProjectFile> readAll(File file)` | [`ProjectReader::read_all_file`] | 同上 |
-//! | `ProjectFile read(InputStream inputStream)` | [`ProjectReader::read_reader`] | `InputStream` → `&mut dyn std::io::Read`（改为「按读取器」一套） |
-//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`ProjectReader::read_all_reader`] | 同上 |
+//! | `void addProjectListener(ProjectListener listener)` | [`ProjectReader::add_project_listener`] | The listener is transferred with ownership as `Box<dyn ProjectListener>` |
+//! | `ProjectFile read(String fileName)` | [`ProjectReader::read_file`] | Merged with `read(File)` |
+//! | `ProjectFile read(File file)` | [`ProjectReader::read_file`] | Same as above (Rust has no overloading; the `String` / `File` overloads are merged into a single path-based form) |
+//! | `List<ProjectFile> readAll(String fileName)` | [`ProjectReader::read_all_file`] | Merged with `readAll(File)` |
+//! | `List<ProjectFile> readAll(File file)` | [`ProjectReader::read_all_file`] | Same as above |
+//! | `ProjectFile read(InputStream inputStream)` | [`ProjectReader::read_reader`] | `InputStream` → `&mut dyn std::io::Read` (changed to a single reader-based form) |
+//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`ProjectReader::read_all_reader`] | Same as above |
 //!
-//! # 继承链与接口的还原
+//! # Restoring the inheritance chain and interface
 //!
-//! Java 的继承链是
-//! `ProjectReader`（接口）← `AbstractProjectReader` ← `AbstractProjectFileReader` /
-//! `AbstractProjectStreamReader` ← 具体 reader（`MPXReader`、`MPPReader` 等）。
-//! Rust 没有继承，还原方式：
+//! The Java inheritance chain is
+//! `ProjectReader` (interface) ← `AbstractProjectReader` ← `AbstractProjectFileReader` /
+//! `AbstractProjectStreamReader` ← concrete readers (`MPXReader`, `MPPReader`, etc.).
+//! Rust has no inheritance; the mapping is:
 //!
-//! - 本文件：接口 → trait [`ProjectReader`]，只声明方法、不给默认实现（与 Java 接口一致）；
-//! - [`crate::reader::abstract_project_reader`]：trait [`crate::reader::abstract_project_reader::AbstractProjectReader`]
-//!   以 `ProjectReader` 为 supertrait，承载 Java 抽象基类的公共实现（默认方法）；
-//! - [`crate::reader::abstract_project_file_reader`] / [`crate::reader::abstract_project_stream_reader`]：
-//!   再以 `AbstractProjectReader` 为 supertrait，分别给出「按文件」与「按流」的默认实现；
-//! - 具体 reader 同时 `impl ProjectReader`（把接口方法转调对应抽象层的 `_default`
-//!   方法或给出自己的实现）与各抽象层 trait。命名约定与模板见
-//!   [`crate::reader::abstract_project_reader`] 文件头。
+//! - This file: interface → trait [`ProjectReader`], which only declares methods and provides
+//!   no default implementation (matching the Java interface);
+//! - [`crate::reader::abstract_project_reader`]: the trait
+//!   [`crate::reader::abstract_project_reader::AbstractProjectReader`] uses `ProjectReader` as a
+//!   supertrait and carries the common implementation of the Java abstract base class (default methods);
+//! - [`crate::reader::abstract_project_file_reader`] /
+//!   [`crate::reader::abstract_project_stream_reader`]: these use `AbstractProjectReader` as a
+//!   supertrait and provide the file-based and stream-based default implementations respectively;
+//! - a concrete reader both `impl ProjectReader` (forwarding the interface methods to the
+//!   corresponding `_default` methods of the abstract layer, or providing its own implementation)
+//!   and implements each abstract-layer trait. The naming convention and template are described
+//!   in the file header of [`crate::reader::abstract_project_reader`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`throws MPXJException` → [`crate::MpxjResult`]**：全部读取方法返回
-//!   `MpxjResult<..>`；Java 的 `MPXJException` 对应 [`crate::MpxjError`]。
-//! - **返回 `null` 的语义**：Java 的 `read(..)` 允许返回 `null`（`AbstractProjectStreamReader.readAll`
-//!   即按 `read` 是否返回 `null` 给出空列表或单元素列表）。Rust 没有 `null`：读取失败以
-//!   `Err` 表达，"读不出内容" 的退化路径由各抽象层的默认方法按空 `Vec` 表达（见那些文件头）。
-//! - **`List<ProjectFile>` → `Vec<Rc<RefCell<ProjectFile>>>`**：Rust 侧 [`ProjectFile`]
-//!   一律以 `Rc<RefCell<ProjectFile>>` 共享持有（原因见 [`crate::project_file`] 文件头）。
-//! - **对象安全**：所有方法取 `&mut self`、参数为 `&Path` / `&mut dyn Read`，因此本 trait
-//!   是对象安全的，可写作 `&mut dyn ProjectReader`（`AbstractProjectReader::add_listeners_to_reader`
-//!   即依赖这一点）。
+//! - **`throws MPXJException` → [`crate::MpxjResult`]**: all read methods return
+//!   `MpxjResult<..>`; Java's `MPXJException` corresponds to [`crate::MpxjError`].
+//! - **Semantics of returning `null`**: Java's `read(..)` may return `null`
+//!   (`AbstractProjectStreamReader.readAll` returns an empty list or a single-element list
+//!   depending on whether `read` returns `null`). Rust has no `null`: a read failure is expressed
+//!   as `Err`, and the degraded path where "nothing can be read" is expressed by each abstract
+//!   layer's default method as an empty `Vec` (see those file headers).
+//! - **`List<ProjectFile>` → `Vec<Rc<RefCell<ProjectFile>>>`**: on the Rust side [`ProjectFile`]
+//!   is always held shared as `Rc<RefCell<ProjectFile>>` (see the file header of
+//!   [`crate::project_file`] for the reason).
+//! - **Object safety**: all methods take `&mut self` and parameters `&Path` / `&mut dyn Read`,
+//!   so this trait is object safe and can be written as `&mut dyn ProjectReader`
+//!   (`AbstractProjectReader::add_listeners_to_reader` relies on this).
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! 本接口未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`，也未引用
-//! 依赖反射分发、本次不移植的 `UniversalProjectReader` / `ProjectReaderUtility`，故无跳过项。
+//! This interface does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`,
+//! nor does it reference `UniversalProjectReader` / `ProjectReaderUtility`, which rely on
+//! reflection-based dispatch and are not being ported, so there are no skipped items.
 
 use std::cell::RefCell;
 use std::io::Read;
@@ -57,39 +66,41 @@ use crate::listener::project_listener::ProjectListener;
 use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 
-/// 可以读取项目文件并生成 [`ProjectFile`] 的 reader。
+/// A reader that can read a project file and produce a [`ProjectFile`].
 ///
-/// 对应 Java: `public interface ProjectReader`
+/// Corresponds to Java: `public interface ProjectReader`
 pub trait ProjectReader {
-    /// 注册一个监听器：读取过程中产生的事件会转发给它。
+    /// Register a listener: events produced during reading are forwarded to it.
     ///
-    /// 对应 Java: `void addProjectListener(ProjectListener listener)`
+    /// Corresponds to Java: `void addProjectListener(ProjectListener listener)`
     ///
-    /// Java 保存监听器对象的引用；Rust 侧以 `Box<dyn ProjectListener>` 移交所有权，
-    /// 抽象层再把它装入共享句柄以便分发到多处（见
-    /// [`crate::reader::abstract_project_reader`] 文件头）。
+    /// Java keeps a reference to the listener object; the Rust side transfers ownership as
+    /// `Box<dyn ProjectListener>`, and the abstract layer then wraps it in a shared handle so it
+    /// can be dispatched to multiple places (see the file header of
+    /// [`crate::reader::abstract_project_reader`]).
     fn add_project_listener(&mut self, listener: Box<dyn ProjectListener>);
 
-    /// 按路径读取一个 schedule。
+    /// Read a single schedule by path.
     ///
-    /// 对应 Java: `ProjectFile read(String fileName)` / `ProjectFile read(File file)`
-    /// （Rust 无重载，两个重载合并为本方法）。
+    /// Corresponds to Java: `ProjectFile read(String fileName)` / `ProjectFile read(File file)`
+    /// (Rust has no overloading; the two overloads are merged into this method).
     fn read_file(&mut self, path: &Path) -> MpxjResult<Rc<RefCell<ProjectFile>>>;
 
-    /// 按路径读取全部 schedule（文件格式不支持多 schedule 时返回单元素列表）。
+    /// Read all schedules by path (returns a single-element list when the file format does not
+    /// support multiple schedules).
     ///
-    /// 对应 Java: `List<ProjectFile> readAll(String fileName)` /
+    /// Corresponds to Java: `List<ProjectFile> readAll(String fileName)` /
     /// `List<ProjectFile> readAll(File file)`
     fn read_all_file(&mut self, path: &Path) -> MpxjResult<Vec<Rc<RefCell<ProjectFile>>>>;
 
-    /// 从给定的读取器读取一个 schedule。
+    /// Read a single schedule from the given reader.
     ///
-    /// 对应 Java: `ProjectFile read(InputStream inputStream)`
+    /// Corresponds to Java: `ProjectFile read(InputStream inputStream)`
     fn read_reader(&mut self, reader: &mut dyn Read) -> MpxjResult<Rc<RefCell<ProjectFile>>>;
 
-    /// 从给定的读取器读取全部 schedule。
+    /// Read all schedules from the given reader.
     ///
-    /// 对应 Java: `List<ProjectFile> readAll(InputStream inputStream)`
+    /// Corresponds to Java: `List<ProjectFile> readAll(InputStream inputStream)`
     fn read_all_reader(&mut self, reader: &mut dyn Read)
     -> MpxjResult<Vec<Rc<RefCell<ProjectFile>>>>;
 }
@@ -99,9 +110,11 @@ mod tests {
     use super::*;
     use crate::mpxj_exception::MpxjError;
 
-    /// 最小实现：只验证本 trait 可用（含以 `&mut dyn ProjectReader` 动态调用）。
+    /// Minimal implementation: only verifies that this trait is usable (including dynamic
+    /// dispatch via `&mut dyn ProjectReader`).
     struct StubReader {
-        /// 最近一次收到的路径，用于断言调用被转发到本实现。
+        /// The most recently received path, used to assert that the call was forwarded to this
+        /// implementation.
         last_path: Option<std::path::PathBuf>,
     }
 
@@ -137,11 +150,11 @@ mod tests {
             let dynamic: &mut dyn ProjectReader = &mut reader;
             dynamic
                 .read_file(Path::new("plan.mpp"))
-                .expect("stub 总是成功");
+                .expect("stub always succeeds");
             let error = dynamic
                 .read_reader(&mut std::io::empty())
                 .err()
-                .expect("stub 按约定报 INVALID_FILE");
+                .expect("stub reports INVALID_FILE by convention");
             assert_eq!(error.message(), MpxjError::INVALID_FILE);
         }
 

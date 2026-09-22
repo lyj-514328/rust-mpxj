@@ -1,42 +1,42 @@
-//! 对应 Java: `org/mpxj/GenericCriteriaPrompt.java`
+//! Corresponds to Java: `org/mpxj/GenericCriteriaPrompt.java`
 //!
-//! 未移植的 Java 方法：无（本类全部方法均已翻译）。
+//! Unported Java methods: none (all methods of this class have been translated).
 //!
-//! 跳过/未移植的 Java 机制：反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable` 均未使用。
+//! Skipped/unported Java mechanisms: reflection, JDBC, XML/JAXB, GUI, `javax.*`, `Serializable` are all unused.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **`equals` / `hashCode`**：Java 未覆写，即按对象同一性比较；但本类的实例被用作
-//!   `Map<GenericCriteriaPrompt, Object>`（筛选提示的应答表）的键。Rust 侧改为派生
-//!   [`PartialEq`] / [`Eq`] / [`Hash`]（按 `type` + `prompt` 值比较），从而可用作
-//!   `HashMap` 的键。差异：Java 中「用新构造的同内容实例查表」查不到，Rust 中能查到
-//!   —— 语义更宽松，不会漏掉应答。
-//! - **`m_prompt`**：Java 允许传入 `null`，Rust 侧用 `Option<String>` 表达；
-//!   [`Display`] 复刻 Java 字符串拼接把 `null` 渲染为 `"null"` 的行为。
+//! - **`equals` / `hashCode`**: Java does not override them, so comparison is by object identity; however, instances of this class are used as
+//! keys of a `Map<GenericCriteriaPrompt, Object>` (the filter prompt response table). The Rust side instead derives
+//! [`PartialEq`] / [`Eq`] / [`Hash`] (comparing by `type` + `prompt` values), so it can be used as
+//! a `HashMap` key. Difference: in Java, "looking up the table with a newly constructed instance of the same content" finds nothing, whereas in Rust it is found
+//! — the semantics are looser, so responses are not missed.
+//! - **`m_prompt`**: Java allows passing `null`; the Rust side represents it with `Option<String>`;
+//! [`Display`] replicates Java's string concatenation behavior of rendering `null` as `"null"`.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::data_type::DataType;
 
-/// 筛选条件中向用户提出的提示（prompt）。
+/// A prompt presented to the user as part of filter criteria.
 ///
-/// 对应 Java: `public final class GenericCriteriaPrompt`
+/// Corresponds to Java: `public final class GenericCriteriaPrompt`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericCriteriaPrompt {
-    /// 应答值的数据类型。
+/// The data type of the response value.
     ///
-    /// 对应 Java: `private final DataType m_type;`
+    /// Corresponds to Java: `private final DataType m_type;`
     m_type: DataType,
-    /// 提示文本。
+/// The prompt text.
     ///
-    /// 对应 Java: `private final String m_prompt;`
+    /// Corresponds to Java: `private final String m_prompt;`
     m_prompt: Option<String>,
 }
 
 impl GenericCriteriaPrompt {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public GenericCriteriaPrompt(DataType type, String prompt)`
+    /// Corresponds to Java: `public GenericCriteriaPrompt(DataType type, String prompt)`
     pub fn new(prompt_type: DataType, prompt: Option<String>) -> Self {
         Self {
             m_type: prompt_type,
@@ -44,25 +44,25 @@ impl GenericCriteriaPrompt {
         }
     }
 
-    /// 取应答值的数据类型。
+/// Get the data type of the response value.
     ///
-    /// 对应 Java: `public DataType getType()`
+    /// Corresponds to Java: `public DataType getType()`
     pub fn get_type(&self) -> DataType {
         self.m_type
     }
 
-    /// 取提示文本。
+/// Get the prompt text.
     ///
-    /// 对应 Java: `public String getPrompt()`
+    /// Corresponds to Java: `public String getPrompt()`
     pub fn get_prompt(&self) -> Option<&str> {
         self.m_prompt.as_deref()
     }
 }
 
 impl Display for GenericCriteriaPrompt {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java: `"PROMPT(" + m_prompt + ")"`，`null` 渲染为 `"null"`。
+/// Java: `"PROMPT(" + m_prompt + ")"`, rendering `null` as `"null"`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "PROMPT({})", self.m_prompt.as_deref().unwrap_or("null"))
     }
@@ -86,7 +86,7 @@ mod tests {
         let prompt = GenericCriteriaPrompt::new(DataType::String, Some("Enter name".to_owned()));
         assert_eq!(prompt.to_string(), "PROMPT(Enter name)");
 
-        // Java 字符串拼接把 null 渲染为 "null"
+// Java string concatenation renders null as "null"
         let prompt = GenericCriteriaPrompt::new(DataType::Numeric, None);
         assert_eq!(prompt.to_string(), "PROMPT(null)");
     }
@@ -97,7 +97,7 @@ mod tests {
         let mut responses: HashMap<GenericCriteriaPrompt, i32> = HashMap::new();
         responses.insert(prompt.clone(), 1);
 
-        // 同内容的新实例也能查到（Java 按同一性查不到，Rust 按值查得到）
+// A new instance with the same content is also found (Java finds nothing by identity, Rust finds it by value)
         let lookup = GenericCriteriaPrompt::new(DataType::String, Some("p".to_owned()));
         assert_eq!(responses.get(&lookup), Some(&1));
     }

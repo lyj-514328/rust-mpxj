@@ -1,11 +1,11 @@
-//! 对应 Java: `org/mpxj/MpxjEnum.java`
+//! Corresponds to Java: `org/mpxj/MpxjEnum.java`
 
-/// MPXJ 中所有枚举的公共特征。
+/// Common trait for all enums in MPXJ.
 ///
-/// 对应 Java: `public interface MpxjEnum`
+/// Corresponds to Java: `public interface MpxjEnum`
 pub trait MpxjEnum {
-    /// 返回该枚举实例关联的 int 值（不是 ordinal）。
+    /// Returns the int value associated with this enum instance (not the ordinal).
     ///
-    /// 对应 Java: `int getValue()`
+    /// Corresponds to Java: `int getValue()`
     fn value(&self) -> i32;
 }

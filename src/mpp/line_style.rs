@@ -1,45 +1,45 @@
-//! 对应 Java: `org/mpxj/mpp/LineStyle.java`
+//! Corresponds to Java: `org/mpxj/mpp/LineStyle.java`
 //!
-//! Microsoft Project 使用的网格线线型。
+//! Grid line styles used by Microsoft Project.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum LineStyle implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final LineStyle[] TYPE_VALUES = EnumHelper.createTypeArray(LineStyle.class, 1)` | [`LineStyle::get_instance`] 的 `match` + [`LineStyle::ALL`] | 表长为常量数 5 + 偏移 1 = **6**，取值 0..4 被填充，**下标 5 保持 `null`**：`getInstance(5)` 在 Java 中返回 `null`，Rust 侧返回 `None` |
-//! | `getInstance(int)` 可能返回 `null` | `Option<LineStyle>` | 「`null` → `Option<T>`」约定（同类处理见 `crate::accrue_type::AccrueType`） |
-//! | `getInstance(Number type)` | [`LineStyle::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀；注意其中最外层的 `Option` 是上述「下标 5 → null」 |
-//! | `getName()` / `toString()` | [`LineStyle::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum LineStyle implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final LineStyle[] TYPE_VALUES = EnumHelper.createTypeArray(LineStyle.class, 1)` | the `match` in [`LineStyle::get_instance`] + [`LineStyle::ALL`] | The table length is the constant count 5 + offset 1 = **6**; values 0..4 are filled and **index 5 remains `null`**: `getInstance(5)` returns `null` in Java and `None` on the Rust side |
+//! | `getInstance(int)` may return `null` | `Option<LineStyle>` | The "`null` → `Option<T>`" convention (for similar handling see `crate::accrue_type::AccrueType`) |
+//! | `getInstance(Number type)` | [`LineStyle::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added; note that the outermost `Option` is the "index 5 → null" case above |
+//! | `getName()` / `toString()` | [`LineStyle::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 网格线线型。
+/// Grid line style.
 ///
-/// 对应 Java: `public enum LineStyle`
+/// Corresponds to Java: `public enum LineStyle`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LineStyle {
-    /// 对应 Java: `NONE(0, "None")`
+    /// Corresponds to Java: `NONE(0, "None")`
     None = 0,
-    /// 对应 Java: `SOLID(1, "Solid")`
+    /// Corresponds to Java: `SOLID(1, "Solid")`
     Solid = 1,
-    /// 对应 Java: `DOTTED1(2, "Dotted1")`
+    /// Corresponds to Java: `DOTTED1(2, "Dotted1")`
     Dotted1 = 2,
-    /// 对应 Java: `DOTTED2(3, "Dotted2")`
+    /// Corresponds to Java: `DOTTED2(3, "Dotted2")`
     Dotted2 = 3,
-    /// 对应 Java: `DASHED(4, "Dashed")`
+    /// Corresponds to Java: `DASHED(4, "Dashed")`
     Dashed = 4,
 }
 
 impl LineStyle {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final LineStyle[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final LineStyle[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [LineStyle; 5] = [
         LineStyle::None,
         LineStyle::Solid,
@@ -48,9 +48,9 @@ impl LineStyle {
         LineStyle::Dashed,
     ];
 
-    /// 按 int 值取枚举实例；越界回落 `NONE`，数组下标 5（Java 中为 `null`）返回 `None`。
+/// Get the enum instance by int value; out of bounds falls back to `NONE`, and array index 5 (`null` in Java) returns `None`.
     ///
-    /// 对应 Java: `public static LineStyle getInstance(int type)`
+    /// Corresponds to Java: `public static LineStyle getInstance(int type)`
     pub fn get_instance(value: i32) -> Option<LineStyle> {
         match value {
             0 => Some(LineStyle::None),
@@ -58,23 +58,23 @@ impl LineStyle {
             2 => Some(LineStyle::Dotted1),
             3 => Some(LineStyle::Dotted2),
             4 => Some(LineStyle::Dashed),
-            // Java: TYPE_VALUES 长度为 6，索引 5 未被填充，取值为 null
+// Java: TYPE_VALUES has length 6, index 5 is not filled and its value is null
             5 => None,
-            // Java: type < 0 || type >= TYPE_VALUES.length → type = NONE.getValue()（0）
+            // Java: type < 0 || type >= TYPE_VALUES.length → type = NONE.getValue()(0)
             _ => Some(LineStyle::None),
         }
     }
 
-    /// 对应 Java: `public static LineStyle getInstance(Number type)`
+    /// Corresponds to Java: `public static LineStyle getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `NONE`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `NONE`.
     pub fn get_instance_optional(value: Option<i32>) -> Option<LineStyle> {
         LineStyle::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取线型名称（未做本地化）。
+/// Get the line style name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             LineStyle::None => "None",
@@ -85,30 +85,30 @@ impl LineStyle {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for LineStyle {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for LineStyle {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<LineStyle> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`LineStyle::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`LineStyle::get_value`].
     fn from(value: LineStyle) -> i32 {
         value.get_value()
     }
@@ -118,7 +118,7 @@ impl From<LineStyle> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in LineStyle::ALL.iter().enumerate() {
@@ -128,13 +128,13 @@ mod tests {
         }
     }
 
-    /// 下标 5 在 Java 中为 null。
+/// Index 5 is null in Java.
     #[test]
     fn index_five_is_none() {
         assert_eq!(LineStyle::get_instance(5), None);
     }
 
-    /// 越界回落 NONE；`Number` 重载的 null 回落 NONE。
+/// Out of bounds falls back to NONE; null in the `Number` overload also falls back to NONE.
     #[test]
     fn out_of_range_falls_back_to_none() {
         for value in [-1, -100, 6, 7, 1000, i32::MAX, i32::MIN] {
@@ -150,7 +150,7 @@ mod tests {
         );
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(LineStyle::None.get_name(), "None");

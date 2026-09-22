@@ -1,51 +1,53 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle` / `java.util.Locale`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle` / `java.util.Locale`)
 //!
-//! Java 侧这一族类都是 `ResourceBundle` 的子类：`LocaleData` 是基类，`RESOURCE_DATA`
-//! （`Object[][]`）存放英文默认值；`LocaleData_en/de/es/fr/it/pt/ru/sv/zh` 是各语言变体，
-//! 其 `getContents()` 只列出该语言覆盖的键。`ResourceBundle.getBundle` 会按请求的语言
-//! 挑选变体，变体中缺失的键自动回落到基类。Rust 标准库没有 `ResourceBundle` / `Locale`，
-//! 本模块的处理方式：
+//! Java's whole family of classes here are subclasses of `ResourceBundle`: `LocaleData` is the base
+//! class and `RESOURCE_DATA` (`Object[][]`) holds the English defaults; `LocaleData_en/de/es/fr/it/pt/ru/sv/zh`
+//! are the locale variants, whose `getContents()` lists only the keys that locale covers.
+//! `ResourceBundle.getBundle` picks a variant by the requested locale, and keys missing from the variant
+//! automatically fall back to the base class. The Rust standard library has no `ResourceBundle` / `Locale`,
+//! so this module handles it as follows:
 //!
-//! - 区域设置参数用 [`MpxLocale`]（`java.util.Locale` 的替代物，见 `locale_utility`）；
-//! - 基类默认值即本模块的 [`RESOURCE_DATA`]，各数组常量沿用 Java 的字段名
-//!   （[`TASK_NAMES_DATA`] / [`RESOURCE_NAMES_DATA`] / [`TIME_UNITS_ARRAY_DATA`] /
+//! - The locale parameter uses [`MpxLocale`] (a substitute for `java.util.Locale`, see `locale_utility`);
+//! - The base-class defaults are this module's [`RESOURCE_DATA`], and the array constants keep the Java field names
+//!   ([`TASK_NAMES_DATA`] / [`RESOURCE_NAMES_DATA`] / [`TIME_UNITS_ARRAY_DATA`] /
 //!   [`ACCRUE_TYPES_DATA`] / [`RELATION_TYPES_DATA`] / [`PRIORITY_TYPES_DATA`] /
-//!   [`CONSTRAINT_TYPES_DATA`]）；
-//! - 各语言变体在 `locale_data_XX` 模块中用 `pub const` 写出它实际覆盖的键（标量常量按
-//!   Java `RESOURCE_DATA` 里的键名命名，如 `locale_data_de::FILE_DELIMITER`），并用
-//!   [`LocaleOverrides`] 汇总（对应 Java 变体的 `getContents()`）；未覆盖的键为 `None`，
-//!   取值时回落到 [`RESOURCE_DATA`]，与 `ResourceBundle` 的父包回落等价；
-//! - Java 的 `getString` / `getStringArray` / `getStringArrays` / `getMap` / `getInteger` /
-//!   `getChar` 逐个对应到同名的 `get_*` 函数，键用本类型的 `pub const` 字符串常量，
-//!   用法与 Java 的 `LocaleData.ACCRUE_TYPES` 一致；`getObject` 依赖调用方强转类型，
-//!   Rust 侧改为按类型返回的 [`LocaleData::get_code_page`]、
-//!   [`LocaleData::get_currency_symbol_position`]、[`LocaleData::get_date_order`]、
-//!   [`LocaleData::get_time_format`]、[`LocaleData::get_date_format`]；
-//! - Java 的 `String[]` 元素可为 `null`（`TASK_NAMES` / `RESOURCE_NAMES` 中未命名的字段），
-//!   故 `get_string_array` 统一返回 `&[Option<&str>]`；`TIME_UNITS_ARRAY` 是 `String[][]`
-//!   且内层无 `null`，由 `get_string_arrays` 返回 `&[&[&str]]`；
-//! - `TIME_UNITS_MAP` 在 Java 中由静态块从 `TIME_UNITS_ARRAY_DATA` 展开成 `HashMap`，
-//!   Rust 侧改由 [`LocaleData::get_map`] 按需展开（本模块中不再有 `TIME_UNITS_MAP_DATA`
-//!   常量）。
+//!   [`CONSTRAINT_TYPES_DATA`]);
+//! - Each locale variant writes the keys it actually covers as `pub const` values in its `locale_data_XX` module
+//!   (scalar constants are named after the keys in Java `RESOURCE_DATA`, e.g. `locale_data_de::FILE_DELIMITER`)
+//!   and aggregates them with [`LocaleOverrides`] (corresponding to the Java variant's `getContents()`);
+//!   uncovered keys are `None` and fall back to [`RESOURCE_DATA`] when looked up, equivalent to
+//!   `ResourceBundle`'s parent-bundle fallback;
+//! - Java's `getString` / `getStringArray` / `getStringArrays` / `getMap` / `getInteger` / `getChar`
+//!   map one-to-one to same-named `get_*` functions, with keys given as this type's `pub const` string
+//!   constants, used as in Java's `LocaleData.ACCRUE_TYPES`; `getObject` relies on the caller casting the
+//!   type, so Rust replaces it with the typed [`LocaleData::get_code_page`],
+//!   [`LocaleData::get_currency_symbol_position`], [`LocaleData::get_date_order`],
+//!   [`LocaleData::get_time_format`], [`LocaleData::get_date_format`];
+//! - Java's `String[]` elements may be `null` (unnamed fields in `TASK_NAMES` / `RESOURCE_NAMES`), so
+//!   `get_string_array` uniformly returns `&[Option<&str>]`; `TIME_UNITS_ARRAY` is a `String[][]` whose
+//!   inner arrays have no `null`, returned by `get_string_arrays` as `&[&[&str]]`;
+//! - `TIME_UNITS_MAP` is expanded in Java by a static block from `TIME_UNITS_ARRAY_DATA` into a `HashMap`;
+//!   Rust expands it on demand via [`LocaleData::get_map`] (there is no `TIME_UNITS_MAP_DATA` constant in
+//!   this module any more).
 //!
-//! 跳过并注明：
-//! - `ResourceBundle` 的协议方法 `getContents` / `handleGetObject` / `getKeys` /
-//!   `setParent` / `keySet`：由本模块的常量表加 [`LocaleOverrides`] 的回落逻辑替代；
-//! - `ListResourceBundle`、`java.util.Locale`：分别由 [`LocaleOverrides`] 与 [`MpxLocale`] 替代；
-//! - `Serializable`（`ResourceBundle` 自带）：不移植。
+//! Skipped and noted:
+//! - `ResourceBundle`'s protocol methods `getContents` / `handleGetObject` / `getKeys` / `setParent` /
+//!   `keySet`: replaced by this module's constant tables plus [`LocaleOverrides`]' fallback logic;
+//! - `ListResourceBundle` and `java.util.Locale`: replaced by [`LocaleOverrides`] and [`MpxLocale`] respectively;
+//! - `Serializable` (provided by `ResourceBundle`): not ported.
 //!
-//! 未移植的成员：无。
+//! Skipped Java members: none.
 //!
-//! # 上游数据中已保留的不一致（按 Java 源码原样照抄）
+//! # Inconsistencies preserved from the upstream data (copied verbatim from the Java source)
 //!
-//! - 各非英文变体的 `TIME_UNITS_ARRAY_DATA` 字面量把「年」放在下标 5、「百分比」放在下标 6，
-//!   而 `TimeUnit` 的取值为 `PERCENT(5)` / `YEARS(6)`（英文基类按 `getValue()` 赋值，
-//!   因此下标 5 是 `"%"`、下标 6 是 `"y"`）。两处顺序不同是上游既有情况，
-//!   本移植逐项照抄，不做「修正」。
-//! - `LocaleData_ru.RESOURCE_NAMES_DATA` 只有 51 项（缺少 `Overtime Work` 一项，
-//!   使下标 24 之后的名表整体前移），同样照抄。
+//! - The `TIME_UNITS_ARRAY_DATA` literals of the non-English variants put "years" at index 5 and "percent"
+//!   at index 6, whereas `TimeUnit`'s values are `PERCENT(5)` / `YEARS(6)` (the English base class assigns
+//!   by `getValue()`, so index 5 is `"%"` and index 6 is `"y"`). The differing order is an upstream
+//!   pre-existing condition; this port copies each item verbatim and does not "fix" it.
+//! - `LocaleData_ru.RESOURCE_NAMES_DATA` has only 51 entries (it lacks `Overtime Work`, shifting the whole
+//!   name table after index 24), also copied verbatim.
 
 use std::collections::HashMap;
 
@@ -65,74 +67,74 @@ use crate::mpx::locale_utility::MpxLocale;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 一个区域设置的全部资源，即 Java `ResourceBundle` 解析完成后可读到的键值集合。
+/// All resources for one locale, i.e. the key/value set readable after Java `ResourceBundle` resolves.
 ///
-/// 对应 Java: 基类 `LocaleData.RESOURCE_DATA`（`Object[][]` 形式的键值对）；
-/// 这里用带具体类型的字段表达，Java 的 `Object` 强转由字段类型取代。
+/// Corresponds to Java: the base class `LocaleData.RESOURCE_DATA` (key/value pairs in `Object[][]` form);
+/// typed fields are used here instead, replacing Java's `Object` casts with the field types.
 #[derive(Debug, Clone, Copy)]
 pub struct LocaleResources {
-    /// 对应资源键 `FILE_DELIMITER`
+    /// Corresponds to resource key `FILE_DELIMITER`
     pub file_delimiter: char,
-    /// 对应资源键 `PROGRAM_NAME`
+    /// Corresponds to resource key `PROGRAM_NAME`
     pub program_name: &'static str,
-    /// 对应资源键 `FILE_VERSION`
+    /// Corresponds to resource key `FILE_VERSION`
     pub file_version: &'static str,
-    /// 对应资源键 `CODE_PAGE`
+    /// Corresponds to resource key `CODE_PAGE`
     pub code_page: CodePage,
-    /// 对应资源键 `CURRENCY_SYMBOL`
+    /// Corresponds to resource key `CURRENCY_SYMBOL`
     pub currency_symbol: &'static str,
-    /// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+    /// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
     pub currency_symbol_position: CurrencySymbolPosition,
-    /// 对应资源键 `CURRENCY_DIGITS`
+    /// Corresponds to resource key `CURRENCY_DIGITS`
     pub currency_digits: i32,
-    /// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+    /// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR`
     pub currency_thousands_separator: char,
-    /// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+    /// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
     pub currency_decimal_separator: char,
-    /// 对应资源键 `DATE_ORDER`
+    /// Corresponds to resource key `DATE_ORDER`
     pub date_order: DateOrder,
-    /// 对应资源键 `TIME_FORMAT`
+    /// Corresponds to resource key `TIME_FORMAT`
     pub time_format: ProjectTimeFormat,
-    /// 对应资源键 `DEFAULT_START_TIME`（单位：自午夜起的分钟数）
+    /// Corresponds to resource key `DEFAULT_START_TIME` (unit: minutes since midnight)
     pub default_start_time: i32,
-    /// 对应资源键 `DATE_SEPARATOR`
+    /// Corresponds to resource key `DATE_SEPARATOR`
     pub date_separator: char,
-    /// 对应资源键 `TIME_SEPARATOR`
+    /// Corresponds to resource key `TIME_SEPARATOR`
     pub time_separator: char,
-    /// 对应资源键 `AM_TEXT`
+    /// Corresponds to resource key `AM_TEXT`
     pub am_text: &'static str,
-    /// 对应资源键 `PM_TEXT`
+    /// Corresponds to resource key `PM_TEXT`
     pub pm_text: &'static str,
-    /// 对应资源键 `DATE_FORMAT`
+    /// Corresponds to resource key `DATE_FORMAT`
     pub date_format: ProjectDateFormat,
-    /// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+    /// Corresponds to resource key `BAR_TEXT_DATE_FORMAT`
     pub bar_text_date_format: i32,
-    /// 对应资源键 `NA`
+    /// Corresponds to resource key `NA`
     pub na: &'static str,
-    /// 对应资源键 `YES`
+    /// Corresponds to resource key `YES`
     pub yes: &'static str,
-    /// 对应资源键 `NO`
+    /// Corresponds to resource key `NO`
     pub no: &'static str,
-    /// 对应资源键 `TIME_UNITS_ARRAY`（下标即 `TimeUnit` 的 int 值，内层为该单位的别名）
+    /// Corresponds to resource key `TIME_UNITS_ARRAY` (the index is the int value of `TimeUnit`; the inner array holds that unit's aliases)
     pub time_units_array: &'static [&'static [&'static str]],
-    /// 对应资源键 `ACCRUE_TYPES`
+    /// Corresponds to resource key `ACCRUE_TYPES`
     pub accrue_types: &'static [Option<&'static str>],
-    /// 对应资源键 `RELATION_TYPES`
+    /// Corresponds to resource key `RELATION_TYPES`
     pub relation_types: &'static [Option<&'static str>],
-    /// 对应资源键 `PRIORITY_TYPES`
+    /// Corresponds to resource key `PRIORITY_TYPES`
     pub priority_types: &'static [Option<&'static str>],
-    /// 对应资源键 `CONSTRAINT_TYPES`
+    /// Corresponds to resource key `CONSTRAINT_TYPES`
     pub constraint_types: &'static [Option<&'static str>],
-    /// 对应资源键 `TASK_NAMES`（下标与 MPX 任务字段号对应，`None` 表示该字段无名称）
+    /// Corresponds to resource key `TASK_NAMES` (indices correspond to MPX task field numbers; `None` means the field has no name)
     pub task_names: &'static [Option<&'static str>],
-    /// 对应资源键 `RESOURCE_NAMES`（下标与 MPX 资源字段号对应，`None` 表示该字段无名称）
+    /// Corresponds to resource key `RESOURCE_NAMES` (indices correspond to MPX resource field numbers; `None` means the field has no name)
     pub resource_names: &'static [Option<&'static str>],
 }
 
-/// 英文（默认）时间单位别名表。
+/// English (default) time unit alias table.
 ///
-/// 对应 Java: `LocaleData.TIME_UNITS_ARRAY_DATA`（Java 侧按下标 `TimeUnit.getValue()` 赋值，
-/// 所以这里的下标 5 是 `PERCENT`、下标 6 是 `YEARS`）。
+/// Corresponds to Java: `LocaleData.TIME_UNITS_ARRAY_DATA` (Java assigns by the index `TimeUnit.getValue()`,
+/// so here index 5 is `PERCENT` and index 6 is `YEARS`).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["m", "mins"],        // TimeUnit.MINUTES(0)
     &["h", "hours"],       // TimeUnit.HOURS(1)
@@ -150,22 +152,22 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["e%"],               // TimeUnit.ELAPSED_PERCENT(13)
 ];
 
-/// 英文（默认）资源键 `ACCRUE_TYPES` 的名表（下标 + 1 即 `AccrueType` 的 int 值）。
+/// English (default) resource key `ACCRUE_TYPES` name table (index + 1 is the int value of `AccrueType`).
 ///
-/// 对应 Java: `LocaleData.ACCRUE_TYPES_DATA`（不含 `null` 元素，`Option` 用于统一
-/// `get_string_array` 的返回类型）。
+/// Corresponds to Java: `LocaleData.ACCRUE_TYPES_DATA` (no `null` elements; `Option` is used to unify
+/// the return type of `get_string_array`).
 pub const ACCRUE_TYPES_DATA: [Option<&'static str>; 3] =
     [Some("Start"), Some("End"), Some("Prorated")];
 
-/// 英文（默认）资源键 `RELATION_TYPES` 的名表（下标即 `RelationType` 的 int 值）。
+/// English (default) resource key `RELATION_TYPES` name table (the index is the int value of `RelationType`).
 ///
-/// 对应 Java: `LocaleData.RELATION_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData.RELATION_TYPES_DATA`.
 pub const RELATION_TYPES_DATA: [Option<&'static str>; 4] =
     [Some("FF"), Some("FS"), Some("SF"), Some("SS")];
 
-/// 英文（默认）资源键 `PRIORITY_TYPES` 的名表（下标 + 1 再乘 100 即 `Priority` 的值）。
+/// English (default) resource key `PRIORITY_TYPES` name table (index + 1, times 100, is the `Priority` value).
 ///
-/// 对应 Java: `LocaleData.PRIORITY_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData.PRIORITY_TYPES_DATA`.
 pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Lowest"),
     Some("Very Low"),
@@ -179,9 +181,9 @@ pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Do Not Level"),
 ];
 
-/// 英文（默认）资源键 `CONSTRAINT_TYPES` 的名表（下标即 `ConstraintType` 的 int 值）。
+/// English (default) resource key `CONSTRAINT_TYPES` name table (the index is the int value of `ConstraintType`).
 ///
-/// 对应 Java: `LocaleData.CONSTRAINT_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData.CONSTRAINT_TYPES_DATA`.
 pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("As Soon As Possible"),
     Some("As Late As Possible"),
@@ -193,9 +195,9 @@ pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("Finish No Later Than"),
 ];
 
-/// 英文（默认）资源键 `TASK_NAMES` 的名表，下标与 MPX 任务字段号一一对应。
+/// English (default) resource key `TASK_NAMES` name table, with indices corresponding one-to-one to MPX task field numbers.
 ///
-/// 对应 Java: `LocaleData.TASK_NAMES_DATA`（`null` 元素表示该字段没有名称）。
+/// Corresponds to Java: `LocaleData.TASK_NAMES_DATA` (a `null` element means the field has no name).
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                              // 0
     Some("Name"),                      // 1
@@ -352,9 +354,9 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Resume"),                    // 152
 ];
 
-/// 英文（默认）资源键 `RESOURCE_NAMES` 的名表，下标与 MPX 资源字段号一一对应。
+/// English (default) resource key `RESOURCE_NAMES` name table, with indices corresponding one-to-one to MPX resource field numbers.
 ///
-/// 对应 Java: `LocaleData.RESOURCE_NAMES_DATA`（`null` 元素表示该字段没有名称）。
+/// Corresponds to Java: `LocaleData.RESOURCE_NAMES_DATA` (a `null` element means the field has no name).
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     None,                          // 0
     Some("Name"),                  // 1
@@ -410,9 +412,9 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 52] = [
     Some("Linked Fields"),         // 51
 ];
 
-/// 英文（默认）资源，对应 Java `LocaleData.RESOURCE_DATA`（`getContents()` 的返回值）。
+/// English (default) resources, corresponding to Java `LocaleData.RESOURCE_DATA` (the return value of `getContents()`).
 ///
-/// Java 的 `LocaleData_en` 资源包为空，英语完全使用这组默认值。
+/// Java's `LocaleData_en` resource bundle is empty; English uses these defaults entirely.
 pub static RESOURCE_DATA: LocaleResources = LocaleResources {
     file_delimiter: ',',
     program_name: "Microsoft Project for Windows",
@@ -444,73 +446,73 @@ pub static RESOURCE_DATA: LocaleResources = LocaleResources {
     resource_names: &RESOURCE_NAMES_DATA,
 };
 
-/// 一个语言变体覆盖的资源键，对应 Java `LocaleData_XX` 的 `RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// The resource keys covered by one locale variant, corresponding to Java `LocaleData_XX`'s `RESOURCE_DATA`
+/// (i.e. the return value of `getContents()`).
 ///
-/// 字段为 `None` 表示该变体未覆盖此键，取值时回落到 [`RESOURCE_DATA`]
-/// （等价于 `ResourceBundle` 的父包回落）。
+/// A field being `None` means the variant does not cover that key and it falls back to [`RESOURCE_DATA`]
+/// when looked up (equivalent to `ResourceBundle`'s parent-bundle fallback).
 #[derive(Debug, Clone, Copy)]
 pub struct LocaleOverrides {
-    /// 对应资源键 `FILE_DELIMITER`
+    /// Corresponds to resource key `FILE_DELIMITER`
     pub file_delimiter: Option<char>,
-    /// 对应资源键 `PROGRAM_NAME`
+    /// Corresponds to resource key `PROGRAM_NAME`
     pub program_name: Option<&'static str>,
-    /// 对应资源键 `FILE_VERSION`
+    /// Corresponds to resource key `FILE_VERSION`
     pub file_version: Option<&'static str>,
-    /// 对应资源键 `CODE_PAGE`
+    /// Corresponds to resource key `CODE_PAGE`
     pub code_page: Option<CodePage>,
-    /// 对应资源键 `CURRENCY_SYMBOL`
+    /// Corresponds to resource key `CURRENCY_SYMBOL`
     pub currency_symbol: Option<&'static str>,
-    /// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+    /// Corresponds to resource key `CURRENCY_SYMBOL_POSITION`
     pub currency_symbol_position: Option<CurrencySymbolPosition>,
-    /// 对应资源键 `CURRENCY_DIGITS`
+    /// Corresponds to resource key `CURRENCY_DIGITS`
     pub currency_digits: Option<i32>,
-    /// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+    /// Corresponds to resource key `CURRENCY_THOUSANDS_SEPARATOR`
     pub currency_thousands_separator: Option<char>,
-    /// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+    /// Corresponds to resource key `CURRENCY_DECIMAL_SEPARATOR`
     pub currency_decimal_separator: Option<char>,
-    /// 对应资源键 `DATE_ORDER`
+    /// Corresponds to resource key `DATE_ORDER`
     pub date_order: Option<DateOrder>,
-    /// 对应资源键 `TIME_FORMAT`
+    /// Corresponds to resource key `TIME_FORMAT`
     pub time_format: Option<ProjectTimeFormat>,
-    /// 对应资源键 `DEFAULT_START_TIME`
+    /// Corresponds to resource key `DEFAULT_START_TIME`
     pub default_start_time: Option<i32>,
-    /// 对应资源键 `DATE_SEPARATOR`
+    /// Corresponds to resource key `DATE_SEPARATOR`
     pub date_separator: Option<char>,
-    /// 对应资源键 `TIME_SEPARATOR`
+    /// Corresponds to resource key `TIME_SEPARATOR`
     pub time_separator: Option<char>,
-    /// 对应资源键 `AM_TEXT`
+    /// Corresponds to resource key `AM_TEXT`
     pub am_text: Option<&'static str>,
-    /// 对应资源键 `PM_TEXT`
+    /// Corresponds to resource key `PM_TEXT`
     pub pm_text: Option<&'static str>,
-    /// 对应资源键 `DATE_FORMAT`
+    /// Corresponds to resource key `DATE_FORMAT`
     pub date_format: Option<ProjectDateFormat>,
-    /// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+    /// Corresponds to resource key `BAR_TEXT_DATE_FORMAT`
     pub bar_text_date_format: Option<i32>,
-    /// 对应资源键 `NA`
+    /// Corresponds to resource key `NA`
     pub na: Option<&'static str>,
-    /// 对应资源键 `YES`
+    /// Corresponds to resource key `YES`
     pub yes: Option<&'static str>,
-    /// 对应资源键 `NO`
+    /// Corresponds to resource key `NO`
     pub no: Option<&'static str>,
-    /// 对应资源键 `TIME_UNITS_ARRAY`
+    /// Corresponds to resource key `TIME_UNITS_ARRAY`
     pub time_units_array: Option<&'static [&'static [&'static str]]>,
-    /// 对应资源键 `ACCRUE_TYPES`
+    /// Corresponds to resource key `ACCRUE_TYPES`
     pub accrue_types: Option<&'static [Option<&'static str>]>,
-    /// 对应资源键 `RELATION_TYPES`
+    /// Corresponds to resource key `RELATION_TYPES`
     pub relation_types: Option<&'static [Option<&'static str>]>,
-    /// 对应资源键 `PRIORITY_TYPES`
+    /// Corresponds to resource key `PRIORITY_TYPES`
     pub priority_types: Option<&'static [Option<&'static str>]>,
-    /// 对应资源键 `CONSTRAINT_TYPES`
+    /// Corresponds to resource key `CONSTRAINT_TYPES`
     pub constraint_types: Option<&'static [Option<&'static str>]>,
-    /// 对应资源键 `TASK_NAMES`
+    /// Corresponds to resource key `TASK_NAMES`
     pub task_names: Option<&'static [Option<&'static str>]>,
-    /// 对应资源键 `RESOURCE_NAMES`
+    /// Corresponds to resource key `RESOURCE_NAMES`
     pub resource_names: Option<&'static [Option<&'static str>]>,
 }
 
 impl LocaleOverrides {
-    /// 所有键均未覆盖，对应 Java `LocaleData_en.RESOURCE_DATA = {}`。
+    /// All keys uncovered, corresponding to Java `LocaleData_en.RESOURCE_DATA = {}`.
     pub const EMPTY: LocaleOverrides = LocaleOverrides {
         file_delimiter: None,
         program_name: None,
@@ -543,84 +545,84 @@ impl LocaleOverrides {
     };
 }
 
-/// 资源包处理工具与英文默认资源。
+/// Resource bundle handling utility and the English default resources.
 ///
-/// 对应 Java: `public final class LocaleData extends ListResourceBundle`
-/// （私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `public final class LocaleData extends ListResourceBundle`
+/// (the private constructor forbids instantiation; Rust expresses it with a fieldless type).
 pub struct LocaleData;
 
 impl LocaleData {
-    /// 对应 Java: `public static final String FILE_DELIMITER`
+    /// Corresponds to Java: `public static final String FILE_DELIMITER`
     pub const FILE_DELIMITER: &'static str = "FILE_DELIMITER";
-    /// 对应 Java: `public static final String PROGRAM_NAME`
+    /// Corresponds to Java: `public static final String PROGRAM_NAME`
     pub const PROGRAM_NAME: &'static str = "PROGRAM_NAME";
-    /// 对应 Java: `public static final String FILE_VERSION`
+    /// Corresponds to Java: `public static final String FILE_VERSION`
     pub const FILE_VERSION: &'static str = "FILE_VERSION";
-    /// 对应 Java: `public static final String CODE_PAGE`
+    /// Corresponds to Java: `public static final String CODE_PAGE`
     pub const CODE_PAGE: &'static str = "CODE_PAGE";
 
-    /// 对应 Java: `public static final String YES`
+    /// Corresponds to Java: `public static final String YES`
     pub const YES: &'static str = "YES";
-    /// 对应 Java: `public static final String NO`
+    /// Corresponds to Java: `public static final String NO`
     pub const NO: &'static str = "NO";
 
-    /// 对应 Java: `public static final String CURRENCY_SYMBOL`
+    /// Corresponds to Java: `public static final String CURRENCY_SYMBOL`
     pub const CURRENCY_SYMBOL: &'static str = "CURRENCY_SYMBOL";
-    /// 对应 Java: `public static final String CURRENCY_SYMBOL_POSITION`
+    /// Corresponds to Java: `public static final String CURRENCY_SYMBOL_POSITION`
     pub const CURRENCY_SYMBOL_POSITION: &'static str = "CURRENCY_SYMBOL_POSITION";
-    /// 对应 Java: `public static final String CURRENCY_DIGITS`
+    /// Corresponds to Java: `public static final String CURRENCY_DIGITS`
     pub const CURRENCY_DIGITS: &'static str = "CURRENCY_DIGITS";
-    /// 对应 Java: `public static final String CURRENCY_THOUSANDS_SEPARATOR`
+    /// Corresponds to Java: `public static final String CURRENCY_THOUSANDS_SEPARATOR`
     pub const CURRENCY_THOUSANDS_SEPARATOR: &'static str = "CURRENCY_THOUSANDS_SEPARATOR";
-    /// 对应 Java: `public static final String CURRENCY_DECIMAL_SEPARATOR`
+    /// Corresponds to Java: `public static final String CURRENCY_DECIMAL_SEPARATOR`
     pub const CURRENCY_DECIMAL_SEPARATOR: &'static str = "CURRENCY_DECIMAL_SEPARATOR";
 
-    /// 对应 Java: `public static final String DATE_ORDER`
+    /// Corresponds to Java: `public static final String DATE_ORDER`
     pub const DATE_ORDER: &'static str = "DATE_ORDER";
-    /// 对应 Java: `public static final String TIME_FORMAT`
+    /// Corresponds to Java: `public static final String TIME_FORMAT`
     pub const TIME_FORMAT: &'static str = "TIME_FORMAT";
-    /// 对应 Java: `public static final String DEFAULT_START_TIME`
+    /// Corresponds to Java: `public static final String DEFAULT_START_TIME`
     pub const DEFAULT_START_TIME: &'static str = "DEFAULT_START_TIME";
-    /// 对应 Java: `public static final String DATE_SEPARATOR`
+    /// Corresponds to Java: `public static final String DATE_SEPARATOR`
     pub const DATE_SEPARATOR: &'static str = "DATE_SEPARATOR";
-    /// 对应 Java: `public static final String TIME_SEPARATOR`
+    /// Corresponds to Java: `public static final String TIME_SEPARATOR`
     pub const TIME_SEPARATOR: &'static str = "TIME_SEPARATOR";
-    /// 对应 Java: `public static final String AM_TEXT`
+    /// Corresponds to Java: `public static final String AM_TEXT`
     pub const AM_TEXT: &'static str = "AM_TEXT";
-    /// 对应 Java: `public static final String PM_TEXT`
+    /// Corresponds to Java: `public static final String PM_TEXT`
     pub const PM_TEXT: &'static str = "PM_TEXT";
-    /// 对应 Java: `public static final String DATE_FORMAT`
+    /// Corresponds to Java: `public static final String DATE_FORMAT`
     pub const DATE_FORMAT: &'static str = "DATE_FORMAT";
-    /// 对应 Java: `public static final String BAR_TEXT_DATE_FORMAT`
+    /// Corresponds to Java: `public static final String BAR_TEXT_DATE_FORMAT`
     pub const BAR_TEXT_DATE_FORMAT: &'static str = "BAR_TEXT_DATE_FORMAT";
-    /// 对应 Java: `public static final String NA`
+    /// Corresponds to Java: `public static final String NA`
     pub const NA: &'static str = "NA";
 
-    /// 对应 Java: `public static final String TIME_UNITS_ARRAY`
+    /// Corresponds to Java: `public static final String TIME_UNITS_ARRAY`
     pub const TIME_UNITS_ARRAY: &'static str = "TIME_UNITS_ARRAY";
-    /// 对应 Java: `public static final String TIME_UNITS_MAP`
+    /// Corresponds to Java: `public static final String TIME_UNITS_MAP`
     pub const TIME_UNITS_MAP: &'static str = "TIME_UNITS_MAP";
 
-    /// 对应 Java: `public static final String ACCRUE_TYPES`
+    /// Corresponds to Java: `public static final String ACCRUE_TYPES`
     pub const ACCRUE_TYPES: &'static str = "ACCRUE_TYPES";
-    /// 对应 Java: `public static final String RELATION_TYPES`
+    /// Corresponds to Java: `public static final String RELATION_TYPES`
     pub const RELATION_TYPES: &'static str = "RELATION_TYPES";
-    /// 对应 Java: `public static final String PRIORITY_TYPES`
+    /// Corresponds to Java: `public static final String PRIORITY_TYPES`
     pub const PRIORITY_TYPES: &'static str = "PRIORITY_TYPES";
-    /// 对应 Java: `public static final String CONSTRAINT_TYPES`
+    /// Corresponds to Java: `public static final String CONSTRAINT_TYPES`
     pub const CONSTRAINT_TYPES: &'static str = "CONSTRAINT_TYPES";
 
-    /// 对应 Java: `public static final String TASK_NAMES`
+    /// Corresponds to Java: `public static final String TASK_NAMES`
     pub const TASK_NAMES: &'static str = "TASK_NAMES";
-    /// 对应 Java: `public static final String RESOURCE_NAMES`
+    /// Corresponds to Java: `public static final String RESOURCE_NAMES`
     pub const RESOURCE_NAMES: &'static str = "RESOURCE_NAMES";
 
-    /// 取字符串资源。
+    /// Get a string resource.
     ///
-    /// 对应 Java: `public static final String getString(Locale locale, String key)`
+    /// Corresponds to Java: `public static final String getString(Locale locale, String key)`
     ///
-    /// Java 侧键不存在时抛 `MissingResourceException`、键值不是字符串时抛
-    /// `ClassCastException`，Rust 侧统一返回 `None`。
+    /// Java throws `MissingResourceException` when the key does not exist and `ClassCastException` when
+    /// the value is not a string; Rust uniformly returns `None`.
     pub fn get_string(locale: MpxLocale, key: &str) -> Option<&'static str> {
         let overrides = overrides(locale);
 
@@ -639,12 +641,12 @@ impl LocaleData {
         }
     }
 
-    /// 取字符串数组资源（元素可为 `None`，对应 Java `String[]` 里的 `null`）。
+    /// Get a string array resource (elements may be `None`, corresponding to `null` in Java's `String[]`).
     ///
-    /// 对应 Java: `public static final String[] getStringArray(Locale locale, String key)`
+    /// Corresponds to Java: `public static final String[] getStringArray(Locale locale, String key)`
     ///
-    /// `TIME_UNITS_ARRAY` 是 `String[][]`，Java 用本方法取它会抛 `ClassCastException`，
-    /// Rust 侧返回 `None`（请改用 [`LocaleData::get_string_arrays`]）。
+    /// `TIME_UNITS_ARRAY` is a `String[][]`; Java throws `ClassCastException` if this method is used to
+    /// fetch it, and Rust returns `None` (use [`LocaleData::get_string_arrays`] instead).
     pub fn get_string_array(
         locale: MpxLocale,
         key: &str,
@@ -670,12 +672,12 @@ impl LocaleData {
         }
     }
 
-    /// 取二维字符串数组资源。
+    /// Get a two-dimensional string array resource.
     ///
-    /// 对应 Java: `public static final String[][] getStringArrays(Locale locale, String key)`
+    /// Corresponds to Java: `public static final String[][] getStringArrays(Locale locale, String key)`
     ///
-    /// 只有 `TIME_UNITS_ARRAY` 属于此类；其他键 Java 会抛 `ClassCastException`，
-    /// Rust 侧返回 `None`。
+    /// Only `TIME_UNITS_ARRAY` is of this kind; for other keys Java throws `ClassCastException` and Rust
+    /// returns `None`.
     pub fn get_string_arrays(
         locale: MpxLocale,
         key: &str,
@@ -690,13 +692,13 @@ impl LocaleData {
         }
     }
 
-    /// 取 Map 资源，即「时间单位名（小写）→ `TimeUnit` 的 int 值」的映射。
+    /// Get a Map resource, i.e. the "time unit name (lowercase) → int value of `TimeUnit`" mapping.
     ///
-    /// 对应 Java: `public static final Map getMap(Locale locale, String key)`
+    /// Corresponds to Java: `public static final Map getMap(Locale locale, String key)`
     ///
-    /// Java 的 `TIME_UNITS_MAP` 由静态块从 `TIME_UNITS_ARRAY_DATA` 展开，
-    /// 同名时后写覆盖先写；Rust 侧在每次调用时按同样顺序展开（只有该键属于 Map，
-    /// 其他键 Java 会抛 `ClassCastException`，Rust 侧返回 `None`）。
+    /// Java's `TIME_UNITS_MAP` is expanded by a static block from `TIME_UNITS_ARRAY_DATA`, with later
+    /// entries overwriting earlier ones on duplicate names; Rust expands it in the same order on each call
+    /// (only this key is a Map; for other keys Java throws `ClassCastException` and Rust returns `None`).
     pub fn get_map(locale: MpxLocale, key: &str) -> Option<HashMap<&'static str, i32>> {
         let unit_names = match key {
             Self::TIME_UNITS_MAP => Self::get_string_arrays(locale, Self::TIME_UNITS_ARRAY)?,
@@ -713,12 +715,12 @@ impl LocaleData {
         Some(result)
     }
 
-    /// 取整数资源。
+    /// Get an integer resource.
     ///
-    /// 对应 Java: `public static final Integer getInteger(Locale locale, String key)`
+    /// Corresponds to Java: `public static final Integer getInteger(Locale locale, String key)`
     ///
-    /// Java 侧键不存在时抛 `MissingResourceException`、键值不是整数时抛
-    /// `ClassCastException`，Rust 侧统一返回 `None`。
+    /// Java throws `MissingResourceException` when the key does not exist and `ClassCastException` when
+    /// the value is not an integer; Rust uniformly returns `None`.
     pub fn get_integer(locale: MpxLocale, key: &str) -> Option<i32> {
         let overrides = overrides(locale);
 
@@ -740,12 +742,12 @@ impl LocaleData {
         }
     }
 
-    /// 取单字符资源（Java 取字符串的首字符）。
+    /// Get a single-character resource (Java takes the first character of a string).
     ///
-    /// 对应 Java: `public static final char getChar(Locale locale, String key)`
+    /// Corresponds to Java: `public static final char getChar(Locale locale, String key)`
     ///
-    /// Java 的 `getChar` 对键值不是字符串的键抛 `ClassCastException`、对空字符串抛
-    /// `StringIndexOutOfBoundsException`；Rust 侧这些情况统一返回 `None`。
+    /// Java's `getChar` throws `ClassCastException` for keys whose value is not a string, and
+    /// `StringIndexOutOfBoundsException` for an empty string; Rust uniformly returns `None` in these cases.
     pub fn get_char(locale: MpxLocale, key: &str) -> Option<char> {
         let overrides = overrides(locale);
 
@@ -773,48 +775,48 @@ impl LocaleData {
         }
     }
 
-    /// 取代码页。
+    /// Get the code page.
     ///
-    /// 对应 Java: `(CodePage) LocaleData.getObject(locale, LocaleData.CODE_PAGE)`
+    /// Corresponds to Java: `(CodePage) LocaleData.getObject(locale, LocaleData.CODE_PAGE)`
     pub fn get_code_page(locale: MpxLocale) -> CodePage {
         overrides(locale).code_page.unwrap_or(RESOURCE_DATA.code_page)
     }
 
-    /// 取货币符号位置。
+    /// Get the currency symbol position.
     ///
-    /// 对应 Java: `(CurrencySymbolPosition) LocaleData.getObject(locale, LocaleData.CURRENCY_SYMBOL_POSITION)`
+    /// Corresponds to Java: `(CurrencySymbolPosition) LocaleData.getObject(locale, LocaleData.CURRENCY_SYMBOL_POSITION)`
     pub fn get_currency_symbol_position(locale: MpxLocale) -> CurrencySymbolPosition {
         overrides(locale)
             .currency_symbol_position
             .unwrap_or(RESOURCE_DATA.currency_symbol_position)
     }
 
-    /// 取日期顺序。
+    /// Get the date order.
     ///
-    /// 对应 Java: `(DateOrder) LocaleData.getObject(locale, LocaleData.DATE_ORDER)`
+    /// Corresponds to Java: `(DateOrder) LocaleData.getObject(locale, LocaleData.DATE_ORDER)`
     pub fn get_date_order(locale: MpxLocale) -> DateOrder {
         overrides(locale).date_order.unwrap_or(RESOURCE_DATA.date_order)
     }
 
-    /// 取时间格式。
+    /// Get the time format.
     ///
-    /// 对应 Java: `(ProjectTimeFormat) LocaleData.getObject(locale, LocaleData.TIME_FORMAT)`
+    /// Corresponds to Java: `(ProjectTimeFormat) LocaleData.getObject(locale, LocaleData.TIME_FORMAT)`
     pub fn get_time_format(locale: MpxLocale) -> ProjectTimeFormat {
         overrides(locale).time_format.unwrap_or(RESOURCE_DATA.time_format)
     }
 
-    /// 取日期格式。
+    /// Get the date format.
     ///
-    /// 对应 Java: `(ProjectDateFormat) LocaleData.getObject(locale, LocaleData.DATE_FORMAT)`
+    /// Corresponds to Java: `(ProjectDateFormat) LocaleData.getObject(locale, LocaleData.DATE_FORMAT)`
     pub fn get_date_format(locale: MpxLocale) -> ProjectDateFormat {
         overrides(locale).date_format.unwrap_or(RESOURCE_DATA.date_format)
     }
 }
 
-/// 取区域设置对应的资源覆盖项。
+/// Get the resource overrides for a locale.
 ///
-/// 对应 Java: `ResourceBundle.getBundle(LocaleData.class.getName(), locale)` 选中语言变体的
-/// 过程；`MpxLocale` 只有 `SUPPORTED_LOCALES` 中的 9 种取值，因此这里的 `match` 是穷举的。
+/// Corresponds to Java: the process by which `ResourceBundle.getBundle(LocaleData.class.getName(), locale)`
+/// selects a locale variant; `MpxLocale` has only the 9 values in `SUPPORTED_LOCALES`, so the `match` here is exhaustive.
 fn overrides(locale: MpxLocale) -> &'static LocaleOverrides {
     match locale {
         MpxLocale::En => &locale_data_en::OVERRIDES,
@@ -891,7 +893,7 @@ mod tests {
                 Some(153),
                 "{locale}"
             );
-            // Java: LocaleData_ru.RESOURCE_NAMES_DATA 只有 51 项（缺 Overtime Work）
+            // Java: LocaleData_ru.RESOURCE_NAMES_DATA has only 51 entries (missing Overtime Work)
             let resource_names_length = if locale == MpxLocale::Ru { 51 } else { 52 };
             assert_eq!(
                 LocaleData::get_string_array(locale, LocaleData::RESOURCE_NAMES)
@@ -979,7 +981,7 @@ mod tests {
             russian_resource_names.and_then(|names| names.get(1)).copied(),
             Some(Some("Имя"))
         );
-        // Java: 俄语名表缺少 Overtime Work，下标 24 是 Work Variance
+        // Java: the Russian name table lacks Overtime Work, so index 24 is Work Variance
         assert_eq!(
             russian_resource_names.and_then(|names| names.get(24)).copied(),
             Some(Some("Разбежность работ"))
@@ -988,7 +990,7 @@ mod tests {
 
     #[test]
     fn uncovered_keys_fall_back_to_english() {
-        // sv 未覆盖 ACCRUE_TYPES / RELATION_TYPES / PRIORITY_TYPES / CONSTRAINT_TYPES
+        // sv does not cover ACCRUE_TYPES / RELATION_TYPES / PRIORITY_TYPES / CONSTRAINT_TYPES
         for key in [
             LocaleData::ACCRUE_TYPES,
             LocaleData::RELATION_TYPES,
@@ -1002,7 +1004,7 @@ mod tests {
             );
         }
 
-        // de 未覆盖 PROGRAM_NAME / CODE_PAGE / CURRENCY_DIGITS / DATE_ORDER /
+        // de does not cover PROGRAM_NAME / CODE_PAGE / CURRENCY_DIGITS / DATE_ORDER /
         // DEFAULT_START_TIME / TIME_SEPARATOR / BAR_TEXT_DATE_FORMAT
         assert_eq!(
             LocaleData::get_string(MpxLocale::De, LocaleData::PROGRAM_NAME),
@@ -1028,7 +1030,7 @@ mod tests {
         );
         assert_eq!(LocaleData::get_string(MpxLocale::De, LocaleData::NA), Some("NV"));
 
-        // pt / ru 未覆盖 PROGRAM_NAME 与 FILE_VERSION
+        // pt / ru do not cover PROGRAM_NAME and FILE_VERSION
         assert_eq!(
             LocaleData::get_string(MpxLocale::Pt, LocaleData::FILE_VERSION),
             Some("4.0")
@@ -1037,7 +1039,7 @@ mod tests {
             LocaleData::get_string(MpxLocale::Ru, LocaleData::PROGRAM_NAME),
             Some("Microsoft Project for Windows")
         );
-        // sv 未覆盖 NA
+        // sv does not cover NA
         assert_eq!(LocaleData::get_string(MpxLocale::Sv, LocaleData::NA), Some("NA"));
     }
 
@@ -1088,14 +1090,14 @@ mod tests {
         assert_eq!(LocaleData::get_char(MpxLocale::En, "NO_SUCH_KEY"), None);
         assert_eq!(LocaleData::get_map(MpxLocale::En, "NO_SUCH_KEY"), None);
 
-        // Java: getString(ACCRUE_TYPES) 抛 ClassCastException
+        // Java: getString(ACCRUE_TYPES) throws ClassCastException
         assert_eq!(LocaleData::get_string(MpxLocale::En, LocaleData::ACCRUE_TYPES), None);
-        // Java: getStringArray(TIME_UNITS_ARRAY) 抛 ClassCastException
+        // Java: getStringArray(TIME_UNITS_ARRAY) throws ClassCastException
         assert_eq!(
             LocaleData::get_string_array(MpxLocale::En, LocaleData::TIME_UNITS_ARRAY),
             None
         );
-        // Java: getChar(AM_TEXT) 抛 StringIndexOutOfBoundsException（空字符串）
+        // Java: getChar(AM_TEXT) throws StringIndexOutOfBoundsException (empty string)
         assert_eq!(LocaleData::get_char(MpxLocale::De, LocaleData::AM_TEXT), None);
     }
 
@@ -1117,7 +1119,7 @@ mod tests {
             None
         );
 
-        // Java 德语字面量顺序：下标 5 是 Years（"y"），下标 6 是 Percent（"%"）
+        // Java German literal order: index 5 is Years ("y") and index 6 is Percent ("%")
         assert_eq!(
             LocaleData::get_map(MpxLocale::De, LocaleData::TIME_UNITS_MAP)
                 .and_then(|map| map.get("t").copied()),

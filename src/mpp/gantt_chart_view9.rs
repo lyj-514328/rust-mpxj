@@ -1,46 +1,46 @@
-//! 对应 Java: `org/mpxj/mpp/GanttChartView9.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttChartView9.java`
 //!
-//! MPP9 文件的甘特图视图解析（`GanttChartView` 的版本差异子类）。
+//! Gantt chart view parsing for MPP9 files (the version-difference subclass of `GanttChartView`).
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Reproducing inheritance (composition + forwarding)
 //!
 //! Java: `public final class GanttChartView9 extends GanttChartView`
 //!
-//! | Java 机制 | Rust 还原 |
+//! | Java mechanism | Rust reproduction |
 //! |---|---|
-//! | `extends GanttChartView` | **组合**：本类持有 [`GanttChartView`]（字段 `view`） |
-//! | 继承来的 90 余个 getter | [`Deref<Target = GanttChartView>`]，可直接 `view9.get_gantt_bar_height()`（等价于逐方法转发，避免 90 余个手工包装方法） |
-//! | 继承来的 `View` 接口方法 | 显式转发（见 [`View`] 实现），与 `GenericView9` 转发 `GenericView` 的方式一致 |
-//! | 继承来的其他公开方法 | [`GanttChartView9::get_file`] / [`GanttChartView9::as_gantt_chart_view`] / [`GanttChartView9::as_gantt_chart_view_mut`] |
-//! | 覆写的 7 个抽象方法 + `GenericView.getPropertiesID()` | 私有零尺寸结构体 [`GanttChartView9Processor`] 实现 [`GanttChartViewProcessor`]，由 [`GanttChartView::new`] 在解析过程中回调 |
-//! | `PROPERTIES = 1` | [`GanttChartView9Processor`] 的 `get_properties_id` 返回 1（12 / 14 版为 6） |
-//! | `toString()`（Java 未覆写） | `impl Display`：直接输出内部 [`GanttChartView`] 的格式 |
+//! | `extends GanttChartView` | **Composition**: this class holds a [`GanttChartView`] (field `view`) |
+//! | The 90-plus inherited getters | [`Deref<Target = GanttChartView>`], so `view9.get_gantt_bar_height()` works directly (equivalent to per-method forwarding, avoiding 90-plus hand-written wrapper methods) |
+//! | Inherited `View` interface methods | Explicit forwarding (see the [`View`] implementation), consistent with how `GenericView9` forwards `GenericView` |
+//! | Other inherited public methods | [`GanttChartView9::get_file`] / [`GanttChartView9::as_gantt_chart_view`] / [`GanttChartView9::as_gantt_chart_view_mut`] |
+//! | The 7 overridden abstract methods + `GenericView.getPropertiesID()` | The private zero-sized struct [`GanttChartView9Processor`] implements [`GanttChartViewProcessor`], called back by [`GanttChartView::new`] during parsing |
+//! | `PROPERTIES = 1` | `get_properties_id` of [`GanttChartView9Processor`] returns 1 (6 for versions 12 / 14) |
+//! | `toString()` (not overridden in Java) | `impl Display`: outputs the format of the inner [`GanttChartView`] directly |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! 1. **越界读取**：Java 依赖 `ArrayIndexOutOfBoundsException`（`viewPropertyData[...]` /
-//!    `timescaleData[...]` 为原始下标访问），Rust 侧一律走 `data.get(index)` / `get_short_safe`，
-//!    缺字节时取 0，并保留 Java 的符号扩展语义（`data[i] as i8 as i32`）。
-//!    Java 9 的 `processAutoFilters` 没有 `offset + 6 > data.length` 的边界检查（12 版才有），
-//!    Rust 侧靠 `get_short_safe` 越界返回 0 触发 `blockSize == 0` 分支跳出，不 panic。
-//! 2. **`Props` 参数**：Java 传入 `Props9`（签名写成 `Props`），Rust 侧为 `&Props`
-//!    （`GanttChartView::new` 已完成 `Props9` → `Props` 的桥接，见其文件头差异 1）。
-//! 3. **`Color` / 数组**：`java.awt.Color` 在本 crate 用
-//!    [`crate::mpp::mpp_utility::Color`] 代替；Java 数组字段改为 `Vec`。
-//! 4. **`LineStyle` / `TimescaleFormat` / `ProgressLineDay`**：本 crate 的 `get_instance`
-//!    可能取不到值（Java 在查找表未占用的下标上返回 `null`），故取 `Option<...>`；
-//!    `TimescaleTier::set_format` 本身就是 `Option<TimescaleFormat>` 参数。
-//! 5. **`getColumnFontStyle`**：9 版未覆写基类实现，钩子方法直接转发给
-//!    [`GanttChartView::get_column_font_style`]。
-//! 6. **进度线的两处 Java 行为原样保留**：`m_progressLinesIntervalWeekleyWeekNumber` 与
-//!    `m_progressLinesIntervalMonthlyFirstLastMonthNumber` 都取偏移 30 的字节（Java 源码如此）。
-//! 7. **条形样式容器**：Java 的 `GanttBarStyle[]` 由 `populateBarStyles` 建立「ID → 样式引用」
-//!    的映射，Rust 侧用 `Rc<RefCell<GanttBarStyle>>` 保持同一份实例（见
-//!    [`GanttChartView::populate_bar_styles`]），故工厂返回值在此处转换为 `Rc<RefCell<_>>`。
+//! 1. **Out-of-bounds reads**: Java relies on `ArrayIndexOutOfBoundsException` (`viewPropertyData[...]` /
+//! `timescaleData[...]` are raw index accesses); the Rust side always goes through `data.get(index)` / `get_short_safe`,
+//! falling back to 0 when bytes are missing, while preserving Java's sign-extension semantics (`data[i] as i8 as i32`).
+//! Java 9's `processAutoFilters` lacks the `offset + 6 > data.length` bounds check (only version 12 has it),
+//! on the Rust side `get_short_safe` returning 0 out of bounds triggers the `blockSize == 0` branch to break out, without panicking.
+//! 2. **`Props` parameter**: Java passes `Props9` (the signature is written as `Props`); the Rust side takes `&Props`
+//! (`GanttChartView::new` already bridges `Props9` → `Props`; see file-header difference 1).
+//! 3. **`Color` / arrays**: `java.awt.Color` is replaced in this crate by
+//! [`crate::mpp::mpp_utility::Color`]; Java array fields become `Vec`.
+//! 4. **`LineStyle` / `TimescaleFormat` / `ProgressLineDay`**: this crate's `get_instance`
+//! may fail to resolve a value (Java returns `null` for an unused index in the lookup table), so it takes `Option<...>`;
+//! `TimescaleTier::set_format` already takes an `Option<TimescaleFormat>` parameter.
+//! 5. **`getColumnFontStyle`**: version 9 does not override the base class implementation; the hook method directly forwards to
+//!    [`GanttChartView::get_column_font_style`].
+//! 6. **Two pieces of Java progress line behavior are kept as-is**: `m_progressLinesIntervalWeekleyWeekNumber` and
+//! `m_progressLinesIntervalMonthlyFirstLastMonthNumber` both read the byte at offset 30 (as in the Java source).
+//! 7. **Bar style container**: Java's `GanttBarStyle[]` uses `populateBarStyles` to build an "ID → style reference"
+//! mapping; the Rust side uses `Rc<RefCell<GanttBarStyle>>` to keep the same instance (see
+//! [`GanttChartView::populate_bar_styles`]), so the factory return value is converted to `Rc<RefCell<_>>` here.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 未移植的 Java 成员：无。
+//! Unported Java members: none.
 
 use std::cell::RefCell;
 use std::fmt::{self, Formatter};
@@ -83,23 +83,23 @@ use crate::mpp::timescale_tier::TimescaleTier;
 use crate::mpp::timescale_units_helper::TimescaleUnitsHelper;
 use crate::mpp::var2_data::Var2Data;
 
-/// MPP9 版本属性数据块 ID。
+/// The MPP9 version properties data block ID.
 ///
-/// 对应 Java: `private static final Integer PROPERTIES = Integer.valueOf(1)`
+/// Corresponds to Java: `private static final Integer PROPERTIES = Integer.valueOf(1)`
 const PROPERTIES: i32 = 1;
 
-/// MPP9 甘特图视图。
+/// The MPP9 Gantt chart view.
 ///
-/// 对应 Java: `public final class GanttChartView9 extends GanttChartView`
+/// Corresponds to Java: `public final class GanttChartView9 extends GanttChartView`
 pub struct GanttChartView9 {
-    /// 对应 Java: `extends GanttChartView`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends GanttChartView` (Rust uses composition instead of inheritance)
     view: GanttChartView,
 }
 
 impl GanttChartView9 {
-    /// 由视图的 fixed / var 数据块创建 MPP9 甘特图视图。
+/// Create an MPP9 Gantt chart view from the view's fixed / var data blocks.
     ///
-    /// 对应 Java: `GanttChartView9(ProjectFile parent, byte[] fixedMeta, byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases)`
+    /// Corresponds to Java: `GanttChartView9(ProjectFile parent, byte[] fixedMeta, byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases)`
     pub fn new(
         parent: &Rc<RefCell<ProjectFile>>,
         fixed_meta: &[u8],
@@ -118,30 +118,30 @@ impl GanttChartView9 {
         Ok(Self { view })
     }
 
-    /// 取内部组合的 [`GanttChartView`]。
+/// Get the inner composed [`GanttChartView`].
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达（同 `GenericView9::as_generic_view`）。
+/// Rust-specific: Java's inheritance is expressed by composition on the Rust side (same as `GenericView9::as_generic_view`).
     pub fn as_gantt_chart_view(&self) -> &GanttChartView {
         &self.view
     }
 
-    /// 取内部组合的 [`GanttChartView`]（可变）。
+/// Get the inner composed [`GanttChartView`] (mutable).
     ///
-    /// Rust 特有：见 [`GanttChartView9::as_gantt_chart_view`]。
+/// Rust-specific: see [`GanttChartView9::as_gantt_chart_view`].
     pub fn as_gantt_chart_view_mut(&mut self) -> &mut GanttChartView {
         &mut self.view
     }
 
-    /// 取父项目文件。
+/// Get the parent project file.
     ///
-    /// 对应 Java: `AbstractView.m_file`（protected 字段）
+/// Corresponds to Java: `AbstractView.m_file` (protected field)
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.view.get_file()
     }
 
-    /// 取属性块的数据类型 ID。
+/// Get the data type ID of the properties block.
     ///
-    /// 对应 Java: `GenericView.getPropertiesID()`
+    /// Corresponds to Java: `GenericView.getPropertiesID()`
     pub fn get_properties_id(&self) -> i32 {
         self.view.get_properties_id()
     }
@@ -150,62 +150,62 @@ impl GanttChartView9 {
 impl Deref for GanttChartView9 {
     type Target = GanttChartView;
 
-    /// 转发 Java 中继承自 `GanttChartView` 的全部方法。
+/// Forward all methods inherited from `GanttChartView` in Java.
     fn deref(&self) -> &Self::Target {
         &self.view
     }
 }
 
 impl View for GanttChartView9 {
-    /// 对应 Java: `AbstractView.getID()`（继承）
+/// Corresponds to Java: `AbstractView.getID()` (inherited)
     fn get_id(&self) -> Option<i32> {
         self.view.get_id()
     }
 
-    /// 对应 Java: `AbstractView.getName()`（继承）
+/// Corresponds to Java: `AbstractView.getName()` (inherited)
     fn get_name(&self) -> Option<&str> {
         self.view.get_name()
     }
 
-    /// 对应 Java: `AbstractView.getType()`（继承）
+/// Corresponds to Java: `AbstractView.getType()` (inherited)
     fn get_type(&self) -> Option<ViewType> {
         self.view.get_type()
     }
 
-    /// 对应 Java: `AbstractView.getTableName()`（继承）
+/// Corresponds to Java: `AbstractView.getTableName()` (inherited)
     fn get_table_name(&self) -> Option<&str> {
         self.view.get_table_name()
     }
 
-    /// 对应 Java: `AbstractView.getTable()`（继承）
+/// Corresponds to Java: `AbstractView.getTable()` (inherited)
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         self.view.get_table()
     }
 }
 
 impl fmt::Display for GanttChartView9 {
-    /// 对应 Java: `toString()`（Java 未覆写，沿用 `GanttChartView.toString()`）
+/// Corresponds to Java: `toString()` (not overridden in Java; it uses `GanttChartView.toString()`)
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.view.fmt(f)
     }
 }
 
-/// `GanttChartView9` 的版本差异钩子。
+/// The version-difference hook for `GanttChartView9`.
 ///
-/// 对应 Java: `GanttChartView9` 覆写的抽象方法集合。
+/// Corresponds to Java: the set of abstract methods overridden by `GanttChartView9`.
 struct GanttChartView9Processor;
 
 impl GanttChartViewProcessor for GanttChartView9Processor {
-    /// 对应 Java: `@Override protected Integer getPropertiesID()`
+    /// Corresponds to Java: `@Override protected Integer getPropertiesID()`
     fn get_properties_id(&self) -> i32 {
         PROPERTIES
     }
 
-    /// 对应 Java: `@Override protected void processDefaultBarStyles(Props props)`
+    /// Corresponds to Java: `@Override protected void processDefaultBarStyles(Props props)`
     fn process_default_bar_styles(&self, view: &mut GanttChartView, props: &Props) {
         // Java: populateBarStyles(new GanttBarStyleFactoryCommon().processDefaultStyles(m_file, props));
         let Some(file) = view.get_file() else {
-            // Java 不会出现（父文件由调用方持有）；此处不 panic
+// Cannot occur in Java (the parent file is held by the caller); no panic here
             return;
         };
         let styles = GanttBarStyleFactoryCommon::new().process_default_styles(&file, props);
@@ -217,7 +217,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         );
     }
 
-    /// 对应 Java: `@Override protected void processExceptionBarStyles(Props props)`
+    /// Corresponds to Java: `@Override protected void processExceptionBarStyles(Props props)`
     fn process_exception_bar_styles(&self, view: &mut GanttChartView, props: &Props) {
         // Java: GanttBarStyleFactory f = new GanttBarStyleFactoryCommon();
         //       m_barStyleExceptions = f.processExceptionStyles(m_file, props);
@@ -231,9 +231,9 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
             .collect();
     }
 
-    /// 对应 Java: `@Override protected void processAutoFilters(byte[] data)`
+    /// Corresponds to Java: `@Override protected void processAutoFilters(byte[] data)`
     fn process_auto_filters(&self, view: &mut GanttChartView, data: &[u8]) {
-        // 16 字节块头中偏移 8 处为筛选数量
+// In the 16-byte block header, offset 8 holds the filter count
         // Java: int filterCount = ByteArrayHelper.getShort(data, 8);
         let filter_count = get_short_safe(data, 8);
         // Java: int offset = 16;
@@ -245,15 +245,15 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
             return;
         };
 
-        // 筛选数据：24 字节块头 + 80 字节条件块 + var data，总块长写在块首
+// Filter data: 24-byte block header + 80-byte criteria block + var data; the total block length is written at the start of the block
         // Java: for (int loop = 0; loop < filterCount; loop++)
         for _ in 0..filter_count {
             // Java: int blockSize = ByteArrayHelper.getShort(data, offset);
-            // （Java 9 无 12 版的 `offset + 6 > data.length` 检查；越界时 Java 抛异常，
-            //   Rust 侧 `get_short_safe` 返回 0 并走下面的 `blockSize == 0` 分支跳出）
+// (Java 9 lacks version 12's `offset + 6 > data.length` check; Java throws on out of bounds,
+// the Rust side's `get_short_safe` returns 0 and breaks out via the `blockSize == 0` branch below)
             let block_size = get_short_safe(data, offset);
 
-            // Java: if (blockSize == 0) { break; }（Steelray 12335：块大小可能为 0）
+// Java: if (blockSize == 0) { break; } (Steelray 12335: the block size may be 0)
             if block_size == 0 {
                 break;
             }
@@ -289,7 +289,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         }
     }
 
-    /// 对应 Java: `@Override protected void processViewProperties(Map<Integer, FontBase> fontBases, Props props)`
+    /// Corresponds to Java: `@Override protected void processViewProperties(Map<Integer, FontBase> fontBases, Props props)`
     fn process_view_properties(
         &self,
         view: &mut GanttChartView,
@@ -298,7 +298,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
     ) {
         // Java: byte[] viewPropertyData = props.getByteArray(PropsKey.STYLE_DATA);
         if let Some(view_property_data) = props.get_byte_array(PropsKey::StyleData) {
-            // 字体样式每 4 字节一组，从偏移 26 开始
+// Font styles are grouped every 4 bytes, starting at offset 26
             view.highlighted_tasks_font_style =
                 Some(view.get_font_style(view_property_data, 26, font_bases));
             view.row_and_column_font_style =
@@ -334,7 +334,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
             view.top_timescale_font_style =
                 Some(view.get_font_style(view_property_data, 90, font_bases));
 
-            // 网格线每 10 字节一组，从偏移 99 开始
+// Gridlines are grouped every 10 bytes, starting at offset 99
             view.sheet_rows_grid_lines = Some(get_grid_lines(view_property_data, 99));
             view.sheet_columns_grid_lines = Some(get_grid_lines(view_property_data, 109));
             view.title_vertical_grid_lines = Some(get_grid_lines(view_property_data, 119));
@@ -457,7 +457,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         }
     }
 
-    /// 对应 Java: `@Override protected void processTableFontStyles(Map<Integer, FontBase> fontBases, byte[] columnData)`
+    /// Corresponds to Java: `@Override protected void processTableFontStyles(Map<Integer, FontBase> fontBases, byte[] columnData)`
     fn process_table_font_styles(
         &self,
         view: &mut GanttChartView,
@@ -478,7 +478,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         view.table_font_styles = Some(styles);
     }
 
-    /// 对应 Java: 9 版未覆写 `getColumnFontStyle`，转发给基类实现。
+/// Corresponds to Java: version 9 does not override `getColumnFontStyle`; it forwards to the base class implementation.
     fn get_column_font_style(
         &self,
         view: &GanttChartView,
@@ -489,7 +489,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         view.get_column_font_style(data, offset, font_bases)
     }
 
-    /// 对应 Java: `@Override protected void processProgressLines(Map<Integer, FontBase> fontBases, byte[] progressLineData)`
+    /// Corresponds to Java: `@Override protected void processProgressLines(Map<Integer, FontBase> fontBases, byte[] progressLineData)`
     fn process_progress_lines(
         &self,
         view: &mut GanttChartView,
@@ -532,7 +532,7 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
         view.progress_lines_interval_monthly_first_last_day =
             ProgressLineDay::get_instance(read_i8(progress_line_data, 36));
         view.progress_lines_interval_monthly_first_last = read_u8(progress_line_data, 40) == 1;
-        // Java 源码同样取偏移 30 的字节（与 weekley week number 相同）
+// The Java source likewise reads the byte at offset 30 (same as the weekley week number)
         view.progress_lines_interval_monthly_first_last_month_number =
             read_i8(progress_line_data, 30);
         view.progress_lines_begin_at_project_start = read_u8(progress_line_data, 44) != 0;
@@ -584,9 +584,9 @@ impl GanttChartViewProcessor for GanttChartView9Processor {
     }
 }
 
-/// 新建一个网格线定义。
+/// Create a new gridline definition.
 ///
-/// 对应 Java: `private GridLines getGridLines(byte[] data, int offset)`
+/// Corresponds to Java: `private GridLines getGridLines(byte[] data, int offset)`
 fn get_grid_lines(data: &[u8], offset: usize) -> GridLines {
     // Java: Color normalLineColor = ColorType.getInstance(data[offset]).getColor();
     let normal_line_color = ColorType::get_instance(read_i8(data, offset)).get_color();
@@ -608,15 +608,15 @@ fn get_grid_lines(data: &[u8], offset: usize) -> GridLines {
     )
 }
 
-/// 按 Java 的 `byte` 语义读取一个字节（有符号扩展）；越界返回 0。
+/// Read one byte with Java's `byte` semantics (sign extension); return 0 out of bounds.
 fn read_i8(data: &[u8], offset: usize) -> i32 {
-    // Java 越界抛 ArrayIndexOutOfBoundsException，Rust 侧返回 0
+// Java throws ArrayIndexOutOfBoundsException on out of bounds; the Rust side returns 0
     i32::from(data.get(offset).map_or(0, |value| *value as i8))
 }
 
-/// 按 Java 的 `byte != 0` 语义读取一个字节（仅用于布尔判断）；越界返回 0。
+/// Read one byte with Java's `byte != 0` semantics (for boolean tests only); return 0 out of bounds.
 fn read_u8(data: &[u8], offset: usize) -> u8 {
-    // Java 越界抛 ArrayIndexOutOfBoundsException，Rust 侧返回 0
+// Java throws ArrayIndexOutOfBoundsException on out of bounds; the Rust side returns 0
     data.get(offset).copied().unwrap_or(0)
 }
 
@@ -625,14 +625,14 @@ mod tests {
     use super::*;
     use crate::mpp::gantt_chart_view::test_support::new_view;
 
-    /// 属性块 ID 为 1（与 12 / 14 版的 6 不同）。
+/// The properties block ID is 1 (unlike 6 for versions 12 / 14).
     #[test]
     fn properties_id_is_one() {
         assert_eq!(GanttChartView9Processor.get_properties_id(), PROPERTIES);
         assert_eq!(PROPERTIES, 1);
     }
 
-    /// `STYLE_DATA` 与 `TIMESCALE_PROPERTIES` 按 9 版的偏移解析。
+/// `STYLE_DATA` and `TIMESCALE_PROPERTIES` are parsed using the version 9 offsets.
     #[test]
     fn process_view_properties_reads_style_and_timescale_data() {
         let file = ProjectFile::new();
@@ -648,14 +648,14 @@ mod tests {
         style_data[1182] = 1; // bar date format → +1 = 2 (DDMMYY)
         style_data[1186] = 1;
         style_data[1188] = 1;
-        style_data[228] = 0x05; // tick lines（中层）+ separator
+        style_data[228] = 0x05; // tick lines（middle tier）+ separator
         style_data[268] = 5; // timescale size
 
         let mut timescale_data = vec![0u8; 64];
         timescale_data[0] = 2; // show tiers
-        timescale_data[30] = 2; // units（+1 后为 DAYS）
+        timescale_data[30] = 2; // units（+1 gives DAYS）
         timescale_data[32] = 4; // count
-        timescale_data[36] = 20; // alignment（-20 后为 LEFT）
+        timescale_data[36] = 20; // alignment（-20 gives LEFT）
         timescale_data[48] = 1; // tick lines
 
         let mut props = Props::new();
@@ -686,7 +686,7 @@ mod tests {
         assert!(view.get_timescale_middle_tier().is_some());
         assert!(view.get_timescale_bottom_tier().is_some());
 
-        let top_tier = view.get_timescale_top_tier().expect("顶层刻度");
+        let top_tier = view.get_timescale_top_tier().expect("top tier timescale");
         assert_eq!(top_tier.get_count(), 4);
         assert!(top_tier.get_tick_lines());
         assert_eq!(top_tier.get_alignment(), Some(TimescaleAlignment::Left));
@@ -694,7 +694,7 @@ mod tests {
         assert!(view.get_top_tier_column_grid_lines().is_some());
     }
 
-    /// 缺少 `STYLE_DATA` / `TIMESCALE_PROPERTIES` 时不 panic。
+/// No panic when `STYLE_DATA` / `TIMESCALE_PROPERTIES` are missing.
     #[test]
     fn process_view_properties_handles_missing_data() {
         let file = ProjectFile::new();
@@ -711,7 +711,7 @@ mod tests {
         assert_eq!(view.get_non_working_pattern(), None);
     }
 
-    /// 进度线各字段按 9 版的偏移解析。
+/// Progress line fields are parsed using the version 9 offsets.
     #[test]
     fn process_progress_lines_reads_fields() {
         let file = ProjectFile::new();
@@ -776,12 +776,12 @@ mod tests {
         assert!(view.get_progress_lines_font_style().is_some());
         assert_eq!(view.get_progress_line_dates().map(<[_]>::len), Some(2));
 
-        // 空数据块不 panic
+// Empty data blocks do not panic
         GanttChartView9Processor.process_progress_lines(&mut view, &FontBaseMap::new(), &[]);
         assert!(!view.get_progress_lines_enabled());
     }
 
-    /// 表格字体样式按 16 字节切分。
+/// Table font styles are split every 16 bytes.
     #[test]
     fn process_table_font_styles_splits_by_16_bytes() {
         let file = ProjectFile::new();
@@ -802,7 +802,7 @@ mod tests {
         assert_eq!(view.get_table_font_styles().map(<[_]>::len), Some(0));
     }
 
-    /// 9 版的网格线布局（与 12 版相同）。
+/// The version 9 gridline layout (same as version 12).
     #[test]
     fn get_grid_lines_reads_9_offsets() {
         let mut data = vec![0u8; 12];
@@ -817,12 +817,12 @@ mod tests {
         assert_eq!(grid_lines.get_interval_number(), 2);
         assert_eq!(grid_lines.get_interval_line_style(), Some(LineStyle::Solid));
 
-        // 数据过短时不 panic
+// No panic when the data is too short
         let grid_lines = get_grid_lines(&[], 0);
         assert_eq!(grid_lines.get_interval_number(), 0);
     }
 
-    /// 自动筛选：9 版没有 12 版的边界检查，越界时靠块长为 0 跳出。
+/// Auto filters: version 9 lacks version 12's bounds check; on out of bounds it breaks out via a block length of 0.
     #[test]
     fn process_auto_filters_handles_empty_and_truncated_data() {
         let file = ProjectFile::new();
@@ -831,7 +831,7 @@ mod tests {
         GanttChartView9Processor.process_auto_filters(&mut view, &[]);
         assert!(view.get_auto_filters().is_empty());
 
-        // 声明 4 个筛选但数据只有 20 字节：第一轮块长为 0 → 立即跳出
+// Declares 4 filters but only 20 bytes of data: the first round has a block length of 0 → break out immediately
         let mut data = vec![0u8; 20];
         data[8..10].copy_from_slice(&4i16.to_le_bytes());
         GanttChartView9Processor.process_auto_filters(&mut view, &data);

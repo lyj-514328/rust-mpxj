@@ -1,54 +1,54 @@
-//! 对应 Java: `org/mpxj/mpp/FilterReader9.java`
+//! Corresponds to Java: `org/mpxj/mpp/FilterReader9.java`
 //!
-//! MPP9 的筛选器定义读取器：只声明本版本使用的 `Var2Data` 数据类型键（1）与条件读取器
-//! （[`FilterCriteriaReader9`]），其余逻辑全部继承自 [`FilterReader`]。
+//! Filter definition reader for MPP9: declares only the `Var2Data` data type key (1) used by this version and the criteria reader
+//! ([`FilterCriteriaReader9`]); all other logic is inherited from [`FilterReader`].
 //!
-//! # 继承的还原（组合 + 转发）
+//! # How the inheritance is restored (composition + forwarding)
 //!
-//! Java 的 `final class FilterReader9 extends FilterReader`。Rust 没有继承，故：
+//! Java's `final class FilterReader9 extends FilterReader`. Rust has no inheritance, so:
 //!
-//! - 本类**实现 trait [`FilterReader`]**：Java 的 2 个 `@Override protected` 方法逐一对应
-//!   trait 的必需方法，Java 继承来的公开方法 `process` 由 trait 的默认方法提供；
-//! - Java 的 `private final CriteriaReader m_criteraReader = new FilterCriteriaReader9();`
-//!   在 Rust 侧是**按值持有的具体字段** `criteria_reader`，由
-//!   [`FilterReader9::get_criteria_reader`] 以 `&dyn CriteriaReader` 转发（与 Java 的
-//!   向上转型等价）。
+//! - This class **implements the [`FilterReader`] trait**: Java's 2 `@Override protected` methods correspond one by one to
+//! the trait's required methods, and the public method `process` inherited from Java is provided by the trait's default method;
+//! - Java's `private final CriteriaReader m_criteraReader = new FilterCriteriaReader9();`
+//! is a **concrete field held by value**, `criteria_reader`, on the Rust side, forwarded by
+//! [`FilterReader9::get_criteria_reader`] as `&dyn CriteriaReader` (equivalent to Java's
+//! upcast).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `private static final Integer FILTER_DATA = Integer.valueOf(1);` | [`FilterReader9::FILTER_DATA`]（`i32`） | 常量名沿用 Java；Java 的 `Integer` 恒非空 |
-//! | `getVarDataType()` 返回 `Integer` | `get_var_data_type()` 返回 `i32` | 同上 |
+//! | `private static final Integer FILTER_DATA = Integer.valueOf(1);` | [`FilterReader9::FILTER_DATA`] (`i32`) | The constant name follows Java; Java's `Integer` is always non-null |
+//! | `getVarDataType()` returns `Integer` | `get_var_data_type()` returns `i32` | Same as above |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use crate::mpp::criteria_reader::CriteriaReader;
 use crate::mpp::filter_criteria_reader9::FilterCriteriaReader9;
 use crate::mpp::filter_reader::FilterReader;
 
-/// MPP9 筛选器定义读取器。
+/// MPP9 filter definition reader.
 ///
-/// 对应 Java: `final class FilterReader9 extends FilterReader`
+/// Corresponds to Java: `final class FilterReader9 extends FilterReader`
 pub struct FilterReader9 {
-    /// 条件读取器。
+/// Criteria reader.
     ///
-    /// 对应 Java 字段: `private final CriteriaReader m_criteraReader = new FilterCriteriaReader9();`
-    ///（字段名沿用了 Java 源码里的拼写错误 `m_criteraReader`）
+    /// Corresponds to Java field: `private final CriteriaReader m_criteraReader = new FilterCriteriaReader9();`
+/// (the field name keeps the typo `m_criteraReader` from the Java source)
     criteria_reader: FilterCriteriaReader9,
 }
 
 impl FilterReader9 {
-    /// 本版本文件用于读取筛选器条件数据的 `Var2Data` 数据类型键。
+/// The `Var2Data` data type key used by this version's files to read filter criteria data.
     ///
-    /// 对应 Java: `private static final Integer FILTER_DATA = Integer.valueOf(1);`
+    /// Corresponds to Java: `private static final Integer FILTER_DATA = Integer.valueOf(1);`
     pub const FILTER_DATA: i32 = 1;
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: implicit default constructor (Java does not declare a constructor explicitly).
     pub fn new() -> Self {
         Self {
             criteria_reader: FilterCriteriaReader9::new(),
@@ -57,19 +57,19 @@ impl FilterReader9 {
 }
 
 impl Default for FilterReader9 {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`FilterReader9::new`]。
+/// Corresponds to Java: implicit default constructor, equivalent to [`FilterReader9::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl FilterReader for FilterReader9 {
-    /// 对应 Java: `@Override protected Integer getVarDataType()`
+    /// Corresponds to Java: `@Override protected Integer getVarDataType()`
     fn get_var_data_type(&self) -> i32 {
         Self::FILTER_DATA
     }
 
-    /// 对应 Java: `@Override protected CriteriaReader getCriteriaReader()`
+    /// Corresponds to Java: `@Override protected CriteriaReader getCriteriaReader()`
     fn get_criteria_reader(&self) -> &dyn CriteriaReader {
         &self.criteria_reader
     }
@@ -80,20 +80,20 @@ mod tests {
     use crate::mpp::filter_reader::FilterReader;
     use crate::mpp::filter_reader9::FilterReader9;
 
-    /// 数据类型键与条件读取器与 Java 一致。
+/// The data type key and criteria reader are consistent with Java.
     #[test]
     fn constants_match_java() {
         let reader = FilterReader9::new();
         assert_eq!(FilterReader9::FILTER_DATA, 1);
         assert_eq!(reader.get_var_data_type(), 1);
 
-        // 条件读取器是 9 版布局：块长 80、起始偏移 20
+// The criteria reader uses the version 9 layout: block length 80, start offset 20
         let criteria_reader = reader.get_criteria_reader();
         assert_eq!(criteria_reader.get_criteria_block_size(), 80);
         assert_eq!(criteria_reader.get_criteria_start_offset(), 20);
     }
 
-    /// 默认构造与 `new` 等价。
+/// The default constructor is equivalent to `new`.
     #[test]
     fn default_matches_new() {
         assert_eq!(

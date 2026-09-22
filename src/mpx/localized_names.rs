@@ -1,55 +1,55 @@
-//! 月份名 / 星期名的本地化文本表。
+//! Localized text tables for month and weekday names.
 //!
-//! 对应 Java: `MPXJFormats` 中 `DateTimeFormatter.withLocale(m_locale)` 所取用的
-//! JDK `java.time` 本地化文本（Java 侧无独立类，本模块是 Rust 侧的数据承载）。
+//! Corresponds to Java: the JDK `java.time` localized text used by `MPXJFormats` through
+//! `DateTimeFormatter.withLocale(m_locale)` (Java has no standalone class; this module is the Rust-side data holder).
 //!
-//! # 数据来源
+//! # Data source
 //!
-//! Java 的本地化月份 / 星期名来自 **JDK `java.time`**，`org.mpxj.mpx.LocaleData`
-//! 里并没有这些名字。Rust 侧无法访问 JDK 数据，因此这里自建 9 个受支持语种的表；
-//! 每个条目的取值均取自 JDK 25 在对应 `Locale` 下对 `MMM` / `MMMM` / `EEE` / `EEEE`
-//! 的输出（与 `MPXJFormats` 一致）。
+//! Java's localized month / weekday names come from the **JDK `java.time`**; `org.mpxj.mpx.LocaleData`
+//! does not contain these names. The Rust side cannot access JDK data, so tables for the 9 supported
+//! languages are built here; each entry is taken from JDK 25's output for `MMM` / `MMMM` / `EEE` / `EEEE`
+//! under the corresponding `Locale` (consistent with `MPXJFormats`).
 //!
-//! # 下标约定
+//! # Index conventions
 //!
-//! - 月份表下标 `0..12` 对应 1 月..12 月；
-//! - 星期表下标 `0..7` 对应周一..周日，与 [`chrono::Weekday::num_days_from_monday`] 一致。
+//! - Month table indices `0..12` correspond to January..December;
+//! - Weekday table indices `0..7` correspond to Monday..Sunday, matching [`chrono::Weekday::num_days_from_monday`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `withLocale(locale)` 动态取 JDK 文本 | [`names_for_locale`] 静态分派 | 数据已按 JDK 输出固化，取值一致；JDK 版本变化时需人工同步 |
-//! | 仅 `Locale` 语言维度 | [`MpxLocale`] | 与 `LocaleUtility.SUPPORTED_LOCALES` 一致 |
+//! | `withLocale(locale)` dynamically fetches JDK text | [`names_for_locale`] static dispatch | Data is frozen to the JDK output and values match; manual sync is needed when the JDK version changes |
+//! | Only the `Locale` language dimension | [`MpxLocale`] | Matches `LocaleUtility.SUPPORTED_LOCALES` |
 //!
-//! 跳过的 Java 成员：无（Java 侧没有对应类，本模块只是 Rust 侧的数据承载）。
+//! Skipped Java methods/members: none (Java has no corresponding class; this module is merely the Rust-side data holder).
 
 use crate::mpx::locale_utility::MpxLocale;
 
-/// 一组本地化文本常量。
+/// A set of localized text constants.
 ///
-/// 取舍：Java 通过 `DateTimeFormatter.withLocale(m_locale)` 取 JDK `java.time` 的本地化文本；
-/// Rust 侧没有该数据源，故按语种固化为本模块的常量表。
+/// Trade-off: Java obtains the localized JDK `java.time` text through `DateTimeFormatter.withLocale(m_locale)`;
+/// the Rust side has no such data source, so the text is frozen into this module's constant tables per language.
 #[derive(Debug)]
 pub(crate) struct TextTable {
-    /// 月份缩写（对应 JDK 的 `MMM`）
+    /// Abbreviated month names (corresponding to the JDK's `MMM`)
     pub(crate) months_abbreviated: [&'static str; 12],
-    /// 月份全称（对应 JDK 的 `MMMM`）
+    /// Full month names (corresponding to the JDK's `MMMM`)
     pub(crate) months_full: [&'static str; 12],
-    /// 星期缩写（下标与 `Weekday::num_days_from_monday` 一致，对应 `EEE`）
+    /// Abbreviated weekday names (indices match `Weekday::num_days_from_monday`, corresponding to `EEE`)
     pub(crate) weekdays_abbreviated: [&'static str; 7],
-    /// 星期全称（对应 JDK 的 `EEEE`）
+    /// Full weekday names (corresponding to the JDK's `EEEE`)
     pub(crate) weekdays_full: [&'static str; 7],
 }
 
-/// 英文上午文本（作为项目属性 AM 文本之外的兜底）。
+/// English AM text (a fallback beyond the project properties' AM text).
 pub(crate) const AM: &str = "am";
-/// 英文下午文本（作为项目属性 PM 文本之外的兜底）。
+/// English PM text (a fallback beyond the project properties' PM text).
 pub(crate) const PM: &str = "pm";
 
-/// 取区域设置对应的文本常量表。
+/// Return the text constant table for a locale.
 ///
-/// 对应 Java: `DateTimeFormatter.withLocale(m_locale)`（月份 / 星期名文本）。
+/// Corresponds to Java: `DateTimeFormatter.withLocale(m_locale)` (month / weekday name text).
 pub(crate) fn names_for_locale(locale: MpxLocale) -> &'static TextTable {
     match locale {
         MpxLocale::En => &EN,
@@ -64,7 +64,7 @@ pub(crate) fn names_for_locale(locale: MpxLocale) -> &'static TextTable {
     }
 }
 
-/// 英语（JDK `Locale.ENGLISH`）。
+/// English (JDK `Locale.ENGLISH`).
 static EN: TextTable = TextTable {
     months_abbreviated: [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -95,7 +95,7 @@ static EN: TextTable = TextTable {
     ],
 };
 
-/// 德语（`Locale.GERMAN`）。
+/// German (`Locale.GERMAN`).
 static DE: TextTable = TextTable {
     months_abbreviated: [
         "Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.",
@@ -127,7 +127,7 @@ static DE: TextTable = TextTable {
     ],
 };
 
-/// 法语（`Locale.FRENCH`）。
+/// French (`Locale.FRENCH`).
 static FR: TextTable = TextTable {
     months_abbreviated: [
         "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
@@ -159,7 +159,7 @@ static FR: TextTable = TextTable {
     ],
 };
 
-/// 意大利语（`Locale.ITALIAN`）。
+/// Italian (`Locale.ITALIAN`).
 static IT: TextTable = TextTable {
     months_abbreviated: [
         "gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic",
@@ -190,7 +190,7 @@ static IT: TextTable = TextTable {
     ],
 };
 
-/// 葡萄牙语（`new Locale("pt")`）。
+/// Portuguese (`new Locale("pt")`).
 static PT: TextTable = TextTable {
     months_abbreviated: [
         "jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.",
@@ -222,7 +222,7 @@ static PT: TextTable = TextTable {
     ],
 };
 
-/// 瑞典语（`new Locale("sv")`）。
+/// Swedish (`new Locale("sv")`).
 static SV: TextTable = TextTable {
     months_abbreviated: [
         "jan.", "feb.", "mars", "apr.", "maj", "juni", "juli", "aug.", "sep.", "okt.", "nov.",
@@ -254,7 +254,7 @@ static SV: TextTable = TextTable {
     ],
 };
 
-/// 中文（`Locale.CHINESE`）。
+/// Chinese (`Locale.CHINESE`).
 static ZH: TextTable = TextTable {
     months_abbreviated: [
         "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月",
@@ -285,7 +285,7 @@ static ZH: TextTable = TextTable {
     ],
 };
 
-/// 西班牙语（`new Locale("es")`）。
+/// Spanish (`new Locale("es")`).
 static ES: TextTable = TextTable {
     months_abbreviated: [
         "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
@@ -316,7 +316,7 @@ static ES: TextTable = TextTable {
     ],
 };
 
-/// 俄语（`new Locale("ru")`）。
+/// Russian (`new Locale("ru")`).
 static RU: TextTable = TextTable {
     months_abbreviated: [
         "янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.",
@@ -352,7 +352,7 @@ static RU: TextTable = TextTable {
 mod tests {
     use super::*;
 
-    /// 每个受支持语种都必须分派到各自的表，且英文与德语等取值不同。
+    /// Every supported locale must dispatch to its own table, and values such as English and German must differ.
     #[test]
     fn every_supported_locale_has_its_own_table() {
         assert_eq!(names_for_locale(MpxLocale::En).months_abbreviated[0], "Jan");
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(names_for_locale(MpxLocale::Es).months_abbreviated[0], "ene");
         assert_eq!(names_for_locale(MpxLocale::Ru).months_abbreviated[0], "янв.");
 
-        // 德语、法语、意大利语的缩写互不相同（确认不是共用一张英文表）
+        // German, French, and Italian abbreviations all differ (confirming they do not share an English table)
         let de = names_for_locale(MpxLocale::De).months_abbreviated[0];
         let fr = names_for_locale(MpxLocale::Fr).months_abbreviated[0];
         let it = names_for_locale(MpxLocale::It).months_abbreviated[0];
@@ -374,17 +374,17 @@ mod tests {
         assert_ne!(fr, it);
     }
 
-    /// 星期表下标 0 是周一（与 `Weekday::num_days_from_monday` 一致）。
+    /// Weekday table index 0 is Monday (matching `Weekday::num_days_from_monday`).
     #[test]
     fn weekday_tables_start_on_monday() {
         assert_eq!(names_for_locale(MpxLocale::En).weekdays_abbreviated[0], "Mon");
         assert_eq!(names_for_locale(MpxLocale::De).weekdays_abbreviated[0], "Mo.");
-        // 2024-01-07 是周日，对应下标 6
+        // 2024-01-07 is a Sunday, corresponding to index 6
         assert_eq!(names_for_locale(MpxLocale::En).weekdays_full[6], "Sunday");
         assert_eq!(names_for_locale(MpxLocale::Zh).weekdays_full[6], "星期日");
     }
 
-    /// 所有表都恰好覆盖 12 个月 / 7 天，避免出现空串占位。
+    /// All tables cover exactly 12 months / 7 days, avoiding empty-string placeholders.
     #[test]
     fn all_tables_are_complete() {
         for locale in MpxLocale::ALL {

@@ -1,65 +1,77 @@
-//! 对应 Java: `org/mpxj/reader/AbstractProjectStreamReader.java`
+//! Corresponds to Java: `org/mpxj/reader/AbstractProjectStreamReader.java`
 //!
-//! 面向「以流为单位读取」的 reader 的抽象实现：本层把「按文件读取」转换为「打开文件得到
-//! 输入流，再按流读取」，并给出 `readAll` 的默认行为（只含单份 schedule）。
+//! Abstract implementation for readers that read "stream by stream": this layer converts
+//! "read by file" into "open the file to obtain an input stream, then read by stream", and
+//! provides the default `readAll` behavior (containing only a single schedule).
 //!
-//! # Java 继承链 → Rust trait 默认方法
+//! # Java inheritance chain → Rust trait default methods
 //!
-//! Java: `public abstract class AbstractProjectStreamReader extends AbstractProjectReader`。
-//! Rust 没有继承，故 [`AbstractProjectStreamReader`] 以
-//! [`AbstractProjectReader`] 为 supertrait，把本类对 `ProjectReader` 接口方法的实现写成
-//! trait **默认方法**；默认方法名加以 `_default` 后缀，避免与 [`ProjectReader`] 的同名
-//! 方法产生方法解析歧义（该约定的完整说明与具体 reader 的接线模板见
-//! [`crate::reader::abstract_project_reader`] 文件头）。
+//! Java: `public abstract class AbstractProjectStreamReader extends AbstractProjectReader`.
+//! Rust has no inheritance, so [`AbstractProjectStreamReader`] uses
+//! [`AbstractProjectReader`] as a supertrait and writes this class's implementation of the
+//! `ProjectReader` interface methods as trait **default methods**; the default method names get
+//! a `_default` suffix to avoid method resolution ambiguity with the same-named methods of
+//! [`ProjectReader`] (the full explanation of the convention and the wiring template for a
+//! concrete reader are in the file header of [`crate::reader::abstract_project_reader`]).
 //!
-//! # Java → Rust 方法对照
+//! # Java → Rust method mapping
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile read(String fileName)` | （无独立代码） | 仅做 `new File(fileName)` 适配；Rust 侧与 `read(File)` 合并为 [`ProjectReader::read_file`] |
-//! | `List<ProjectFile> readAll(String fileName)` | （无独立代码） | 同上，合并为 [`ProjectReader::read_all_file`] |
-//! | `ProjectFile read(File file)` | [`AbstractProjectStreamReader::read_file_default`] | 打开文件后转调 `read(InputStream)` |
-//! | `List<ProjectFile> readAll(File file)` | [`AbstractProjectStreamReader::read_all_file_default`] | 打开文件后转调 `readAll(InputStream)` |
-//! | `ProjectFile read(InputStream inputStream)` | （抽象，无默认实现） | 由具体 reader 实现 [`ProjectReader::read_reader`] |
-//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`AbstractProjectStreamReader::read_all_reader_default`] | `read(inputStream)` 的包装 |
+//! | `ProjectFile read(String fileName)` | (no separate code) | Only adapts `new File(fileName)`; on the Rust side it is merged with `read(File)` into [`ProjectReader::read_file`] |
+//! | `List<ProjectFile> readAll(String fileName)` | (no separate code) | Same as above; merged into [`ProjectReader::read_all_file`] |
+//! | `ProjectFile read(File file)` | [`AbstractProjectStreamReader::read_file_default`] | Opens the file and forwards to `read(InputStream)` |
+//! | `List<ProjectFile> readAll(File file)` | [`AbstractProjectStreamReader::read_all_file_default`] | Opens the file and forwards to `readAll(InputStream)` |
+//! | `ProjectFile read(InputStream inputStream)` | (abstract, no default implementation) | Implemented by the concrete reader as [`ProjectReader::read_reader`] |
+//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`AbstractProjectStreamReader::read_all_reader_default`] | A wrapper around `read(inputStream)` |
 //!
-//! # `InputStream` 的处理
+//! # Handling `InputStream`
 //!
-//! - **`FileInputStream` → [`std::fs::File`]**：Java 打开文件失败时抛 `IOException`，
-//!   被捕获后包成 `new MPXJException(MPXJException.READ_ERROR, ex)`；Rust 侧
-//!   [`std::fs::File::open`] 的失败经 `From<std::io::Error>` 转成 `MpxjError`
-//!   （消息前缀即 `MPXJException.READ_ERROR` 的文本），可直接 `?`。路径不存在等情形
-//!   由此统一报错（Java 的 `read(String)` / `read(File)` 本身不做路径校验，同样推迟到打开时）。
-//! - **`fis.close()` 与 `finally { AutoCloseableHelper.closeQuietly(fis); }`**：Java 显式关闭
-//!   自己打开的 `FileInputStream`；Rust 侧 [`std::fs::File`] 随作用域 [`Drop`] 自动关闭，
-//!   无需对应代码。Java **不会**关闭调用方传入的 `inputStream`（`read(InputStream)` 的
-//!   流所有权属于调用方），Rust 侧同样只借用 `&mut dyn Read`。
-//! - **`BufferedInputStream` / `mark` / `reset`**：本类并未使用（Java 源码确认：仅
-//!   `new FileInputStream(file)`，无缓冲包装、无 `mark` / `reset`），因此本层无需替代方案。
-//!   但具体 reader（MPX / MPP）通常需要先「窥探」若干个字节再决定分支，Java 侧靠
-//!   `InputStream.mark()` / `reset()` 实现；Rust 的 [`std::io::Read`] **没有** `mark` / `reset`，
-//!   替代方案为：
+//! - **`FileInputStream` → [`std::fs::File`]**: Java throws `IOException` when opening the file
+//!   fails, which is caught and wrapped as `new MPXJException(MPXJException.READ_ERROR, ex)`; on
+//!   the Rust side a failure of [`std::fs::File::open`] is converted into `MpxjError` via
+//!   `From<std::io::Error>` (the message prefix is the text of `MPXJException.READ_ERROR`) and
+//!   can be `?`-propagated directly. Situations such as a missing path are reported uniformly
+//!   here (Java's `read(String)` / `read(File)` likewise do no path validation and defer it to
+//!   open time).
+//! - **`fis.close()` and `finally { AutoCloseableHelper.closeQuietly(fis); }`**: Java explicitly
+//!   closes the `FileInputStream` it opened; on the Rust side [`std::fs::File`] is closed
+//!   automatically by [`Drop`] when it goes out of scope, so no corresponding code is needed.
+//!   Java does **not** close the caller-supplied `inputStream` (ownership of the
+//!   `read(InputStream)` stream belongs to the caller), and the Rust side likewise only borrows
+//!   `&mut dyn Read`.
+//! - **`BufferedInputStream` / `mark` / `reset`**: this class does not use them (confirmed from
+//!   the Java source: only `new FileInputStream(file)`, no buffered wrapper, no `mark` /
+//!   `reset`), so this layer needs no replacement. However, a concrete reader (MPX / MPP)
+//!   usually needs to "peek" at some bytes before deciding the branch, which Java implements
+//!   with `InputStream.mark()` / `reset()`; Rust's [`std::io::Read`] has **no** `mark` /
+//!   `reset`, and the replacements are:
 //!
-//!   1. 只需窥探、不需回退时，用 [`std::io::BufReader`] 的 `fill_buf` / `consume` 观察并
-//!      「预支」缓冲内容；
-//!   2. 需要真正的回退（等价 `mark` + `reset`）时，用本模块的 [`read_stream_into_cursor`]
-//!      把整个流读入 `Vec<u8>` 再包成 [`std::io::Cursor`]：`Cursor` 实现 [`std::io::Seek`]，
-//!      `seek(SeekFrom::Start(n))` 等价于 `reset()` 回到 `mark` 的位置，`position()`
-//!      等价于记录 `mark` 时的偏移。代价是整份数据驻留内存（MPX/MPP 文件通常不大，
-//!      与 Java 侧 `BufferedInputStream` 的默认 8KB 缓冲相比是内存换功能）。
+//!   1. When only peeking is needed and no rewind is required, use [`std::io::BufReader`]'s
+//!      `fill_buf` / `consume` to observe and "pre-consume" the buffered content;
+//!   2. When a real rewind is needed (equivalent to `mark` + `reset`), use this module's
+//!      [`read_stream_into_cursor`] to read the whole stream into a `Vec<u8>` and wrap it as a
+//!      [`std::io::Cursor`]: `Cursor` implements [`std::io::Seek`], `seek(SeekFrom::Start(n))`
+//!      is equivalent to `reset()` back to the `mark` position, and `position()` is equivalent
+//!      to the offset recorded at `mark` time. The cost is that the whole data set resides in
+//!      memory (MPX/MPP files are usually small; compared with the default 8KB buffer of Java's
+//!      `BufferedInputStream`, this trades memory for functionality).
 //!
-//! # `null` 返回值
+//! # `null` return values
 //!
-//! Java 的 `readAll(InputStream)` 写 `file == null ? emptyList() : singletonList(file)`。
-//! Rust 侧 `read_reader` 以 `Result` 表达失败（失败即 `Err`），成功时必然得到某个
-//! `Rc<RefCell<ProjectFile>>`，故默认实现恒返回单元素列表，判空分支消失。
+//! Java's `readAll(InputStream)` writes `file == null ? emptyList() : singletonList(file)`.
+//! On the Rust side `read_reader` expresses failure with `Result` (failure means `Err`), and on
+//! success it necessarily yields some `Rc<RefCell<ProjectFile>>`, so the default implementation
+//! always returns a single-element list and the null-check branch disappears.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! - `read(String)` / `readAll(String)`：纯参数适配（`String` → `File`），已合并进按路径的方法；
-//! - `fis.close()` / `closeQuietly(fis)`：Rust 的 RAII 关闭语义替代（见上）；
-//! - 本类未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`，也未引用
-//!   依赖反射分发、本次不移植的 `UniversalProjectReader` / `ProjectReaderUtility`。
+//! - `read(String)` / `readAll(String)`: pure parameter adaptation (`String` → `File`), already
+//!   merged into the path-based methods;
+//! - `fis.close()` / `closeQuietly(fis)`: replaced by Rust's RAII close semantics (see above);
+//! - this class does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`,
+//!   nor does it reference `UniversalProjectReader` / `ProjectReaderUtility`, which rely on
+//!   reflection-based dispatch and are not being ported.
 
 use std::cell::RefCell;
 use std::fs::File;
@@ -72,32 +84,32 @@ use crate::project_file::ProjectFile;
 use crate::reader::abstract_project_reader::AbstractProjectReader;
 use crate::reader::project_reader::ProjectReader;
 
-/// 面向「以流为单位读取」的 reader 的抽象实现。
+/// Abstract implementation for readers that read "stream by stream".
 ///
-/// 对应 Java: `public abstract class AbstractProjectStreamReader extends AbstractProjectReader`
+/// Corresponds to Java: `public abstract class AbstractProjectStreamReader extends AbstractProjectReader`
 ///
-/// 本层仍为「抽象」的方法是 [`ProjectReader::read_reader`]（Java `read(InputStream)`），
-/// 由具体 reader 提供实现。
+/// The method that is still "abstract" in this layer is [`ProjectReader::read_reader`]
+/// (Java `read(InputStream)`), which the concrete reader implements.
 pub trait AbstractProjectStreamReader: AbstractProjectReader {
-    /// 按路径读取一个 schedule：打开文件得到读取器后按流读取。
+    /// Read a single schedule by path: open the file to obtain a reader, then read by stream.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(File file)`
+    /// Corresponds to Java: `@Override public ProjectFile read(File file)`
     ///
-    /// （Java 的 `read(String fileName)` 仅做 `new File(fileName)` 适配，已合并进本方法。）
+    /// (Java's `read(String fileName)` only adapts `new File(fileName)` and is merged into this method.)
     fn read_file_default(&mut self, path: &Path) -> MpxjResult<Rc<RefCell<ProjectFile>>> {
         // Java: fis = new FileInputStream(file); catch (IOException ex) { throw new MPXJException(MPXJException.READ_ERROR, ex); }
         let mut file = File::open(path)?;
 
         // Java: ProjectFile projectFile = read(fis); fis.close(); return projectFile;
-        // （fis.close() 由 Rust 的 Drop 完成）
+        // (fis.close() is handled by Rust's Drop)
         ProjectReader::read_reader(self, &mut file)
     }
 
-    /// 按路径读取全部 schedule：打开文件得到读取器后按流读取。
+    /// Read all schedules by path: open the file to obtain a reader, then read by stream.
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(File file)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(File file)`
     ///
-    /// （Java 的 `readAll(String fileName)` 仅做 `new File(fileName)` 适配，已合并进本方法。）
+    /// (Java's `readAll(String fileName)` only adapts `new File(fileName)` and is merged into this method.)
     fn read_all_file_default(&mut self, path: &Path) -> MpxjResult<Vec<Rc<RefCell<ProjectFile>>>> {
         // Java: fis = new FileInputStream(file); catch (IOException ex) { throw new MPXJException(MPXJException.READ_ERROR, ex); }
         let mut file = File::open(path)?;
@@ -106,9 +118,10 @@ pub trait AbstractProjectStreamReader: AbstractProjectReader {
         ProjectReader::read_all_reader(self, &mut file)
     }
 
-    /// 从读取器读取全部 schedule（本层格式只含单份 schedule，故返回单元素列表）。
+    /// Read all schedules from the reader (this layer's format contains only a single schedule,
+    /// so a single-element list is returned).
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
     fn read_all_reader_default(
         &mut self,
         reader: &mut dyn Read,
@@ -121,17 +134,18 @@ pub trait AbstractProjectStreamReader: AbstractProjectReader {
     }
 }
 
-/// 把读取器的全部数据读入内存，返回支持回退（随机访问）的游标。
+/// Read all data from the reader into memory and return a cursor that supports rewind (random access).
 ///
-/// Rust 特有（Java 无对应方法）：Java 的 `InputStream.mark()` / `reset()` 在
-/// [`std::io::Read`] 中没有对应能力，[`std::io::Cursor`] 配合 [`std::io::Seek`] 是其替代 ——
-/// 见文件头「`BufferedInputStream` / `mark` / `reset`」一节。
+/// Rust-specific (Java has no corresponding method): Java's `InputStream.mark()` / `reset()`
+/// have no counterpart in [`std::io::Read`], and [`std::io::Cursor`] together with
+/// [`std::io::Seek`] is the replacement -- see the "`BufferedInputStream` / `mark` / `reset`"
+/// section in the file header.
 pub fn read_stream_into_cursor(reader: &mut dyn Read) -> MpxjResult<Cursor<Vec<u8>>> {
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer)?;
 
-    // Cursor 实现 Read + Seek：seek(SeekFrom::Start(n)) 等价 Java 的 reset()（回到 mark 处），
-    // position() 等价 Java 的 mark 记录。
+    // Cursor implements Read + Seek: seek(SeekFrom::Start(n)) is equivalent to Java's reset()
+    // (back to the mark position), and position() is equivalent to Java's mark record.
     Ok(Cursor::new(buffer))
 }
 
@@ -145,11 +159,11 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// 最小流式 reader：`read_reader` 把读取器内容全部收下并返回一个新项目。
+    /// Minimal stream reader: `read_reader` consumes all reader contents and returns a new project.
     #[derive(Default)]
     struct StubStreamReader {
         listeners: Vec<SharedProjectListener>,
-        /// 最近一次 `read_reader` 收到的全部字节。
+        /// All bytes received by the most recent `read_reader`.
         last_contents: Option<Vec<u8>>,
     }
 
@@ -193,7 +207,7 @@ mod tests {
 
     impl AbstractProjectStreamReader for StubStreamReader {}
 
-    /// 创建一个内容确定的测试文件，返回其路径。
+    /// Create a test file with deterministic contents and return its path.
     fn temp_file_with(contents: &[u8]) -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
@@ -202,8 +216,8 @@ mod tests {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
 
-        let mut file = File::create(&path).expect("创建测试文件");
-        file.write_all(contents).expect("写入测试文件");
+        let mut file = File::create(&path).expect("create test file");
+        file.write_all(contents).expect("write test file");
         path
     }
 
@@ -212,7 +226,7 @@ mod tests {
         let path = temp_file_with(b"fake schedule");
         let mut reader = StubStreamReader::default();
 
-        let project = reader.read_file_default(&path).expect("stub 总是成功");
+        let project = reader.read_file_default(&path).expect("stub always succeeds");
 
         assert_eq!(reader.last_contents.as_deref(), Some(&b"fake schedule"[..]));
         assert_eq!(
@@ -235,7 +249,7 @@ mod tests {
         let error = reader
             .read_file_default(Path::new("no-such-directory/no-such-file.mpp"))
             .err()
-            .expect("不存在的路径应报错");
+            .expect("non-existent path should error");
 
         // Java: catch (IOException ex) { throw new MPXJException(MPXJException.READ_ERROR, ex); }
         assert!(error.message().starts_with(MpxjError::READ_ERROR));
@@ -246,7 +260,7 @@ mod tests {
         let path = temp_file_with(b"fake schedule");
         let mut reader = StubStreamReader::default();
 
-        let projects = reader.read_all_file_default(&path).expect("stub 总是成功");
+        let projects = reader.read_all_file_default(&path).expect("stub always succeeds");
 
         assert_eq!(projects.len(), 1);
         assert_eq!(reader.last_contents.as_deref(), Some(&b"fake schedule"[..]));
@@ -260,7 +274,7 @@ mod tests {
 
         let projects = reader
             .read_all_reader_default(&mut &b"fake schedule"[..])
-            .expect("stub 总是成功");
+            .expect("stub always succeeds");
 
         assert_eq!(projects.len(), 1);
         assert_eq!(reader.last_contents.as_deref(), Some(&b"fake schedule"[..]));
@@ -269,23 +283,23 @@ mod tests {
     #[test]
     fn cursor_replaces_mark_and_reset() {
         let source = b"0123456789";
-        let mut cursor = read_stream_into_cursor(&mut &source[..]).expect("读入内存");
+        let mut cursor = read_stream_into_cursor(&mut &source[..]).expect("read into memory");
 
-        // Java: int mark = stream.read() 之前调用 stream.mark(...)
-        let mark = cursor.stream_position().expect("取当前位置");
+        // Java: calls stream.mark(...) before int mark = stream.read()
+        let mark = cursor.stream_position().expect("get current position");
         let mut head = [0u8; 4];
-        cursor.read_exact(&mut head).expect("读取前 4 字节");
+        cursor.read_exact(&mut head).expect("read first 4 bytes");
         assert_eq!(&head, b"0123");
 
-        // Java: stream.reset() —— Rust: 回到 mark 记录的偏移
-        cursor.seek(SeekFrom::Start(mark)).expect("回退到 mark");
+        // Java: stream.reset() -- Rust: seek back to the offset recorded at mark
+        cursor.seek(SeekFrom::Start(mark)).expect("seek back to mark");
         let mut again = [0u8; 4];
-        cursor.read_exact(&mut again).expect("再次读取前 4 字节");
+        cursor.read_exact(&mut again).expect("read first 4 bytes again");
         assert_eq!(&again, b"0123");
 
-        // 继续读取剩余内容，行为与未回退过的流一致
+        // Continue reading the remaining content; the behavior matches a stream that was never rewound
         let mut tail = Vec::new();
-        cursor.read_to_end(&mut tail).expect("读取剩余内容");
+        cursor.read_to_end(&mut tail).expect("read remaining content");
         assert_eq!(&tail, b"456789");
     }
 }

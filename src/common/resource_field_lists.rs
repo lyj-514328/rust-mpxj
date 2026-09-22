@@ -1,21 +1,21 @@
-//! 对应 Java: `org/mpxj/common/ResourceFieldLists.java`
+//! Corresponds to Java: `org/mpxj/common/ResourceFieldLists.java`
 
 use crate::resource_field::ResourceField;
 
-/// Resource 字段按逻辑分组后的集合。
+/// Collections of Resource fields grouped logically.
 ///
-/// 对应 Java: `public final class ResourceFieldLists`
+/// Corresponds to Java: `public final class ResourceFieldLists`
 ///
-/// 移植说明：
-/// - Java 的 `ResourceField[]` 静态数组逐个落地为定长数组常量 `[ResourceField; N]`，元素与顺序与 Java 完全一致。
-/// - Java 的 `CUSTOM_FIELDS` 由静态初始化块把 15 个数组依次 `addAll` 成 `ArrayList<ResourceField>`；Rust 侧展开为 `&'static [ResourceField]` 常量，顺序与 Java 的 `addAll` 调用顺序一致。
-/// - 本类只有静态常量、没有实例成员，Rust 侧用零字段结构体承载这些关联常量。
+/// Porting notes:
+/// - Each Java `ResourceField[]` static array is ported as a fixed-size array constant `[ResourceField; N]`, with elements and order exactly matching Java.
+/// - Java's `CUSTOM_FIELDS` is built by a static initializer that `addAll`s 15 arrays in turn into an `ArrayList<ResourceField>`; the Rust side expands it into a `&'static [ResourceField]` constant in the same order as the Java `addAll` calls.
+/// - This class has only static constants and no instance members; the Rust side uses a zero-field struct to carry these associated constants.
 ///
-/// 未移植的成员：无。
+/// Skipped Java members: none.
 pub struct ResourceFieldLists;
 
 impl ResourceFieldLists {
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_COST`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_COST`
     pub const CUSTOM_COST: [ResourceField; 10] = [
         ResourceField::Cost1,
         ResourceField::Cost2,
@@ -29,7 +29,7 @@ impl ResourceFieldLists {
         ResourceField::Cost10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_DATE`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_DATE`
     pub const CUSTOM_DATE: [ResourceField; 10] = [
         ResourceField::Date1,
         ResourceField::Date2,
@@ -43,7 +43,7 @@ impl ResourceFieldLists {
         ResourceField::Date10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_DURATION`
     pub const CUSTOM_DURATION: [ResourceField; 10] = [
         ResourceField::Duration1,
         ResourceField::Duration2,
@@ -57,7 +57,7 @@ impl ResourceFieldLists {
         ResourceField::Duration10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_DURATION_UNITS`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_DURATION_UNITS`
     pub const CUSTOM_DURATION_UNITS: [ResourceField; 10] = [
         ResourceField::Duration1Units,
         ResourceField::Duration2Units,
@@ -71,7 +71,7 @@ impl ResourceFieldLists {
         ResourceField::Duration10Units,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_FINISH`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_FINISH`
     pub const CUSTOM_FINISH: [ResourceField; 10] = [
         ResourceField::Finish1,
         ResourceField::Finish2,
@@ -85,7 +85,7 @@ impl ResourceFieldLists {
         ResourceField::Finish10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_START`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_START`
     pub const CUSTOM_START: [ResourceField; 10] = [
         ResourceField::Start1,
         ResourceField::Start2,
@@ -99,7 +99,7 @@ impl ResourceFieldLists {
         ResourceField::Start10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_FLAG`
     pub const CUSTOM_FLAG: [ResourceField; 20] = [
         ResourceField::Flag1,
         ResourceField::Flag2,
@@ -123,7 +123,7 @@ impl ResourceFieldLists {
         ResourceField::Flag20,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_NUMBER`
     pub const CUSTOM_NUMBER: [ResourceField; 20] = [
         ResourceField::Number1,
         ResourceField::Number2,
@@ -147,7 +147,7 @@ impl ResourceFieldLists {
         ResourceField::Number20,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_TEXT`
     pub const CUSTOM_TEXT: [ResourceField; 30] = [
         ResourceField::Text1,
         ResourceField::Text2,
@@ -181,7 +181,7 @@ impl ResourceFieldLists {
         ResourceField::Text30,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_COST`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_COST`
     pub const ENTERPRISE_CUSTOM_COST: [ResourceField; 10] = [
         ResourceField::EnterpriseCost1,
         ResourceField::EnterpriseCost2,
@@ -195,7 +195,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseCost10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_DATE`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_DATE`
     pub const ENTERPRISE_CUSTOM_DATE: [ResourceField; 30] = [
         ResourceField::EnterpriseDate1,
         ResourceField::EnterpriseDate2,
@@ -229,7 +229,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseDate30,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_DURATION`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_DURATION`
     pub const ENTERPRISE_CUSTOM_DURATION: [ResourceField; 10] = [
         ResourceField::EnterpriseDuration1,
         ResourceField::EnterpriseDuration2,
@@ -243,7 +243,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseDuration10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_FLAG`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_FLAG`
     pub const ENTERPRISE_CUSTOM_FLAG: [ResourceField; 20] = [
         ResourceField::EnterpriseFlag1,
         ResourceField::EnterpriseFlag2,
@@ -267,7 +267,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseFlag20,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_NUMBER`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_NUMBER`
     pub const ENTERPRISE_CUSTOM_NUMBER: [ResourceField; 40] = [
         ResourceField::EnterpriseNumber1,
         ResourceField::EnterpriseNumber2,
@@ -311,7 +311,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseNumber40,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_TEXT`
+    /// Corresponds to Java: `public static final ResourceField[] ENTERPRISE_CUSTOM_TEXT`
     pub const ENTERPRISE_CUSTOM_TEXT: [ResourceField; 40] = [
         ResourceField::EnterpriseText1,
         ResourceField::EnterpriseText2,
@@ -355,7 +355,7 @@ impl ResourceFieldLists {
         ResourceField::EnterpriseText40,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] BASELINE_COSTS`
+    /// Corresponds to Java: `public static final ResourceField[] BASELINE_COSTS`
     pub const BASELINE_COSTS: [ResourceField; 10] = [
         ResourceField::Baseline1Cost,
         ResourceField::Baseline2Cost,
@@ -369,7 +369,7 @@ impl ResourceFieldLists {
         ResourceField::Baseline10Cost,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] BASELINE_WORKS`
+    /// Corresponds to Java: `public static final ResourceField[] BASELINE_WORKS`
     pub const BASELINE_WORKS: [ResourceField; 10] = [
         ResourceField::Baseline1Work,
         ResourceField::Baseline2Work,
@@ -383,7 +383,7 @@ impl ResourceFieldLists {
         ResourceField::Baseline10Work,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] BASELINE_MATERIALS`
+    /// Corresponds to Java: `public static final ResourceField[] BASELINE_MATERIALS`
     pub const BASELINE_MATERIALS: [ResourceField; 10] = [
         ResourceField::Baseline1Material,
         ResourceField::Baseline2Material,
@@ -397,7 +397,7 @@ impl ResourceFieldLists {
         ResourceField::Baseline10Material,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_OUTLINE_CODE`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_OUTLINE_CODE`
     pub const CUSTOM_OUTLINE_CODE: [ResourceField; 10] = [
         ResourceField::OutlineCode1,
         ResourceField::OutlineCode2,
@@ -411,7 +411,7 @@ impl ResourceFieldLists {
         ResourceField::OutlineCode10,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] CUSTOM_OUTLINE_CODE_INDEX`
+    /// Corresponds to Java: `public static final ResourceField[] CUSTOM_OUTLINE_CODE_INDEX`
     pub const CUSTOM_OUTLINE_CODE_INDEX: [ResourceField; 10] = [
         ResourceField::OutlineCode1Index,
         ResourceField::OutlineCode2Index,
@@ -425,7 +425,7 @@ impl ResourceFieldLists {
         ResourceField::OutlineCode10Index,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] BASELINE_BUDGET_COSTS`
+    /// Corresponds to Java: `public static final ResourceField[] BASELINE_BUDGET_COSTS`
     pub const BASELINE_BUDGET_COSTS: [ResourceField; 10] = [
         ResourceField::Baseline1BudgetCost,
         ResourceField::Baseline2BudgetCost,
@@ -439,7 +439,7 @@ impl ResourceFieldLists {
         ResourceField::Baseline10BudgetCost,
     ];
 
-    /// 对应 Java: `public static final ResourceField[] BASELINE_BUDGET_WORKS`
+    /// Corresponds to Java: `public static final ResourceField[] BASELINE_BUDGET_WORKS`
     pub const BASELINE_BUDGET_WORKS: [ResourceField; 10] = [
         ResourceField::Baseline1BudgetWork,
         ResourceField::Baseline2BudgetWork,
@@ -453,9 +453,9 @@ impl ResourceFieldLists {
         ResourceField::Baseline10BudgetWork,
     ];
 
-    /// 对应 Java: `public static final List<ResourceField> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<ResourceField> CUSTOM_FIELDS`
     ///
-    /// Java 在静态初始化块中按 `CUSTOM_TEXT`、`CUSTOM_DATE`、`CUSTOM_START`、`CUSTOM_FINISH`、`CUSTOM_COST`、`CUSTOM_FLAG`、`CUSTOM_NUMBER`、`CUSTOM_DURATION`、`CUSTOM_OUTLINE_CODE`、`ENTERPRISE_CUSTOM_TEXT`、`ENTERPRISE_CUSTOM_DATE`、`ENTERPRISE_CUSTOM_COST`、`ENTERPRISE_CUSTOM_FLAG`、`ENTERPRISE_CUSTOM_NUMBER`、`ENTERPRISE_CUSTOM_DURATION` 的顺序 `addAll` 拼接；此处保持同一顺序。
+    /// Java concatenates via `addAll` in the static initializer in the order `CUSTOM_TEXT`, `CUSTOM_DATE`, `CUSTOM_START`, `CUSTOM_FINISH`, `CUSTOM_COST`, `CUSTOM_FLAG`, `CUSTOM_NUMBER`, `CUSTOM_DURATION`, `CUSTOM_OUTLINE_CODE`, `ENTERPRISE_CUSTOM_TEXT`, `ENTERPRISE_CUSTOM_DATE`, `ENTERPRISE_CUSTOM_COST`, `ENTERPRISE_CUSTOM_FLAG`, `ENTERPRISE_CUSTOM_NUMBER`, `ENTERPRISE_CUSTOM_DURATION`; the same order is kept here.
     pub const CUSTOM_FIELDS: &'static [ResourceField] = &[
         ResourceField::Text1,
         ResourceField::Text2,

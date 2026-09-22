@@ -1,40 +1,41 @@
-//! 对应 Java: `org/mpxj/mpx/AccrueTypeUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/AccrueTypeUtility.java`
 //!
-//! # 区域设置名表
+//! # Locale name tables
 //!
-//! Java 用 `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)` 从 `ResourceBundle`
-//! 取本地化的成本计提方式名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份
-//! 数据由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按
-//! Java 的方式**按区域设置取名表**。
+//! Java uses `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)` to obtain from
+//! `ResourceBundle` the localised cost accrue type name table (non-English languages are overridden
+//! by resource bundles such as `LocaleData_de`); on the Rust side the same data is held by
+//! [`LocaleData`] (localised overrides come from the `locale_data_XX` modules in the same package),
+//! so this module obtains the name table **per locale** the same way Java does.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::accrue_type::AccrueType;
 use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 
-/// 英文（默认）成本计提方式名表。
+/// English (default) cost accrue type name table.
 ///
-/// 对应 Java: `LocaleData.ACCRUE_TYPES_DATA`（下标 + 1 即 `AccrueType` 的 int 值）。
+/// Corresponds to Java: `LocaleData.ACCRUE_TYPES_DATA` (index + 1 is the `AccrueType` int value).
 const ACCRUE_TYPES: [Option<&str>; 3] = [Some("Start"), Some("End"), Some("Prorated")];
 
-/// 管理 MPX 文件中 `AccrueType` 实例的工具方法。
+/// Utility methods for managing `AccrueType` instances in MPX files.
 ///
-/// 对应 Java: `final class AccrueTypeUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class AccrueTypeUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct AccrueTypeUtility;
 
 impl AccrueTypeUtility {
-    /// 把成本计提方式的文本形式转换成对应的枚举实例，无法识别的值按「按比例分摊」处理。
+    /// Convert the text form of a cost accrue type into the corresponding enum instance; unrecognised values are treated as "prorated".
     ///
-    /// 对应 Java: `public static AccrueType getInstance(String type, Locale locale)`
+    /// Corresponds to Java: `public static AccrueType getInstance(String type, Locale locale)`
     ///
-    /// Java 的 `type` 为 `String`（可能为 `null`，`equalsIgnoreCase(null)` 恒为 `false`），
-    /// Rust 侧用 `Option<&str>` 承载，`None` 与「无法识别」等效。
+    /// Java's `type` is a `String` (it may be `null`, and `equalsIgnoreCase(null)` is always `false`);
+    /// the Rust side uses `Option<&str>`, where `None` is equivalent to "unrecognised".
     pub fn get_instance(r#type: Option<&str>, locale: MpxLocale) -> AccrueType {
         let mut result = None;
 
         for (loop_index, name) in accrue_types(locale).iter().enumerate() {
-            // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+            // Java's name table elements are never null; the Rust side skips `None` elements directly.
             if let Some(name) = name {
                 if equals_ignore_case(name, r#type) {
                     // Java: AccrueType.getInstance(loop + 1)
@@ -49,11 +50,12 @@ impl AccrueTypeUtility {
     }
 }
 
-/// 取对应区域设置的成本计提方式名表。
+/// Obtain the cost accrue type name table for the given locale.
 ///
-/// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)`
+/// Corresponds to Java: `LocaleData.getStringArray(locale, LocaleData.ACCRUE_TYPES)`
 ///
-/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+/// When the key is missing it falls back to the English default name table (Java's `ResourceBundle`
+/// likewise falls back to the base class resource).
 fn accrue_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
     LocaleData::get_string_array(locale, LocaleData::ACCRUE_TYPES).unwrap_or(&ACCRUE_TYPES)
 }
@@ -66,7 +68,7 @@ mod tests {
     #[test]
     fn accrue_type_round_trips_through_mpx_name() {
         for (index, name) in ACCRUE_TYPES.iter().enumerate() {
-            let name = name.expect("英文名表没有空元素");
+            let name = name.expect("English name table has no empty elements");
             let value = AccrueTypeUtility::get_instance(Some(name), MpxLocale::En);
             assert_eq!(value.value(), (index + 1) as i32);
             assert_eq!(ACCRUE_TYPES[(value.value() - 1) as usize], Some(name));
@@ -112,7 +114,7 @@ mod tests {
             AccrueTypeUtility::get_instance(Some("Anteilig"), MpxLocale::De),
             AccrueType::Prorated
         );
-        // 英文名表里的值在德语名表中不存在，回落「按比例分摊」
+        // The values in the English name table do not exist in the German name table, so it falls back to "prorated"
         assert_eq!(
             AccrueTypeUtility::get_instance(Some("Start"), MpxLocale::De),
             AccrueType::Prorated

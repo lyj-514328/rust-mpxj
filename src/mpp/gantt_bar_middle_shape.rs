@@ -1,50 +1,50 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarMiddleShape.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarMiddleShape.java`
 //!
-//! 甘特图条形「中段」的绘制形状。
+//! Drawing shape of the "middle" segment of a Gantt bar.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! - Java 用 `EnumHelper.createTypeArray(GanttBarMiddleShape.class)` 反射生成
-//!   int → 枚举的查找表（数组长度 = 常量个数 8，取值 0..7 恰好填满，
-//!   `getInstance` 不会返回 `null`）；Rust 不用反射，改为
-//!   [`GanttBarMiddleShape::ALL`] + [`GanttBarMiddleShape::get_instance`] 的 `match`。
-//! - 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! - Java uses `EnumHelper.createTypeArray(GanttBarMiddleShape.class)` to generate by reflection
+//! an int → enum lookup table (the array length equals the number of constants, 8, and the values 0..7 fill it exactly,
+//! so `getInstance` never returns `null`); Rust does not use reflection and instead uses
+//! a `match` over [`GanttBarMiddleShape::ALL`] + [`GanttBarMiddleShape::get_instance`].
+//! - Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use them.
 //!
-//! 未移植的 Java 成员：无。
+//! Java members not ported: none.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 甘特图条形中段的形状。
+/// Shape of the middle segment of a Gantt bar.
 ///
-/// 对应 Java: `public enum GanttBarMiddleShape implements MpxjEnum`
+/// Corresponds to Java: `public enum GanttBarMiddleShape implements MpxjEnum`
 ///
-/// 声明顺序与 Java 一致，判别值即 Java 的 `m_value`。
+/// The declaration order matches Java, and the discriminant is Java's `m_value`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GanttBarMiddleShape {
-    /// 对应 Java: `NONE(0, "None")`
+    /// Corresponds to Java: `NONE(0, "None")`
     None = 0,
-    /// 对应 Java: `ROUNDED(1, "Rounded")`
+    /// Corresponds to Java: `ROUNDED(1, "Rounded")`
     Rounded = 1,
-    /// 对应 Java: `TOPTHINROUNDED(2, "Top Thin Rounded")`
+    /// Corresponds to Java: `TOPTHINROUNDED(2, "Top Thin Rounded")`
     TopThinRounded = 2,
-    /// 对应 Java: `MIDDLETHINROUNDED(3, "Middle Thin Rounded")`
+    /// Corresponds to Java: `MIDDLETHINROUNDED(3, "Middle Thin Rounded")`
     MiddleThinRounded = 3,
-    /// 对应 Java: `BOTTOMTHINROUNDED(4, "Bottom Thin Rounded")`
+    /// Corresponds to Java: `BOTTOMTHINROUNDED(4, "Bottom Thin Rounded")`
     BottomThinRounded = 4,
-    /// 对应 Java: `TOPLINE(5, "Top Line")`
+    /// Corresponds to Java: `TOPLINE(5, "Top Line")`
     TopLine = 5,
-    /// 对应 Java: `MIDDLELINE(6, "Middle Line")`
+    /// Corresponds to Java: `MIDDLELINE(6, "Middle Line")`
     MiddleLine = 6,
-    /// 对应 Java: `BOTTOMLINE(7, "Bottom Line")`
+    /// Corresponds to Java: `BOTTOMLINE(7, "Bottom Line")`
     BottomLine = 7,
 }
 
 impl GanttBarMiddleShape {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as Java's declaration order.
     ///
-    /// 对应 Java: `private static final GanttBarMiddleShape[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final GanttBarMiddleShape[] TYPE_VALUES` (after removing the reflection-built table).
     pub const ALL: [GanttBarMiddleShape; 8] = [
         GanttBarMiddleShape::None,
         GanttBarMiddleShape::Rounded,
@@ -56,9 +56,9 @@ impl GanttBarMiddleShape {
         GanttBarMiddleShape::BottomLine,
     ];
 
-    /// 根据 int 值取枚举实例，越界（含负值）时回落到 `NONE`。
+/// Return the enum instance for an int value; out-of-bounds values (including negatives) fall back to `NONE`.
     ///
-    /// 对应 Java: `public static GanttBarMiddleShape getInstance(int type)`
+    /// Corresponds to Java: `public static GanttBarMiddleShape getInstance(int type)`
     pub fn get_instance(value: i32) -> GanttBarMiddleShape {
         match value {
             0 => GanttBarMiddleShape::None,
@@ -74,16 +74,16 @@ impl GanttBarMiddleShape {
         }
     }
 
-    /// 对应 Java: `public static GanttBarMiddleShape getInstance(Number type)`
+    /// Corresponds to Java: `public static GanttBarMiddleShape getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `NONE`。
+/// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `NONE`.
     pub fn get_instance_optional(value: Option<i32>) -> GanttBarMiddleShape {
         GanttBarMiddleShape::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取形状名称（如 `"Top Thin Rounded"`），与 Java 一致，未做本地化。
+/// Return the shape name (for example `"Top Thin Rounded"`), matching Java; no localization is performed.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             GanttBarMiddleShape::None => "None",
@@ -99,14 +99,14 @@ impl GanttBarMiddleShape {
 }
 
 impl MpxjEnum for GanttBarMiddleShape {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for GanttBarMiddleShape {
-    /// 对应 Java: `@Override public String toString()`，即 `getName()`。
+/// Corresponds to Java: `@Override public String toString()`, that is, `getName()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }

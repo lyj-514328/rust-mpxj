@@ -1,36 +1,36 @@
-//! 对应 Java: `org/mpxj/CodePage.java`
+//! Corresponds to Java: `org/mpxj/CodePage.java`
 
 use std::fmt::{self, Display, Formatter};
 
-/// MPX 文件使用的代码页。
+/// Code pages used by MPX files.
 ///
-/// 对应 Java: `public enum CodePage`
+/// Corresponds to Java: `public enum CodePage`
 ///
-/// Java 侧每个常量携带 `(String value, Charset charset)` 两个字段，并用静态块把
-/// `value` → 枚举写入 `NAME_MAP`。Rust 侧：
-/// * `value`（MPX 文件中的代码页名）由 [`CodePage::get_value`] / [`Display`] 返回；
-/// * `charset` 由 [`CodePage::get_charset`] 返回（`encoding_rs::Encoding`）；
-/// * 映射改由 [`CodePage::get_instance`] 的 `match` 完成，不再需要 `NAME_MAP`。
+/// In Java each constant carries two fields `(String value, Charset charset)`, and a static block writes
+/// `value` → enum into `NAME_MAP`. On the Rust side:
+/// * `value` (the code page name in the MPX file) is returned by [`CodePage::get_value`] / [`Display`];
+/// * `charset` is returned by [`CodePage::get_charset`] (`encoding_rs::Encoding`);
+/// * The mapping is now done by the `match` in [`CodePage::get_instance`], so `NAME_MAP` is no longer needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CodePage {
-    /// 对应 Java: `ANSI("ANSI", CharsetHelper.CP1252)`
+    /// Corresponds to Java: `ANSI("ANSI", CharsetHelper.CP1252)`
     Ansi,
-    /// 对应 Java: `MAC("MAC", CharsetHelper.MAC_ROMAN)`
+    /// Corresponds to Java: `MAC("MAC", CharsetHelper.MAC_ROMAN)`
     Mac,
-    /// 对应 Java: `LATIN("850", CharsetHelper.CP850)`
+    /// Corresponds to Java: `LATIN("850", CharsetHelper.CP850)`
     Latin,
-    /// 对应 Java: `US("437", CharsetHelper.CP437)`
+    /// Corresponds to Java: `US("437", CharsetHelper.CP437)`
     Us,
-    /// 对应 Java: `ZH("ZH", CharsetHelper.GB2312)`
+    /// Corresponds to Java: `ZH("ZH", CharsetHelper.GB2312)`
     Zh,
-    /// 对应 Java: `RU("RU", CharsetHelper.CP1251)`
+    /// Corresponds to Java: `RU("RU", CharsetHelper.CP1251)`
     Ru,
 }
 
 impl CodePage {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declarations.
     ///
-    /// 对应 Java: `EnumSet.allOf(CodePage.class)` 遍历到的全部常量。
+/// Corresponds to Java: all constants iterated by `EnumSet.allOf(CodePage.class)`.
     pub const ALL: [CodePage; 6] = [
         CodePage::Ansi,
         CodePage::Mac,
@@ -40,10 +40,10 @@ impl CodePage {
         CodePage::Ru,
     ];
 
-    /// 按 MPX 代码页名取枚举实例，无法识别时回落到 `ANSI`。
+/// Get an enum instance by MPX code page name, falling back to `ANSI` when unrecognized.
     ///
-    /// 对应 Java: `public static CodePage getInstance(String value)`，即
-    /// `NAME_MAP.getOrDefault(value, ANSI)`。
+/// Corresponds to Java: `public static CodePage getInstance(String value)`, i.e.
+    /// `NAME_MAP.getOrDefault(value, ANSI)`.
     pub fn get_instance(value: &str) -> CodePage {
         match value {
             "ANSI" => CodePage::Ansi,
@@ -56,10 +56,10 @@ impl CodePage {
         }
     }
 
-    /// 按 MPX 代码页名取枚举实例，`None` 回落到 `ANSI`。
+/// Get an enum instance by MPX code page name; `None` falls back to `ANSI`.
     ///
-    /// 对应 Java: `NAME_MAP.getOrDefault(null, ANSI)` 的行为（`HashMap` 允许 null 键，
-    /// 未命中时返回 `ANSI`）。
+/// Corresponds to Java: the behavior of `NAME_MAP.getOrDefault(null, ANSI)` (`HashMap` allows null keys,
+/// returning `ANSI` on a miss).
     pub fn get_instance_optional(value: Option<&str>) -> CodePage {
         match value {
             Some(value) => CodePage::get_instance(value),
@@ -67,9 +67,9 @@ impl CodePage {
         }
     }
 
-    /// 返回该代码页对应的 Java 字符集名（`CharsetHelper` 中 `Charset.forName` 的参数）。
+/// Return the Java charset name corresponding to this code page (the argument to `Charset.forName` in `CharsetHelper`).
     ///
-    /// 对应 Java: `private final Charset m_charset` 所对应的字符集标识。
+/// Corresponds to Java: the charset identifier corresponding to `private final Charset m_charset`.
     pub fn get_charset_name(&self) -> &'static str {
         match self {
             CodePage::Ansi => "Cp1252",
@@ -81,29 +81,29 @@ impl CodePage {
         }
     }
 
-    /// 返回该代码页对应的字符集。
+/// Return the charset corresponding to this code page.
     ///
-    /// 对应 Java: `public Charset getCharset()`
+    /// Corresponds to Java: `public Charset getCharset()`
     ///
-    /// `encoding_rs` 只实现 WHATWG Encoding 标准内的编码，其中不含 CP437 与 CP850，
-    /// 因此这两种代码页返回 `None`（其字符集名仍可通过 [`CodePage::get_charset_name`]
-    /// 取得）。`GB2312` 在 WHATWG 标准中由 `GBK` 承担，故映射到 [`encoding_rs::GBK`]。
+/// `encoding_rs` implements only the encodings in the WHATWG Encoding standard, which does not include CP437 and CP850,
+/// so these two code pages return `None` (their charset names can still be obtained via [`CodePage::get_charset_name`]
+/// ). `GB2312` is covered by `GBK` in the WHATWG standard, so it maps to [`encoding_rs::GBK`].
     pub fn get_charset(&self) -> Option<&'static encoding_rs::Encoding> {
         match self {
             CodePage::Ansi => Some(encoding_rs::WINDOWS_1252),
             CodePage::Mac => Some(encoding_rs::MACINTOSH),
-            // encoding_rs 没有 CP850 实现
+// encoding_rs has no CP850 implementation
             CodePage::Latin => None,
-            // encoding_rs 没有 CP437 实现
+// encoding_rs has no CP437 implementation
             CodePage::Us => None,
             CodePage::Zh => Some(encoding_rs::GBK),
             CodePage::Ru => Some(encoding_rs::WINDOWS_1251),
         }
     }
 
-    /// 返回 MPX 文件中的代码页名。
+/// Return the code page name in the MPX file.
     ///
-    /// 对应 Java: `private final String m_value`。
+    /// Corresponds to Java: `private final String m_value`.
     pub fn get_value(&self) -> &'static str {
         match self {
             CodePage::Ansi => "ANSI",
@@ -117,7 +117,7 @@ impl CodePage {
 }
 
 impl Display for CodePage {
-    /// 对应 Java: `@Override public String toString()`，返回 `m_value`。
+/// Corresponds to Java: `@Override public String toString()`, returning `m_value`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_value())
     }
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(CodePage::Mac.get_charset(), Some(encoding_rs::MACINTOSH));
         assert_eq!(CodePage::Zh.get_charset(), Some(encoding_rs::GBK));
         assert_eq!(CodePage::Ru.get_charset(), Some(encoding_rs::WINDOWS_1251));
-        // encoding_rs 未实现 CP437 / CP850
+// encoding_rs does not implement CP437 / CP850
         assert_eq!(CodePage::Us.get_charset(), None);
         assert_eq!(CodePage::Latin.get_charset(), None);
         assert_eq!(CodePage::Latin.get_charset_name(), "Cp850");

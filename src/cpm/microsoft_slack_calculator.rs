@@ -1,9 +1,9 @@
-//! 对应 Java: `org/mpxj/cpm/MicrosoftSlackCalculator.java`
+//! Corresponds to Java: `org/mpxj/cpm/MicrosoftSlackCalculator.java`
 //!
-//! # 用到的模型层接口
+//! # Model-layer interfaces used
 //!
-//! `Task`、`Relation`、`ProjectFile`、`ProjectCalendar`、`ProjectProperties` 均已落地，
-//! 本文件按下列签名使用它们：
+//! `Task`, `Relation`, `ProjectFile`, `ProjectCalendar`, and `ProjectProperties` have all landed,
+//! and this file uses them with the following signatures:
 //!
 //! ```text
 //! Task::get_duration(&self) -> Option<Duration>
@@ -23,22 +23,25 @@
 //! Relation::get_lag(&self) -> Option<Duration>
 //! ```
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **方法重载**：Java 有 `calculateFreeSlack(Task)`（public）与
-//!   `calculateFreeSlack(Relation)`（private）两个同名重载。Rust 不支持重载，
-//!   私有的那个改名为 [`MicrosoftSlackCalculator::calculate_free_slack_relation`]。
-//! - **空值处理**：Java 对 `relation.getSuccessorTask()` / `getPredecessorTask()` /
-//!   `getLag()` 为 `null` 时会抛 `NullPointerException`；Rust 侧不 panic，
-//!   分别按「跳过该关系 / 返回零工期 / 视为无 lag」处理。
-//! - **日历借用**：`Task::get_effective_calendar` 返回 `Rc<RefCell<ProjectCalendar>>`，
-//!   而 `LocalDateTimeHelper.getVariance` 需要 `&ProjectCalendar`。Rust 侧在
-//!   [`MicrosoftSlackCalculator::get_variance`] 中先用 `try_borrow` 借出日历再转调
+//! - **Method overloading**: Java has two same-named overloads, `calculateFreeSlack(Task)`
+//!   (public) and `calculateFreeSlack(Relation)` (private). Rust does not support overloading,
+//!   so the private one is renamed to [`MicrosoftSlackCalculator::calculate_free_slack_relation`].
+//! - **Null handling**: Java throws `NullPointerException` when `relation.getSuccessorTask()` /
+//!   `getPredecessorTask()` / `getLag()` is `null`; the Rust side does not panic and instead
+//!   handles them as "skip the relation / return a zero duration / treat as no lag".
+//! - **Calendar borrowing**: `Task::get_effective_calendar` returns
+//!   `Rc<RefCell<ProjectCalendar>>`, whereas `LocalDateTimeHelper.getVariance` needs
+//!   `&ProjectCalendar`. On the Rust side [`MicrosoftSlackCalculator::get_variance`] first uses
+//!   `try_borrow` to borrow the calendar and then forwards to
 //!   [`crate::common::local_date_time_helper::LocalDateTimeHelper::get_variance`]
-//!   （该工具类已落地并启用，语义与 Java 相同）；日历缺失、日期缺失或日历正被
-//!   可变借用时退化为 0 工期（Java 在日期缺失时返回 0 工期，日历为 `null` 时同样）。
+//!   (that utility class has landed and is enabled, with the same semantics as Java); when the
+//!   calendar is missing, the date is missing, or the calendar is being mutably borrowed, it
+//!   degrades to a zero duration (Java returns a zero duration when the date is missing and
+//!   likewise when the calendar is `null`).
 //!
-//! 未移植的 Java 代码：无。
+//! Unported Java code: none.
 
 use chrono::NaiveDateTime;
 
@@ -52,27 +55,28 @@ use crate::task::Task;
 use crate::time_unit::TimeUnit;
 use crate::total_slack_calculation_type::TotalSlackCalculationType;
 
-/// 与 Microsoft Project 一致的 slack 计算实现。
+/// Slack calculation implementation consistent with Microsoft Project.
 ///
-/// 对应 Java: `public class MicrosoftSlackCalculator implements SlackCalculator`
+/// Corresponds to Java: `public class MicrosoftSlackCalculator implements SlackCalculator`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MicrosoftSlackCalculator;
 
 impl MicrosoftSlackCalculator {
-    /// 构造方法（Java 未显式声明，等价于默认构造）。
+    /// Constructor (not explicitly declared in Java; equivalent to the default constructor).
     ///
-    /// 对应 Java: 隐式默认构造方法
+    /// Corresponds to Java: implicit default constructor
     pub fn new() -> Self {
         Self
     }
 
-    /// 借用适配：把任务的有效日历借给 `LocalDateTimeHelper.getVariance`。
+    /// Borrowing adapter: lend the task's effective calendar to `LocalDateTimeHelper.getVariance`.
     ///
-    /// 对应 Java: `LocalDateTimeHelper.getVariance(task.getEffectiveCalendar(), date1, date2, format)`
+    /// Corresponds to Java: `LocalDateTimeHelper.getVariance(task.getEffectiveCalendar(), date1, date2, format)`
     ///
-    /// Java 侧直接传入对象引用；Rust 侧的有效日历在 `Rc<RefCell<..>>` 中，故先
-    /// `try_borrow`（日历正被可变借用时退化为「无日历」，即 0 工期，不 panic），
-    /// 再转调同语义的 [`LocalDateTimeHelper::get_variance`]。
+    /// Java passes the object reference directly; on the Rust side the effective calendar lives
+    /// in an `Rc<RefCell<..>>`, so it first `try_borrow`s (degrading to "no calendar", i.e. a
+    /// zero duration, without panicking when the calendar is being mutably borrowed) and then
+    /// forwards to the same-semantics [`LocalDateTimeHelper::get_variance`].
     fn get_variance(
         &self,
         task: &Task,
@@ -86,11 +90,12 @@ impl MicrosoftSlackCalculator {
         LocalDateTimeHelper::get_variance(calendar.as_deref(), date1, date2, format)
     }
 
-    /// 计算一个任务的 early finish 与另一个任务的 early start 之间的差值（variance）。
+    /// Compute the variance between one task's early finish and another task's early start.
     ///
-    /// 对应 Java: `private Duration calculateVariance(Task t1, Task t2)`
+    /// Corresponds to Java: `private Duration calculateVariance(Task t1, Task t2)`
     ///
-    /// Java 的 `t2` 参数在方法体内并未使用，这里保留以对应 Java 签名，故命名为 `_t2`。
+    /// Java's `t2` parameter is not used in the method body; it is kept here to match the Java
+    /// signature and is therefore named `_t2`.
     fn calculate_variance(&self, t1: &Task, _t2: &Task) -> Option<Duration> {
         let variance = self.get_variance(
             t1,
@@ -106,12 +111,12 @@ impl MicrosoftSlackCalculator {
         Some(variance)
     }
 
-    /// 计算两个任务之间的自由浮动时间（对应 Java 的私有重载）。
+    /// Compute the free slack between two tasks (corresponds to the Java private overload).
     ///
-    /// 对应 Java: `private Duration calculateFreeSlack(Relation relation)`
+    /// Corresponds to Java: `private Duration calculateFreeSlack(Relation relation)`
     ///
-    /// 因 Rust 不支持方法重载，这里以 `_relation` 后缀区分公开的
-    /// [`SlackCalculator::calculate_free_slack`]。
+    /// Because Rust does not support method overloading, the `_relation` suffix distinguishes
+    /// this from the public [`SlackCalculator::calculate_free_slack`].
     fn calculate_free_slack_relation(&self, relation: &Relation) -> Option<Duration> {
         let predecessor_task = relation.get_predecessor_task()?;
         let predecessor_task = predecessor_task.borrow();
@@ -174,16 +179,16 @@ impl MicrosoftSlackCalculator {
         }
     }
 
-    /// 在一条 Relation 的上下文中计算两个日期之间的差值。
+    /// Compute the variance between two dates in the context of a Relation.
     ///
-    /// 对应 Java: `private Duration calculateFreeSlackVariance(Relation relation, LocalDateTime date1, LocalDateTime date2)`
+    /// Corresponds to Java: `private Duration calculateFreeSlackVariance(Relation relation, LocalDateTime date1, LocalDateTime date2)`
     fn calculate_free_slack_variance(
         &self,
         relation: &Relation,
         date1: Option<NaiveDateTime>,
         date2: Option<NaiveDateTime>,
     ) -> Duration {
-        // Java 在 predecessorTask 为 null 时会抛 NPE；Rust 侧不 panic，返回零工期。
+        // Java throws an NPE when predecessorTask is null; the Rust side does not panic and returns a zero duration.
         let Some(predecessor_task) = relation.get_predecessor_task() else {
             return Duration::get_instance_int(0, TimeUnit::Hours);
         };
@@ -202,11 +207,11 @@ impl MicrosoftSlackCalculator {
         self.remove_lag(relation, variance)
     }
 
-    /// 从工期中扣除 lag。
+    /// Subtract the lag from the duration.
     ///
-    /// 对应 Java: `private Duration removeLag(Relation relation, Duration duration)`
+    /// Corresponds to Java: `private Duration removeLag(Relation relation, Duration duration)`
     fn remove_lag(&self, relation: &Relation, duration: Duration) -> Duration {
-        // Java 在 lag 为 null 时会抛 NPE；Rust 侧视为无 lag。
+        // Java throws an NPE when lag is null; the Rust side treats it as no lag.
         let Some(lag) = relation.get_lag() else {
             return duration;
         };
@@ -220,8 +225,8 @@ impl MicrosoftSlackCalculator {
 
         let lag = if lag_units != duration_units {
             if lag_units == TimeUnit::Percent {
-                // Java 在 predecessorTask / duration 为 null 时会抛 NPE；
-                // Rust 侧在取不到时视为无 lag。
+                // Java throws an NPE when predecessorTask / duration is null;
+                // the Rust side treats an unavailable value as no lag.
                 let Some(predecessor_duration) = relation
                     .get_predecessor_task()
                     .and_then(|task| task.borrow().get_duration())
@@ -243,7 +248,7 @@ impl MicrosoftSlackCalculator {
                         let calendar = calendar.borrow();
                         lag.convert_units(duration_units, &*calendar)
                     }
-                    // 无法取到日历时保留原 lag（Java 会抛 NPE）
+                    // Keep the original lag when the calendar is unavailable (Java throws an NPE)
                     None => lag,
                 }
             }
@@ -256,9 +261,9 @@ impl MicrosoftSlackCalculator {
 }
 
 impl SlackCalculator for MicrosoftSlackCalculator {
-    /// 计算任务的开始浮动时间。
+    /// Compute the task's start slack.
     ///
-    /// 对应 Java: `@Override public Duration calculateStartSlack(Task task)`
+    /// Corresponds to Java: `@Override public Duration calculateStartSlack(Task task)`
     fn calculate_start_slack(&self, task: &Task) -> Option<Duration> {
         let duration = task.get_duration()?;
 
@@ -276,9 +281,9 @@ impl SlackCalculator for MicrosoftSlackCalculator {
         Some(self.get_variance(task, early_start, late_start, duration.get_units()))
     }
 
-    /// 计算任务的完成浮动时间。
+    /// Compute the task's finish slack.
     ///
-    /// 对应 Java: `@Override public Duration calculateFinishSlack(Task task)`
+    /// Corresponds to Java: `@Override public Duration calculateFinishSlack(Task task)`
     fn calculate_finish_slack(&self, task: &Task) -> Option<Duration> {
         let duration = task.get_duration()?;
 
@@ -296,11 +301,11 @@ impl SlackCalculator for MicrosoftSlackCalculator {
         Some(self.get_variance(task, early_finish, late_finish, duration.get_units()))
     }
 
-    /// 计算任务的自由浮动时间。
+    /// Compute the task's free slack.
     ///
-    /// 对应 Java: `@Override public Duration calculateFreeSlack(Task task)`
+    /// Corresponds to Java: `@Override public Duration calculateFreeSlack(Task task)`
     fn calculate_free_slack(&self, task: &Task) -> Option<Duration> {
-        // 任务已完成时，自由浮动时间恒为零。
+        // When the task is complete, the free slack is always zero.
         if task.get_actual_finish().is_some() {
             let units = task
                 .get_duration()
@@ -319,7 +324,7 @@ impl SlackCalculator for MicrosoftSlackCalculator {
                     };
                     let successor = successor.borrow();
 
-                    // 忽略已完成的后续任务
+                    // Ignore completed successor tasks
                     if successor.get_actual_finish().is_some() {
                         continue;
                     }
@@ -351,7 +356,7 @@ impl SlackCalculator for MicrosoftSlackCalculator {
                 continue;
             };
 
-            // 忽略已完成的后续任务
+            // Ignore completed successor tasks
             if successor.borrow().get_actual_finish().is_some() {
                 continue;
             }
@@ -375,11 +380,11 @@ impl SlackCalculator for MicrosoftSlackCalculator {
         free_float
     }
 
-    /// 计算任务的总浮动时间。
+    /// Compute the task's total slack.
     ///
-    /// 对应 Java: `@Override public Duration calculateTotalSlack(Task task)`
+    /// Corresponds to Java: `@Override public Duration calculateTotalSlack(Task task)`
     fn calculate_total_slack(&self, task: &Task) -> Option<Duration> {
-        // 先取出这些值，避免在计算过程中清空 total slack。
+        // Fetch these values first to avoid clearing total slack during the computation.
         let duration = task.get_duration();
         let start_slack = task.get_start_slack();
         let finish_slack = task.get_finish_slack();
@@ -440,7 +445,7 @@ mod tests {
         let calculator = MicrosoftSlackCalculator::new();
         let task = Task::new();
 
-        // 无工期 / 无日期 / 无后继任务的空任务，各 slack 均为 None
+        // For an empty task with no duration / no dates / no successors, every slack is None
         assert_eq!(calculator.calculate_start_slack(&task), None);
         assert_eq!(calculator.calculate_finish_slack(&task), None);
         assert_eq!(calculator.calculate_free_slack(&task), None);

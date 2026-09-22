@@ -1,41 +1,41 @@
-//! 对应 Java: `org/mpxj/ConstraintType.java`
+//! Corresponds to Java: `org/mpxj/ConstraintType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 任务约束类型。
+/// Task constraint type.
 ///
-/// 对应 Java: `public enum ConstraintType implements MpxjEnum`
+/// Corresponds to Java: `public enum ConstraintType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(ConstraintType.class)` 生成查找表：数组长度
-/// 为 10，取值 0..9 恰好填满，因此 `getInstance` 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(ConstraintType.class)` builds the lookup table: the array length is
+/// 10, and the values 0..9 fill it exactly, so `getInstance` never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConstraintType {
-    /// 对应 Java: `AS_SOON_AS_POSSIBLE(0)`
+    /// Corresponds to Java: `AS_SOON_AS_POSSIBLE(0)`
     AsSoonAsPossible = 0,
-    /// 对应 Java: `AS_LATE_AS_POSSIBLE(1)`
+    /// Corresponds to Java: `AS_LATE_AS_POSSIBLE(1)`
     AsLateAsPossible = 1,
-    /// 对应 Java: `MUST_START_ON(2)`
+    /// Corresponds to Java: `MUST_START_ON(2)`
     MustStartOn = 2,
-    /// 对应 Java: `MUST_FINISH_ON(3)`
+    /// Corresponds to Java: `MUST_FINISH_ON(3)`
     MustFinishOn = 3,
-    /// 对应 Java: `START_NO_EARLIER_THAN(4)`
+    /// Corresponds to Java: `START_NO_EARLIER_THAN(4)`
     StartNoEarlierThan = 4,
-    /// 对应 Java: `START_NO_LATER_THAN(5)`
+    /// Corresponds to Java: `START_NO_LATER_THAN(5)`
     StartNoLaterThan = 5,
-    /// 对应 Java: `FINISH_NO_EARLIER_THAN(6)`
+    /// Corresponds to Java: `FINISH_NO_EARLIER_THAN(6)`
     FinishNoEarlierThan = 6,
-    /// 对应 Java: `FINISH_NO_LATER_THAN(7)`
+    /// Corresponds to Java: `FINISH_NO_LATER_THAN(7)`
     FinishNoLaterThan = 7,
-    /// 对应 Java: `START_ON(8)`
+    /// Corresponds to Java: `START_ON(8)`
     StartOn = 8,
-    /// 对应 Java: `FINISH_ON(9)`
+    /// Corresponds to Java: `FINISH_ON(9)`
     FinishOn = 9,
 }
 
 impl ConstraintType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final ConstraintType[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final ConstraintType[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [ConstraintType; 10] = [
         ConstraintType::AsSoonAsPossible,
         ConstraintType::AsLateAsPossible,
@@ -49,9 +49,9 @@ impl ConstraintType {
         ConstraintType::FinishOn,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `AS_SOON_AS_POSSIBLE`。
+    /// Returns the enum instance for the given int value, falling back to `AS_SOON_AS_POSSIBLE` when out of bounds.
     ///
-    /// 对应 Java: `public static ConstraintType getInstance(int type)`
+    /// Corresponds to Java: `public static ConstraintType getInstance(int type)`
     pub fn get_instance(value: i32) -> ConstraintType {
         match value {
             0 => ConstraintType::AsSoonAsPossible,
@@ -69,16 +69,16 @@ impl ConstraintType {
         }
     }
 
-    /// 对应 Java: `public static ConstraintType getInstance(Number type)`
+    /// Corresponds to Java: `public static ConstraintType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `AS_SOON_AS_POSSIBLE`。
+    /// In Java, `null` goes through `getInstance(-1)` and ultimately falls back to `AS_SOON_AS_POSSIBLE`.
     pub fn get_instance_optional(value: Option<i32>) -> ConstraintType {
         ConstraintType::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for ConstraintType {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

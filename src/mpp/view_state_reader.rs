@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/ViewStateReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/ViewStateReader.java`
 //!
-//! 从 MPP 文件中读出「视图状态」（保存的视图名称、显示的任务 unique ID 列表与应用中的
-//! 筛选器 ID），并写入 `ProjectFile.getViews()`。
+//! Read the "view state" from an MPP file (the saved view name, the list of displayed task unique IDs, and the active
+//! filter ID), and write it into `ProjectFile.getViews()`.
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `InputStream` / `ByteArrayInputStream` | 按本工程约定，Java 的流读取改为直接接收 `&[u8]` |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `InputStream` / `ByteArrayInputStream` | Per project convention, Java's stream reading is changed to receiving `&[u8]` directly |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | Not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # Restoring inheritance: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `abstract class ViewStateReader` | [`ViewStateReader`] 结构体（无状态的抽象基类，只承载共享逻辑 `process`） |
-//! | `protected abstract Props getProps(Var2Data varData) throws IOException` | [`ViewStateReaderMethods`] trait 的 [`ViewStateReaderMethods::get_props`]（抽象方法在 Rust 侧用 trait 表达，与本 crate `AbstractCalendarFactory` 的做法一致）；`process` 以 `&dyn ViewStateReaderMethods` 接收「提供 props 的子类」 |
-//! | `ViewStateReader9/12 extends ViewStateReader` | 各自**持有** [`ViewStateReader`] 并转发 `process`，同时实现 [`ViewStateReaderMethods`]（见 `view_state_reader9.rs` / `view_state_reader12.rs`） |
+//! | `abstract class ViewStateReader` | The [`ViewStateReader`] struct (a stateless abstract base class carrying only the shared logic `process`) |
+//! | `protected abstract Props getProps(Var2Data varData) throws IOException` | [`ViewStateReaderMethods::get_props`] of the [`ViewStateReaderMethods`] trait (abstract methods are expressed as traits on the Rust side, consistent with this crate's `AbstractCalendarFactory`); `process` takes a "subclass that provides props" via `&dyn ViewStateReaderMethods` |
+//! | `ViewStateReader9/12 extends ViewStateReader` | Each **holds** a [`ViewStateReader`] and forwards `process`, while implementing [`ViewStateReaderMethods`] (see `view_state_reader9.rs` / `view_state_reader12.rs`) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `Props`（抽象基类）作为 `getProps` 的返回类型 | [`Props`]（按解析结果重建一份） | `Props9/12` 用「组合 + `Deref`」实现「继承」：`&Props9` 可自动强转成 `&Props`，但 `Deref` 只能借用、无法按值取出内部的 [`Props`]，而本方法的返回类型需要拥有所有权，故用 [`Props::copied_from`] 按内容重建一份（键值逐条复制，语义等价） |
-//! | `throws IOException` | `MpxjResult<()>` | `Props9/12` 解析失败时返回 `Err`（Java 抛 `IOException`） |
-//! | 视图内容数据的下标越界（长度不是 4 的倍数）时 Java 抛 `ArrayIndexOutOfBoundsException` | 提前结束循环（并注释） | 不 panic |
-//! | `file.getViews().setViewState(state)` | 先 `try_borrow_mut`，文件已被可变借用时返回 `Err` | Java 无借用检查；Rust 侧把该情形显式化为错误，避免静默丢弃视图状态 |
+//! | `Props` (abstract base class) as the return type of `getProps` | [`Props`] (rebuilt from the parse result) | `Props9/12` implement "inheritance" via "composition + `Deref`": `&Props9` can auto-coerce to `&Props`, but `Deref` only borrows and cannot take the inner [`Props`] out by value, while this method's return type needs ownership, so [`Props::copied_from`] rebuilds it from the content (copying key/value entries one by one, semantically equivalent) |
+//! | `throws IOException` | `MpxjResult<()>` | `Props9/12` return `Err` when parsing fails (Java throws `IOException`) |
+//! | When the view content data index is out of bounds (length not a multiple of 4), Java throws `ArrayIndexOutOfBoundsException` | End the loop early (with a comment) | Do not panic |
+//! | `file.getViews().setViewState(state)` | First `try_borrow_mut`; return `Err` if the file is already mutably borrowed | Java has no borrow checking; the Rust side makes this case an explicit error to avoid silently discarding the view state |
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -39,42 +39,42 @@ use crate::mpxj_exception::{MpxjError, MpxjResult};
 use crate::project_file::ProjectFile;
 use crate::view_state::ViewState;
 
-/// 固定数据块中「筛选器 ID」的偏移（两字节小端）。
+/// Offset of the "filter ID" in the fixed data block (two bytes, little-endian).
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(fixedData, 128)`
+/// Corresponds to Java: `ByteArrayHelper.getShort(fixedData, 128)`
 const FILTER_ID_OFFSET: usize = 128;
 
-/// 抽象基类 `ViewStateReader` 的抽象方法集合。
+/// The set of abstract methods of the abstract base class `ViewStateReader`.
 ///
-/// 对应 Java: `abstract class ViewStateReader` 的 `protected abstract Props getProps(Var2Data varData)`
+/// Corresponds to Java: the `protected abstract Props getProps(Var2Data varData)` of `abstract class ViewStateReader`
 pub trait ViewStateReaderMethods {
-    /// 按文件格式特定的方式取属性块。
+/// Fetch the properties block in a file-format-specific way.
     ///
-    /// 对应 Java: `protected abstract Props getProps(Var2Data varData) throws IOException`
+    /// Corresponds to Java: `protected abstract Props getProps(Var2Data varData) throws IOException`
     ///
-    /// 属性块不存在时返回 `Ok(None)`（Java 返回 `null`）。
+/// Return `Ok(None)` when the properties block does not exist (Java returns `null`).
     fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Props>>;
 }
 
-/// 视图状态读取器的抽象基类。
+/// Abstract base class for view state readers.
 ///
-/// 对应 Java: `abstract class ViewStateReader`
+/// Corresponds to Java: `abstract class ViewStateReader`
 pub struct ViewStateReader;
 
 impl ViewStateReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: the implicit default constructor (Java declares no explicit constructor).
     pub fn new() -> Self {
         Self
     }
 
-    /// 处理已保存的视图状态。
+/// Process the saved view state.
     ///
-    /// 对应 Java: `public void process(ProjectFile file, Var2Data varData, byte[] fixedData) throws IOException`
+    /// Corresponds to Java: `public void process(ProjectFile file, Var2Data varData, byte[] fixedData) throws IOException`
     ///
-    /// Rust 特有：Java 的 `getProps` 由子类覆写、由本方法虚调用；Rust 侧改为显式传入
-    /// 属性块提供者（子类实例，见 [`ViewStateReaderMethods`]）。
+/// Rust-specific: Java's `getProps` is overridden by subclasses and virtually invoked from this method; the Rust side instead passes in explicitly
+/// the properties block provider (a subclass instance, see [`ViewStateReaderMethods`]).
     pub fn process(
         &self,
         provider: &dyn ViewStateReaderMethods,
@@ -99,13 +99,13 @@ impl ViewStateReader {
         //       if (listData != null) { for (int index = 0; index < listData.length; index += 4) { ... } }
         let mut unique_id_list: Vec<i32> = Vec::new();
         if let Some(list_data) = props.get_byte_array(PropsKey::ViewContents) {
-            // Java: file.getTaskByUniqueID(uniqueID) —— 只读借用一次，供整个循环复用
+// Java: file.getTaskByUniqueID(uniqueID) -- borrow once immutably and reuse it for the whole loop
             let file_ref = file.try_borrow().ok();
             let mut index = 0usize;
 
             while index < list_data.len() {
-                // Java 在最后一个数据项不足 4 字节（长度不是 4 的倍数）时抛
-                // ArrayIndexOutOfBoundsException，Rust 侧提前结束循环
+// Java throws when the last data item has fewer than 4 bytes (length not a multiple of 4)
+// ArrayIndexOutOfBoundsException; the Rust side ends the loop early
                 if index + 4 > list_data.len() {
                     break;
                 }
@@ -114,7 +114,7 @@ impl ViewStateReader {
                 let unique_id = ByteArrayHelper::get_int(list_data, index);
 
                 // Java: if (file.getTaskByUniqueID(uniqueID) != null && (uniqueID.intValue() != 0 || index == 0))
-                // 父文件已被借用（Java 无此情形）时视为「任务不存在」，跳过该项。
+// When the parent file is already borrowed (no such case in Java), treat it as "task does not exist" and skip the item.
                 let task_exists = file_ref
                     .as_ref()
                     .is_some_and(|file| file.get_task_by_unique_id(Some(unique_id)).is_some());
@@ -128,7 +128,7 @@ impl ViewStateReader {
         }
 
         // Java: int filterID = ByteArrayHelper.getShort(fixedData, 128);
-        // （Java 在数据不足 130 字节时抛 AIOOBE，Rust 侧取 0）
+// (Java throws AIOOBE when there are fewer than 130 bytes; the Rust side uses 0)
         let filter_id = if fixed_data.len() >= FILTER_ID_OFFSET + 2 {
             ByteArrayHelper::get_short(fixed_data, FILTER_ID_OFFSET)
         } else {
@@ -148,7 +148,7 @@ impl ViewStateReader {
 }
 
 impl Default for ViewStateReader {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`ViewStateReader::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`ViewStateReader::new`].
     fn default() -> Self {
         Self::new()
     }
@@ -160,9 +160,9 @@ mod tests {
     use crate::filter::Filter;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 测试用属性块的数据：只提供 `process` 需要的两个属性。
+/// Properties block data for tests: provides only the two properties `process` needs.
     ///
-    /// 对应 Java 测试中直接构造的 `Props9`：Rust 侧按属性块布局建一个 [`Props`]。
+/// Corresponds to the `Props9` constructed directly in the Java tests: the Rust side builds a [`Props`] according to the properties block layout.
     #[derive(Clone, Default)]
     struct TestProps {
         view_name: Option<String>,
@@ -170,7 +170,7 @@ mod tests {
     }
 
     impl TestProps {
-        /// 构造属性块（视图名称为 UTF-16LE + NUL，内容为原始字节）。
+/// Construct the properties block (view name as UTF-16LE + NUL, contents as raw bytes).
         fn to_props(&self) -> Props {
             let mut props = Props::new();
 
@@ -191,7 +191,7 @@ mod tests {
         }
     }
 
-    /// 测试用读取器：按预置数据提供属性块（`None` 对应 Java 的 `null`）。
+/// Test reader: provides the properties block from preset data (`None` corresponds to Java's `null`).
     #[derive(Default)]
     struct TestReader {
         props: Option<TestProps>,
@@ -203,7 +203,7 @@ mod tests {
         }
     }
 
-    /// 构造视图状态读取器：`view_name` 与 `contents` 均为可选（`None` 表示属性缺失）。
+/// Construct the view state reader: `view_name` and `contents` are both optional (`None` means the property is missing).
     fn reader(view_name: Option<&str>, contents: Option<Vec<u8>>) -> TestReader {
         TestReader {
             props: Some(TestProps {
@@ -213,7 +213,7 @@ mod tests {
         }
     }
 
-    /// unique ID 列表的字节形式。
+/// Byte form of the unique ID list.
     fn contents(values: &[i32]) -> Vec<u8> {
         let mut data = Vec::new();
         for value in values {
@@ -222,7 +222,7 @@ mod tests {
         data
     }
 
-    /// 构造空 var data 块（`process` 的测试不依赖其中的数据）。
+/// Construct an empty var data block (the `process` tests do not depend on its data).
     fn var_data(file: &Rc<RefCell<ProjectFile>>) -> Var2Data {
         let mut meta = Vec::new();
         meta.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
@@ -232,11 +232,11 @@ mod tests {
         meta.extend_from_slice(&0i32.to_le_bytes());
         meta.extend_from_slice(&0i32.to_le_bytes());
 
-        let meta = VarMeta9::new(&meta).expect("元数据合法");
+        let meta = VarMeta9::new(&meta).expect("valid metadata");
         Var2Data::new(file, Rc::new(meta), &[])
     }
 
-    /// 构造固定数据块，并在偏移 128 处写入筛选器 ID。
+/// Construct the fixed data block and write the filter ID at offset 128.
     fn fixed_data(filter_id: i32) -> Vec<u8> {
         let mut data = vec![0u8; 138];
         data[FILTER_ID_OFFSET..FILTER_ID_OFFSET + 2]
@@ -244,13 +244,13 @@ mod tests {
         data
     }
 
-    /// 在项目文件中加入指定 unique ID 的任务。
+/// Add a task with the given unique ID to the project file.
     fn add_task(file: &Rc<RefCell<ProjectFile>>, unique_id: i32) {
         let task = file.borrow_mut().get_tasks_mut().add();
         task.borrow_mut().set_unique_id(Some(unique_id));
     }
 
-    /// 属性块为 `null`（Java）时不做任何事。
+/// Do nothing when the properties block is `null` (Java).
     #[test]
     fn process_without_props_is_noop() {
         let file = ProjectFile::new();
@@ -258,19 +258,19 @@ mod tests {
 
         ViewStateReader::new()
             .process(&TestReader::default(), &file, &var_data, &fixed_data(0))
-            .expect("应能处理");
+            .expect("should be able to process");
 
         assert!(file.borrow().get_views().get_view_state().is_none());
     }
 
-    /// 视图名称 / unique ID 列表 / 筛选器 ID 全部写入视图状态。
+/// The view name / unique ID list / filter ID are all written into the view state.
     #[test]
     fn process_writes_view_state() {
         let file = ProjectFile::new();
         add_task(&file, 1);
         add_task(&file, 2);
 
-        // 筛选器（ID 7）：用于验证 filterID 已传入 ViewState
+// Filter (ID 7): used to verify that filterID has been passed into ViewState
         let mut filter = Filter::new();
         filter.set_id(Some(7));
         filter.set_name(Some("Filter A".to_owned()));
@@ -278,19 +278,19 @@ mod tests {
             .get_filters_mut()
             .add_filter(Rc::new(RefCell::new(filter)));
 
-        // 内容：[1, 2, 0, 99]：1 与 2 有对应任务；0 非首个且无任务；99 无任务
+// Contents: [1, 2, 0, 99]: 1 and 2 have corresponding tasks; 0 is not first and has no task; 99 has no task
         let reader = reader(Some("&Gantt Chart"), Some(contents(&[1, 2, 0, 99])));
         let var_data = var_data(&file);
 
         ViewStateReader::new()
             .process(&reader, &file, &var_data, &fixed_data(7))
-            .expect("应能处理");
+            .expect("should be able to process");
 
         let file_ref = file.borrow();
         let state = file_ref
             .get_views()
             .get_view_state()
-            .expect("应写入视图状态");
+            .expect("should write view state");
         assert_eq!(state.get_view_name(), Some("Gantt Chart"));
         assert_eq!(state.get_unique_id_list(), &[1, 2]);
         assert_eq!(
@@ -301,10 +301,10 @@ mod tests {
         );
     }
 
-    /// unique ID 为 0 且位于首个数据项时保留（Java 的 `index == 0` 分支）。
+/// A unique ID of 0 is kept when it is in the first data item (Java's `index == 0` branch).
     ///
-    /// Java 的条件还要求该 unique ID 能查到任务，因此文件里需要存在 unique ID 为 0
-    /// 的任务（MS Project 的项目摘要任务）。
+/// Java's condition also requires that the unique ID resolves to a task, so the file must contain a task with unique ID 0
+/// (MS Project's project summary task).
     #[test]
     fn leading_zero_unique_id_is_kept() {
         let file = ProjectFile::new();
@@ -316,17 +316,17 @@ mod tests {
 
         ViewStateReader::new()
             .process(&reader, &file, &var_data, &fixed_data(0))
-            .expect("应能处理");
+            .expect("should be able to process");
 
         let file_ref = file.borrow();
-        let state = file_ref.get_views().get_view_state().expect("应写入视图状态");
+        let state = file_ref.get_views().get_view_state().expect("should write view state");
         assert_eq!(state.get_view_name(), None);
         assert_eq!(state.get_unique_id_list(), &[0, 3]);
-        // 无筛选器定义（filter_id = 0）→ getFilter() 返回 None
+// No filter definition (filter_id = 0) -> getFilter() returns None
         assert!(state.get_filter().is_none());
     }
 
-    /// 视图内容长度不是 4 的倍数时不 panic，越界的尾部数据被忽略。
+/// Do not panic when the view content length is not a multiple of 4; out-of-bounds trailing data is ignored.
     #[test]
     fn malformed_view_contents_is_ignored() {
         let file = ProjectFile::new();
@@ -334,21 +334,21 @@ mod tests {
 
         let reader = reader(
             None,
-            // 4 字节有效数据 + 2 字节尾部
+// 4 bytes of valid data + 2 trailing bytes
             Some(vec![0x04, 0x00, 0x00, 0x00, 0xAA, 0xBB]),
         );
         let var_data = var_data(&file);
 
         ViewStateReader::new()
             .process(&reader, &file, &var_data, &fixed_data(0))
-            .expect("应能处理");
+            .expect("should be able to process");
 
         let file_ref = file.borrow();
-        let state = file_ref.get_views().get_view_state().expect("应写入视图状态");
+        let state = file_ref.get_views().get_view_state().expect("should write view state");
         assert_eq!(state.get_unique_id_list(), &[4]);
     }
 
-    /// 固定数据过短时不 panic（筛选器 ID 取 0）。
+/// Do not panic when the fixed data is too short (filter ID is 0).
     #[test]
     fn short_fixed_data_does_not_panic() {
         let file = ProjectFile::new();
@@ -358,15 +358,15 @@ mod tests {
 
         ViewStateReader::new()
             .process(&reader, &file, &var_data, &[])
-            .expect("应能处理");
+            .expect("should be able to process");
 
         let file_ref = file.borrow();
-        let state = file_ref.get_views().get_view_state().expect("应写入视图状态");
+        let state = file_ref.get_views().get_view_state().expect("should write view state");
         assert_eq!(state.get_view_name(), Some("View"));
         assert!(state.get_unique_id_list().is_empty());
     }
 
-    /// 项目文件已被可变借用时返回 `Err`（Rust 特有），不 panic。
+/// Return `Err` when the project file is already mutably borrowed (Rust-specific); do not panic.
     #[test]
     fn borrowed_file_returns_error() {
         let file = ProjectFile::new();

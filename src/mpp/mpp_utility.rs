@@ -1,37 +1,37 @@
-//! 对应 Java: `org/mpxj/mpp/MPPUtility.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPPUtility.java`
 //!
-//! MPP 二进制格式解析的底层工具类：小端读数、日期 / 时间戳换算、字符串与 GUID 解码等。
+//! Low-level utility class for parsing the MPP binary format: little-endian reads, date / timestamp conversion, string and GUID decoding, etc.
 //!
-//! # 移植取舍
+//! # Porting Trade-offs
 //!
-//! 1. **绝不 panic**：Java 侧大量依赖数组下标越界抛 `ArrayIndexOutOfBoundsException`
-//!    （`dataDump` 里用 try/catch 吞掉），Rust 侧统一改为返回 `None` / 0，
-//!    并在各方法注释里注明原 Java 的行为。
-//! 2. **无重载**：Java 的同名重载拆成不同名字 —— [`MPPUtility::get_duration_int`] /
-//!    [`MPPUtility::get_duration_double`]、[`MPPUtility::get_unicode_string`] /
-//!    [`MPPUtility::get_unicode_string_with_max_length`]、
-//!    [`MPPUtility::get_duration_time_units`] / [`MPPUtility::get_duration_time_units_with_default`]。
-//!    `fileHexDump(String, InputStream)` 与 `fileHexDump(String, byte[])` 合并为一个：
-//!    按项目约定，`InputStream` 参数在 Rust 侧一律换成 `&[u8]`。
-//! 3. **`java.awt.Color`** 属 GUI 类型（跳过项），这里用本文件内定义的最小值类型
-//!    [`Color`] 代替，只保留 R/G/B 三个分量与 Java 的取值方法。
-//! 4. **`MicrosoftProjectConstants.EPOCH_DATE`**（1983-12-31T00:00）未移植该类，
-//!    以私有函数 `MPPUtility::epoch_date` 内联（`getDate` 的注释说「天数自 1983-12-31 起算」，
-//!    `getDate` / `getTimestamp` / `getTimestampFromTenths` 均以该值为纪元）。
-//! 5. **Java 的 `byte` 有符号**：`getString` / `decodePassword` 里的 `(char) byte` 会符号扩展到
-//!    16 位（`0x80` → `U+FF80`），Rust 侧用 `MPPUtility::java_byte_as_char` 保留该语义。
-//! 6. **调试输出**：`dataDump` / `varDataDump` / `dumpBlockData` / `fileHexDump` / `fileDump`
-//!    按 1:1 保留（`println!` / 写文件），它们只服务于开发者排查，不参与解析路径。
-//!    其中 `dumpBlockData` 在 `blockSize == 0` 时 Java 会死循环，Rust 侧直接返回。
+//! 1. **Never panic**: Java relies heavily on an array index out of bounds throwing `ArrayIndexOutOfBoundsException`
+//! (swallowed with try/catch in `dataDump`); the Rust side uniformly returns `None` / 0 instead,
+//! and notes the original Java behavior in each method's documentation.
+//! 2. **No overloading**: Java's same-name overloads are split into different names — [`MPPUtility::get_duration_int`] /
+//!    [`MPPUtility::get_duration_double`],[`MPPUtility::get_unicode_string`] /
+//!    [`MPPUtility::get_unicode_string_with_max_length`],
+//!    [`MPPUtility::get_duration_time_units`] / [`MPPUtility::get_duration_time_units_with_default`].
+//! `fileHexDump(String, InputStream)` and `fileHexDump(String, byte[])` are merged into one:
+//! per project convention, `InputStream` parameters are always replaced with `&[u8]` on the Rust side.
+//! 3. **`java.awt.Color`** is a GUI type (a skipped item); here a minimal value type defined in this file
+//! [`Color`] is used instead, keeping only the R/G/B components and Java's accessor methods.
+//! 4. **`MicrosoftProjectConstants.EPOCH_DATE`** (1983-12-31T00:00); that class is not ported,
+//! so it is inlined as the private function `MPPUtility::epoch_date` (the `getDate` comment says "days are counted from 1983-12-31",
+//! and `getDate` / `getTimestamp` / `getTimestampFromTenths` all use this value as the epoch).
+//! 5. **Java's `byte` is signed**: the `(char) byte` in `getString` / `decodePassword` sign-extends to
+//! 16 bits (`0x80` → `U+FF80`); the Rust side preserves this semantics with `MPPUtility::java_byte_as_char`.
+//! 6. **Debug output**: `dataDump` / `varDataDump` / `dumpBlockData` / `fileHexDump` / `fileDump`
+//! are kept 1:1 (`println!` / writing files); they serve only developer troubleshooting and are not part of the parsing path.
+//! In particular, `dumpBlockData` loops forever in Java when `blockSize == 0`; the Rust side returns immediately.
 //!
-//! 未移植的方法：无（`convertRateFromHours` 已补齐，见其文档注释）。
+//! Unported methods: none (`convertRateFromHours` has been completed; see its doc comment).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)` 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit` | 单位字段以整数存放，按 [`TimeUnit::get_instance`] 还原 | [`crate::FieldValue`] 没有承载 `TimeUnit` 的变体 |
-//! | `RateHelper.convertFromHours`（`org.mpxj.common`） | [`crate::rate_helper::RateHelper::convert_from_hours`] | 该工具类已单独成模块，读取器共用同一份实现 |
+//! | `convertRateFromHours(ProjectFile, Resource, ResourceField, ResourceField)` takes `TimeUnit` from `resource.getCachedValue(unitsField)` | the units field is stored as an integer and restored via [`TimeUnit::get_instance`] | [`crate::FieldValue`] has no variant carrying `TimeUnit` |
+//! | `RateHelper.convertFromHours` (`org.mpxj.common`) | [`crate::rate_helper::RateHelper::convert_from_hours`] | that utility class is now a separate module, and readers share the same implementation |
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use std::cell::RefCell;
@@ -53,93 +53,93 @@ use crate::resource::Resource;
 use crate::resource_field::ResourceField;
 use crate::time_unit::TimeUnit;
 
-/// MPP 文件各 section 的公共工具方法。
+/// Common utility methods for the sections of an MPP file.
 ///
-/// 对应 Java: `final class MPPUtility`（私有构造方法禁止实例化的纯静态工具类，
-/// Rust 侧用无字段的单元结构体 + 关联函数表达）。
+/// Corresponds to Java: `final class MPPUtility` (a pure static utility class made non-instantiable by a private constructor);
+/// the Rust side expresses it as a fieldless unit struct plus associated functions).
 pub struct MPPUtility;
 
-/// [`MPPUtility`] 的别名（Rust 特有）。
+/// Alias for [`MPPUtility`] (Rust-specific).
 ///
-/// 同一 `mpp` 模块下的 `data_at_offset` / `extended_data` 按 `MppUtility`
-/// 拼写引用本类型，这里提供别名以保持两者指同一类型：`MppUtility::get_double(...)`
-/// 与 `MPPUtility::get_double(...)` 完全等价。
+/// `data_at_offset` / `extended_data` in the same `mpp` module reference this type under the spelling `MppUtility`;
+/// this alias is provided so both spellings refer to the same type: `MppUtility::get_double(...)`
+/// is exactly equivalent to `MPPUtility::get_double(...)`.
 pub type MppUtility = MPPUtility;
 
-/// 密码字符在数据块中的取用顺序。
+/// The order in which password characters are taken from the data block.
 ///
-/// 对应 Java: `private static final int[] PASSWORD_MASK`
+/// Corresponds to Java: `private static final int[] PASSWORD_MASK`
 const PASSWORD_MASK: [usize; 16] = [
     60, 30, 48, 2, 6, 14, 8, 22, 44, 12, 38, 10, 62, 16, 34, 24,
 ];
 
-/// 密码数据块的最小长度。
+/// Minimum length of the password data block.
 ///
-/// 对应 Java: `private static final int MINIMUM_PASSWORD_DATA_LENGTH`
+/// Corresponds to Java: `private static final int MINIMUM_PASSWORD_DATA_LENGTH`
 const MINIMUM_PASSWORD_DATA_LENGTH: usize = 64;
 
-/// 工期单位字段中用于剔除标志位的掩码。
+/// Mask used to strip flag bits from the duration units field.
 ///
-/// 对应 Java: `private static final int DURATION_UNITS_MASK`
+/// Corresponds to Java: `private static final int DURATION_UNITS_MASK`
 const DURATION_UNITS_MASK: i32 = 0x1F;
 
-/// 每分钟的毫秒数。
+/// Milliseconds per minute.
 ///
-/// 对应 Java: `private static final long MS_PER_MINUTE`
+/// Corresponds to Java: `private static final long MS_PER_MINUTE`
 const MS_PER_MINUTE: i64 = 60 * 1000;
 
-/// MPP 文件中的颜色值。
+/// A color value in an MPP file.
 ///
-/// 对应 Java: `java.awt.Color`（GUI 类型，属跳过项）。Rust 侧只保留
-/// `MPPUtility.getColor` 真正用到的三个分量与取值方法，并实现 [`fmt::Display`]
-/// 以复刻 Java 的 `toString()` 文本（各处展示类共用，避免各自复刻一份）。
+/// Corresponds to Java: `java.awt.Color` (a GUI type, a skipped item). The Rust side keeps only
+/// the three components and accessor methods that `MPPUtility.getColor` actually uses, and implements [`fmt::Display`]
+/// to reproduce Java's `toString()` text (shared by the various presentation classes, avoiding a separate copy in each).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
-    /// 红色分量。
+/// Red component.
     pub red: u8,
-    /// 绿色分量。
+/// Green component.
     pub green: u8,
-    /// 蓝色分量。
+/// Blue component.
     pub blue: u8,
 }
 
 impl Color {
-    /// 构造颜色。
+/// Construct a color.
     ///
-    /// 对应 Java: `new Color(int r, int g, int b)`
+    /// Corresponds to Java: `new Color(int r, int g, int b)`
     pub const fn new(red: u8, green: u8, blue: u8) -> Color {
         Color { red, green, blue }
     }
 
-    /// 取红色分量。
+/// Get the red component.
     ///
-    /// 对应 Java: `int getRed()`
+    /// Corresponds to Java: `int getRed()`
     pub fn get_red(&self) -> u8 {
         self.red
     }
 
-    /// 取绿色分量。
+/// Get the green component.
     ///
-    /// 对应 Java: `int getGreen()`
+    /// Corresponds to Java: `int getGreen()`
     pub fn get_green(&self) -> u8 {
         self.green
     }
 
-    /// 取蓝色分量。
+/// Get the blue component.
     ///
-    /// 对应 Java: `int getBlue()`
+    /// Corresponds to Java: `int getBlue()`
     pub fn get_blue(&self) -> u8 {
         self.blue
     }
 }
 
 impl fmt::Display for Color {
-    /// 对应 Java: `java.awt.Color.toString()`
+    /// Corresponds to Java: `java.awt.Color.toString()`
     ///
-    /// Java 的 `java.awt.Color` 的字符串形式为 `java.awt.Color[r=<r>,g=<g>,b=<b>]`；
-    /// 各 MPP 展示类的 `toString()` 直接拼接该结果，故这里提供同一文本，
-    /// 使调用方无需各自复刻（`null` 分支仍由调用方用 `Option` 的 `format_optional_display`
-    /// 一类辅助处理）。
+/// Java's `java.awt.Color` string form is `java.awt.Color[r=<r>,g=<g>,b=<b>]`;
+/// the `toString()` of each MPP presentation class concatenates that result directly, so the same text is provided here,
+/// sparing callers a separate copy (the `null` branch is still handled by callers using the `Option` helper `format_optional_display`
+/// and similar).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -149,10 +149,10 @@ impl fmt::Display for Color {
     }
 }
 
-/// 把可选值按 Java 的字符串拼接语义输出（`None` → `"null"`）。
+/// Render an optional value using Java's string concatenation semantics (`None` → `"null"`).
 ///
-/// 对应 Java: 字符串拼接中的 `String.valueOf(obj)` —— `null` 输出 `"null"`。
-/// 各展示类的 `toString()` 都用这一约定，故集中提供，避免各文件各自复刻。
+/// Corresponds to Java: `String.valueOf(obj)` in string concatenation — `null` outputs `"null"`.
+/// The `toString()` of every presentation class uses this convention, so it is provided centrally to avoid a separate copy in each file.
 pub fn format_optional_display<T: fmt::Display + ?Sized>(value: Option<&T>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -160,31 +160,31 @@ pub fn format_optional_display<T: fmt::Display + ?Sized>(value: Option<&T>) -> S
     }
 }
 
-/// 把可空颜色渲染成 Java `java.awt.Color.toString()` 的形式（`None` → `"null"`）。
+/// Render a nullable color in the form of Java's `java.awt.Color.toString()` (`None` → `"null"`).
 ///
-/// Java 的展示类在 `toString()` 里直接拼接 `java.awt.Color`，`null` 时拼出 `"null"`
-/// （字符串拼接的 `String.valueOf` 语义）。这里集中提供该文本，避免各展示类各自复刻
-/// 一遍（`crate::mpp::font_style` / `crate::mpp::gantt_bar_common_style` /
-/// `crate::group_clause` 曾各有一份拷贝）。
+/// Java's presentation classes concatenate `java.awt.Color` directly in `toString()`, producing `"null"` when it is `null`
+/// (the `String.valueOf` semantics of string concatenation). That text is provided centrally here, avoiding a separate copy
+/// in each presentation class (`crate::mpp::font_style` / `crate::mpp::gantt_bar_common_style` /
+/// `crate::group_clause` each previously had a copy).
 pub fn format_color(value: Option<Color>) -> String {
     format_optional_display(value.as_ref())
 }
 
 impl MPPUtility {
-    /// 对应 Java: `public static final void decodeBuffer(byte[] data, byte encryptionCode)`
+    /// Corresponds to Java: `public static final void decodeBuffer(byte[] data, byte encryptionCode)`
     ///
-    /// 用 XOR 异或密钥就地解密数据块。Java 的 `byte` 有符号，但异或只取低 8 位，
-    /// 结果与 `u8` 逐字节异或完全一致。
+/// Decrypt the data block in place using an XOR key. Java's `byte` is signed, but XOR only uses the low 8 bits,
+/// so the result is identical to a byte-by-byte `u8` XOR.
     pub fn decode_buffer(data: &mut [u8], encryption_code: u8) {
         for byte in data.iter_mut() {
             *byte ^= encryption_code;
         }
     }
 
-    /// 对应 Java: `public static final String decodePassword(byte[] data, byte encryptionCode)`
+    /// Corresponds to Java: `public static final String decodePassword(byte[] data, byte encryptionCode)`
     ///
-    /// 先用密钥解密数据块，再按 [`PASSWORD_MASK`] 的顺序取字符，遇到 0 字符即停止。
-    /// 数据块短于 64 字节时返回 `None`（Java 返回 `null`）。
+/// First decrypt the data block with the key, then take characters in the [`PASSWORD_MASK`] order, stopping at a 0 character.
+/// Returns `None` when the data block is shorter than 64 bytes (Java returns `null`).
     pub fn decode_password(data: &mut [u8], encryption_code: u8) -> Option<String> {
         if data.len() < MINIMUM_PASSWORD_DATA_LENGTH {
             return None;
@@ -194,7 +194,7 @@ impl MPPUtility {
 
         let mut buffer = String::new();
         for index in PASSWORD_MASK {
-            // mask 的最大值为 62，且上面已确认长度不小于 64，这里仍做防御性读取
+// the maximum mask value is 62, and the length was already confirmed to be at least 64 above, but this read is still defensive
             let value = data.get(index).copied().unwrap_or(0);
             let c = java_byte_as_char(value);
             if c == '\0' {
@@ -206,10 +206,10 @@ impl MPPUtility {
         Some(buffer)
     }
 
-    /// 对应 Java: `public static final void getByteArray(byte[] data, int offset, int size, byte[] buffer, int bufferOffset)`
+    /// Corresponds to Java: `public static final void getByteArray(byte[] data, int offset, int size, byte[] buffer, int bufferOffset)`
     ///
-    /// 把源数据的一段复制到目标缓冲区。Java 用 `System.arraycopy`，长度不足时抛
-    /// `ArrayIndexOutOfBoundsException`；Rust 侧长度不足时不做任何复制。
+/// Copy a range of source data into the destination buffer. Java uses `System.arraycopy`, which throws
+/// `ArrayIndexOutOfBoundsException` on insufficient length; the Rust side performs no copy when the length is insufficient.
     pub fn get_byte_array(
         data: &[u8],
         offset: usize,
@@ -226,18 +226,18 @@ impl MPPUtility {
         target.copy_from_slice(source);
     }
 
-    /// 对应 Java: `public static final int getByte(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final int getByte(byte[] data, int offset)`
     ///
-    /// 读取单个字节，按 `& 0xFF` 处理成 0..255 的正整数。
-    /// Java 越界时抛异常，Rust 侧返回 0。
+/// Read a single byte, treating it with `& 0xFF` to yield a positive integer in 0..255.
+/// Java throws on out of bounds; the Rust side returns 0.
     pub fn get_byte(data: &[u8], offset: usize) -> i32 {
         i32::from(Self::read_u8(data, offset).unwrap_or(0))
     }
 
-    /// 对应 Java: `public static final long getLong6(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final long getLong6(byte[] data, int offset)`
     ///
-    /// 按小端读取六个字节（48 位，一定为非负值）。
-    /// Java 越界时抛异常，Rust 侧数据不足六个字节时返回 0（同时避免 `offset + 6` 溢出）。
+/// Read six bytes little-endian (48 bits, always non-negative).
+/// Java throws on out of bounds; the Rust side returns 0 when fewer than six bytes are available (also avoiding `offset + 6` overflow).
     pub fn get_long6(data: &[u8], offset: usize) -> i64 {
         let Some(bytes) = slice_exact(data, offset, 6) else {
             return 0;
@@ -251,14 +251,14 @@ impl MPPUtility {
         result
     }
 
-    /// 对应 Java: `public static final double getDouble(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final double getDouble(byte[] data, int offset)`
     ///
-    /// 按小端读取八个字节并转成 `f64`；结果为 NaN 时返回 0（与 Java 一致）。
-    /// Java 越界时抛异常，Rust 侧返回 0。
+/// Read eight bytes little-endian and convert to `f64`; returns 0 when the result is NaN (matching Java).
+/// Java throws on out of bounds; the Rust side returns 0.
     pub fn get_double(data: &[u8], offset: usize) -> f64 {
         let result = match Self::read_i64(data, offset) {
             Some(value) => f64::from_bits(value as u64),
-            // Java: Double.longBitsToDouble(ByteArrayHelper.getLong(data, offset))，越界抛异常
+// Java: Double.longBitsToDouble(ByteArrayHelper.getLong(data, offset)), throws on out of bounds
             None => 0.0,
         };
 
@@ -269,11 +269,11 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static final UUID getGUID(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final UUID getGUID(byte[] data, int offset)`
     ///
-    /// 读取 16 字节的 GUID。前 8 字节按 Java 的 `UUID` 语义拼装（前 4 字节倒序、
-    /// 接着 2 字节倒序、再 2 字节倒序），后 8 字节顺序直读。
-    /// 两个 `long` 都为 0（或数据不足 16 字节）时返回 `None`（Java 返回 `null`）。
+/// Read a 16-byte GUID. The first 8 bytes are assembled using Java's `UUID` semantics (first 4 bytes reversed,
+/// then 2 bytes reversed, then 2 bytes reversed), and the last 8 bytes are read directly in order.
+/// Returns `None` when both `long` values are 0 (or fewer than 16 bytes are available) (Java returns `null`).
     pub fn get_guid(data: &[u8], offset: usize) -> Option<Uuid> {
         let bytes: [u8; 16] = slice_exact(data, offset, 16)?.try_into().ok()?;
 
@@ -304,10 +304,10 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static final LocalDate getDate(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final LocalDate getDate(byte[] data, int offset)`
     ///
-    /// 读取以 1983-12-31 为纪元的天数；65535 表示 NA（Java 返回 `null`）。
-    /// 数据不足两个字节时返回 `None`（Java 抛异常）。
+/// Read the number of days since the 1983-12-31 epoch; 65535 means NA (Java returns `null`).
+/// Returns `None` when fewer than two bytes are available (Java throws).
     pub fn get_date(data: &[u8], offset: usize) -> Option<NaiveDate> {
         let days = i64::from(Self::read_u16(data, offset)?);
         if days == 65535 {
@@ -319,15 +319,15 @@ impl MPPUtility {
             .checked_add_signed(chrono::Duration::try_days(days)?)
     }
 
-    /// 对应 Java: `public static final LocalTime getTime(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final LocalTime getTime(byte[] data, int offset)`
     ///
-    /// 时间是「自午夜起的十分之一分钟」数，先截断到整分钟再换算成秒；
-    /// 超过 86399 秒时按一天取模。数据不足两个字节时返回 `NaiveTime::MIN`
-    /// （Java 抛异常）。
+/// The time is the number of tenths of a minute since midnight; truncate to whole minutes first, then convert to seconds;
+/// values above 86399 seconds are taken modulo one day. Returns `NaiveTime::MIN` when fewer than two bytes are available
+/// (Java throws).
     pub fn get_time(data: &[u8], offset: usize) -> NaiveTime {
         let value = i64::from(Self::read_u16(data, offset).unwrap_or(0));
 
-        // Java: (short / 10L) * 60L —— 先丢掉不足一分钟的部分，再换算成秒
+// Java: (short / 10L) * 60L — first drop the sub-minute part, then convert to seconds
         let mut seconds = (value / 10) * 60;
         if seconds > 86399 {
             seconds %= 86400;
@@ -336,20 +336,20 @@ impl MPPUtility {
         NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, 0).unwrap_or(NaiveTime::MIN)
     }
 
-    /// 对应 Java: `public static final long getDuration(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final long getDuration(byte[] data, int offset)`
     ///
-    /// 读取以十分之一分钟为单位的时长，返回毫秒数。
-    /// 数据不足两个字节时返回 0（Java 抛异常）。
+/// Read a duration in tenths of a minute and return the number of milliseconds.
+/// Returns 0 when fewer than two bytes are available (Java throws).
     pub fn get_duration(data: &[u8], offset: usize) -> i64 {
         let value = i64::from(Self::read_u16(data, offset).unwrap_or(0));
         (value * MS_PER_MINUTE) / 10
     }
 
-    /// 对应 Java: `public static final LocalDateTime getTimestamp(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final LocalDateTime getTimestamp(byte[] data, int offset)`
     ///
-    /// 读取「十分之一分钟时间 + 天数」的组合时间戳：低两个字节为时间、高两个字节为
-    /// 天数。天数不大于 1、等于 65535、或者天数小于 100 而秒数不为 0（MS Project
-    /// 显示为 NA 的启发式判断）时返回 `None`。
+/// Read the combined timestamp of "tenths-of-a-minute time + days": the low two bytes are the time and the high two bytes are
+/// the days. Returns `None` when the days are not greater than 1, equal 65535, or are less than 100 while the seconds are non-zero (MS Project's
+/// heuristic for displaying NA).
     pub fn get_timestamp(data: &[u8], offset: usize) -> Option<NaiveDateTime> {
         let days = i64::from(Self::read_u16(data, offset.checked_add(2)?)?);
         if days <= 1 || days == 65535 {
@@ -365,7 +365,7 @@ impl MPPUtility {
             .checked_add_signed(chrono::Duration::try_days(days)?)?
             .checked_add_signed(chrono::Duration::try_seconds(time * 6)?)?;
 
-        // 天数很小时，用「秒数是否为 0」区分 NA 与有效值
+// when the days are small, use "whether the seconds are 0" to distinguish NA from a valid value
         if days < 100 && result.second() != 0 {
             return None;
         }
@@ -373,21 +373,21 @@ impl MPPUtility {
         Some(result)
     }
 
-    /// 对应 Java: `public static final LocalDateTime getTimestampFromTenths(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final LocalDateTime getTimestampFromTenths(byte[] data, int offset)`
     ///
-    /// 读取以十分之一分钟（有符号四字节）表示的时间戳，换算成 1983-12-31 之后的秒数。
-    /// 数据不足四个字节或结果超出 `NaiveDateTime` 范围时返回 `None`
-    /// （Java 越界时抛异常）。
+/// Read a timestamp expressed in tenths of a minute (signed, four bytes), converted to seconds after 1983-12-31.
+/// Returns `None` when fewer than four bytes are available or the result is outside the `NaiveDateTime` range
+/// (Java throws on out of bounds).
     pub fn get_timestamp_from_tenths(data: &[u8], offset: usize) -> Option<NaiveDateTime> {
         let seconds = i64::from(Self::read_i32(data, offset)?) * 6;
 
         Self::epoch_date().checked_add_signed(chrono::Duration::try_seconds(seconds)?)
     }
 
-    /// 对应 Java: `public static final String getUnicodeString(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final String getUnicodeString(byte[] data, int offset)`
     ///
-    /// 读取 NUL 结尾的 UTF-16LE 字符串，NUL 或数组末尾处结束。
-    /// 无内容时返回空串（Java 返回 `""`）。
+/// Read a NUL-terminated UTF-16LE string, ending at the NUL or the end of the array.
+/// Returns an empty string when there is no content (Java returns `""`).
     pub fn get_unicode_string(data: &[u8], offset: usize) -> String {
         let length = Self::get_unicode_string_length_in_bytes(data, offset);
         if length == 0 {
@@ -397,9 +397,9 @@ impl MPPUtility {
         decode_utf16le(slice_exact(data, offset, length).unwrap_or(&[]))
     }
 
-    /// 对应 Java: `public static final String getUnicodeString(byte[] data, int offset, int maxLength)`
+    /// Corresponds to Java: `public static final String getUnicodeString(byte[] data, int offset, int maxLength)`
     ///
-    /// 同上，但最多读取 `max_length` 个字节（`max_length` 为 0 时不受限，与 Java 一致）。
+/// Same as above, but reads at most `max_length` bytes (`max_length` of 0 means unlimited, matching Java).
     pub fn get_unicode_string_with_max_length(
         data: &[u8],
         offset: usize,
@@ -417,9 +417,9 @@ impl MPPUtility {
         decode_utf16le(slice_exact(data, offset, length).unwrap_or(&[]))
     }
 
-    /// 对应 Java: `private static int getUnicodeStringLengthInBytes(byte[] data, int offset)`
+    /// Corresponds to Java: `private static int getUnicodeStringLengthInBytes(byte[] data, int offset)`
     ///
-    /// 计算 NUL 结尾的 UTF-16LE 字符串的字节长度（不含结尾的 NUL）。
+/// Compute the byte length of a NUL-terminated UTF-16LE string (excluding the terminating NUL).
     fn get_unicode_string_length_in_bytes(data: &[u8], offset: usize) -> usize {
         if offset >= data.len() {
             return 0;
@@ -440,10 +440,10 @@ impl MPPUtility {
         result
     }
 
-    /// 对应 Java: `public static final String getString(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final String getString(byte[] data, int offset)`
     ///
-    /// 读取单字节字符串，遇到 0 或数组末尾结束。Java 的 `char c = (char) data[loop]`
-    /// 会把负的 `byte` 符号扩展到 16 位（`0x80` → `U+FF80`），这里保留该语义。
+/// Read a single-byte string, ending at 0 or the end of the array. Java's `char c = (char) data[loop]`
+/// sign-extends a negative `byte` to 16 bits (`0x80` → `U+FF80`); this semantics is preserved here.
     pub fn get_string(data: &[u8], offset: usize) -> String {
         let mut buffer = String::new();
 
@@ -458,19 +458,19 @@ impl MPPUtility {
         buffer
     }
 
-    /// 对应 Java: `public static final Duration getDuration(int value, TimeUnit type)`
+    /// Corresponds to Java: `public static final Duration getDuration(int value, TimeUnit type)`
     ///
-    /// Java 的 `int` 重载在 Rust 中与 `double` 重载冲突，故加 `_int` 后缀。
+/// Java's `int` overload conflicts with the `double` overload in Rust, hence the `_int` suffix.
     pub fn get_duration_int(value: i32, time_unit: TimeUnit) -> Duration {
         Self::get_duration_double(f64::from(value), time_unit)
     }
 
-    /// 对应 Java: `public static final Color getColor(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final Color getColor(byte[] data, int offset)`
     ///
-    /// 读取 R/G/B 三个字节加一个标志字节；标志字节非 0 表示「自动颜色」，
-    /// 此时返回 `None`（Java 返回 `null`）。数据不足四个字节时返回 `None`。
+/// Read three R/G/B bytes plus a flag byte; a non-zero flag byte means "automatic color",
+/// in which case it returns `None` (Java returns `null`). Returns `None` when fewer than four bytes are available.
     pub fn get_color(data: &[u8], offset: usize) -> Option<Color> {
-        // 四个字节（R/G/B + 标志）必须完整；Java 缺字节时抛异常，Rust 侧返回 None
+// all four bytes (R/G/B + flag) must be present; Java throws when bytes are missing, the Rust side returns None
         let bytes = slice_exact(data, offset, 4)?;
 
         if bytes[3] != 0 {
@@ -480,9 +480,9 @@ impl MPPUtility {
         Some(Color::new(bytes[0], bytes[1], bytes[2]))
     }
 
-    /// 对应 Java: `public static final Duration getDuration(double value, TimeUnit type)`
+    /// Corresponds to Java: `public static final Duration getDuration(double value, TimeUnit type)`
     ///
-    /// 值以十分之一分钟为单位，按单位换算成工期数量。
+/// The value is in tenths of a minute; convert it to a duration amount according to the units.
     pub fn get_duration_double(value: f64, time_unit: TimeUnit) -> Duration {
         let duration = match time_unit {
             TimeUnit::Minutes | TimeUnit::ElapsedMinutes => value / 10.0,
@@ -507,16 +507,16 @@ impl MPPUtility {
         Duration::get_instance(duration, time_unit)
     }
 
-    /// 对应 Java: `public static final TimeUnit getDurationTimeUnits(int type)`
+    /// Corresponds to Java: `public static final TimeUnit getDurationTimeUnits(int type)`
     ///
-    /// 未识别单位时一律按天处理。
+/// Unrecognized units are always treated as days.
     pub fn get_duration_time_units(type_value: i32) -> TimeUnit {
         Self::get_duration_time_units_with_default(type_value, None)
     }
 
-    /// 对应 Java: `public static final TimeUnit getDurationTimeUnits(int type, TimeUnit projectDefaultDurationUnits)`
+    /// Corresponds to Java: `public static final TimeUnit getDurationTimeUnits(int type, TimeUnit projectDefaultDurationUnits)`
     ///
-    /// 同样的映射，但 21（「使用项目默认单位」）会回落到传入的项目默认工期单位。
+/// The same mapping, but 21 ("use project default units") falls back to the passed-in project default duration units.
     pub fn get_duration_time_units_with_default(
         type_value: i32,
         project_default_duration_units: Option<TimeUnit>,
@@ -539,10 +539,10 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static Duration getAdjustedDuration(ProjectProperties properties, int duration, TimeUnit timeUnit)`
+    /// Corresponds to Java: `public static Duration getAdjustedDuration(ProjectProperties properties, int duration, TimeUnit timeUnit)`
     ///
-    /// 按项目属性中的「每天分钟数 / 每周分钟数 / 每月天数」把文件里的工期换算成用户看到的工期；
-    /// 这些默认值为 0（Java 的 `Number` 为 `null`）时按 0 处理，`duration == -1` 时返回 `None`。
+/// Convert a duration from the file into the duration seen by the user, using the project properties "minutes per day / minutes per week / days per month";
+/// these defaults are treated as 0 when they are 0 (Java's `Number` is `null`), and `None` is returned when `duration == -1`.
     pub fn get_adjusted_duration(
         properties: &ProjectProperties,
         duration: i32,
@@ -607,16 +607,16 @@ impl MPPUtility {
         Some(result)
     }
 
-    /// 对应 Java: `public static TimeUnit getWorkTimeUnits(int value)`
+    /// Corresponds to Java: `public static TimeUnit getWorkTimeUnits(int value)`
     ///
-    /// MPP 文件里的默认工时单位值比 `TimeUnit` 的取值大 1。
+/// The default work units value in an MPP file is one greater than the `TimeUnit` value.
     pub fn get_work_time_units(value: i32) -> TimeUnit {
         TimeUnit::get_instance(value - 1)
     }
 
-    /// 对应 Java: `public static CurrencySymbolPosition getSymbolPosition(int value)`
+    /// Corresponds to Java: `public static CurrencySymbolPosition getSymbolPosition(int value)`
     ///
-    /// MPP 文件里的货币符号位置到 MPX 表示的映射（未识别值一律按「前置」处理）。
+/// Mapping from the currency symbol position in an MPP file to the MPX representation (unrecognized values are always treated as "prefix").
     pub fn get_symbol_position(value: i32) -> CurrencySymbolPosition {
         match value {
             1 => CurrencySymbolPosition::After,
@@ -627,9 +627,9 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static final String removeAmpersands(String name)`
+    /// Corresponds to Java: `public static final String removeAmpersands(String name)`
     ///
-    /// 去掉名字里嵌入的 `&`（Java 对 `null` 原样返回 `null`）。
+/// Strip embedded `&` from a name (Java returns `null` unchanged for `null`).
     pub fn remove_ampersands(name: Option<&str>) -> Option<String> {
         name.map(|name| {
             if name.contains('&') {
@@ -640,9 +640,9 @@ impl MPPUtility {
         })
     }
 
-    /// 对应 Java: `public static final Double getPercentage(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final Double getPercentage(byte[] data, int offset)`
     ///
-    /// 读取百分比（0..100 之外视为无效，Java 返回 `null`）；数据不足两个字节时返回 `None`。
+/// Read a percentage (values outside 0..100 are treated as invalid; Java returns `null`); returns `None` when fewer than two bytes are available.
     pub fn get_percentage(data: &[u8], offset: usize) -> Option<f64> {
         let value = i32::from(Self::read_u16(data, offset)?);
         if (0..=100).contains(&value) {
@@ -652,14 +652,14 @@ impl MPPUtility {
         }
     }
 
-    /// 把资源的费率从「每小时金额」换算成单位字段给出的目标单位。
+/// Convert a resource rate from "amount per hour" to the target units given by the units field.
     ///
-    /// 对应 Java: `public static void convertRateFromHours(ProjectFile file, Resource resource, ResourceField rateField, ResourceField unitsField)`
+    /// Corresponds to Java: `public static void convertRateFromHours(ProjectFile file, Resource resource, ResourceField rateField, ResourceField unitsField)`
     ///
-    /// 说明：Java 从 `resource.getCachedValue(unitsField)` 取 `TimeUnit`，而本 crate 的
-    /// [`FieldValue`] 没有承载 `TimeUnit` 的变体 —— 单位字段以整数（枚举取值）存放
-    /// （见 `mpp/field_map.rs` 的 `FieldItem::read_fixed_data`），故此处按整数还原 `TimeUnit`。
-    /// 项目文件被可变借用时（Java 侧无此情况）保持原值。
+/// Note: Java takes a `TimeUnit` from `resource.getCachedValue(unitsField)`, whereas this crate's
+/// [`FieldValue`] has no variant carrying `TimeUnit` — the units field is stored as an integer (the enum value)
+/// (see `FieldItem::read_fixed_data` in `mpp/field_map.rs`), so `TimeUnit` is restored here from the integer.
+/// Keeps the original value when the project file is mutably borrowed (a case that does not arise in Java).
     pub fn convert_rate_from_hours(
         file: &Rc<RefCell<ProjectFile>>,
         resource: &mut Resource,
@@ -708,42 +708,42 @@ impl MPPUtility {
         );
     }
 
-    /// 对应 Java: `public static final byte[] cloneSubArray(byte[] data, int offset, int size)`
+    /// Corresponds to Java: `public static final byte[] cloneSubArray(byte[] data, int offset, int size)`
     ///
-    /// 复制子数组。Java 越界时抛 `ArrayIndexOutOfBoundsException`，
-    /// Rust 侧返回空 `Vec`。
+/// Copy a sub-array. Java throws `ArrayIndexOutOfBoundsException` on out of bounds;
+/// the Rust side returns an empty `Vec`.
     pub fn clone_sub_array(data: &[u8], offset: usize, size: usize) -> Vec<u8> {
         slice_exact(data, offset, size).map(<[u8]>::to_vec).unwrap_or_default()
     }
 
-    /// 对应 Java: `public static final void fileHexDump(String fileName, byte[] data)`
+    /// Corresponds to Java: `public static final void fileHexDump(String fileName, byte[] data)`
     ///
-    /// 把数据的十六进制转储写入文件（Java 的 `InputStream` 重载在读满流后调用本方法，
-    /// 按项目约定合并到 `&[u8]`）。
+/// Write a hexadecimal dump of the data to a file (Java's `InputStream` overload calls this method after reading the stream fully;
+/// per project convention it is merged into `&[u8]`).
     pub fn file_hex_dump(file_name: &str, data: &[u8]) {
         println!("FILE HEX DUMP");
         let text = ByteArrayHelper::hexdump_columns(data, true, 16, "");
         if let Err(error) = std::fs::write(file_name, text) {
             // Java: catch (IOException ex) { ex.printStackTrace(); }
-            eprintln!("写入十六进制转储文件 {file_name} 失败: {error}");
+            eprintln!("failed to write hex dump file {file_name}: {error}");
         }
     }
 
-    /// 对应 Java: `public static final void fileDump(String fileName, byte[] data)`
+    /// Corresponds to Java: `public static final void fileDump(String fileName, byte[] data)`
     ///
-    /// 把原始字节写入文件。
+/// Write raw bytes to a file.
     pub fn file_dump(file_name: &str, data: &[u8]) {
         println!("FILE DUMP");
         if let Err(error) = std::fs::write(file_name, data) {
             // Java: catch (IOException ex) { ex.printStackTrace(); }
-            eprintln!("写入数据文件 {file_name} 失败: {error}");
+            eprintln!("failed to write data file {file_name}: {error}");
         }
     }
 
-    /// 对应 Java: `public static final void dataDump(ProjectProperties properties, byte[] data, boolean dumpShort, boolean dumpInt, boolean dumpDouble, boolean dumpTimeStamp, boolean dumpDuration, boolean dumpDate, boolean dumpTime, boolean dumpAdjustedDuration)`
+    /// Corresponds to Java: `public static final void dataDump(ProjectProperties properties, byte[] data, boolean dumpShort, boolean dumpInt, boolean dumpDouble, boolean dumpTimeStamp, boolean dumpDuration, boolean dumpDate, boolean dumpTime, boolean dumpAdjustedDuration)`
     ///
-    /// 调试用：把数据块按各种可能的类型逐字节偏移转储到 stdout。
-    /// Java 对每次读取都用 try/catch 吞掉越界异常，Rust 侧的读取本身就是容错的。
+/// For debugging: dump the data block to stdout, byte by byte at each offset, using every possible type.
+/// Java swallows the out-of-bounds exception of each read with try/catch; the Rust-side reads are inherently fault-tolerant.
     #[allow(clippy::too_many_arguments)]
     pub fn data_dump(
         properties: &ProjectProperties,
@@ -801,11 +801,11 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static final void varDataDump(Var2Data data, Integer id, boolean dumpShort, boolean dumpInt, boolean dumpDouble, boolean dumpTimeStamp, boolean dumpUnicodeString, boolean dumpString)`
+    /// Corresponds to Java: `public static final void varDataDump(Var2Data data, Integer id, boolean dumpShort, boolean dumpInt, boolean dumpDouble, boolean dumpTimeStamp, boolean dumpUnicodeString, boolean dumpString)`
     ///
-    /// 调试用：对数据类型 0..500 逐个取值并转储到 stdout。
-    /// Java 对每次取值都用 try/catch 吞掉异常，Rust 侧的取值方法本身即为容错的
-    /// （取不到时返回 0 或 `None`）。
+/// For debugging: read each data type 0..500 in turn and dump it to stdout.
+/// Java swallows the exception of each read with try/catch; the Rust-side accessors are themselves fault-tolerant
+/// (they return 0 or `None` when a value cannot be obtained).
     #[allow(clippy::too_many_arguments)]
     pub fn var_data_dump(
         data: &Var2Data,
@@ -850,16 +850,16 @@ impl MPPUtility {
         }
     }
 
-    /// 对应 Java: `public static void dumpBlockData(int headerSize, int blockSize, byte[] data)`
+    /// Corresponds to Java: `public static void dumpBlockData(int headerSize, int blockSize, byte[] data)`
     ///
-    /// 调试用：先转储 `header_size` 字节的表头，再按 `block_size` 逐块转储。
-    /// Java 在 `blockSize == 0` 时会死循环，Rust 侧直接返回。
+/// For debugging: first dump the `header_size`-byte header, then dump block by block according to `block_size`.
+/// Java loops forever when `blockSize == 0`; the Rust side returns immediately.
     pub fn dump_block_data(header_size: usize, block_size: usize, data: &[u8]) {
         if block_size == 0 {
             return;
         }
 
-        // 先按数据长度收窄长度参数，避免 ByteArrayHelper::hexdump 内部的 `offset + length` 溢出
+// first narrow the length parameter to the data length, to avoid `offset + length` overflow inside ByteArrayHelper::hexdump
         let header_size = header_size.min(data.len());
         println!("{}", ByteArrayHelper::hexdump(data, 0, header_size, false));
 
@@ -870,78 +870,78 @@ impl MPPUtility {
                 "{}",
                 ByteArrayHelper::hexdump(data, index, block_size, false)
             );
-            // Java 的 int 加法会静默回绕，Rust 侧用饱和加法避免溢出 panic
+// Java's int addition wraps silently; the Rust side uses saturating addition to avoid overflow panics
             index = index.saturating_add(block_size);
         }
     }
 
-    /// MPP 日期 / 时间戳的纪元。
+/// The epoch for MPP dates / timestamps.
     ///
-    /// 对应 Java: `MicrosoftProjectConstants.EPOCH_DATE`（1983-12-31T00:00，该类未移植，
-    /// 在此内联）。`getDate` 的注释称「天数自 1983-12-31 起算」。
+/// Corresponds to Java: `MicrosoftProjectConstants.EPOCH_DATE` (1983-12-31T00:00; that class is not ported,
+/// so it is inlined here). The `getDate` comment says "days are counted from 1983-12-31".
     fn epoch_date() -> NaiveDateTime {
         NaiveDate::from_ymd_opt(1983, 12, 31)
             .and_then(|date| date.and_hms_opt(0, 0, 0))
             .unwrap_or(NaiveDateTime::MIN)
     }
 
-    /// 读取一个字节；越界返回 `None`（Java 抛 `ArrayIndexOutOfBoundsException`）。
+/// Read a single byte; returns `None` on out of bounds (Java throws `ArrayIndexOutOfBoundsException`).
     fn read_u8(data: &[u8], offset: usize) -> Option<u8> {
         data.get(offset).copied()
     }
 
-    /// 按小端读取两个字节（无符号，对应 `ByteArrayHelper.getShort`）；越界返回 `None`。
+/// Read two bytes little-endian (unsigned, corresponding to `ByteArrayHelper.getShort`); returns `None` on out of bounds.
     fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
         let bytes: [u8; 2] = slice_exact(data, offset, 2)?.try_into().ok()?;
         Some(u16::from_le_bytes(bytes))
     }
 
-    /// 按小端读取四个字节（有符号，对应 `ByteArrayHelper.getInt`）；越界返回 `None`。
+/// Read four bytes little-endian (signed, corresponding to `ByteArrayHelper.getInt`); returns `None` on out of bounds.
     fn read_i32(data: &[u8], offset: usize) -> Option<i32> {
         let bytes: [u8; 4] = slice_exact(data, offset, 4)?.try_into().ok()?;
         Some(i32::from_le_bytes(bytes))
     }
 
-    /// 按小端读取八个字节（对应 `ByteArrayHelper.getLong`）；越界返回 `None`。
+/// Read eight bytes little-endian (corresponding to `ByteArrayHelper.getLong`); returns `None` on out of bounds.
     fn read_i64(data: &[u8], offset: usize) -> Option<i64> {
         let bytes: [u8; 8] = slice_exact(data, offset, 8)?.try_into().ok()?;
         Some(i64::from_le_bytes(bytes))
     }
 }
 
-// ---- 模块内的辅助函数 ----
+// ---- Helper functions within the module ----
 
-/// 取 `data[offset..offset + size]`，越界（含加法溢出）返回 `None`。
+/// Take `data[offset..offset + size]`; returns `None` on out of bounds (including addition overflow).
 fn slice_exact(data: &[u8], offset: usize, size: usize) -> Option<&[u8]> {
     let end = offset.checked_add(size)?;
     data.get(offset..end)
 }
 
-/// 取 `buffer[offset..offset + size]` 的可变切片，越界（含加法溢出）返回 `None`。
+/// Take a mutable slice `buffer[offset..offset + size]`; returns `None` on out of bounds (including addition overflow).
 fn slice_exact_mut(buffer: &mut [u8], offset: usize, size: usize) -> Option<&mut [u8]> {
     let end = offset.checked_add(size)?;
     buffer.get_mut(offset..end)
 }
 
-/// Java 的 `(char) byte` 语义：`byte` 先符号扩展成 `int`，再截成 16 位。
+/// Java's `(char) byte` semantics: `byte` is first sign-extended to `int`, then truncated to 16 bits.
 ///
-/// 因此 `0x80` 会变成 `U+FF80`（而不是 `U+0080`）。
+/// Hence `0x80` becomes `U+FF80` (not `U+0080`).
 fn java_byte_as_char(value: u8) -> char {
     let raw = i32::from(value as i8);
     let widened = if raw < 0 { raw + 0x10000 } else { raw };
     char::from_u32(widened as u32).unwrap_or(char::REPLACEMENT_CHARACTER)
 }
 
-/// 按 UTF-16LE 解码（Java: `new String(data, offset, length, CharsetHelper.UTF16LE)`）。
+/// Decode as UTF-16LE (Java: `new String(data, offset, length, CharsetHelper.UTF16LE)`).
 ///
-/// 非法字节序列按替换字符处理，与 Java 解码器的行为一致。
+/// Invalid byte sequences are handled as replacement characters, matching the Java decoder's behavior.
 fn decode_utf16le(data: &[u8]) -> String {
     let encoding = CharsetHelper::UTF16LE.unwrap_or(encoding_rs::UTF_16LE);
     encoding.decode(data).0.into_owned()
 }
 
-/// 把可能为 `None` 的分钟数转成 `f64`（Java 的 `Number.doubleValue()` 遇 `null` 会抛
-/// `NullPointerException`，Rust 侧按 0 处理）。
+/// Convert a possibly-`None` minute count to `f64` (Java's `Number.doubleValue()` throws on `null`;
+/// the Rust side treats it as 0).
 fn minutes(value: Option<i32>) -> f64 {
     value.map_or(0.0, f64::from)
 }
@@ -953,22 +953,22 @@ mod tests {
     use crate::rate::Rate;
     use std::rc::Weak;
 
-    /// 构造一个没有父文件的属性对象。
+/// Construct a properties object with no parent file.
     fn new_properties() -> ProjectProperties {
         ProjectProperties::new(Weak::new())
     }
 
-    /// 把天数写成 MPP 文件里的小端两字节形式。
+/// Write days as the little-endian two-byte form used in MPP files.
     fn days_bytes(days: u16) -> [u8; 2] {
         days.to_le_bytes()
     }
 
-    // ---- 小端读数 ----
+// ---- Little-endian reads ----
 
-    /// [`Color`] 的 `Display` 与 Java `java.awt.Color.toString()` 的文本一致。
+/// The `Display` of [`Color`] matches the text of Java's `java.awt.Color.toString()`.
     ///
-    /// 该文本是各展示类（`GridLines` / `TableFontStyle` / `FontStyle` 等）拼接输出的公共片段，
-    /// 此前各自复刻了一份 `format_color`；本测试锁定单一来源的输出格式。
+/// That text is a common fragment concatenated by the presentation classes (`GridLines` / `TableFontStyle` / `FontStyle` etc.),
+/// which previously each had their own copy of `format_color`; this test locks down the output format of the single source.
     #[test]
     fn color_display_matches_java_awt_color_to_string() {
         assert_eq!(
@@ -997,12 +997,12 @@ mod tests {
             MPPUtility::get_long6(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x80], 0),
             0x8000_0000_0000
         );
-        // 六字节全 0xFF 是该方法能表示的最大值
+// six bytes all 0xFF is the maximum value this method can represent
         assert_eq!(
             MPPUtility::get_long6(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], 0),
             0xFFFF_FFFF_FFFF
         );
-        // 带偏移读取
+// read with an offset
         let data = [0xAA, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(MPPUtility::get_long6(&data, 1), 0x102);
     }
@@ -1014,7 +1014,7 @@ mod tests {
             assert_eq!(MPPUtility::get_double(&data, 0), value);
         }
 
-        // 带偏移
+// with an offset
         let mut data = vec![0x00u8];
         data.extend_from_slice(&(-1.0f64).to_le_bytes());
         assert_eq!(MPPUtility::get_double(&data, 1), -1.0);
@@ -1032,10 +1032,10 @@ mod tests {
             0x33, 0x22, 0x11, 0x00, 0x55, 0x44, 0x77, 0x66, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
             0xEE, 0xFF,
         ];
-        let expected = Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").expect("合法 UUID");
+        let expected = Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").expect("valid UUID");
         assert_eq!(MPPUtility::get_guid(&data, 0), Some(expected));
 
-        // 带偏移
+// with an offset
         let mut offset_data = vec![0x00u8; 4];
         offset_data.extend_from_slice(&data);
         assert_eq!(MPPUtility::get_guid(&offset_data, 4), Some(expected));
@@ -1046,13 +1046,13 @@ mod tests {
         assert_eq!(MPPUtility::get_guid(&[0u8; 16], 0), None);
         assert_eq!(MPPUtility::get_guid(&[0u8; 15], 0), None);
         assert_eq!(MPPUtility::get_guid(&[], 0), None);
-        // 仅高 8 字节非 0 时同样返回 UUID
+// when only the high 8 bytes are non-zero, a UUID is likewise returned
         let mut data = [0u8; 16];
         data[6] = 1;
         assert!(MPPUtility::get_guid(&data, 0).is_some());
     }
 
-    // ---- 日期与时间戳 ----
+// ---- Dates and timestamps ----
 
     #[test]
     fn get_date_uses_1983_epoch() {
@@ -1064,7 +1064,7 @@ mod tests {
             MPPUtility::get_date(&days_bytes(1), 0),
             NaiveDate::from_ymd_opt(1984, 1, 1)
         );
-        // 1984 是闰年：1984-01-01 之后 364 天是 1984-12-30
+// 1984 is a leap year: 364 days after 1984-01-01 is 1984-12-30
         assert_eq!(
             MPPUtility::get_date(&days_bytes(365), 0),
             NaiveDate::from_ymd_opt(1984, 12, 30)
@@ -1075,7 +1075,7 @@ mod tests {
     fn get_date_treats_65535_as_na() {
         assert_eq!(MPPUtility::get_date(&days_bytes(65535), 0), None);
 
-        // 65534 天仍然有效（该字段按无符号读，Java 侧不会出现负值）
+// 65534 days is still valid (the field is read unsigned, so negative values do not occur on the Java side)
         let expected = NaiveDate::from_ymd_opt(1983, 12, 31)
             .and_then(|date| date.checked_add_days(chrono::Days::new(65534)));
         assert!(expected.is_some());
@@ -1084,7 +1084,7 @@ mod tests {
 
     #[test]
     fn get_date_round_trips_with_naive_date() {
-        let epoch = NaiveDate::from_ymd_opt(1983, 12, 31).expect("合法日期");
+        let epoch = NaiveDate::from_ymd_opt(1983, 12, 31).expect("valid date");
 
         for date in [
             NaiveDate::from_ymd_opt(1983, 12, 31).unwrap(),
@@ -1101,19 +1101,19 @@ mod tests {
 
     #[test]
     fn get_time_converts_tenths_of_a_minute() {
-        // 0 表示午夜
+// 0 means midnight
         assert_eq!(MPPUtility::get_time(&days_bytes(0), 0), NaiveTime::MIN);
-        // 600 个十分之一分钟 = 60 分钟 = 1 小时
+// 600 tenths of a minute = 60 minutes = 1 hour
         assert_eq!(
             MPPUtility::get_time(&days_bytes(600), 0),
             NaiveTime::from_hms_opt(1, 0, 0).unwrap()
         );
-        // 不足一分钟的部分被丢弃：61 个十分之一分钟 = 6.1 分钟 → 6 分钟
+// the sub-minute part is dropped: 61 tenths of a minute = 6.1 minutes → 6 minutes
         assert_eq!(
             MPPUtility::get_time(&days_bytes(61), 0),
             NaiveTime::from_hms_opt(0, 6, 0).unwrap()
         );
-        // 9 个十分之一分钟不足一分钟，按 0 处理
+// 9 tenths of a minute is less than one minute, treated as 0
         assert_eq!(MPPUtility::get_time(&days_bytes(9), 0), NaiveTime::MIN);
         assert_eq!(
             MPPUtility::get_time(&days_bytes(10), 0),
@@ -1123,7 +1123,7 @@ mod tests {
 
     #[test]
     fn get_time_wraps_past_midnight() {
-        // 65535 十分之一分钟 → 6553 分钟 → 393180 秒 → 对一天取模（Java 的 % 语义）
+// 65535 tenths of a minute → 6553 minutes → 393180 seconds → modulo one day (Java's % semantics)
         assert_eq!(
             MPPUtility::get_time(&days_bytes(65535), 0),
             NaiveTime::from_hms_opt(13, 13, 0).unwrap()
@@ -1132,17 +1132,17 @@ mod tests {
 
     #[test]
     fn get_duration_from_bytes_returns_milliseconds() {
-        // 10 个十分之一分钟 = 1 分钟 = 60000 毫秒
+// 10 tenths of a minute = 1 minute = 60000 milliseconds
         assert_eq!(MPPUtility::get_duration(&days_bytes(10), 0), 60_000);
         assert_eq!(MPPUtility::get_duration(&days_bytes(1), 0), 6_000);
-        // 600 → 1 小时
+// 600 → 1 hour
         assert_eq!(MPPUtility::get_duration(&days_bytes(600), 0), 3_600_000);
         assert_eq!(MPPUtility::get_duration(&days_bytes(0), 0), 0);
     }
 
     #[test]
     fn get_timestamp_combines_days_and_tenths() {
-        // 低两字节是时间（十分之一分钟），高两字节是天数
+// the low two bytes are the time (tenths of a minute), the high two bytes are the days
         let mut data = days_bytes(0).to_vec();
         data.extend_from_slice(&days_bytes(2));
         assert_eq!(
@@ -1150,7 +1150,7 @@ mod tests {
             NaiveDate::from_ymd_opt(1984, 1, 2).and_then(|date| date.and_hms_opt(0, 0, 0))
         );
 
-        // 时间 10 → 60 秒
+// time 10 → 60 seconds
         let mut data = days_bytes(10).to_vec();
         data.extend_from_slice(&days_bytes(2));
         assert_eq!(
@@ -1161,7 +1161,7 @@ mod tests {
 
     #[test]
     fn get_timestamp_rejects_na_values() {
-        // 天数不大于 1
+// days not greater than 1
         let mut data = days_bytes(0).to_vec();
         data.extend_from_slice(&days_bytes(0));
         assert_eq!(MPPUtility::get_timestamp(&data, 0), None);
@@ -1170,12 +1170,12 @@ mod tests {
         data.extend_from_slice(&days_bytes(1));
         assert_eq!(MPPUtility::get_timestamp(&data, 0), None);
 
-        // 天数为 65535
+// days are 65535
         let mut data = days_bytes(0).to_vec();
         data.extend_from_slice(&days_bytes(65535));
         assert_eq!(MPPUtility::get_timestamp(&data, 0), None);
 
-        // 时间字段为 65535 时按 0 处理
+// treated as 0 when the time field is 65535
         let mut data = days_bytes(65535).to_vec();
         data.extend_from_slice(&days_bytes(2));
         assert_eq!(
@@ -1183,12 +1183,12 @@ mod tests {
             NaiveDate::from_ymd_opt(1984, 1, 2).and_then(|date| date.and_hms_opt(0, 0, 0))
         );
 
-        // 天数小于 100 且秒数不为 0 → NA（MS Project 的启发式判断）
+// days less than 100 and seconds non-zero → NA (MS Project's heuristic)
         let mut data = days_bytes(1).to_vec();
         data.extend_from_slice(&days_bytes(50));
         assert_eq!(MPPUtility::get_timestamp(&data, 0), None);
 
-        // 天数不小于 100 时保留秒数
+// seconds are preserved when the days are not less than 100
         let mut data = days_bytes(1).to_vec();
         data.extend_from_slice(&days_bytes(100));
         assert_eq!(
@@ -1203,12 +1203,12 @@ mod tests {
             MPPUtility::get_timestamp_from_tenths(&1i32.to_le_bytes(), 0),
             NaiveDate::from_ymd_opt(1983, 12, 31).and_then(|date| date.and_hms_opt(0, 0, 6))
         );
-        // 600 个十分之一分钟 = 1 小时
+// 600 tenths of a minute = 1 hour
         assert_eq!(
             MPPUtility::get_timestamp_from_tenths(&600i32.to_le_bytes(), 0),
             NaiveDate::from_ymd_opt(1983, 12, 31).and_then(|date| date.and_hms_opt(1, 0, 0))
         );
-        // 负值（纪元之前）：-1 × 6 秒
+// negative value (before the epoch): -1 × 6 seconds
         assert_eq!(
             MPPUtility::get_timestamp_from_tenths(&(-1i32).to_le_bytes(), 0),
             NaiveDate::from_ymd_opt(1983, 12, 30).and_then(|date| date.and_hms_opt(23, 59, 54))
@@ -1219,30 +1219,30 @@ mod tests {
         );
     }
 
-    // ---- 字符串 ----
+// ---- Strings ----
 
     #[test]
     fn get_unicode_string_decodes_utf16le() {
         let data = [0x41, 0x00, 0x42, 0x00, 0x00, 0x00];
         assert_eq!(MPPUtility::get_unicode_string(&data, 0), "AB");
 
-        // 中文（UTF-16LE）
+// Chinese (UTF-16LE)
         let data = [0x2D, 0x4E, 0x87, 0x65, 0x00, 0x00];
         assert_eq!(MPPUtility::get_unicode_string(&data, 0), "中文");
     }
 
     #[test]
     fn get_unicode_string_handles_edges() {
-        // 以 NUL 开头 → 空串
+// starts with NUL → empty string
         assert_eq!(MPPUtility::get_unicode_string(&[0x00, 0x00], 0), "");
-        // 空数组 / 偏移越界 → 空串
+// empty array / offset out of bounds → empty string
         assert_eq!(MPPUtility::get_unicode_string(&[], 0), "");
         assert_eq!(MPPUtility::get_unicode_string(&[0x41, 0x00], 4), "");
-        // 截断输入（没有 NUL 结尾）
+// truncated input (no terminating NUL)
         assert_eq!(MPPUtility::get_unicode_string(&[0x41, 0x00], 0), "A");
-        // 偏移处只剩一个字节
+// only one byte remains at the offset
         assert_eq!(MPPUtility::get_unicode_string(&[0xFF, 0x41], 1), "\u{FFFD}");
-        // 带偏移
+// with an offset
         let data = [0x00, 0x41, 0x00, 0x00, 0x00];
         assert_eq!(MPPUtility::get_unicode_string(&data, 1), "A");
     }
@@ -1254,12 +1254,12 @@ mod tests {
             MPPUtility::get_unicode_string_with_max_length(&data, 0, 2),
             "A"
         );
-        // maxLength 为 0 表示不限制
+// maxLength of 0 means unlimited
         assert_eq!(
             MPPUtility::get_unicode_string_with_max_length(&data, 0, 0),
             "AB"
         );
-        // 比实际长度更大时取实际长度
+// when larger than the actual length, the actual length is used
         assert_eq!(
             MPPUtility::get_unicode_string_with_max_length(&data, 0, 100),
             "AB"
@@ -1282,7 +1282,7 @@ mod tests {
         assert_eq!(MPPUtility::get_string(&[0xFF, 0x41, 0x00], 0), "\u{FFFF}A");
     }
 
-    // ---- 颜色 / 百分比 ----
+// ---- Color / percentage ----
 
     #[test]
     fn get_color_reads_rgb_and_flag() {
@@ -1290,14 +1290,14 @@ mod tests {
             MPPUtility::get_color(&[0x10, 0x20, 0x30, 0x00], 0),
             Some(Color::new(0x10, 0x20, 0x30))
         );
-        let color = MPPUtility::get_color(&[0xFF, 0x00, 0x80, 0x00], 0).expect("有效颜色");
+        let color = MPPUtility::get_color(&[0xFF, 0x00, 0x80, 0x00], 0).expect("valid color");
         assert_eq!(color.get_red(), 0xFF);
         assert_eq!(color.get_green(), 0x00);
         assert_eq!(color.get_blue(), 0x80);
 
-        // 标志字节非 0 → 自动颜色
+// non-zero flag byte → automatic color
         assert_eq!(MPPUtility::get_color(&[0x10, 0x20, 0x30, 0x01], 0), None);
-        // 数据不足
+// insufficient data
         assert_eq!(MPPUtility::get_color(&[0x10, 0x20, 0x30], 0), None);
         assert_eq!(MPPUtility::get_color(&[], 0), None);
     }
@@ -1313,7 +1313,7 @@ mod tests {
         assert_eq!(MPPUtility::get_percentage(&[], 0), None);
     }
 
-    // ---- 加密 / 密码 ----
+// ---- Encryption / password ----
 
     #[test]
     fn decode_buffer_xor_is_reversible() {
@@ -1331,7 +1331,7 @@ mod tests {
 
     #[test]
     fn decode_password_uses_password_mask() {
-        // 明文：按 mask 顺序应为 P、a、s、s，随后遇到 0 结束
+// plaintext: in mask order it should be P, a, s, s, then ends at 0
         let mut plain = vec![0u8; 64];
         plain[PASSWORD_MASK[0]] = b'P';
         plain[PASSWORD_MASK[1]] = b'a';
@@ -1340,7 +1340,7 @@ mod tests {
 
         let mut data: Vec<u8> = plain.iter().map(|byte| byte ^ 0x5A).collect();
         assert_eq!(MPPUtility::decode_password(&mut data, 0x5A), Some("Pass".to_owned()));
-        // 就地解密后与明文一致
+// after in-place decryption it matches the plaintext
         assert_eq!(data, plain);
     }
 
@@ -1349,7 +1349,7 @@ mod tests {
         let mut data = vec![0u8; 63];
         assert_eq!(MPPUtility::decode_password(&mut data, 0x00), None);
 
-        // 全 0 数据块（解密后首个 mask 位置即为 0）得到空串
+// an all-zero data block (the first mask position is 0 after decryption) yields an empty string
         let mut data = vec![0u8; 64];
         assert_eq!(MPPUtility::decode_password(&mut data, 0x00), Some(String::new()));
     }
@@ -1366,7 +1366,7 @@ mod tests {
         );
     }
 
-    // ---- 工期与单位换算 ----
+// ---- Duration and units conversion ----
 
     #[test]
     fn get_duration_converts_tenths_to_units() {
@@ -1402,7 +1402,7 @@ mod tests {
             MPPUtility::get_duration_int(432000, TimeUnit::ElapsedMonths).get_duration(),
             1.0
         );
-        // Java 的 default 分支：原样保留
+// Java's default branch: kept as is
         assert_eq!(
             MPPUtility::get_duration_int(7, TimeUnit::Percent).get_duration(),
             7.0
@@ -1435,11 +1435,11 @@ mod tests {
             assert_eq!(
                 MPPUtility::get_duration_time_units(value),
                 expected,
-                "MPP 单位码 {value} 映射错误"
+                "MPP unit code {value} mapped incorrectly"
             );
         }
 
-        // 高位是标志位，会被掩码剔除
+// the high bits are flags and are stripped by the mask
         assert_eq!(MPPUtility::get_duration_time_units(0xE3), TimeUnit::Minutes);
     }
 
@@ -1461,7 +1461,7 @@ mod tests {
 
     #[test]
     fn get_adjusted_duration_uses_project_defaults() {
-        // 真实项目文件：上下文里的时长单位默认值为 480 分钟/天、2400 分钟/周、20 天/月
+// real project file: the duration unit defaults in the context are 480 minutes/day, 2400 minutes/week, 20 days/month
         let file = ProjectFile::new();
         let file_ref = file.borrow();
         let properties = file_ref.get_project_properties();
@@ -1470,27 +1470,27 @@ mod tests {
         assert_eq!(properties.get_minutes_per_week(), Some(2400));
         assert_eq!(properties.get_days_per_month(), Some(20));
 
-        // 每天 480 分钟 → 4800 个十分之一分钟
+// 480 minutes per day → 4800 tenths of a minute
         let days = MPPUtility::get_adjusted_duration(properties, 4800, TimeUnit::Days)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(days.get_duration(), 1.0);
         assert_eq!(days.get_units(), TimeUnit::Days);
 
         let weeks = MPPUtility::get_adjusted_duration(properties, 24000, TimeUnit::Weeks)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(weeks.get_duration(), 1.0);
 
-        // 每月 480 × 20 = 9600 分钟 → 96000
+// 480 × 20 = 9600 minutes per month → 96000
         let months = MPPUtility::get_adjusted_duration(properties, 96000, TimeUnit::Months)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(months.get_duration(), 1.0);
 
-        // 其它单位直接走 getDuration
+// other units go straight through getDuration
         let hours = MPPUtility::get_adjusted_duration(properties, 600, TimeUnit::Hours)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(hours.get_duration(), 1.0);
 
-        // -1 表示 NA
+// -1 means NA
         assert!(MPPUtility::get_adjusted_duration(properties, -1, TimeUnit::Days).is_none());
     }
 
@@ -1500,39 +1500,39 @@ mod tests {
 
         let elapsed_days =
             MPPUtility::get_adjusted_duration(&properties, 14400, TimeUnit::ElapsedDays)
-                .expect("工期有效");
+                .expect("valid duration");
         assert_eq!(elapsed_days.get_duration(), 1.0);
 
         let elapsed_weeks =
             MPPUtility::get_adjusted_duration(&properties, 100800, TimeUnit::ElapsedWeeks)
-                .expect("工期有效");
+                .expect("valid duration");
         assert_eq!(elapsed_weeks.get_duration(), 1.0);
 
         let elapsed_months =
             MPPUtility::get_adjusted_duration(&properties, 432000, TimeUnit::ElapsedMonths)
-                .expect("工期有效");
+                .expect("valid duration");
         assert_eq!(elapsed_months.get_duration(), 1.0);
 
         let minutes = MPPUtility::get_adjusted_duration(&properties, 10, TimeUnit::Minutes)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(minutes.get_duration(), 1.0);
     }
 
     #[test]
     fn get_adjusted_duration_tolerates_missing_defaults() {
-        // 没有父文件的属性对象：Java 的 Number 为 null，Rust 侧按 0 处理（结果为 0 而非 panic）
+// properties object without a parent file: Java's Number is null, the Rust side treats it as 0 (the result is 0 rather than a panic)
         let properties = new_properties();
 
         let days = MPPUtility::get_adjusted_duration(&properties, 4800, TimeUnit::Days)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(days.get_duration(), 0.0);
 
         let weeks = MPPUtility::get_adjusted_duration(&properties, 24000, TimeUnit::Weeks)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(weeks.get_duration(), 0.0);
 
         let months = MPPUtility::get_adjusted_duration(&properties, 96000, TimeUnit::Months)
-            .expect("工期有效");
+            .expect("valid duration");
         assert_eq!(months.get_duration(), 0.0);
     }
 
@@ -1540,7 +1540,7 @@ mod tests {
     fn get_work_time_units_offsets_by_one() {
         assert_eq!(MPPUtility::get_work_time_units(1), TimeUnit::Minutes);
         assert_eq!(MPPUtility::get_work_time_units(3), TimeUnit::Days);
-        // Java 的 TimeUnit.getInstance 对越界值回落到 DAYS
+// Java's TimeUnit.getInstance falls back to DAYS for out-of-range values
         assert_eq!(MPPUtility::get_work_time_units(0), TimeUnit::Days);
         assert_eq!(MPPUtility::get_work_time_units(100), TimeUnit::Days);
     }
@@ -1583,7 +1583,7 @@ mod tests {
         assert_eq!(MPPUtility::remove_ampersands(None), None);
     }
 
-    // ---- 数组复制 ----
+// ---- Array copy ----
 
     #[test]
     fn get_byte_array_copies_into_buffer() {
@@ -1599,7 +1599,7 @@ mod tests {
         let data = [0x01u8, 0x02];
         let mut buffer = [0u8; 4];
 
-        // Java 抛 ArrayIndexOutOfBoundsException，Rust 侧不做任何复制
+// Java throws ArrayIndexOutOfBoundsException; the Rust side performs no copy
         MPPUtility::get_byte_array(&data, 1, 3, &mut buffer, 0);
         assert_eq!(buffer, [0, 0, 0, 0]);
 
@@ -1616,14 +1616,14 @@ mod tests {
         assert_eq!(MPPUtility::clone_sub_array(&data, 1, 2), vec![0x02, 0x03]);
         assert_eq!(MPPUtility::clone_sub_array(&data, 0, 4), data.to_vec());
         assert_eq!(MPPUtility::clone_sub_array(&data, 0, 0), Vec::<u8>::new());
-        // 越界（Java 抛异常）
+// out of bounds (Java throws)
         assert!(MPPUtility::clone_sub_array(&data, 3, 2).is_empty());
         assert!(MPPUtility::clone_sub_array(&data, 10, 1).is_empty());
     }
 
-    // ---- 越界输入不 panic ----
+// ---- Out-of-bounds input does not panic ----
 
-    /// 断言一次越界读取不 panic，并返回约定的空值。
+/// Assert that an out-of-bounds read does not panic and returns the agreed empty value.
     fn assert_out_of_range_reads_are_safe(data: &[u8], offset: usize) {
         assert_eq!(MPPUtility::get_byte(data, offset), 0);
         assert_eq!(MPPUtility::get_long6(data, offset), 0);
@@ -1651,7 +1651,7 @@ mod tests {
         let one = [0x01u8];
         let three = [0x01u8, 0x02, 0x03];
 
-        // 对每个切片，从「长度」开始的所有偏移都是越界偏移（含加法溢出的 usize::MAX）
+// For each slice, all offsets starting at the length are out-of-bounds offsets (including usize::MAX from addition overflow)
         for data in [empty.as_slice(), one.as_slice(), three.as_slice()] {
             let length = data.len();
             for offset in [
@@ -1676,14 +1676,14 @@ mod tests {
             &properties, &data, true, true, true, true, true, true, true, false,
         );
         MPPUtility::dump_block_data(2, 1, &data);
-        // blockSize 为 0 时 Java 会死循环，Rust 侧直接返回
+// Java loops forever when blockSize is 0; the Rust side returns immediately
         MPPUtility::dump_block_data(2, 0, &data);
-        // 极大的 blockSize（Java 的 int 加法会回绕）不能 panic
+// an extremely large blockSize (Java's int addition wraps) must not panic
         MPPUtility::dump_block_data(1, usize::MAX, &data);
         MPPUtility::dump_block_data(2, 1, &[]);
     }
 
-    /// 构造一个含单个资源的项目文件；每天分钟数显式设为 480（Java 默认日历的取值）。
+/// Construct a project file containing a single resource; minutes per day is explicitly set to 480 (the value of Java's default calendar).
     fn project_with_resource() -> (Rc<RefCell<ProjectFile>>, Rc<RefCell<Resource>>) {
         let file = ProjectFile::new();
         file.borrow_mut()
@@ -1693,14 +1693,14 @@ mod tests {
         (file, resource)
     }
 
-    /// 把资源字段写成「缓存值」（`get_cachedValue` 读取的正是这份数据）。
+/// Write a resource field as a "cached value" (this is exactly the data that `get_cachedValue` reads).
     fn set_cached(resource: &Rc<RefCell<Resource>>, field: ResourceField, value: FieldValue) {
         resource
             .borrow_mut()
             .set(FieldKey::Resource(field), Some(value));
     }
 
-    /// 取资源字段的缓存费率值（对应 Java 的 `(Rate) resource.getCachedValue(field)`）。
+/// Get the cached rate value of a resource field (corresponding to Java's `(Rate) resource.getCachedValue(field)`).
     fn cached_rate(resource: &Rc<RefCell<Resource>>, field: ResourceField) -> Option<Rate> {
         resource
             .borrow()
@@ -1708,9 +1708,9 @@ mod tests {
             .and_then(|value| value.as_rate())
     }
 
-    /// `convertRateFromHours`：按单位字段给出的目标单位把「每小时金额」换算成目标单位。
+/// `convertRateFromHours`: convert "amount per hour" to the target units given by the units field.
     ///
-    /// 期望值与 Java `RateHelperTest.testConvertFromHours`（1 小时/天 -> 8 天）一致。
+/// The expected value matches Java's `RateHelperTest.testConvertFromHours` (1 hour/day -> 8 days).
     #[test]
     fn convert_rate_from_hours_scales_the_cached_rate() {
         let (file, resource) = project_with_resource();
@@ -1751,7 +1751,7 @@ mod tests {
             );
         }
 
-        // 100/h -> 100 * 480 / 60 = 800/d；200/h -> 200 * 2400 / 60 = 8000/w
+        // 100/h -> 100 * 480 / 60 = 800/d;200/h -> 200 * 2400 / 60 = 8000/w
         assert_eq!(
             cached_rate(&resource, ResourceField::StandardRate),
             Some(Rate::new(800.0, TimeUnit::Days))
@@ -1762,7 +1762,7 @@ mod tests {
         );
     }
 
-    /// 「平铺」费率：单位字段为 `ELAPSED_MINUTES` 时按 `HOURS` 处理（数值不变）。
+/// "Flat" rate: when the units field is `ELAPSED_MINUTES` it is treated as `HOURS` (the value is unchanged).
     #[test]
     fn convert_rate_from_hours_treats_elapsed_minutes_as_hours() {
         let (file, resource) = project_with_resource();
@@ -1793,12 +1793,12 @@ mod tests {
         );
     }
 
-    /// 费率或单位字段缺失时保持原值（Java 直接 `return`）。
+/// Keeps the original value when the rate or units field is missing (Java simply `return`s).
     #[test]
     fn convert_rate_from_hours_without_cached_values_does_nothing() {
         let (file, resource) = project_with_resource();
 
-        // 两个字段都没有缓存值
+// neither field has a cached value
         {
             let mut resource_ref = resource.borrow_mut();
             MPPUtility::convert_rate_from_hours(
@@ -1810,7 +1810,7 @@ mod tests {
         }
         assert_eq!(cached_rate(&resource, ResourceField::StandardRate), None);
 
-        // 只有费率、没有单位
+// only the rate, no units
         set_cached(
             &resource,
             ResourceField::StandardRate,

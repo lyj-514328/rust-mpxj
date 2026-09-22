@@ -1,63 +1,63 @@
-//! 对应 Java: `org/mpxj/mpp/FieldMap.java`
+//! Corresponds to Java: `org/mpxj/mpp/FieldMap.java`
 //!
-//! 本类表示 MPP 文件里「字段 → 数据块位置」的映射：它把 `Props` 流中的字段布局表
-//! （每条记录 28 字节）解析成 [`FieldItem`]，并负责按固定的数据块 / 变长数据块读取
-//! 单个字段的值，最后写进 `FieldContainer`（Task / Resource / ResourceAssignment）。
+//! This class represents the "field -> data block location" mapping in an MPP file: it parses the field layout table in the `Props` stream
+//! (28 bytes per record) into [`FieldItem`], and is responsible for reading from fixed data blocks / variable data blocks
+//! individual field values, finally writing them into `FieldContainer` (Task / Resource / ResourceAssignment).
 //!
-//! # 与 Java 的差异（取舍集中在文件头，正文只标注关键处）
+//! # Differences from Java (trade-offs are centralized in the file header; the body only marks key points)
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `abstract class FieldMap` | 具体的 `pub struct FieldMap`（无继承） | Java 的 5 个抽象方法 [`FieldMap::use_type_as_var_data_key`] / `getDefaultTaskData` / `getDefaultResourceData` / `getDefaultAssignmentData` / `getDefaultRelationData` 改为**可配置状态**：同名的读取方法 + `set_use_type_as_var_data_key` / `set_default_*_data` 写入方法。`FieldMap9` / `FieldMap12` / `FieldMap14` 在 Rust 中不再是子类，而是「构造 `FieldMap` 后配置这几项」 |
-//! | 内部类 `FieldItem` | 同文件的顶层 `pub struct FieldItem` | 按任务约定改为独立类型。Java 的 `FieldItem` 是**非静态内部类**，可隐式访问外部 `FieldMap` 的 `getFieldData` / `getProjectProperties`；Rust 侧把这些调用改为显式参数 `&FieldMap`（相当于 Java 的 `FieldMap.this`） |
-//! | 内部枚举 `FieldLocation` | 同文件的顶层 `pub enum FieldLocation` | 变体与声明顺序一致（`FIXED_DATA < VAR_DATA < META_DATA < UNKNOWN`），故 `Ord` 与 Java 的 `compareTo` 等价 |
-//! | `Map<FieldType, FieldItem> m_map` | `HashMap<MppFieldKey, FieldItem>` | 遵循「Java 以 `FieldType` 为键的映射改用 `MppFieldKey`」的约定 |
-//! | `Set<FieldType> getFieldTypes()` | `Vec<MppFieldType>` | Java 返回 `m_map.keySet()`（`FieldType` 引用集合）；Rust 的键 [`MppFieldKey`] 无法还原自定义字段句柄，故改为返回各 item 的 `MppFieldType` 副本（键与值一一对应，集合内容等价，顺序同 Java 一样不保证） |
-//! | `Integer` 参数 / 返回值 | `Option<i32>` | 「`null` → `Option<T>`」约定 |
-//! | `byte[][] fixedData` | `&[Option<&[u8]>]` | Java 的元素**与数组本身**都可以是 `null`；Rust 用 `None` 表示空元素、空切片表示空数组。Java 对 `null` 数组取元素会抛 NPE，Rust 侧返回 `None` |
-//! | 越界读取（`ByteArrayHelper.getShort/getInt`、`m_maxFixedDataSize[i]`） | 返回 `None` / 跳过该条记录 | Java 抛 `ArrayIndexOutOfBoundsException` |
-//! | `System.out.println`（`m_debug`） | `println!` | 仅在 [`FieldMap::set_debug`] 开启时输出，格式与 Java 相同（`DataType` 用 Rust 的 `Debug` 名称，Java 打印的是枚举常量名，大小写不同） |
-//! | `toString()` | `Display` | 排序用 [`FieldItem::compare_to`]（Java 的 `Collections.sort` 依赖 `Comparable`） |
-//! | `compareTo` / `equals` / `hashCode` | `Ord` + `PartialOrd` + `compare_to`；`PartialEq` / `Eq` / `Hash` | Java 的 `compareTo` 只比较「位置」，与 `equals` 不自洽；Rust 侧同时提供 Java 原样的 `compare_to`（返回 `int`）与委托给它的 `Ord`（用于 `Display` 的排序），与 Java 一样**不保证** `Ord` 与 `PartialEq` 一致 |
-//! | `getFieldType(int)` 委托 `FieldTypeHelper.getInstance(project, fieldID)` | [`FieldTypeHelper::get_instance`] | 与 Java 相同的委托；`crate::common::field_type_helper` 与本文件同期落地 |
+//! | `abstract class FieldMap` | the concrete `pub struct FieldMap` (no inheritance) | Java's 5 abstract methods [`FieldMap::use_type_as_var_data_key`] / `getDefaultTaskData` / `getDefaultResourceData` / `getDefaultAssignmentData` / `getDefaultRelationData` become **configurable state**: reading methods of the same name plus `set_use_type_as_var_data_key` / `set_default_*_data` writer methods. `FieldMap9` / `FieldMap12` / `FieldMap14` are no longer subclasses in Rust; instead they "construct `FieldMap` and configure these items" |
+//! | inner class `FieldItem` | top-level `pub struct FieldItem` in the same file | changed to a standalone type per the task convention. Java's `FieldItem` is a **non-static inner class** and can implicitly access the outer `FieldMap`'s `getFieldData` / `getProjectProperties`; the Rust side turns these calls into an explicit `&FieldMap` parameter (equivalent to Java's `FieldMap.this`) |
+//! | inner enum `FieldLocation` | top-level `pub enum FieldLocation` in the same file | variants match the declaration order (`FIXED_DATA < VAR_DATA < META_DATA < UNKNOWN`), so `Ord` is equivalent to Java's `compareTo` |
+//! | `Map<FieldType, FieldItem> m_map` | `HashMap<MppFieldKey, FieldItem>` | follows the convention that "Java maps keyed by `FieldType` use `MppFieldKey` instead" |
+//! | `Set<FieldType> getFieldTypes()` | `Vec<MppFieldType>` | Java returns `m_map.keySet()` (a set of `FieldType` references); Rust's key [`MppFieldKey`] cannot reproduce the custom field handle, so it returns a copy of each item's `MppFieldType` instead (keys and values correspond one-to-one, the set contents are equivalent, and the order is not guaranteed just as in Java) |
+//! | `Integer` parameters / return values | `Option<i32>` | the "`null` -> `Option<T>`" convention |
+//! | `byte[][] fixedData` | `&[Option<&[u8]>]` | in Java both the elements **and the array itself** can be `null`; Rust uses `None` for an empty element and an empty slice for an empty array. Java throws an NPE when indexing a `null` array; the Rust side returns `None` |
+//! | out-of-bounds reads (`ByteArrayHelper.getShort/getInt`, `m_maxFixedDataSize[i]`) | return `None` / skip the record | Java throws `ArrayIndexOutOfBoundsException` |
+//! | `System.out.println` (`m_debug`) | `println!` | output only when [`FieldMap::set_debug`] is enabled, with the same format as Java (`DataType` uses Rust's `Debug` name, whereas Java prints the enum constant name, differing only in case) |
+//! | `toString()` | `Display` | sorting uses [`FieldItem::compare_to`] (Java's `Collections.sort` relies on `Comparable`) |
+//! | `compareTo` / `equals` / `hashCode` | `Ord` + `PartialOrd` + `compare_to`; `PartialEq` / `Eq` / `Hash` | Java's `compareTo` compares only "location" and is inconsistent with `equals`; the Rust side provides both Java's original `compare_to` (returning `int`) and an `Ord` that delegates to it (used for `Display` sorting), and just like Java does **not guarantee** that `Ord` and `PartialEq` agree |
+//! | `getFieldType(int)` delegates to `FieldTypeHelper.getInstance(project, fieldID)` | [`FieldTypeHelper::get_instance`] | the same delegation as Java; `crate::common::field_type_helper` was ported in the same change as this file |
 //!
-//! ## 字段值的表示（与 `Task` / `Resource` / `ResourceAssignment` 的既有约定一致）
+//! ## Representation of field values (consistent with the existing conventions for `Task` / `Resource` / `ResourceAssignment`)
 //!
-//! Java 的 `FieldItem.read` 返回 `Object`，Rust 侧返回 [`FieldValue`]。`FieldValue` 目前只有
-//! 标量变体，故按本 crate 已落地的约定（见 `crate::task` 文件头差异第 7 条）编码：
+//! Java's `FieldItem.read` returns `Object`, whereas the Rust side returns [`FieldValue`]. `FieldValue` currently has only
+//! scalar variants, so it is encoded per the conventions already established in this crate (see item 7 of the differences in the `crate::task` file header):
 //!
-//! | Java 返回值 | Rust |
+//! | Java return value | Rust |
 //! |---|---|
-//! | `Integer`（`INTEGER` / `SHORT`） | `FieldValue::Integer` |
-//! | `Double`（`CURRENCY` / `UNITS` / `NUMERIC` / `PERCENTAGE`） | `FieldValue::Double` |
+//! | `Integer`(`INTEGER` / `SHORT`) | `FieldValue::Integer` |
+//! | `Double`(`CURRENCY` / `UNITS` / `NUMERIC` / `PERCENTAGE`) | `FieldValue::Double` |
 //! | `Boolean` | `FieldValue::Boolean` |
-//! | `LocalDateTime`（`DATE`） | `FieldValue::DateTime` |
-//! | `String`（`STRING`） | `FieldValue::String` |
-//! | `Duration`（`WORK` / `DURATION` / `DELAY`） | `FieldValue::Duration` |
-//! | `Rate`（`RATE`） | `FieldValue::Rate` |
-//! | 各种枚举（`TIME_UNITS` / `CONSTRAINT` / `PRIORITY` / `TASK_TYPE` / `ACCRUE` / `WORKGROUP` / `RATE_UNITS` / `EARNED_VALUE_METHOD` / `RESOURCE_REQUEST_TYPE` / `BOOKING_TYPE`） | `FieldValue::Integer`（枚举的 int 值；`TaskType` 没有 int 值，按 `TaskType::ALL` 的下标编码，与 `Task` 一致） |
-//! | `UUID`（`GUID`） | `FieldValue::String`（`UUID.toString()`；调用方可 `Uuid::parse_str` 还原） |
-//! | `RtfNotes`（`NOTES`） | `FieldValue::String`（去掉 RTF 标记后的纯文本，与 `Task::get_notes` 一致；RTF 原文丢失） |
-//! | `byte[]`（`BINARY`） | `FieldValue::Bytes`（变长数据） | 与 Java 一样保留变长字段的原始字节；定长数据仍按 Java 不读取 |
+//! | `LocalDateTime`(`DATE`) | `FieldValue::DateTime` |
+//! | `String`(`STRING`) | `FieldValue::String` |
+//! | `Duration`(`WORK` / `DURATION` / `DELAY`) | `FieldValue::Duration` |
+//! | `Rate`(`RATE`) | `FieldValue::Rate` |
+//! | various enums (`TIME_UNITS` / `CONSTRAINT` / `PRIORITY` / `TASK_TYPE` / `ACCRUE` / `WORKGROUP` / `RATE_UNITS` / `EARNED_VALUE_METHOD` / `RESOURCE_REQUEST_TYPE` / `BOOKING_TYPE`) | `FieldValue::Integer` (the enum's int value; `TaskType` has no int value, so it is encoded by the index into `TaskType::ALL`, consistent with `Task`) |
+//! | `UUID` (`GUID`) | `FieldValue::String` (`UUID.toString()`; the caller can restore it with `Uuid::parse_str`) |
+//! | `RtfNotes` (`NOTES`) | `FieldValue::String` (plain text with RTF markup removed, consistent with `Task::get_notes`; the original RTF is lost) |
+//! | `byte[]` (`BINARY`) | `FieldValue::Bytes` (variable-length data) | the raw bytes of variable-length fields are preserved as in Java; fixed-length data is still not read, as in Java |
 //!
-//! ## 已知功能缺口
+//! ## Known functional gaps
 //!
-//! * **自定义字段的名称无法从键还原**：[`FieldKey::Custom`] 是 `Copy` 的等价键，
-//!   只承载 unique ID 与字段类型/数据类型，不承载动态名称；需要真实名称时请直接读
-//!   `UserDefinedField`。
-//! * **未知字段被跳过**：Java 的 `FieldTypeHelper.getInstance` 会为无法识别的字段号生成一个
-//!   占位 `FieldType`（`FieldTypeClass.UNKNOWN`、`getDataType()` 为 `null`）并写入 `m_map`；
-//!   Rust 侧 [`FieldMap::get_field_type`] 只能返回 `None`，`createFieldMap` 随之跳过该条记录
-//!   （不影响其它记录，也不影响数据块索引的推进）。
-//! * **`ProjectFile` 借用冲突**：`ProjectProperties` 由 `ProjectFile` 持有，Rust 侧只能用
-//!   `RefCell::try_borrow` 访问（见 [`FieldMap::try_project_properties`]）。调用
-//!   `populateContainer` / `read` 时**不要持有 `ProjectFile` 的可变借用**，否则工期类字段
-//!   无法换算（Java 持的是稳定引用，不存在该情形）。
+//! * **A custom field's name cannot be recovered from the key**: [`FieldKey::Custom`] is a `Copy` equivalence key
+//!   that carries only the unique ID and field type/data type, not the dynamic name; to get the real name, read
+//!   `UserDefinedField`.
+//! * **Unknown fields are skipped**: Java's `FieldTypeHelper.getInstance` generates a
+//!   placeholder `FieldType` (`FieldTypeClass.UNKNOWN`, with `getDataType()` being `null`) for an unrecognized field number and writes it into `m_map`;
+//!   the Rust side's [`FieldMap::get_field_type`] can only return `None`, and `createFieldMap` then skips the record
+//!   (this affects neither the other records nor the advancement of the data block index).
+//! * **`ProjectFile` borrow conflict**: `ProjectProperties` is held by `ProjectFile`, and the Rust side can only access it with
+//!   `RefCell::try_borrow` (see [`FieldMap::try_project_properties`]). When calling
+//!   `populateContainer` / `read`, **do not hold a mutable borrow of `ProjectFile`**, otherwise duration-type fields
+//!   cannot be converted (Java holds a stable reference, so this situation does not arise).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制，无跳过项。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms, so nothing is skipped.
 //!
-//! 跳过的 Java 方法：无（`FieldMap` 的全部方法均已翻译，含内部类 `FieldItem` 与枚举
-//! `FieldLocation`）。
+//! Skipped Java methods: none (all of `FieldMap`'s methods have been translated, including the inner class `FieldItem` and enum
+//! `FieldLocation`).
 
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
@@ -100,68 +100,68 @@ use crate::task_type::TaskType;
 use crate::time_unit::TimeUnit;
 use crate::work_group::WorkGroup;
 
-/// 字段布局表中单条记录的字节数。
+/// Number of bytes in a single record of the field layout table.
 ///
-/// 对应 Java: `createFieldMap` 中的 `index += 28`
+/// Corresponds to Java: `index += 28` in `createFieldMap`
 const FIELD_MAP_RECORD_SIZE: usize = 28;
 
-/// 定长数据块的最大数量。
+/// Maximum number of fixed data blocks.
 ///
-/// 对应 Java: `private static final int MAX_FIXED_DATA_BLOCKS = 2;`
+/// Corresponds to Java: `private static final int MAX_FIXED_DATA_BLOCKS = 2;`
 const MAX_FIXED_DATA_BLOCKS: usize = 2;
 
-/// 「无数据 / 见变长数据块」的定长数据偏移。
+/// Fixed data offset meaning "no data / see variable data block".
 ///
-/// 对应 Java: `createFieldMap` 中的 `dataBlockOffset != 65535`
+/// Corresponds to Java: `dataBlockOffset != 65535` in `createFieldMap`
 const NO_FIXED_DATA_OFFSET: i32 = 65535;
 
-/// 任务字段布局表使用的 `Props` 键（按顺序取第一个存在的）。
+/// `Props` keys used by the task field layout table (the first one present is taken in order).
 ///
-/// 对应 Java: `private static final PropsKey[] TASK_KEYS`
+/// Corresponds to Java: `private static final PropsKey[] TASK_KEYS`
 const TASK_KEYS: [PropsKey; 2] = [PropsKey::TaskFieldMap, PropsKey::TaskFieldMap2];
 
-/// 企业自定义字段布局表使用的 `Props` 键。
+/// `Props` key used by the enterprise custom field layout table.
 ///
-/// 对应 Java: `private static final PropsKey[] ENTERPRISE_CUSTOM_KEYS`
+/// Corresponds to Java: `private static final PropsKey[] ENTERPRISE_CUSTOM_KEYS`
 const ENTERPRISE_CUSTOM_KEYS: [PropsKey; 1] = [PropsKey::EnterpriseCustomFieldMap];
 
-/// 资源字段布局表使用的 `Props` 键（按顺序取第一个存在的）。
+/// `Props` keys used by the resource field layout table (the first one present is taken in order).
 ///
-/// 对应 Java: `private static final PropsKey[] RESOURCE_KEYS`
+/// Corresponds to Java: `private static final PropsKey[] RESOURCE_KEYS`
 const RESOURCE_KEYS: [PropsKey; 2] = [PropsKey::ResourceFieldMap, PropsKey::ResourceFieldMap2];
 
-/// 分派字段布局表使用的 `Props` 键（按顺序取第一个存在的）。
+/// `Props` keys used by the assignment field layout table (the first one present is taken in order).
 ///
-/// 对应 Java: `private static final PropsKey[] ASSIGNMENT_KEYS`
+/// Corresponds to Java: `private static final PropsKey[] ASSIGNMENT_KEYS`
 const ASSIGNMENT_KEYS: [PropsKey; 2] = [
     PropsKey::AssignmentFieldMap,
     PropsKey::AssignmentFieldMap2,
 ];
 
-/// 关系字段布局表使用的 `Props` 键。
+/// `Props` key used by the relation field layout table.
 ///
-/// 对应 Java: `private static final PropsKey[] RELATION_KEYS`
+/// Corresponds to Java: `private static final PropsKey[] RELATION_KEYS`
 const RELATION_KEYS: [PropsKey; 1] = [PropsKey::RelationFieldMap];
 
-/// 字段数据所在的数据块。
+/// The data block in which the field data resides.
 ///
-/// 对应 Java: `enum FieldLocation`
+/// Corresponds to Java: `enum FieldLocation`
 ///
-/// 变体顺序与 Java 的声明顺序一致：Java 的 `FieldLocation.compareTo` 即按序号比较。
+/// The variant order matches Java's declaration order: Java's `FieldLocation.compareTo` compares by ordinal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FieldLocation {
-    /// 定长数据块。
+    /// Fixed data block.
     FixedData,
-    /// 变长数据块。
+    /// Variable data block.
     VarData,
-    /// 元数据块（Java 尚未解出布尔标志在该块中的位置，`read` 会忽略它）。
+    /// Metadata block (Java has not yet worked out where the boolean flags are in this block, so `read` ignores it).
     MetaData,
-    /// 位置未知。
+    /// Location unknown.
     Unknown,
 }
 
 impl FieldLocation {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as Java's declaration order.
     pub const ALL: [FieldLocation; 4] = [
         FieldLocation::FixedData,
         FieldLocation::VarData,
@@ -169,7 +169,7 @@ impl FieldLocation {
         FieldLocation::Unknown,
     ];
 
-    /// 返回 Java 枚举常量名（例如 `"FIXED_DATA"`）。
+    /// Returns the Java enum constant name (for example `"FIXED_DATA"`).
     pub fn name(&self) -> &'static str {
         match self {
             FieldLocation::FixedData => "FIXED_DATA",
@@ -181,61 +181,61 @@ impl FieldLocation {
 }
 
 impl Display for FieldLocation {
-    /// 对应 Java: 枚举自带的 `toString()`（输出常量名）
+    /// Corresponds to Java: the enum's built-in `toString()` (outputs the constant name)
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
     }
 }
 
-/// 描述单个字段在 MPP 文件中的位置，并提供取值方法。
+/// Describes the location of a single field in an MPP file and provides value accessors.
 ///
-/// 对应 Java: `class FieldItem implements Comparable<FieldItem>`
+/// Corresponds to Java: `class FieldItem implements Comparable<FieldItem>`
 ///
-/// `Clone` 是 Rust 特有的：`Display`（Java 的 `toString`）会复制一份表内容再排序。
+/// `Clone` is Rust-specific: `Display` (Java's `toString`) copies the table contents before sorting.
 #[derive(Clone)]
 pub struct FieldItem {
-    /// 字段类型。
+    /// Field type.
     ///
-    /// 对应 Java 字段: `private final FieldType m_type;`
+    /// Corresponds to Java field: `private final FieldType m_type;`
     type_: MppFieldType,
 
-    /// 字段所在的数据块。
+    /// The data block the field is in.
     ///
-    /// 对应 Java 字段: `private final FieldLocation m_location;`
+    /// Corresponds to Java field: `private final FieldLocation m_location;`
     location: FieldLocation,
 
-    /// 定长数据块序号。
+    /// Fixed data block index.
     ///
-    /// 对应 Java 字段: `private final int m_fixedDataBlockIndex;`
+    /// Corresponds to Java field: `private final int m_fixedDataBlockIndex;`
     fixed_data_block_index: i32,
 
-    /// 定长数据块内的偏移（`VAR_DATA` 项保留 Java 里的 65535）。
+    /// Offset within the fixed data block (`VAR_DATA` items keep the 65535 used in Java).
     ///
-    /// 对应 Java 字段: `private final int m_fixedDataOffset;`
+    /// Corresponds to Java field: `private final int m_fixedDataOffset;`
     fixed_data_offset: i32,
 
-    /// 变长数据块的键。
+    /// Key of the variable data block.
     ///
-    /// 对应 Java 字段: `private final Integer m_varDataKey;`
-    /// （Java 在构造方法里用 `Integer.valueOf` 赋值，永不为 `null`，故 Rust 用 `i32`；
-    /// 对外的 [`FieldItem::get_var_data_key`] 仍返回 `Option<i32>`）
+    /// Corresponds to Java field: `private final Integer m_varDataKey;`
+    /// (Java assigns it in the constructor with `Integer.valueOf`, so it is never `null`; hence Rust uses `i32`;
+    /// the public [`FieldItem::get_var_data_key`] still returns `Option<i32>`)
     var_data_key: i32,
 
-    /// 元数据位掩码。
+    /// Metadata bit mask.
     ///
-    /// 对应 Java 字段: `private final long m_mask;`
+    /// Corresponds to Java field: `private final long m_mask;`
     mask: i64,
 
-    /// 元数据块序号。
+    /// Metadata block index.
     ///
-    /// 对应 Java 字段: `private final int m_metaBlock;`
+    /// Corresponds to Java field: `private final int m_metaBlock;`
     meta_block: i32,
 }
 
 impl FieldItem {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `FieldItem(FieldType type, FieldLocation location, int fixedDataBlockIndex, int fixedDataOffset, int varDataKey, long mask, int metaBlock)`
+    /// Corresponds to Java: `FieldItem(FieldType type, FieldLocation location, int fixedDataBlockIndex, int fixedDataOffset, int varDataKey, long mask, int metaBlock)`
     pub fn new(
         type_: MppFieldType,
         location: FieldLocation,
@@ -256,11 +256,11 @@ impl FieldItem {
         }
     }
 
-    /// 读取单个字段的值。
+    /// Reads the value of a single field.
     ///
-    /// 对应 Java: `public Object read(Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `public Object read(Integer id, byte[][] fixedData, Var2Data varData)`
     ///
-    /// `field_map` 对应 Java 内部类隐式持有的外部 `FieldMap` 实例（`FieldMap.this`）。
+    /// `field_map` corresponds to the outer `FieldMap` instance implicitly held by the Java inner class (`FieldMap.this`).
     pub fn read(
         &self,
         field_map: &FieldMap,
@@ -277,17 +277,17 @@ impl FieldItem {
                 fixed_data,
                 var_data,
             ),
-            // Java 注释：布尔标志存放在「元数据」块中，但尚未弄清如何把字段布局表头 4 字节的
-            // 位掩码换算成数据位置，因此 META_DATA 位置被忽略（不取值）。
+            // Java comment: the boolean flags are stored in the "metadata" block, but it is not yet known how to map the 4-byte
+            // bit mask in the field layout table header to a data location, so the META_DATA location is ignored (no value is read).
             FieldLocation::MetaData => None,
-            // Java: 位置未知 —— 忽略。
+            // Java: location unknown -- ignore.
             FieldLocation::Unknown => None,
         }
     }
 
-    /// 从定长数据块读取字段值。
+    /// Reads a field value from a fixed data block.
     ///
-    /// 对应 Java: `private Object readFixedData(Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `private Object readFixedData(Integer id, byte[][] fixedData, Var2Data varData)`
     fn read_fixed_data(
         &self,
         field_map: &FieldMap,
@@ -367,7 +367,7 @@ impl FieldItem {
             }
 
             DataType::Percentage => {
-                // Java: MPPUtility.getPercentage(data, m_fixedDataOffset)（越界/无效时 Java 返回 null）
+                // Java: MPPUtility.getPercentage(data, m_fixedDataOffset) (Java returns null when out of bounds/invalid)
                 MPPUtility::get_percentage(data, offset).map(FieldValue::Double)
             }
 
@@ -380,14 +380,14 @@ impl FieldItem {
             }
 
             DataType::Accrue => {
-                // Java: AccrueType.getInstance(ByteArrayHelper.getShort(data, m_fixedDataOffset))（可能为 null）
+                // Java: AccrueType.getInstance(ByteArrayHelper.getShort(data, m_fixedDataOffset)) (may be null)
                 let value = checked_short(data, offset)?;
                 AccrueType::get_instance(value)
                     .map(|accrue_type| FieldValue::Integer(accrue_type.value()))
             }
 
             DataType::Currency | DataType::Units => {
-                // Java 注释：结果小于 0.1 分 / 0.1% 时忽略该金额
+                // Java comment: ignore the amount when the result is less than 0.1 cent / 0.1%
                 // Java: double amount = MPPUtility.getDouble(data, m_fixedDataOffset);
                 //       amount = Math.abs(amount) < 0.1 ? 0 : amount;
                 //       result = NumberHelper.getDouble(amount / 100);
@@ -407,7 +407,7 @@ impl FieldItem {
             }
 
             DataType::Work => {
-                // Java 注释：结果小于 1 分钟时忽略该工期
+                // Java comment: ignore the duration when the result is less than 1 minute
                 let duration = MPPUtility::get_double(data, offset);
                 let duration = if duration.abs() < 1000.0 {
                     0.0
@@ -481,22 +481,22 @@ impl FieldItem {
             }
 
             DataType::Guid => {
-                // Java: MPPUtility.getGUID(data, m_fixedDataOffset)（全零/数据不足时 Java 返回 null）
-                // Rust 侧 UUID 用 FieldValue::String 承载（见文件头「字段值的表示」）。
+                // Java: MPPUtility.getGUID(data, m_fixedDataOffset) (Java returns null when all zeros/insufficient data)
+                // The Rust side carries UUIDs as FieldValue::String (see "Representation of field values" in the file header).
                 MPPUtility::get_guid(data, offset).map(|guid| FieldValue::String(guid.to_string()))
             }
 
-            // Java: BINARY —— 定长数据块中的二进制数据不做处理。
+            // Java: BINARY -- binary data in a fixed data block is not processed.
             DataType::Binary => None,
 
-            // Java: default —— 不支持的定长数据类型。
+            // Java: default -- unsupported fixed data type.
             _ => None,
         }
     }
 
-    /// 从变长数据块读取字段值。
+    /// Reads a field value from a variable data block.
     ///
-    /// 对应 Java: `private Object readVarData(DataType dataType, Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `private Object readVarData(DataType dataType, Integer id, byte[][] fixedData, Var2Data varData)`
     fn read_var_data(
         &self,
         field_map: &FieldMap,
@@ -577,7 +577,7 @@ impl FieldItem {
             }
 
             DataType::Work => {
-                // Java 注释：结果小于 1 分钟时忽略该工期
+                // Java comment: ignore the duration when the result is less than 1 minute
                 let duration = var_data.get_double(id, key);
                 let duration = if duration.abs() < 1000.0 {
                     0.0
@@ -593,12 +593,12 @@ impl FieldItem {
             DataType::Notes => {
                 // Java: String notes = varData.getString(id, m_varDataKey);
                 //       result = notes == null ? null : new RtfNotes(notes);
-                // Rust 侧 FieldValue 无 RtfNotes 变体，按本 crate 约定存纯文本
-                // （`RtfNotes::to_string()` 即去掉 RTF 标记后的文本）。
+                // The Rust FieldValue has no RtfNotes variant, so plain text is stored per this crate's convention
+                // (`RtfNotes::to_string()` is the text with RTF markup removed).
                 var_data.get_string(id, key).map(|notes| {
-                    // FixDeferFix 的 Java 实现直接 new String(byte[])，但 RTF
-                    // 转换器会忽略末尾 NUL；样本中的非 RTF 备注还带有同一记录
-                    // 的换行，按 Java 输出一并去掉。
+                    // The Java implementation of FixDeferFix directly does new String(byte[]), but the RTF
+                    // converter ignores the trailing NUL; non-RTF notes in the samples also carry the newline of the same record
+                    // which is removed as well, matching Java's output.
                     let had_nul = notes.ends_with('\0');
                     let mut notes = notes.trim_end_matches('\0').to_owned();
                     if had_nul && notes.ends_with('\n') {
@@ -650,7 +650,7 @@ impl FieldItem {
             }
 
             DataType::Accrue => {
-                // Java: AccrueType.getInstance(varData.getShort(id, m_varDataKey))（可能为 null）
+                // Java: AccrueType.getInstance(varData.getShort(id, m_varDataKey)) (may be null)
                 AccrueType::get_instance(var_data.get_short(id, key))
                     .map(|accrue_type| FieldValue::Integer(accrue_type.value()))
             }
@@ -674,7 +674,7 @@ impl FieldItem {
 
             DataType::Guid => {
                 // Java: MPPUtility.getGUID(varData.getByteArray(id, m_varDataKey), 0)
-                // Rust 侧 UUID 用 FieldValue::String 承载（见文件头「字段值的表示」）。
+                // The Rust side carries UUIDs as FieldValue::String (see "Representation of field values" in the file header).
                 let data = var_data.get_byte_array(id, key)?;
                 MPPUtility::get_guid(&data, 0).map(|guid| FieldValue::String(guid.to_string()))
             }
@@ -689,14 +689,14 @@ impl FieldItem {
             // Java: BINARY —— result = varData.getByteArray(id, m_varDataKey);
             DataType::Binary => var_data.get_byte_array(id, key).map(FieldValue::Bytes),
 
-            // Java: default —— 不支持的变长数据类型。
+            // Java: default -- unsupported variable data type.
             _ => None,
         }
     }
 
-    /// 取自定义字段的工期值。
+    /// Gets the duration value of a custom field.
     ///
-    /// 对应 Java: `private Object getCustomFieldDurationValue(Var2Data varData, Integer id, Integer type, TimeUnit units)`
+    /// Corresponds to Java: `private Object getCustomFieldDurationValue(Var2Data varData, Integer id, Integer type, TimeUnit units)`
     fn get_custom_field_duration_value(
         &self,
         field_map: &FieldMap,
@@ -723,47 +723,47 @@ impl FieldItem {
         }
     }
 
-    /// 取字段类型。
+    /// Gets the field type.
     ///
-    /// 对应 Java: `public FieldType getType()`
+    /// Corresponds to Java: `public FieldType getType()`
     pub fn get_type(&self) -> &MppFieldType {
         &self.type_
     }
 
-    /// 取该字段所在的定长数据块序号。
+    /// Gets the fixed data block index of this field.
     ///
-    /// 对应 Java: `public int getFixedDataBlockIndex()`
+    /// Corresponds to Java: `public int getFixedDataBlockIndex()`
     pub fn get_fixed_data_block_index(&self) -> i32 {
         self.fixed_data_block_index
     }
 
-    /// 取该字段在定长数据块内的偏移。
+    /// Gets the offset of this field within the fixed data block.
     ///
-    /// 对应 Java: `public int getFixedDataOffset()`
+    /// Corresponds to Java: `public int getFixedDataOffset()`
     pub fn get_fixed_data_offset(&self) -> i32 {
         self.fixed_data_offset
     }
 
-    /// 取该字段的变长数据键。
+    /// Gets the variable data key of this field.
     ///
-    /// 对应 Java: `public Integer getVarDataKey()`
+    /// Corresponds to Java: `public Integer getVarDataKey()`
     pub fn get_var_data_key(&self) -> Option<i32> {
         Some(self.var_data_key)
     }
 
-    /// 取该字段所在的数据块。
+    /// Gets the data block this field is in.
     ///
-    /// 对应 Java: `public FieldLocation getFieldLocation()`
+    /// Corresponds to Java: `public FieldLocation getFieldLocation()`
     pub fn get_field_location(&self) -> FieldLocation {
         self.location
     }
 
-    /// 比较两个字段项。
+    /// Compares two field items.
     ///
-    /// 对应 Java: `@Override public int compareTo(FieldItem item)`
+    /// Corresponds to Java: `@Override public int compareTo(FieldItem item)`
     ///
-    /// 与 Java 一致：先比较位置，再按位置比较块序号 / 偏移 / 变长数据键，
-    /// 返回值是 Java 的「减法」结果（可能为负、0、正）。
+    /// Consistent with Java: first compare the location, then compare the block index / offset / variable data key by location,
+    /// the return value is Java's "subtraction" result (may be negative, zero, or positive).
     pub fn compare_to(&self, item: &FieldItem) -> i32 {
         let result = compare_ord(self.location, item.location);
         if result != 0 {
@@ -784,16 +784,16 @@ impl FieldItem {
                 // Java: m_varDataKey.intValue() - item.m_varDataKey.intValue()
                 self.var_data_key.wrapping_sub(item.var_data_key)
             }
-            // Java: default —— 其余位置不做进一步比较。
+            // Java: default -- no further comparison for the remaining locations.
             FieldLocation::MetaData | FieldLocation::Unknown => 0,
         }
     }
 
-    /// 取「工期字段的配套单位字段」。
+    /// Gets the "companion units field of a duration field".
     ///
-    /// 对应 Java: `m_type.getUnitsType()`
+    /// Corresponds to Java: `m_type.getUnitsType()`
     ///
-    /// 自定义字段在 Java 中恒返回 `null`（`UserDefinedField.getUnitsType()`），Rust 侧返回 `None`。
+    /// For a custom field Java always returns `null` (`UserDefinedField.getUnitsType()`); the Rust side returns `None`.
     fn units_type(&self) -> Option<FieldKey> {
         match &self.type_ {
             MppFieldType::Builtin(key) => key.get_units_type(),
@@ -803,7 +803,7 @@ impl FieldItem {
 }
 
 impl Display for FieldItem {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -836,8 +836,8 @@ impl Display for FieldItem {
 }
 
 impl PartialEq for FieldItem {
-    /// Rust 特有：Java 的 `FieldItem` 未覆写 `equals`（按同一性比较），
-    /// 此处按「字段类型 + 位置信息」的结构相等实现（见文件头差异表）。
+    /// Rust-specific: Java's `FieldItem` does not override `equals` (it compares by identity),
+    /// so this implements structural equality by "field type + location information" (see the differences table in the file header).
     fn eq(&self, other: &Self) -> bool {
         self.type_.to_key() == other.type_.to_key()
             && self.location == other.location
@@ -852,7 +852,7 @@ impl PartialEq for FieldItem {
 impl Eq for FieldItem {}
 
 impl std::hash::Hash for FieldItem {
-    /// Rust 特有：与 [`FieldItem::eq`] 保持一致（Java 的 `toString` / `compareTo` 不需要哈希）。
+    /// Rust-specific: consistent with [`FieldItem::eq`] (Java's `toString` / `compareTo` do not require hashing).
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.type_.to_key().hash(state);
         self.location.hash(state);
@@ -865,10 +865,10 @@ impl std::hash::Hash for FieldItem {
 }
 
 impl PartialOrd for FieldItem {
-    /// 对应 Java: `Comparable<FieldItem>` 的比较结果。
+    /// Corresponds to Java: the result of `Comparable<FieldItem>` comparison.
     ///
-    /// 注意：与 Java 一样，本顺序**不**与 [`FieldItem::eq`] 自洽（两个不同字段可以有
-    /// 相同的位置），因此 `Ord` 只用于 [`FieldMap`] 的 `Display` 排序。
+    /// Note: as in Java, this ordering is **not** consistent with [`FieldItem::eq`] (two different fields can have
+    /// the same location), so `Ord` is used only for the `Display` sorting of [`FieldMap`].
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -880,7 +880,7 @@ impl Ord for FieldItem {
     }
 }
 
-/// 把 Java 的「int 减法比较」结果转成 0 / -1 / 1。
+/// Converts Java's "int subtraction comparison" result into 0 / -1 / 1.
 fn compare_ord<T: Ord>(left: T, right: T) -> i32 {
     match left.cmp(&right) {
         std::cmp::Ordering::Less => -1,
@@ -889,89 +889,89 @@ fn compare_ord<T: Ord>(left: T, right: T) -> i32 {
     }
 }
 
-/// MPP 文件里「字段 ↔ 数据块位置」的映射。
+/// The "field <-> data block location" mapping in an MPP file.
 ///
-/// 对应 Java: `abstract class FieldMap`
+/// Corresponds to Java: `abstract class FieldMap`
 pub struct FieldMap {
-    /// 项目文件（用于解析自定义字段与项目属性）。
+    /// Project file (used to resolve custom fields and project properties).
     ///
-    /// 对应 Java 字段: `protected final ProjectFile m_file;`
+    /// Corresponds to Java field: `protected final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 
-    /// 字符串字段的变长数据读取器。
+    /// Variable data reader for string fields.
     ///
-    /// 对应 Java 字段: `final VarDataFieldReader m_stringVarDataReader;`
+    /// Corresponds to Java field: `final VarDataFieldReader m_stringVarDataReader;`
     string_var_data_reader: StringVarDataFieldReader,
 
-    /// 双精度字段的变长数据读取器。
+    /// Variable data reader for double fields.
     ///
-    /// 对应 Java 字段: `final VarDataFieldReader m_doubleVarDataReader;`
+    /// Corresponds to Java field: `final VarDataFieldReader m_doubleVarDataReader;`
     double_var_data_reader: DoubleVarDataFieldReader,
 
-    /// 时间戳字段的变长数据读取器。
+    /// Variable data reader for timestamp fields.
     ///
-    /// 对应 Java 字段: `final VarDataFieldReader m_timestampVarDataReader;`
+    /// Corresponds to Java field: `final VarDataFieldReader m_timestampVarDataReader;`
     timestamp_var_data_reader: TimestampVarDataFieldReader,
 
-    /// 字段映射表。
+    /// Field mapping table.
     ///
-    /// 对应 Java 字段: `private final Map<FieldType, FieldItem> m_map = new HashMap<>();`
+    /// Corresponds to Java field: `private final Map<FieldType, FieldItem> m_map = new HashMap<>();`
     map: HashMap<MppFieldKey, FieldItem>,
 
-    /// 各定长数据块的最大偏移。
+    /// Maximum offset of each fixed data block.
     ///
-    /// 对应 Java 字段: `private final int[] m_maxFixedDataSize = new int[MAX_FIXED_DATA_BLOCKS];`
+    /// Corresponds to Java field: `private final int[] m_maxFixedDataSize = new int[MAX_FIXED_DATA_BLOCKS];`
     max_fixed_data_size: [i32; MAX_FIXED_DATA_BLOCKS],
 
-    /// 是否输出调试信息。
+    /// Whether to output debug information.
     ///
-    /// 对应 Java 字段: `private boolean m_debug;`
+    /// Corresponds to Java field: `private boolean m_debug;`
     debug: bool,
 
-    /// 是否用字段类型值的低 16 位作为变长数据键。
+    /// Whether to use the low 16 bits of the field type value as the variable data key.
     ///
-    /// 对应 Java: `protected abstract boolean useTypeAsVarDataKey()` 的覆写结果
-    /// （`FieldMap9` / `FieldMap12` 为 `false`，`FieldMap14` 为 `true`）。
+    /// Corresponds to Java: the override result of `protected abstract boolean useTypeAsVarDataKey()`
+    /// (`FieldMap9` / `FieldMap12` are `false`, `FieldMap14` is `true`).
     use_type_as_var_data_key: bool,
 
-    /// 任务字段的默认布局数据（`Props` 中缺少字段布局表时使用）。
+    /// Default layout data for task fields (used when the field layout table is missing from `Props`).
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultTaskData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultTaskData()`
     default_task_data: Vec<FieldItem>,
 
-    /// 资源字段的默认布局数据。
+    /// Default layout data for resource fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultResourceData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultResourceData()`
     default_resource_data: Vec<FieldItem>,
 
-    /// 分派字段的默认布局数据。
+    /// Default layout data for assignment fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultAssignmentData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultAssignmentData()`
     default_assignment_data: Vec<FieldItem>,
 
-    /// 关系字段的默认布局数据。
+    /// Default layout data for relation fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultRelationData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultRelationData()`
     default_relation_data: Vec<FieldItem>,
 }
 
 impl FieldMap {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public FieldMap(ProjectFile file)`
+    /// Corresponds to Java: `public FieldMap(ProjectFile file)`
     ///
-    /// Java 在此保存 `file.getProjectProperties()` 的引用；Rust 侧 `ProjectProperties`
-    /// 由 `ProjectFile` 内部持有，无法取出稳定引用，故每次读取时经
-    /// [`FieldMap::try_project_properties`] 借用。
+    /// Java stores a reference to `file.getProjectProperties()` here; on the Rust side `ProjectProperties`
+    /// is held internally by `ProjectFile`, so no stable reference can be taken; therefore each read borrows it via
+    /// [`FieldMap::try_project_properties`].
     pub fn new(file: &Rc<RefCell<ProjectFile>>) -> Self {
         // Java: m_customFields = file.getCustomFields();
-        // 文件正被可变借用时（正常调用路径不会发生）退化为独立容器，避免 panic。
+        // When the file is mutably borrowed (which does not happen on the normal call path), degrade gracefully to a standalone container to avoid a panic.
         let custom_fields = match file.try_borrow() {
             Ok(file) => file.get_custom_fields(),
             Err(_) => CustomFieldContainer::new(),
         };
 
-        // Java: m_stringVarDataReader = new StringVarDataFieldReader(m_customFields); 等三行
+        // Java: the three lines such as m_stringVarDataReader = new StringVarDataFieldReader(m_customFields);
         let string_var_data_reader = StringVarDataFieldReader::new(Rc::clone(&custom_fields));
         let double_var_data_reader = DoubleVarDataFieldReader::new(Rc::clone(&custom_fields));
         let timestamp_var_data_reader = TimestampVarDataFieldReader::new(custom_fields);
@@ -992,19 +992,19 @@ impl FieldMap {
         }
     }
 
-    /// 开启 / 关闭调试输出。
+    /// Enables / disables debug output.
     ///
-    /// 对应 Java: `public void setDebug(boolean value)`
+    /// Corresponds to Java: `public void setDebug(boolean value)`
     pub fn set_debug(&mut self, value: bool) {
         self.debug = value;
     }
 
-    /// 取本映射表中的全部字段类型。
+    /// Gets all field types in this mapping table.
     ///
-    /// 对应 Java: `public Set<FieldType> getFieldTypes()`
+    /// Corresponds to Java: `public Set<FieldType> getFieldTypes()`
     ///
-    /// Java 返回 `m_map.keySet()`；Rust 的键无法还原自定义字段句柄，故返回各 item
-    /// 持有的 `MppFieldType` 副本（内容与键集合等价）。
+    /// Java returns `m_map.keySet()`; Rust's key cannot reproduce the custom field handle, so it returns each item's
+    /// `MppFieldType` copy (equivalent in content to the key set).
     pub fn get_field_types(&self) -> Vec<MppFieldType> {
         self.map
             .values()
@@ -1012,16 +1012,16 @@ impl FieldMap {
             .collect()
     }
 
-    /// 从一块原始数据建立字段映射。
+    /// Builds the field mapping from a block of raw data.
     ///
-    /// 对应 Java: `private void createFieldMap(byte[] data)`
+    /// Corresponds to Java: `private void createFieldMap(byte[] data)`
     fn create_field_map(&mut self, data: &[u8]) {
         let mut index = 0usize;
         let mut last_data_block_offset = 0i32;
         let mut data_block_index = 0i32;
 
         // Java: while (index < data.length)
-        // Rust 侧多一个长度判断：不足一条记录时 Java 会抛越界异常，Rust 直接结束解析。
+        // The Rust side adds a length check: when there is less than one record, Java throws an out-of-bounds exception, whereas Rust ends parsing directly.
         while index + FIELD_MAP_RECORD_SIZE <= data.len() {
             // Java: long mask = ByteArrayHelper.getInt(data, index);
             let mask = i64::from(checked_int(data, index).unwrap_or(0));
@@ -1029,7 +1029,7 @@ impl FieldMap {
             // Java: int dataBlockOffset = ByteArrayHelper.getShort(data, index + 4);
             let data_block_offset = checked_short(data, index + 4).unwrap_or(0);
 
-            // Java: int metaFlags = MPPUtility.getByte(data, index + 8);（未使用）
+            // Java: int metaFlags = MPPUtility.getByte(data, index + 8); (unused)
 
             // Java: int typeValue = ByteArrayHelper.getInt(data, index + 12);
             let type_value = checked_int(data, index + 12).unwrap_or(0);
@@ -1040,8 +1040,8 @@ impl FieldMap {
             // Java: int category = ByteArrayHelper.getShort(data, index + 20);
             let category = checked_short(data, index + 20).unwrap_or(0);
 
-            // Java: int sizeInBytes = MPPUtility.getShort(data, index + 22);（未使用）
-            // Java: int metaIndex = MPPUtility.getInt(data, index + 24);（未使用）
+            // Java: int sizeInBytes = MPPUtility.getShort(data, index + 22); (unused)
+            // Java: int metaIndex = MPPUtility.getInt(data, index + 24); (unused)
 
             //
             // Categories
@@ -1099,8 +1099,8 @@ impl FieldMap {
                 }
             };
 
-            // Java 侧未知字段号会得到占位 FieldType 并写入 m_map；Rust 无占位载体，
-            // 故跳过该条记录（见文件头差异表）。
+            // On the Java side an unknown field number gets a placeholder FieldType and is written into m_map; Rust has no placeholder carrier,
+            // so the record is skipped (see the differences table in the file header).
             if let Some(type_) = type_ {
                 let item = FieldItem::new(
                     type_,
@@ -1133,94 +1133,94 @@ impl FieldMap {
         }
     }
 
-    /// 是否用字段类型值的低 16 位作为变长数据键。
+    /// Whether to use the low 16 bits of the field type value as the variable data key.
     ///
-    /// 对应 Java: `protected abstract boolean useTypeAsVarDataKey()`
+    /// Corresponds to Java: `protected abstract boolean useTypeAsVarDataKey()`
     ///
-    /// Rust 侧由 [`FieldMap::set_use_type_as_var_data_key`] 配置（默认 `false`，即
-    /// `FieldMap9` / `FieldMap12` 的行为）。
+    /// On the Rust side this is configured by [`FieldMap::set_use_type_as_var_data_key`] (default `false`, i.e.
+    /// the behavior of `FieldMap9` / `FieldMap12`).
     pub fn use_type_as_var_data_key(&self) -> bool {
         self.use_type_as_var_data_key
     }
 
-    /// 设置「是否用字段类型值作为变长数据键」。
+    /// Sets "whether to use the field type value as the variable data key".
     ///
-    /// Rust 特有：替代 Java 子类对 `useTypeAsVarDataKey()` 的覆写。
+    /// Rust-specific: replaces the Java subclass override of `useTypeAsVarDataKey()`.
     pub fn set_use_type_as_var_data_key(&mut self, value: bool) {
         self.use_type_as_var_data_key = value;
     }
 
-    /// 取任务字段的默认布局数据。
+    /// Gets the default layout data for task fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultTaskData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultTaskData()`
     pub fn get_default_task_data(&self) -> &[FieldItem] {
         &self.default_task_data
     }
 
-    /// 取资源字段的默认布局数据。
+    /// Gets the default layout data for resource fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultResourceData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultResourceData()`
     pub fn get_default_resource_data(&self) -> &[FieldItem] {
         &self.default_resource_data
     }
 
-    /// 取分派字段的默认布局数据。
+    /// Gets the default layout data for assignment fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultAssignmentData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultAssignmentData()`
     pub fn get_default_assignment_data(&self) -> &[FieldItem] {
         &self.default_assignment_data
     }
 
-    /// 取关系字段的默认布局数据。
+    /// Gets the default layout data for relation fields.
     ///
-    /// 对应 Java: `protected abstract FieldItem[] getDefaultRelationData()`
+    /// Corresponds to Java: `protected abstract FieldItem[] getDefaultRelationData()`
     pub fn get_default_relation_data(&self) -> &[FieldItem] {
         &self.default_relation_data
     }
 
-    /// 设置任务字段的默认布局数据。
+    /// Sets the default layout data for task fields.
     ///
-    /// Rust 特有：替代 Java 子类对 `getDefaultTaskData()` 的覆写
-    /// （对应 `FieldMap9` / `FieldMap12` / `FieldMap14` 里逐项 `new FieldItem(...)` 的表）。
+    /// Rust-specific: replaces the Java subclass override of `getDefaultTaskData()`
+    /// (corresponds to the table of item-by-item `new FieldItem(...)` in `FieldMap9` / `FieldMap12` / `FieldMap14`).
     pub fn set_default_task_data(&mut self, value: Vec<FieldItem>) {
         self.default_task_data = value;
     }
 
-    /// 设置资源字段的默认布局数据。
+    /// Sets the default layout data for resource fields.
     ///
-    /// Rust 特有：替代 Java 子类对 `getDefaultResourceData()` 的覆写。
+    /// Rust-specific: replaces the Java subclass override of `getDefaultResourceData()`.
     pub fn set_default_resource_data(&mut self, value: Vec<FieldItem>) {
         self.default_resource_data = value;
     }
 
-    /// 设置分派字段的默认布局数据。
+    /// Sets the default layout data for assignment fields.
     ///
-    /// Rust 特有：替代 Java 子类对 `getDefaultAssignmentData()` 的覆写。
+    /// Rust-specific: replaces the Java subclass override of `getDefaultAssignmentData()`.
     pub fn set_default_assignment_data(&mut self, value: Vec<FieldItem>) {
         self.default_assignment_data = value;
     }
 
-    /// 设置关系字段的默认布局数据。
+    /// Sets the default layout data for relation fields.
     ///
-    /// Rust 特有：替代 Java 子类对 `getDefaultRelationData()` 的覆写。
+    /// Rust-specific: replaces the Java subclass override of `getDefaultRelationData()`.
     pub fn set_default_relation_data(&mut self, value: Vec<FieldItem>) {
         self.default_relation_data = value;
     }
 
-    /// 由字段号推导字段类型。
+    /// Derives the field type from the field number.
     ///
-    /// 对应 Java: `protected FieldType getFieldType(int fieldID)`
+    /// Corresponds to Java: `protected FieldType getFieldType(int fieldID)`
     ///
-    /// Java 在无法识别字段号时返回占位 `FieldType`（`FieldTypeClass.UNKNOWN`），Rust 侧
-    /// 对应的 `FieldTypeHelper` 返回 `None`（见文件头差异表）。
+    /// Java returns a placeholder `FieldType` (`FieldTypeClass.UNKNOWN`) when it cannot recognize the field number; the Rust side's
+    /// corresponding `FieldTypeHelper` returns `None` (see the differences table in the file header).
     pub fn get_field_type(&self, field_id: i32) -> Option<MppFieldType> {
         // Java: return FieldTypeHelper.getInstance(m_file, fieldID);
         FieldTypeHelper::get_instance(&self.file, field_id)
     }
 
-    /// 建立任务字段映射。
+    /// Builds the task field mapping.
     ///
-    /// 对应 Java: `public void createTaskFieldMap(Props props)`
+    /// Corresponds to Java: `public void createTaskFieldMap(Props props)`
     pub fn create_task_field_map(&mut self, props: &Props) {
         // Java: byte[] fieldMapData = null; for (PropsKey key : TASK_KEYS) { ... if (fieldMapData != null) break; }
         match find_props_data(props, &TASK_KEYS) {
@@ -1234,9 +1234,9 @@ impl FieldMap {
         }
     }
 
-    /// 建立关系字段映射。
+    /// Builds the relation field mapping.
     ///
-    /// 对应 Java: `public void createRelationFieldMap(Props props)`
+    /// Corresponds to Java: `public void createRelationFieldMap(Props props)`
     pub fn create_relation_field_map(&mut self, props: &Props) {
         match find_props_data(props, &RELATION_KEYS) {
             None => {
@@ -1248,16 +1248,16 @@ impl FieldMap {
         }
     }
 
-    /// 建立企业自定义字段映射。
+    /// Builds the enterprise custom field mapping.
     ///
-    /// 对应 Java: `public void createEnterpriseCustomFieldMap(Props props, FieldTypeClass fieldTypeClass)`
+    /// Corresponds to Java: `public void createEnterpriseCustomFieldMap(Props props, FieldTypeClass fieldTypeClass)`
     pub fn create_enterprise_custom_field_map(
         &mut self,
         props: &Props,
         field_type_class: FieldTypeClass,
     ) {
         let Some(field_map_data) = find_props_data(props, &ENTERPRISE_CUSTOM_KEYS) else {
-            // Java: fieldMapData == null 时什么都不做。
+            // Java: do nothing when fieldMapData == null.
             return;
         };
 
@@ -1292,9 +1292,9 @@ impl FieldMap {
         }
     }
 
-    /// 建立资源字段映射。
+    /// Builds the resource field mapping.
     ///
-    /// 对应 Java: `public void createResourceFieldMap(Props props)`
+    /// Corresponds to Java: `public void createResourceFieldMap(Props props)`
     pub fn create_resource_field_map(&mut self, props: &Props) {
         match find_props_data(props, &RESOURCE_KEYS) {
             None => {
@@ -1306,9 +1306,9 @@ impl FieldMap {
         }
     }
 
-    /// 建立分派字段映射。
+    /// Builds the assignment field mapping.
     ///
-    /// 对应 Java: `public void createAssignmentFieldMap(Props props)`
+    /// Corresponds to Java: `public void createAssignmentFieldMap(Props props)`
     pub fn create_assignment_field_map(&mut self, props: &Props) {
         match find_props_data(props, &ASSIGNMENT_KEYS) {
             None => {
@@ -1320,13 +1320,13 @@ impl FieldMap {
         }
     }
 
-    /// 用显式的「字段类型 → 变长数据键」列表建立变长数据字段映射。
+    /// Builds the variable data field mapping from an explicit "field type -> variable data key" list.
     ///
-    /// 对应 Java: `public void createVarDataFieldMap(Map<FieldType, Integer> map)`
+    /// Corresponds to Java: `public void createVarDataFieldMap(Map<FieldType, Integer> map)`
     ///
-    /// Java 用 `Map` 是因为 `put` 语义（重复键后来者覆盖）；`MppFieldType` 不能作
-    /// `HashMap` 的键，故 Rust 侧接收键值对切片，按顺序依次写入，语义一致。
-    /// 目前用于 MPP14 中「资源分派自定义字段用不同键值表示」的特殊情形。
+    /// Java uses a `Map` for its `put` semantics (a duplicate key is overwritten by the later entry); `MppFieldType` cannot be used as
+    /// a `HashMap` key, so the Rust side accepts a slice of key-value pairs and writes them in order, with equivalent semantics.
+    /// Currently used for the special case in MPP14 where "resource assignment custom fields are represented with different key values".
     pub fn create_var_data_field_map(&mut self, map: &[(MppFieldType, i32)]) {
         for (type_, var_data_key) in map {
             let item = FieldItem::new(
@@ -1344,9 +1344,9 @@ impl FieldMap {
         }
     }
 
-    /// 用默认布局数据填充映射表。
+    /// Populates the mapping table with the default layout data.
     ///
-    /// 对应 Java: `private void populateDefaultData(FieldItem[] defaultData)`
+    /// Corresponds to Java: `private void populateDefaultData(FieldItem[] defaultData)`
     fn populate_default_data(&mut self, default_data: &[FieldItem]) {
         for item in default_data {
             // Java: m_map.put(item.getType(), item);
@@ -1354,12 +1354,12 @@ impl FieldMap {
         }
     }
 
-    /// 按字段布局把一块原始数据写进字段容器。
+    /// Writes a block of raw data into the field container according to the field layout.
     ///
-    /// 对应 Java: `public void populateContainer(FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `public void populateContainer(FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
     ///
-    /// Java 的 `fixedData` 数组及其元素都可以为 `null`：数组为 `null` 时用空切片表示，
-    /// 元素为 `null` 时用 `None` 表示。
+    /// In Java both the `fixedData` array and its elements can be `null`: a `null` array is represented by an empty slice,
+    /// and a `null` element is represented by `None`.
     pub fn populate_container(
         &self,
         field_type_class: FieldTypeClass,
@@ -1374,9 +1374,9 @@ impl FieldMap {
         }
     }
 
-    /// 按字段布局把单个字段写进字段容器。
+    /// Writes a single field into the field container according to the field layout.
     ///
-    /// 对应 Java: `public void populateField(FieldType type, FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `public void populateField(FieldType type, FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
     pub fn populate_field(
         &self,
         type_: &MppFieldType,
@@ -1387,15 +1387,15 @@ impl FieldMap {
         var_data: &Var2Data,
     ) {
         // Java: populateItem(m_map.get(type), fieldTypeClass, container, id, fixedData, varData);
-        //       （type 不在表中时 Java 给 populateItem 传 null，会抛 NPE；Rust 侧直接不处理）
+        //       (when type is not in the table, Java passes null to populateItem and throws an NPE; the Rust side simply does not handle it)
         if let Some(item) = self.map.get(&type_.to_key()) {
             self.populate_item(item, field_type_class, container, id, fixed_data, var_data);
         }
     }
 
-    /// 用单个字段项写进字段容器。
+    /// Writes a single field item into the field container.
     ///
-    /// 对应 Java: `private void populateItem(FieldItem item, FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `private void populateItem(FieldItem item, FieldTypeClass fieldTypeClass, FieldContainer container, Integer id, byte[][] fixedData, Var2Data varData)`
     fn populate_item(
         &self,
         item: &FieldItem,
@@ -1412,16 +1412,16 @@ impl FieldMap {
         let value = item.read(self, id, fixed_data, var_data);
 
         // Java: container.set(item.getType(), value);
-        // 内置字段用其 `FieldKey`，自定义字段转成 `FieldKey::Custom`
-        // （以 unique ID 为等价依据，与 Java `UserDefinedField.equals` 一致）。
+        // Built-in fields use their `FieldKey`; custom fields are converted to `FieldKey::Custom`
+        // (using the unique ID as the equivalence basis, consistent with Java's `UserDefinedField.equals`).
         container.set(item.get_type().to_field_key(), value);
     }
 
-    /// 取定长数据块的最大偏移。
+    /// Gets the maximum offset of the fixed data block.
     ///
-    /// 对应 Java: `public int getMaxFixedDataSize(int blockIndex)`
+    /// Corresponds to Java: `public int getMaxFixedDataSize(int blockIndex)`
     ///
-    /// Java 越界时抛 `ArrayIndexOutOfBoundsException`，Rust 侧返回 `None`。
+    /// Java throws `ArrayIndexOutOfBoundsException` when out of bounds; the Rust side returns `None`.
     pub fn get_max_fixed_data_size(&self, block_index: i32) -> Option<i32> {
         usize::try_from(block_index)
             .ok()
@@ -1429,9 +1429,9 @@ impl FieldMap {
             .copied()
     }
 
-    /// 取某个字段的定长数据偏移（不在表中时返回 `-1`，与 Java 一致）。
+    /// Gets the fixed data offset of a field (returns `-1` when not in the table, consistent with Java).
     ///
-    /// 对应 Java: `public int getFixedDataOffset(FieldType type)`
+    /// Corresponds to Java: `public int getFixedDataOffset(FieldType type)`
     pub fn get_fixed_data_offset(&self, type_: &MppFieldType) -> i32 {
         match self.map.get(&type_.to_key()) {
             Some(item) => item.get_fixed_data_offset(),
@@ -1439,21 +1439,21 @@ impl FieldMap {
         }
     }
 
-    /// 取某个字段的变长数据键（不在表中时返回 `None`）。
+    /// Gets the variable data key of a field (returns `None` when not in the table).
     ///
-    /// 对应 Java: `public Integer getVarDataKey(FieldType type)`
+    /// Corresponds to Java: `public Integer getVarDataKey(FieldType type)`
     pub fn get_var_data_key(&self, type_: &MppFieldType) -> Option<i32> {
         self.map
             .get(&type_.to_key())
             .and_then(FieldItem::get_var_data_key)
     }
 
-    /// 由变长数据键反查字段类型。
+    /// Looks up the field type from the variable data key.
     ///
-    /// 对应 Java: `public FieldType getFieldTypeFromVarDataKey(Integer key)`
+    /// Corresponds to Java: `public FieldType getFieldTypeFromVarDataKey(Integer key)`
     ///
-    /// Java 注释说明该方法仅供诊断使用（遍历整张表，效率不高）；Rust 侧同样如此，
-    /// 且遍历顺序与 Java 的 `HashMap` 一样不确定。
+    /// A Java comment states that this method is for diagnostic use only (it traverses the whole table and is not efficient); the same applies on the Rust side,
+    /// and the traversal order is as nondeterministic as Java's `HashMap`.
     pub fn get_field_type_from_var_data_key(&self, key: Option<i32>) -> Option<MppFieldType> {
         for item in self.map.values() {
             if item.get_field_location() == FieldLocation::VarData
@@ -1466,18 +1466,18 @@ impl FieldMap {
         None
     }
 
-    /// 取某个字段的数据块位置（不在表中时返回 `None`）。
+    /// Gets the data block location of a field (returns `None` when not in the table).
     ///
-    /// 对应 Java: `public FieldLocation getFieldLocation(FieldType type)`
+    /// Corresponds to Java: `public FieldLocation getFieldLocation(FieldType type)`
     pub fn get_field_location(&self, type_: &MppFieldType) -> Option<FieldLocation> {
         self.map
             .get(&type_.to_key())
             .map(FieldItem::get_field_location)
     }
 
-    /// 读取单个字段的值。
+    /// Reads the value of a single field.
     ///
-    /// 对应 Java: `protected Object getFieldData(Integer id, FieldType type, byte[][] fixedData, Var2Data varData)`
+    /// Corresponds to Java: `protected Object getFieldData(Integer id, FieldType type, byte[][] fixedData, Var2Data varData)`
     pub fn get_field_data(
         &self,
         id: Option<i32>,
@@ -1490,32 +1490,32 @@ impl FieldMap {
             .and_then(|item| item.read(self, id, fixed_data, var_data))
     }
 
-    /// 取项目属性。
+    /// Gets the project properties.
     ///
-    /// 对应 Java: `protected ProjectProperties getProjectProperties()`
+    /// Corresponds to Java: `protected ProjectProperties getProjectProperties()`
     ///
-    /// Java 在构造方法里保存了属性对象的引用，Rust 侧属性对象由 `ProjectFile` 持有，
-    /// 故每次经 `RefCell::try_borrow` 借用；文件正被可变借用时返回 `None`
-    /// （Java 不存在该情形，见文件头「已知功能缺口」）。
+    /// Java stores a reference to the properties object in the constructor; on the Rust side the properties object is held by `ProjectFile`,
+    /// so it is borrowed via `RefCell::try_borrow` each time; when the file is mutably borrowed it returns `None`
+    /// (this situation does not arise in Java; see "Known functional gaps" in the file header).
     pub fn get_project_properties(&self) -> Option<Ref<'_, ProjectProperties>> {
         // Java: return m_properties;
         self.try_project_properties()
     }
 
-    /// 清空字段映射。
+    /// Clears the field mapping.
     ///
-    /// 对应 Java: `public void clear()`
+    /// Corresponds to Java: `public void clear()`
     pub fn clear(&mut self) {
         // Java: m_map.clear(); Arrays.fill(m_maxFixedDataSize, 0);
         self.map.clear();
         self.max_fixed_data_size = [0; MAX_FIXED_DATA_BLOCKS];
     }
 
-    /// 取某个字段在定长数据块中占用的字节数。
+    /// Gets the number of bytes a field occupies in the fixed data block.
     ///
-    /// 对应 Java: `private int getFixedDataFieldSize(FieldType type)`
+    /// Corresponds to Java: `private int getFixedDataFieldSize(FieldType type)`
     ///
-    /// Java 的 `type.getDataType()` 可能为 `null`（占位类型），此时返回 0。
+    /// Java's `type.getDataType()` may be `null` (placeholder type); in that case it returns 0.
     fn get_fixed_data_field_size(&self, type_: &MppFieldType) -> i32 {
         match type_.get_data_type() {
             DataType::Date | DataType::Integer | DataType::Duration => 4,
@@ -1539,28 +1539,28 @@ impl FieldMap {
         }
     }
 
-    /// 取项目默认工期单位。
+    /// Gets the project's default duration units.
     ///
-    /// 对应 Java: `getProjectProperties().getDefaultDurationUnits()`
+    /// Corresponds to Java: `getProjectProperties().getDefaultDurationUnits()`
     ///
-    /// 无法借用项目属性时按 `ProjectProperties` 的默认值 `DAYS` 处理。
+    /// When the project properties cannot be borrowed, falls back to the `ProjectProperties` default value `DAYS`.
     fn default_duration_units(&self) -> TimeUnit {
         self.try_project_properties()
             .as_deref()
             .map_or(TimeUnit::Days, ProjectProperties::get_default_duration_units)
     }
 
-    /// 按项目属性把文件中的工期换算成用户可见的工期。
+    /// Converts the duration in the file into a user-visible duration according to the project properties.
     ///
-    /// 对应 Java: `MPPUtility.getAdjustedDuration(getProjectProperties(), duration, units)`
+    /// Corresponds to Java: `MPPUtility.getAdjustedDuration(getProjectProperties(), duration, units)`
     ///
-    /// 无法借用项目属性（文件正被可变借用）时返回 `None`。
+    /// Returns `None` when the project properties cannot be borrowed (the file is mutably borrowed).
     fn adjusted_duration(&self, duration: i32, units: TimeUnit) -> Option<Duration> {
         let properties = self.try_project_properties();
         MPPUtility::get_adjusted_duration(properties.as_deref()?, duration, units)
     }
 
-    /// 借用项目属性（Rust 特有：Java 直接持有引用）。
+    /// Borrows the project properties (Rust-specific: Java holds the reference directly).
     fn try_project_properties(&self) -> Option<Ref<'_, ProjectProperties>> {
         let file = self.file.try_borrow().ok()?;
         Some(Ref::map(file, |file| file.get_project_properties()))
@@ -1568,7 +1568,7 @@ impl FieldMap {
 }
 
 impl Display for FieldMap {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // Java: ArrayList<FieldItem> items = new ArrayList<>(m_map.values()); Collections.sort(items);
         let mut items: Vec<FieldItem> = self.map.values().cloned().collect();
@@ -1589,22 +1589,22 @@ impl Display for FieldMap {
 }
 
 impl VarDataKeyResolver for FieldMap {
-    /// 对应 Java: `FieldType getFieldTypeFromVarDataKey(Integer key)`
-    /// （`AbstractVarMeta#toString(FieldMap)` 用它把变长数据键翻译成字段名）
+    /// Corresponds to Java: `FieldType getFieldTypeFromVarDataKey(Integer key)`
+    /// (`AbstractVarMeta#toString(FieldMap)` uses it to translate the variable data key into a field name)
     ///
-    /// Rust 侧的 [`VarDataKeyResolver`] 声明为返回字段显示名，故这里在
-    /// [`FieldMap::get_field_type_from_var_data_key`] 的结果上取 `MppFieldType` 的显示名。
+    /// The Rust side's [`VarDataKeyResolver`] is declared to return the field display name, so here it takes
+    /// the display name of the `MppFieldType` from the result of [`FieldMap::get_field_type_from_var_data_key`].
     fn get_field_type_from_var_data_key(&self, key: i32) -> Option<String> {
         FieldMap::get_field_type_from_var_data_key(self, Some(key))
             .map(|type_| type_.get_name())
     }
 }
 
-/// 按顺序取第一个存在的属性数据。
+/// Takes the first property data that exists, in order.
 ///
-/// 对应 Java: `create*FieldMap` 中形如
+/// Corresponds to Java: in `create*FieldMap`, a loop of the form
 /// `for (PropsKey key : KEYS) { fieldMapData = props.getByteArray(key); if (fieldMapData != null) break; }`
-/// 的循环（Rust 特有的辅助函数，5 处调用共用）。
+/// (a Rust-specific helper function shared by 5 call sites).
 fn find_props_data<'a>(props: &'a Props, keys: &[PropsKey]) -> Option<&'a [u8]> {
     for key in keys {
         if let Some(data) = props.get_byte_array(*key) {
@@ -1615,10 +1615,10 @@ fn find_props_data<'a>(props: &'a Props, keys: &[PropsKey]) -> Option<&'a [u8]> 
     None
 }
 
-/// 读取两字节短整数；数据不足时返回 `None`。
+/// Reads a two-byte short integer; returns `None` when there is insufficient data.
 ///
-/// Java 的 `ByteArrayHelper.getShort` 越界会抛 `ArrayIndexOutOfBoundsException`，
-/// Rust 侧统一返回 `None`（本文件所有「Java 抛越界异常」的读取都走这两个辅助函数）。
+/// Java's `ByteArrayHelper.getShort` throws `ArrayIndexOutOfBoundsException` when out of bounds;
+/// the Rust side uniformly returns `None` (all reads in this file where "Java throws an out-of-bounds exception" go through these two helper functions).
 fn checked_short(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(2)? > data.len() {
         return None;
@@ -1627,7 +1627,7 @@ fn checked_short(data: &[u8], offset: usize) -> Option<i32> {
     Some(ByteArrayHelper::get_short(data, offset))
 }
 
-/// 读取四字节整数；数据不足时返回 `None`。
+/// Reads a four-byte integer; returns `None` when there is insufficient data.
 fn checked_int(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(4)? > data.len() {
         return None;
@@ -1636,11 +1636,11 @@ fn checked_int(data: &[u8], offset: usize) -> Option<i32> {
     Some(ByteArrayHelper::get_int(data, offset))
 }
 
-/// 把 MPP 文件里的任务类型值转换成 [`TaskType`]。
+/// Converts the task type value in an MPP file into [`TaskType`].
 ///
-/// 对应 Java: `org.mpxj.mpp.TaskTypeHelper.getInstance(int)`
+/// Corresponds to Java: `org.mpxj.mpp.TaskTypeHelper.getInstance(int)`
 ///
-/// （该工具类未在本 crate 落地，故就地内联；越界值一律回落到 `FIXED_WORK`。）
+/// (that utility class has not been ported to this crate, so it is inlined here; out-of-range values always fall back to `FIXED_WORK`.)
 fn mpp_value_to_task_type(value: i32) -> TaskType {
     match value {
         0 => TaskType::FixedUnits,
@@ -1649,12 +1649,12 @@ fn mpp_value_to_task_type(value: i32) -> TaskType {
     }
 }
 
-/// 把 [`TaskType`] 编码为字段值。
+/// Encodes [`TaskType`] as a field value.
 ///
-/// 对应 Java: `org.mpxj.mpp.TaskTypeHelper.getValue(TaskType)`
+/// Corresponds to Java: `org.mpxj.mpp.TaskTypeHelper.getValue(TaskType)`
 ///
-/// `TaskType` 没有 int 值，本 crate 统一按 `TaskType::ALL` 的下标编码
-/// （与 `crate::task::task_type_to_value` 一致），故 `Task::get_type()` 能还原。
+/// `TaskType` has no int value, so this crate uniformly encodes it by the index into `TaskType::ALL`
+/// (consistent with `crate::task::task_type_to_value`), so `Task::get_type()` can recover it.
 fn task_type_to_value(value: TaskType) -> i32 {
     TaskType::ALL
         .iter()
@@ -1662,9 +1662,9 @@ fn task_type_to_value(value: TaskType) -> i32 {
         .map_or(0, |index| index as i32)
 }
 
-/// 取 [`FieldTypeClass`] 的 Java 枚举常量名（用于 `toString` 输出）。
+/// Gets the Java enum constant name of [`FieldTypeClass`] (used for `toString` output).
 ///
-/// Rust 的 [`FieldTypeClass`] 没有 `Display`，其 `Debug` 名称与 Java 常量名仅大小写不同。
+/// Rust's [`FieldTypeClass`] has no `Display`; its `Debug` name differs from the Java constant name only in case.
 fn field_type_class_name(class: FieldTypeClass) -> &'static str {
     match class {
         FieldTypeClass::Task => "TASK",
@@ -1685,12 +1685,12 @@ mod tests {
     use crate::mpp::var_data_field_reader::test_support::var_data;
     use crate::task_field::TaskField;
 
-    /// 任务 / 资源字段号前缀（与 Java 的 `MPPTaskField.TASK_FIELD_BASE` /
-    /// `MPPResourceField.RESOURCE_FIELD_BASE` 一致，取自已落地的 `MPP*Field` 常量）。
+    /// Task / resource field number prefixes (consistent with Java's `MPPTaskField.TASK_FIELD_BASE` /
+    /// `MPPResourceField.RESOURCE_FIELD_BASE`, taken from the already-ported `MPP*Field` constants).
     const TASK_FIELD_BASE: i32 = MPPTaskField::TASK_FIELD_BASE;
     const RESOURCE_FIELD_BASE: i32 = MPPResourceField::RESOURCE_FIELD_BASE;
 
-    /// 测试用字段布局表记录（28 字节，字段位置与 Java 的 `createFieldMap` 一致）。
+    /// Field layout table records for tests (28 bytes, with field locations consistent with Java's `createFieldMap`).
     fn record(
         mask: i32,
         data_block_offset: i32,
@@ -1707,29 +1707,29 @@ mod tests {
         data
     }
 
-    /// 构造一个内置任务字段。
+    /// Constructs a built-in task field.
     fn task_field(field: TaskField) -> MppFieldType {
         MppFieldType::Builtin(FieldKey::Task(field))
     }
 
-    /// 构造一份含任务字段布局表的 props（`TaskFieldMap`）。
+    /// Constructs a props containing the task field layout table (`TaskFieldMap`).
     ///
-    /// 记录内容（字段号取自 Java 的 `MPPTaskField.FIELD_ARRAY`）：
-    /// 86 = UNIQUE_ID、29 = DURATION、32 = PERCENT_COMPLETE、14 = NAME、
-    /// 16 = WBS、19 = CRITICAL、23 = ID。
+    /// Record contents (field numbers taken from Java's `MPPTaskField.FIELD_ARRAY`):
+    /// 86 = UNIQUE_ID,29 = DURATION,32 = PERCENT_COMPLETE,14 = NAME,
+    /// 16 = WBS,19 = CRITICAL,23 = ID.
     fn props_with_task_field_map() -> Props {
         let mut bytes = Vec::new();
-        // 定长数据块 0：偏移 0（4 字节）→ 偏移 4（4 字节）→ 偏移 8（2 字节）
+        // Fixed data block 0: offset 0 (4 bytes) -> offset 4 (4 bytes) -> offset 8 (2 bytes)
         bytes.extend(record(0x0000_0001, 0, 0, TASK_FIELD_BASE | 86, 0x03));
         bytes.extend(record(0x0000_0002, 4, 0, TASK_FIELD_BASE | 29, 0x03));
         bytes.extend(record(0x0000_0004, 8, 0, TASK_FIELD_BASE | 32, 0x02));
-        // 变长数据：键 11
+        // Variable data: key 11
         bytes.extend(record(0, 65535, 11, TASK_FIELD_BASE | 14, 0x08));
-        // 变长数据块但键为 0 → 位置未知
+        // Variable data block but key 0 -> location unknown
         bytes.extend(record(0, 65535, 0, TASK_FIELD_BASE | 16, 0x08));
-        // 元数据块 0
+        // Metadata block 0
         bytes.extend(record(0x0000_0010, 0, 0, TASK_FIELD_BASE | 19, 0x0B));
-        // 偏移回绕 → 定长数据块 1，偏移 0（4 字节）
+        // Offset wrap-around -> fixed data block 1, offset 0 (4 bytes)
         bytes.extend(record(0, 0, 0, TASK_FIELD_BASE | 23, 0x03));
 
         let mut props = Props::new();
@@ -1737,7 +1737,7 @@ mod tests {
         props
     }
 
-    /// 定长数据块（8 字节）：偏移 0 处 unique ID = 7，偏移 4 处百分比 = 50。
+    /// Fixed data block (8 bytes): unique ID = 7 at offset 0, percentage = 50 at offset 4.
     fn fixed_data() -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&7i32.to_le_bytes());
@@ -1745,7 +1745,7 @@ mod tests {
         data
     }
 
-    /// "Hello" 的 UTF-16LE 表示（NUL 结尾）。
+    /// UTF-16LE representation of "Hello" (NUL-terminated).
     fn utf16(text: &str) -> Vec<u8> {
         let mut bytes = Vec::new();
         for unit in text.encode_utf16() {
@@ -1755,7 +1755,7 @@ mod tests {
         bytes
     }
 
-    /// 测试用的字段容器（与 `crate::mpp::mpp_bit_flag` 的测试容器一致）。
+    /// Field container for tests (consistent with the test container in `crate::mpp::mpp_bit_flag`).
     #[derive(Default)]
     struct MockContainer {
         values: HashMap<FieldKey, FieldValue>,
@@ -1782,14 +1782,14 @@ mod tests {
         fn clear_field_listeners(&mut self) {}
     }
 
-    /// 解析字段布局表：字段数量、位置、偏移、变长数据键、各块最大偏移。
+    /// Parses the field layout table: number of fields, location, offset, variable data key, and maximum offset of each block.
     #[test]
     fn create_task_field_map_reads_the_layout_table() {
         let file = ProjectFile::new();
         let mut field_map = FieldMap::new(&file);
         field_map.create_task_field_map(&props_with_task_field_map());
 
-        // 7 条记录全部命中已知字段
+        // All 7 records hit known fields
         assert_eq!(field_map.get_field_types().len(), 7);
 
         assert_eq!(
@@ -1804,7 +1804,7 @@ mod tests {
             field_map.get_fixed_data_offset(&task_field(TaskField::PercentComplete)),
             8
         );
-        // 变长数据字段保留 Java 中的 65535 偏移
+        // Variable data fields keep the 65535 offset from Java
         assert_eq!(
             field_map.get_fixed_data_offset(&task_field(TaskField::Name)),
             65535
@@ -1818,18 +1818,18 @@ mod tests {
             Some(11)
         );
 
-        // 变长数据键为 0 → 位置未知
+        // Variable data key 0 -> location unknown
         assert_eq!(
             field_map.get_field_location(&task_field(TaskField::Wbs)),
             Some(FieldLocation::Unknown)
         );
-        // 元数据块
+        // Metadata block
         assert_eq!(
             field_map.get_field_location(&task_field(TaskField::Critical)),
             Some(FieldLocation::MetaData)
         );
 
-        // 偏移回绕 → 第二个定长数据块
+        // Offset wrap-around -> the second fixed data block
         let block_index = field_map
             .get_field_types()
             .into_iter()
@@ -1837,29 +1837,29 @@ mod tests {
                 MppFieldType::Builtin(FieldKey::Task(TaskField::Id)) => Some(()),
                 _ => None,
             });
-        assert!(block_index.is_some(), "ID 字段应已登记");
+        assert!(block_index.is_some(), "ID field should be registered");
 
-        // 块 0：最大偏移 = 8 + 2 = 10；块 1：最大偏移 = 0 + 4 = 4
+        // Block 0: maximum offset = 8 + 2 = 10; block 1: maximum offset = 0 + 4 = 4
         assert_eq!(field_map.get_max_fixed_data_size(0), Some(10));
         assert_eq!(field_map.get_max_fixed_data_size(1), Some(4));
-        // Java 越界会抛异常，Rust 返回 None
+        // Java throws when out of bounds; Rust returns None
         assert_eq!(field_map.get_max_fixed_data_size(2), None);
         assert_eq!(field_map.get_max_fixed_data_size(-1), None);
 
-        // 由变长数据键反查字段
+        // Look up the field from the variable data key
         assert_eq!(
             field_map.get_field_type_from_var_data_key(Some(11)).map(|t| t.to_key()),
             Some(MppFieldKey::Builtin(FieldKey::Task(TaskField::Name)))
         );
         assert!(field_map.get_field_type_from_var_data_key(Some(999)).is_none());
 
-        // 不在表中的字段
+        // A field not in the table
         assert_eq!(field_map.get_field_location(&task_field(TaskField::Cost)), None);
         assert_eq!(field_map.get_var_data_key(&task_field(TaskField::Cost)), None);
         assert_eq!(field_map.get_fixed_data_offset(&task_field(TaskField::Cost)), -1);
     }
 
-    /// `Props` 中缺少字段布局表时使用默认布局数据。
+    /// Uses the default layout data when the field layout table is missing from `Props`.
     #[test]
     fn create_task_field_map_uses_default_data_when_props_are_missing() {
         let file = ProjectFile::new();
@@ -1895,17 +1895,17 @@ mod tests {
             field_map.get_var_data_key(&task_field(TaskField::Name)),
             Some(11)
         );
-        // Java 的 populateDefaultData 不更新 m_maxFixedDataSize
+        // Java's populateDefaultData does not update m_maxFixedDataSize
         assert_eq!(field_map.get_max_fixed_data_size(0), Some(0));
     }
 
-    /// 企业自定义字段表：只保留与目标实体类型匹配的自定义字段。
+    /// Enterprise custom field table: only keeps custom fields matching the target entity type.
     #[test]
     fn create_enterprise_custom_field_map_filters_by_field_type_class() {
         let mut bytes = vec![0u8; 4];
-        // 任务企业自定义字段（0x8000 位表示自定义字段）
+        // Task enterprise custom field (the 0x8000 bit indicates a custom field)
         bytes.extend_from_slice(&(TASK_FIELD_BASE | 0x8001).to_le_bytes());
-        // 资源企业自定义字段：实体类型不匹配
+        // Resource enterprise custom field: entity type does not match
         bytes.extend_from_slice(&(RESOURCE_FIELD_BASE | 0x8001).to_le_bytes());
 
         let mut props = Props::new();
@@ -1925,7 +1925,7 @@ mod tests {
         assert_eq!(field_map.get_var_data_key(&types[0]), Some(0x8001));
     }
 
-    /// 显式「字段类型 → 变长数据键」映射。
+    /// Explicit "field type -> variable data key" mapping.
     #[test]
     fn create_var_data_field_map_registers_explicit_keys() {
         let file = ProjectFile::new();
@@ -1946,14 +1946,14 @@ mod tests {
         );
     }
 
-    /// `populateContainer`：只写字段类型匹配、且数据存在的字段。
+    /// `populateContainer`: only writes fields whose field type matches and whose data exists.
     #[test]
     fn populate_container_populates_present_fields_only() {
         let mut bytes = Vec::new();
-        bytes.extend(record(0, 0, 0, TASK_FIELD_BASE | 86, 0x03)); // UNIQUE_ID：定长偏移 0（Integer）
-        bytes.extend(record(0, 4, 0, TASK_FIELD_BASE | 32, 0x02)); // PERCENT_COMPLETE：定长偏移 4（Percentage）
-        bytes.extend(record(0, 65535, 11, TASK_FIELD_BASE | 14, 0x08)); // NAME：变长数据键 11
-        bytes.extend(record(0, 8, 0, TASK_FIELD_BASE | 23, 0x03)); // ID：定长偏移 8（数据只有 8 字节）
+        bytes.extend(record(0, 0, 0, TASK_FIELD_BASE | 86, 0x03)); // UNIQUE_ID：fixed offset 0（Integer）
+        bytes.extend(record(0, 4, 0, TASK_FIELD_BASE | 32, 0x02)); // PERCENT_COMPLETE：fixed offset 4（Percentage）
+        bytes.extend(record(0, 65535, 11, TASK_FIELD_BASE | 14, 0x08)); // NAME：variable data key 11
+        bytes.extend(record(0, 8, 0, TASK_FIELD_BASE | 23, 0x03)); // ID：fixed offset 8（data is only 8 bytes）
 
         let mut props = Props::new();
         props.put(PropsKey::TaskFieldMap.get_value(), bytes);
@@ -1974,7 +1974,7 @@ mod tests {
             &var,
         );
 
-        // 定长数据块中的整型 / 百分比
+        // Integer / percentage in the fixed data block
         assert_eq!(
             container.get(FieldKey::Task(TaskField::UniqueId)),
             Some(FieldValue::Integer(7))
@@ -1983,18 +1983,18 @@ mod tests {
             container.get(FieldKey::Task(TaskField::PercentComplete)),
             Some(FieldValue::Double(50.0))
         );
-        // 变长数据块中的字符串
+        // String in the variable data block
         assert_eq!(
             container.get(FieldKey::Task(TaskField::Name)),
             Some(FieldValue::String("Hello".to_owned()))
         );
-        // 字段在表中但数据缺失：Java 传入 null（等价于移除），Rust 侧不写入
+        // The field is in the table but its data is missing: Java passes null (equivalent to removal); the Rust side does not write it
         assert_eq!(container.get(FieldKey::Task(TaskField::Id)), None);
-        // 字段不在表中：populateContainer 不会触碰它
+        // The field is not in the table: populateContainer does not touch it
         assert_eq!(container.get(FieldKey::Task(TaskField::Cost)), None);
     }
 
-    /// `populateContainer`：字段类型不匹配时什么也不写。
+    /// `populateContainer`: writes nothing when the field type does not match.
     #[test]
     fn populate_container_ignores_other_field_type_classes() {
         let file = ProjectFile::new();
@@ -2016,7 +2016,7 @@ mod tests {
         assert!(container.values.is_empty());
     }
 
-    /// `populateField`：单字段写入；字段不在表中时不 panic。
+    /// `populateField`: writes a single field; does not panic when the field is not in the table.
     #[test]
     fn populate_field_writes_a_single_field() {
         let file = ProjectFile::new();
@@ -2040,7 +2040,7 @@ mod tests {
             Some(FieldValue::Integer(7))
         );
 
-        // 不在表中的字段：Java 会给 populateItem 传 null 并抛 NPE，Rust 侧不处理
+        // A field not in the table: Java passes null to populateItem and throws an NPE; the Rust side does not handle it
         field_map.populate_field(
             &task_field(TaskField::Cost),
             FieldTypeClass::Task,
@@ -2052,7 +2052,7 @@ mod tests {
         assert_eq!(container.get(FieldKey::Task(TaskField::Cost)), None);
     }
 
-    /// `getFieldData`：元数据块与未知字段都不取值。
+    /// `getFieldData`: neither the metadata block nor unknown fields yield a value.
     #[test]
     fn get_field_data_ignores_meta_data_and_missing_fields() {
         let file = ProjectFile::new();
@@ -2063,7 +2063,7 @@ mod tests {
         let empty: Vec<Option<&[u8]>> = Vec::new();
         let var = var_data(&[(1, 11, utf16("Hello"))]);
 
-        // 元数据块中的布尔字段（Java 的 read 忽略 META_DATA）
+        // A boolean field in the metadata block (Java's read ignores META_DATA)
         assert_eq!(
             field_map.get_field_data(
                 Some(1),
@@ -2073,7 +2073,7 @@ mod tests {
             ),
             None
         );
-        // 定长数据块不存在（Java 传 null 数组会抛 NPE，Rust 返回 None）
+        // The fixed data block does not exist (Java passes a null array and throws an NPE; Rust returns None)
         assert_eq!(
             field_map.get_field_data(
                 Some(1),
@@ -2083,7 +2083,7 @@ mod tests {
             ),
             None
         );
-        // 字段不在表中
+        // The field is not in the table
         assert_eq!(
             field_map.get_field_data(
                 Some(1),
@@ -2095,7 +2095,7 @@ mod tests {
         );
     }
 
-    /// `clear` 清空映射与最大偏移。
+    /// `clear` clears the mapping and the maximum offsets.
     #[test]
     fn clear_resets_the_map_and_offsets() {
         let file = ProjectFile::new();
@@ -2110,7 +2110,7 @@ mod tests {
         assert_eq!(field_map.get_max_fixed_data_size(1), Some(0));
     }
 
-    /// `Display`（Java 的 `toString`）的输出格式。
+    /// Output format of `Display` (Java's `toString`).
     #[test]
     fn display_matches_java_layout() {
         let file = ProjectFile::new();
@@ -2141,14 +2141,14 @@ mod tests {
         assert!(text.starts_with("[FieldMap\n"));
         assert!(text.contains(" MaxFixedOffset (block 0)=0\n"));
         assert!(text.contains(" MaxFixedOffset (block 1)=0\n"));
-        // 定长数据项排在变长数据项之前（FieldLocation 的声明顺序）
+        // Fixed data items come before variable data items (the declaration order of FieldLocation)
         assert!(text.contains("[FieldItem type=TASK."));
         assert!(text.contains("location=FIXED_DATA fixedDataBlockIndex=0 fixedDataBlockOffset=0]"));
         assert!(text.contains("location=VAR_DATA varDataKey=11]"));
         assert!(text.ends_with("]\n"));
     }
 
-    /// `FieldItem` 的比较顺序（Java 的 `compareTo`）。
+    /// Comparison order of `FieldItem` (Java's `compareTo`).
     #[test]
     fn field_item_compare_to_follows_java_order() {
         let fixed_before = FieldItem::new(
@@ -2190,7 +2190,7 @@ mod tests {
 
         assert!(fixed_before.compare_to(&fixed_after) < 0);
         assert!(fixed_after.compare_to(&fixed_before) > 0);
-        // 位置优先：定长 < 变长 < 元数据
+        // Location first: fixed < variable < metadata
         assert!(fixed_after.compare_to(&var_item) < 0);
         assert!(var_item.compare_to(&meta_item) < 0);
         assert_eq!(fixed_before.compare_to(&fixed_before), 0);

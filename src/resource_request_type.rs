@@ -1,43 +1,43 @@
-//! 对应 Java: `org/mpxj/ResourceRequestType.java`
+//! Corresponds to Java: `org/mpxj/ResourceRequestType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 资源请求类型的枚举。
+/// Enum of resource request types.
 ///
-/// 对应 Java: `public enum ResourceRequestType implements MpxjEnum`
+/// Corresponds to Java: `public enum ResourceRequestType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成 int → 枚举的数组；
-/// Rust 侧不使用反射，改为 [`ResourceRequestType::ALL`] 加
-/// [`ResourceRequestType::get_instance`] 的 `match`。
+/// Java uses `EnumHelper.createTypeArray` to reflectively generate the int → enum array; the
+/// Rust side does not use reflection and instead uses [`ResourceRequestType::ALL`] plus a
+/// `match` in [`ResourceRequestType::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ResourceRequestType {
-    /// 无资源请求。
+    /// No resource request.
     ///
-    /// 对应 Java: `NONE(0)`
+    /// Corresponds to Java: `NONE(0)`
     None = 0,
-    /// 资源请求。
+    /// Resource request.
     ///
-    /// 对应 Java: `REQUEST(1)`
+    /// Corresponds to Java: `REQUEST(1)`
     Request = 1,
-    /// 资源强制需求。
+    /// Resource demand.
     ///
-    /// 对应 Java: `DEMAND(2)`
+    /// Corresponds to Java: `DEMAND(2)`
     Demand = 2,
 }
 
 impl ResourceRequestType {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, ordered by ascending int value.
     ///
-    /// 对应 Java: `private static final ResourceRequestType[] TYPE_VALUES`（不含反射部分）。
+    /// Corresponds to Java: `private static final ResourceRequestType[] TYPE_VALUES` (excluding the reflection part).
     pub const ALL: [ResourceRequestType; 3] = [
         ResourceRequestType::None,
         ResourceRequestType::Request,
         ResourceRequestType::Demand,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `NONE`。
+    /// Return an enum instance for an int value; falls back to `NONE` when out of range.
     ///
-    /// 对应 Java: `public static ResourceRequestType getInstance(int type)`
+    /// Corresponds to Java: `public static ResourceRequestType getInstance(int type)`
     pub fn get_instance(value: i32) -> ResourceRequestType {
         match value {
             0 => ResourceRequestType::None,
@@ -48,18 +48,18 @@ impl ResourceRequestType {
         }
     }
 
-    /// 对应 Java: `public static ResourceRequestType getInstance(Number type)`
+    /// Corresponds to Java: `public static ResourceRequestType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `NONE`。
+    /// On the Java side `null` goes through `getInstance(-1)` and ultimately falls back to `NONE`.
     pub fn get_instance_optional(value: Option<i32>) -> ResourceRequestType {
         ResourceRequestType::get_instance(value.unwrap_or(-1))
     }
 }
 
 impl MpxjEnum for ResourceRequestType {
-    /// 返回该枚举关联的 int 值。
+    /// Return the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

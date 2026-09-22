@@ -1,27 +1,27 @@
-//! 对应 Java: `org/mpxj/RelationshipLagCalendar.java`
+//! Corresponds to Java: `org/mpxj/RelationshipLagCalendar.java`
 
-/// 关系延隔（lag）计算所用日历的枚举。
+/// Enum for the calendar used to calculate relationship lag.
 ///
-/// 对应 Java: `public enum RelationshipLagCalendar`
+/// Corresponds to Java: `public enum RelationshipLagCalendar`
 ///
-/// Java 侧该枚举不带 int 值、不实现 `MpxjEnum`，也没有 `getInstance`；
-/// Rust 侧保持同样的形态（不实现 [`crate::mpxj_enum::MpxjEnum`]）。
+/// The Java enum has no int value, does not implement `MpxjEnum`, and has no `getInstance`;
+/// the Rust side keeps the same shape (it does not implement [`crate::mpxj_enum::MpxjEnum`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RelationshipLagCalendar {
-    /// 对应 Java: `PREDECESSOR`
+    /// Corresponds to Java: `PREDECESSOR`
     Predecessor,
-    /// 对应 Java: `SUCCESSOR`
+    /// Corresponds to Java: `SUCCESSOR`
     Successor,
-    /// 对应 Java: `PROJECT_DEFAULT`
+    /// Corresponds to Java: `PROJECT_DEFAULT`
     ProjectDefault,
-    /// 对应 Java: `TWENTY_FOUR_HOUR`
+    /// Corresponds to Java: `TWENTY_FOUR_HOUR`
     TwentyFourHour,
 }
 
 impl RelationshipLagCalendar {
-    /// 全部取值，按 Java 声明顺序排列。
+    /// All values, in Java declaration order.
     ///
-    /// 对应 Java: `RelationshipLagCalendar.values()`
+    /// Corresponds to Java: `RelationshipLagCalendar.values()`
     pub const ALL: [RelationshipLagCalendar; 4] = [
         RelationshipLagCalendar::Predecessor,
         RelationshipLagCalendar::Successor,
@@ -29,11 +29,11 @@ impl RelationshipLagCalendar {
         RelationshipLagCalendar::TwentyFourHour,
     ];
 
-    /// 按声明顺序（ordinal）取枚举实例。
+    /// Returns the enum instance by declaration order (ordinal).
     ///
-    /// Java 侧无此方法；Rust 侧补充以便与 [`RelationshipLagCalendar::ALL`] 配套查表，
-    /// 对应 Java 中 `values()[value]` 的写法。Java 越界会抛
-    /// `ArrayIndexOutOfBoundsException`，Rust 侧按本仓约定返回 `None`。
+    /// No corresponding method in Java; added on the Rust side to pair with [`RelationshipLagCalendar::ALL`] for lookups,
+    /// corresponding to Java's `values()[value]` pattern. Java throws
+    /// `ArrayIndexOutOfBoundsException` out of bounds, while the Rust side returns `None` per this repo's convention.
     pub fn get_instance(value: i32) -> Option<RelationshipLagCalendar> {
         usize::try_from(value)
             .ok()

@@ -1,32 +1,32 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldValueReader9.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldValueReader9.java`
 //!
-//! MPP9 的取值列表读取器。与 12 / 14 不同，本类**不继承**
-//! [`CustomFieldValueReader`](crate::mpp::custom_field_value_reader::CustomFieldValueReader)，
-//! 它自己解析两处数据：
+//! Value list reader for MPP9. Unlike 12 / 14, this class does **not inherit**
+//! [`CustomFieldValueReader`](crate::mpp::custom_field_value_reader::CustomFieldValueReader),
+//! it parses two data locations itself:
 //!
-//! 1. `Props` 里的 `TASK_FIELD_ATTRIBUTES` 块 —— 「字段号 → 取值列表（值数组 + 描述数组）」；
-//! 2. `TBkndOutlCode` 存储 —— 企业大纲代码的取 值/描述（定长块给字段号，变长块给文本）。
+//! 1. The `TASK_FIELD_ATTRIBUTES` block in `Props` — "field number → value list (value array + description array)";
+//! 2. The `TBkndOutlCode` store — values/descriptions for enterprise outline codes (the fixed block gives field numbers, the variable block gives text).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `CustomFieldValueReader9(DirectoryEntry projectDir, ProjectFile file, Props projectProps)` | `new(&DirectoryEntry, &Rc<RefCell<ProjectFile>>, &Props)` | 按约定 `ProjectFile` 共享为 `Rc<RefCell<..>>`；`Props` 为借用 |
-//! | `private final Props m_projectProps`（保存引用，`processCustomFieldValues` 里取 `TASK_FIELD_ATTRIBUTES`） | 构造时取出 `TASK_FIELD_ATTRIBUTES` 一份副本存入 `task_field_attributes` | `Props` 未实现 `Clone`，且本 crate 的既有做法（见 `DocumentInputStreamFactory`）是「构造时把需要的取值取出、不持有 `Props`」；数据内容在构造与解析之间不会变化，语义等价 |
-//! | `private final ProjectProperties m_properties` | 不保存引用，按需用 `ProjectFile::try_borrow` 借用 | 与 `CustomFieldValueReader` 同样的取舍 |
-//! | `public void process() throws IOException` | `pub fn process(&mut self) -> MpxjResult<()>` | Java 里唯一会变化的状态是 unique ID 计数器，Rust 侧放在 `&mut self` 上；Java 的 `IOException` 对应 [`MpxjResult`]（`FixedMeta` / `VarMeta9` 解析失败） |
-//! | `Map<FieldType, List<Pair<String, String>>>` | `HashMap<Option<MppFieldKey>, (Option<MppFieldType>, Vec<(Option<String>, Option<String>)>)>` | Java 的 `HashMap` 允许 `null` 键（`map.get(id)` 未命中的情形），Rust 侧用 `Option<MppFieldKey>` 表达；同时把「该键对应的字段」保存在值里，以便还原 `field == null ? "Unknown" : field.getName()`。`Pair` 用一个二元组表达（`Pair` 类型本身可用，但此处无需 `getFirst`/`getSecond` 之外的语义） |
-//! | `List<Object> convertType(...)` | `Vec<Option<FieldValue>>` | Java 的列表元素可能为 `null`（如 `getTimestamp` / `getAdjustedDuration` 返回 null），Rust 侧用 `Option` 保持下标对齐 |
-//! | `ByteArrayHelper.getInt/getShort` 越界抛异常 | [`checked_int`] / [`checked_short`] 返回 `None`（跳过 / 按 0 处理），`MPPUtility.getByteArray` 越界不做复制 | 遵循「不 panic」约定 |
-//! | `UUID.nameUUIDFromBytes(byte[])` | 本文件的 [`name_uuid_from_bytes`]（自实现的 MD5 + 版本/变体位） | Java 的该方法生成基于 MD5 的「版本 3」UUID；`uuid` crate 的 `v3` feature 未启用，且本 crate 不允许新增依赖，故就地实现 RFC 1321 的 MD5 |
-//! | `m_container.getOrCreate(null)`（`field` 为 null 时） | 跳过该字段 | Java 的 `FieldTypeHelper` 未识别字段号时会返回占位对象 / null；Rust 的 `FieldKey` 没有「未知」变体（见 `field_type_helper` 的说明），无法作为容器键 |
-//! | `IOException` / `NullPointerException`（缺少 OLE 条目、数据越界） | 返回 `Ok(())` / 跳过该项 | 遵循「不 panic」约定，逐点注释 |
+//! | `CustomFieldValueReader9(DirectoryEntry projectDir, ProjectFile file, Props projectProps)` | `new(&DirectoryEntry, &Rc<RefCell<ProjectFile>>, &Props)` | By convention `ProjectFile` is shared as `Rc<RefCell<..>>`; `Props` is borrowed |
+//! | `private final Props m_projectProps` (stores the reference; takes `TASK_FIELD_ATTRIBUTES` in `processCustomFieldValues`) | Takes a copy of `TASK_FIELD_ATTRIBUTES` at construction time and stores it in `task_field_attributes` | `Props` does not implement `Clone`, and the established practice in this crate (see `DocumentInputStreamFactory`) is to "take the needed values at construction time and not hold `Props`"; the data content does not change between construction and parsing, so the semantics are equivalent |
+//! | `private final ProjectProperties m_properties` | Does not store the reference; borrows on demand via `ProjectFile::try_borrow` | Same trade-off as `CustomFieldValueReader` |
+//! | `public void process() throws IOException` | `pub fn process(&mut self) -> MpxjResult<()>` | The only mutable state in Java is the unique ID counter, which the Rust side places on `&mut self`; Java's `IOException` corresponds to [`MpxjResult`] (`FixedMeta` / `VarMeta9` parse failure) |
+//! | `Map<FieldType, List<Pair<String, String>>>` | `HashMap<Option<MppFieldKey>, (Option<MppFieldType>, Vec<(Option<String>, Option<String>)>)>` | Java's `HashMap` allows a `null` key (the case where `map.get(id)` misses), which the Rust side represents with `Option<MppFieldKey>`; it also stores "the field corresponding to that key" in the value, in order to reproduce `field == null ? "Unknown" : field.getName()`. `Pair` is represented by a tuple (the `Pair` type itself is usable, but no semantics beyond `getFirst`/`getSecond` are needed here) |
+//! | `List<Object> convertType(...)` | `Vec<Option<FieldValue>>` | Java's list elements may be `null` (e.g. `getTimestamp` / `getAdjustedDuration` returning null), which the Rust side represents with `Option` to keep indices aligned |
+//! | `ByteArrayHelper.getInt/getShort` throws on out-of-bounds | [`checked_int`] / [`checked_short`] return `None` (skip / treat as 0), and `MPPUtility.getByteArray` does not copy when out of bounds | Follows the "never panic" convention |
+//! | `UUID.nameUUIDFromBytes(byte[])` | This file's [`name_uuid_from_bytes`] (self-implemented MD5 + version/variant bits) | Java's method generates an MD5-based "version 3" UUID; the `uuid` crate's `v3` feature is not enabled and this crate does not allow new dependencies, so RFC 1321 MD5 is implemented in place |
+//! | `m_container.getOrCreate(null)` (when `field` is null) | Skip that field | Java's `FieldTypeHelper` returns a placeholder object / null when it does not recognize a field number; Rust's `FieldKey` has no "unknown" variant (see the notes on `field_type_helper`) and cannot serve as a container key |
+//! | `IOException` / `NullPointerException` (missing OLE entry, data out of bounds) | Return `Ok(())` / skip the item | Follows the "never panic" convention, annotated point by point |
 //!
-//! 跳过的 Java 方法：无（`process` / `processCustomFieldValues` / `processOutlineCodeValues` /
-//! 两个 `populateContainer` 重载 / `convertType` / `getDataType` 全部翻译；Rust 侧因不支持重载，
-//! 第二个 `populateContainer` 改名为 `populate_container_from_outline_code`）。
+//! Skipped Java methods: none (`process` / `processCustomFieldValues` / `processOutlineCodeValues` /
+//! both `populateContainer` overloads / `convertType` / `getDataType` are all translated; because Rust does not support overloading,
+//! the second `populateContainer` is renamed to `populate_container_from_outline_code`).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
@@ -58,57 +58,57 @@ use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 use crate::project_properties::ProjectProperties;
 
-/// 大纲代码「取值」在变长数据块中的数据类型键。
+/// Data type key of the outline code "value" in the variable data block.
 ///
-/// 对应 Java: `private static final Integer VALUE = Integer.valueOf(1);`
+/// Corresponds to Java: `private static final Integer VALUE = Integer.valueOf(1);`
 const VALUE: i32 = 1;
 
-/// 大纲代码「描述」在变长数据块中的数据类型键。
+/// Data type key of the outline code "description" in the variable data block.
 ///
-/// 对应 Java: `private static final Integer DESCRIPTION = Integer.valueOf(2);`
+/// Corresponds to Java: `private static final Integer DESCRIPTION = Integer.valueOf(2);`
 const DESCRIPTION: i32 = 2;
 
-/// MPP9 取值列表读取器。
+/// MPP9 value list reader.
 ///
-/// 对应 Java: `class CustomFieldValueReader9`
+/// Corresponds to Java: `class CustomFieldValueReader9`
 pub struct CustomFieldValueReader9 {
-    /// 项目存储（`TBkndOutlCode` 的父存储）。
+    /// Project store (the parent store of `TBkndOutlCode`).
     ///
-    /// 对应 Java 字段: `private final DirectoryEntry m_projectDir;`
+    /// Corresponds to Java field: `private final DirectoryEntry m_projectDir;`
     project_dir: DirectoryEntry,
 
-    /// 项目文件。
+    /// Project file.
     ///
-    /// 对应 Java 字段: `private final ProjectFile m_file;`
+    /// Corresponds to Java field: `private final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 
-    /// `Props` 中的 `TASK_FIELD_ATTRIBUTES` 数据块。
+    /// The `TASK_FIELD_ATTRIBUTES` data block in `Props`.
     ///
-    /// 对应 Java: `m_projectProps.getByteArray(PropsKey.TASK_FIELD_ATTRIBUTES)`
+    /// Corresponds to Java: `m_projectProps.getByteArray(PropsKey.TASK_FIELD_ATTRIBUTES)`
     task_field_attributes: Option<Vec<u8>>,
 
-    /// 自定义字段容器。
+    /// Custom field container.
     ///
-    /// 对应 Java 字段: `private final CustomFieldContainer m_container;`
+    /// Corresponds to Java field: `private final CustomFieldContainer m_container;`
     container: Rc<RefCell<CustomFieldContainer>>,
 
-    /// 取值项 unique ID 计数器。
+    /// Value item unique ID counter.
     ///
-    /// 对应 Java 字段: `private int m_valueUniqueIDCounter;`
+    /// Corresponds to Java field: `private int m_valueUniqueIDCounter;`
     value_unique_id_counter: i32,
 }
 
 impl CustomFieldValueReader9 {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldValueReader9(DirectoryEntry projectDir, ProjectFile file, Props projectProps)`
+    /// Corresponds to Java: `public CustomFieldValueReader9(DirectoryEntry projectDir, ProjectFile file, Props projectProps)`
     pub fn new(
         project_dir: &DirectoryEntry,
         file: &Rc<RefCell<ProjectFile>>,
         project_props: &Props,
     ) -> Self {
         // Java: m_properties = file.getProjectProperties(); m_container = file.getCustomFields();
-        // 文件正被可变借用时（正常调用路径不会发生）退化为一枚独立容器，避免 panic。
+        // When the file is already mutably borrowed (which does not happen on the normal call path), degrade to a standalone container to avoid a panic.
         let container = match file.try_borrow() {
             Ok(file) => file.get_custom_fields(),
             Err(_) => CustomFieldContainer::new(),
@@ -117,7 +117,7 @@ impl CustomFieldValueReader9 {
         Self {
             project_dir: project_dir.clone(),
             file: Rc::clone(file),
-            // Java 在 `processCustomFieldValues` 里才取该块；Rust 侧在构造时取出（见文件头说明）
+            // Java takes this block only in `processCustomFieldValues`; the Rust side takes it at construction time (see the file header)
             task_field_attributes: project_props
                 .get_byte_array(PropsKey::TaskFieldAttributes)
                 .map(<[u8]>::to_vec),
@@ -126,23 +126,23 @@ impl CustomFieldValueReader9 {
         }
     }
 
-    /// 读取全部取值列表。
+    /// Reads all value lists.
     ///
-    /// 对应 Java: `public void process() throws IOException`
+    /// Corresponds to Java: `public void process() throws IOException`
     pub fn process(&mut self) -> MpxjResult<()> {
         // Java: processCustomFieldValues(); processOutlineCodeValues();
         self.process_custom_field_values();
         self.process_outline_code_values()
     }
 
-    /// 读取非大纲代码的自定义字段取值列表。
+    /// Reads value lists for custom fields that are not outline codes.
     ///
-    /// 对应 Java: `private void processCustomFieldValues()`
+    /// Corresponds to Java: `private void processCustomFieldValues()`
     fn process_custom_field_values(&mut self) {
         // Java: byte[] data = m_projectProps.getByteArray(PropsKey.TASK_FIELD_ATTRIBUTES);
         //       if (data != null) { ... }
-        // Rust 侧复制一份局部数据：`populate_container` 需要 `&mut self`（unique ID 计数器），
-        // 若直接借用 `self.task_field_attributes` 会与可变借用冲突。
+        // The Rust side copies the data locally: `populate_container` needs `&mut self` (the unique ID counter),
+        // so borrowing `self.task_field_attributes` directly would conflict with the mutable borrow.
         let Some(data) = self.task_field_attributes.clone() else {
             return;
         };
@@ -152,7 +152,7 @@ impl CustomFieldValueReader9 {
         let mut offset = 0usize;
 
         // Java: int length = ByteArrayHelper.getInt(data, offset); offset += 4;
-        // Java 越界时抛异常；Rust 侧直接返回（无取值列表可读）
+        // Java throws when out of bounds; the Rust side returns directly (no value list to read)
         let Some(length) = checked_int(&data, offset) else {
             return;
         };
@@ -180,7 +180,7 @@ impl CustomFieldValueReader9 {
             offset += 4;
 
             // Java: if (valueListOffset < data.length) { ... }
-            //（Java 对负的 valueListOffset 会因负下标抛异常，Rust 侧跳过该条）
+            // (Java throws for a negative valueListOffset due to the negative index; the Rust side skips that entry)
             if let Ok(value_list_offset) = usize::try_from(value_list_offset) {
                 if value_list_offset < data.len() {
                     // Java: int tempOffset = valueListOffset; tempOffset += 8;
@@ -199,7 +199,7 @@ impl CustomFieldValueReader9 {
                     let end_description_offset =
                         checked_int(&data, temp_offset).map(|value| i64::from(value) + base);
 
-                    // 三个偏移任一读不出来时 Java 会抛异常，Rust 侧跳过该条
+                    // Java throws when any of the three offsets cannot be read; the Rust side skips that entry
                     if let (Some(data_offset), Some(end_data_offset), Some(end_description_offset)) =
                         (data_offset, end_data_offset, end_description_offset)
                     {
@@ -228,12 +228,12 @@ impl CustomFieldValueReader9 {
         }
     }
 
-    /// 读取大纲代码的取值列表。
+    /// Reads the outline code value lists.
     ///
-    /// 对应 Java: `private void processOutlineCodeValues() throws IOException`
+    /// Corresponds to Java: `private void processOutlineCodeValues() throws IOException`
     fn process_outline_code_values(&mut self) -> MpxjResult<()> {
         // Java: DirectoryEntry outlineCodeDir = (DirectoryEntry) m_projectDir.getEntry("TBkndOutlCode");
-        // POI 找不到条目时抛异常；Rust 侧返回 Ok(())（没有大纲代码可读）
+        // POI throws when the entry is not found; the Rust side returns Ok(()) (no outline codes to read)
         let Some(outline_code_dir) = self.project_dir.get_directory("TBkndOutlCode") else {
             return Ok(());
         };
@@ -256,7 +256,7 @@ impl CustomFieldValueReader9 {
         // Java: int items = fm.getItemCount(); for (int loop = 0; loop < items; loop++) { ... }
         for loop_index in 0..fixed_meta.get_item_count() {
             // Java: byte[] data = fd.getByteArrayValue(loop); if (data.length < 18) { continue; }
-            //（Java 对 null 会抛 NPE，Rust 侧跳过）
+            // (Java throws an NPE for null; the Rust side skips it)
             let Some(data) = fixed_data.get_byte_array_value(loop_index) else {
                 continue;
             };
@@ -296,8 +296,8 @@ impl CustomFieldValueReader9 {
         );
 
         // Java: Map<FieldType, List<Pair<String, String>>> valueMap = new HashMap<>();
-        // Rust 侧：Java 允许 null 键（`map.get(id)` 未命中的情形），故键用 `Option<MppFieldKey>`；
-        // 同时把字段本身存进值里，供 `populate_container_from_outline_code` 取名字。
+        // Rust side: Java allows a null key (the case where `map.get(id)` misses), so the key uses `Option<MppFieldKey>`;
+        // the field itself is also stored in the value for `populate_container_from_outline_code` to take the name.
         let mut value_map: HashMap<
             Option<MppFieldKey>,
             (Option<MppFieldType>, Vec<(Option<String>, Option<String>)>),
@@ -330,9 +330,9 @@ impl CustomFieldValueReader9 {
         Ok(())
     }
 
-    /// 用「值数组 + 描述数组」填充容器。
+    /// Populates the container from a "value array + description array".
     ///
-    /// 对应 Java: `private void populateContainer(FieldType field, byte[] values, byte[] descriptions)`
+    /// Corresponds to Java: `private void populateContainer(FieldType field, byte[] values, byte[] descriptions)`
     fn populate_container(
         &mut self,
         field: Option<&MppFieldType>,
@@ -340,8 +340,8 @@ impl CustomFieldValueReader9 {
         descriptions: &[u8],
     ) {
         // Java: CustomField config = m_container.getOrCreate(field);
-        // Java 的 `field` 可能为 null（字段号未识别）：`HashMap` 允许 null 键，但紧随其后的
-        // `config.getFieldType().getName()` 会抛 NPE。Rust 的 `FieldKey` 无「未知」变体，故跳过。
+        // Java's `field` may be null (field number not recognized): `HashMap` allows a null key, but the immediately following
+        // `config.getFieldType().getName()` throws an NPE. Rust's `FieldKey` has no "unknown" variant, so it is skipped.
         let Some(field) = field else {
             return;
         };
@@ -352,7 +352,7 @@ impl CustomFieldValueReader9 {
         let field_type_name = custom_field.borrow().get_field_type().get_name().to_owned();
 
         // Java: table.setGUID(UUID.nameUUIDFromBytes(fieldTypeName.getBytes()));
-        //（Java 用平台默认编码取字节；字段名均为 ASCII，Rust 侧用 UTF-8 结果一致）
+        // (Java takes bytes using the platform default encoding; field names are all ASCII, so the Rust side's UTF-8 gives the same result)
         custom_field
             .borrow_mut()
             .get_lookup_table_mut()
@@ -400,20 +400,20 @@ impl CustomFieldValueReader9 {
         }
     }
 
-    /// 用大纲代码数据填充容器。
+    /// Populates the container from outline code data.
     ///
-    /// 对应 Java: `private void populateContainer(FieldType field, List<Pair<String, String>> items)`
+    /// Corresponds to Java: `private void populateContainer(FieldType field, List<Pair<String, String>> items)`
     ///
-    /// Rust 无重载，故该方法在 `populate_container` 之后加 `_from_outline_code` 后缀。
-    /// 与 `populate_container` 不同：Java 这里只把取值项加进查找表，**不**登记到容器。
+    /// Rust has no overloading, so this method adds a `_from_outline_code` suffix after `populate_container`.
+    /// Unlike `populate_container`: Java here only adds the value items to the lookup table and does **not** register them in the container.
     fn populate_container_from_outline_code(
         &mut self,
         field: Option<&MppFieldType>,
         items: &[(Option<String>, Option<String>)],
     ) {
         // Java: CustomField config = m_container.getOrCreate(field);
-        // `field` 为 null 时 Java 会用 "Unknown" 作为字段名，但仍需 `getOrCreate(null)`；
-        // Rust 的 `FieldKey` 无法承载 null，故跳过（与 `populate_container` 同样的取舍）。
+        // When `field` is null, Java uses "Unknown" as the field name but still needs `getOrCreate(null)`;
+        // Rust's `FieldKey` cannot carry null, so it is skipped (the same trade-off as `populate_container`).
         let Some(field) = field else {
             return;
         };
@@ -421,7 +421,7 @@ impl CustomFieldValueReader9 {
         let custom_field = CustomFieldContainer::get_or_create(&self.container, field.to_field_key());
 
         // Java: String fieldTypeName = field == null ? "Unknown" : field.getName();
-        //（`field` 为 None 的分支已在上面返回，故这里始终取字段名）
+        // (The branch where `field` is None already returned above, so the field name is always taken here)
         let field_type_name = field.get_name();
 
         // Java: table.setGUID(UUID.nameUUIDFromBytes(fieldTypeName.getBytes()));
@@ -458,12 +458,12 @@ impl CustomFieldValueReader9 {
         }
     }
 
-    /// 把一段原始数据按数据类型切分成取值列表。
+    /// Splits a raw data segment into value lists by data type.
     ///
-    /// 对应 Java: `private List<Object> convertType(DataType type, byte[] data)`
+    /// Corresponds to Java: `private List<Object> convertType(DataType type, byte[] data)`
     ///
-    /// `Vec<Option<FieldValue>>` 对应 Java 的 `List<Object>`：元素可能为 `null`
-    ///（`getTimestamp` / `getAdjustedDuration` 返回 null 时），用 `Option` 保持下标对齐。
+    /// `Vec<Option<FieldValue>>` corresponds to Java's `List<Object>`: elements may be `null`
+    /// (when `getTimestamp` / `getAdjustedDuration` return null), using `Option` to keep indices aligned.
     fn convert_type(&self, type_: DataType, data: &[u8]) -> Vec<Option<FieldValue>> {
         // Java: List<Object> result = new ArrayList<>(); int index = 0;
         let mut result = Vec::new();
@@ -476,7 +476,7 @@ impl CustomFieldValueReader9 {
                 //       result.add(value); index += ((value.length() + 1) * 2);
                 DataType::String => {
                     let value = MPPUtility::get_unicode_string(data, index);
-                    // Java 的 `String.length()` 是 UTF-16 码元数
+                    // Java's `String.length()` is the number of UTF-16 code units
                     let units = value.encode_utf16().count() + 1;
                     result.push(Some(FieldValue::String(value)));
                     index = index.saturating_add(units * 2);
@@ -513,7 +513,7 @@ impl CustomFieldValueReader9 {
                     let default_duration_units = properties
                         .as_deref()
                         .map(ProjectProperties::get_default_duration_units);
-                    // Java 越界时抛异常；Rust 侧取不到时按 0 处理（`getDurationTimeUnits(0)` = DAYS）
+                    // Java throws when out of bounds; the Rust side treats it as 0 when unavailable (`getDurationTimeUnits(0)` = DAYS)
                     let units = MPPUtility::get_duration_time_units_with_default(
                         checked_short(data, index.saturating_add(4)).unwrap_or(0),
                         default_duration_units,
@@ -540,7 +540,7 @@ impl CustomFieldValueReader9 {
                     index = index.saturating_add(2);
                 }
 
-                // Java: default: index = data.length;（结束解析）
+                // Java: default: index = data.length; (end parsing)
                 _ => index = data.len(),
             }
         }
@@ -548,13 +548,13 @@ impl CustomFieldValueReader9 {
         result
     }
 
-    /// 取自定义字段对应的取值项类型。
+    /// Returns the value item type corresponding to a custom field.
     ///
-    /// 对应 Java: `private CustomFieldValueDataType getDataType(FieldType field)`
+    /// Corresponds to Java: `private CustomFieldValueDataType getDataType(FieldType field)`
     ///
-    /// Java 用静态 `Map<DataType, CustomFieldValueDataType> TYPE_MAP` + 「取不到则 TEXT」；
-    /// Rust 侧用 `match` 等价表达（映射表是常量，无需运行期建表）。
-    /// Java 的实例方法只用到静态表，故 Rust 侧实现为关联函数。
+    /// Java uses a static `Map<DataType, CustomFieldValueDataType> TYPE_MAP` + "TEXT when not found";
+    /// the Rust side expresses this equivalently with `match` (the mapping table is constant, so no runtime table construction is needed).
+    /// Java's instance method only uses the static table, so the Rust side implements it as an associated function.
     fn get_data_type(field: Option<&MppFieldType>) -> CustomFieldValueDataType {
         // Java: if (field != null) { result = TYPE_MAP.get(field.getDataType()); }
         //       if (result == null) { result = CustomFieldValueDataType.TEXT; }
@@ -569,38 +569,38 @@ impl CustomFieldValueReader9 {
         }
     }
 
-    /// 借用项目属性（Rust 特有：Java 在构造方法里保存属性对象的引用）。
+    /// Borrows the project properties (Rust-specific: Java stores a reference to the properties object in the constructor).
     fn try_project_properties(&self) -> Option<Ref<'_, ProjectProperties>> {
         let file = self.file.try_borrow().ok()?;
         Some(Ref::map(file, |file| file.get_project_properties()))
     }
 }
 
-/// 按 Java 语义复制一段数据。
+/// Copies a data segment with Java semantics.
 ///
-/// 对应 Java: `new byte[size]` + `MPPUtility.getByteArray(data, offset, size, buffer, 0)`。
-/// Java 在 `size` 为负时抛 `NegativeArraySizeException`、偏移越界时抛
-/// `ArrayIndexOutOfBoundsException`；Rust 侧统一退化为「尽量复制，越界部分为 0」。
+/// Corresponds to Java: `new byte[size]` + `MPPUtility.getByteArray(data, offset, size, buffer, 0)`.
+/// Java throws `NegativeArraySizeException` when `size` is negative and throws
+/// `ArrayIndexOutOfBoundsException` when the offset is out of bounds; the Rust side uniformly degrades to "copy as much as possible, with 0 for the out-of-bounds part".
 fn read_block(data: &[u8], offset: i64, size: i64) -> Vec<u8> {
-    // Java: new byte[valuesLength]（负长度抛异常）
+    // Java: new byte[valuesLength] (negative length throws)
     let size = usize::try_from(size).unwrap_or(0);
     let mut result = vec![0u8; size];
 
     // Java: MPPUtility.getByteArray(data, dataOffset, valuesLength, values, 0);
-    // （负偏移在 Java 会抛越界异常，Rust 侧退化为 0；`get_byte_array` 内部仍做边界检查）
+    // (A negative offset throws an out-of-bounds exception in Java; the Rust side degrades to 0; `get_byte_array` still performs bounds checks internally)
     let offset = usize::try_from(offset.max(0)).unwrap_or(0);
     MPPUtility::get_byte_array(data, offset, size, &mut result, 0);
 
     result
 }
 
-/// 由任意字节生成「基于名字」的 UUID。
+/// Generates a "name-based" UUID from arbitrary bytes.
 ///
-/// 对应 Java: `UUID.nameUUIDFromBytes(byte[] name)`
+/// Corresponds to Java: `UUID.nameUUIDFromBytes(byte[] name)`
 ///
-/// `java.util.UUID.nameUUIDFromBytes` 取 `MD5(name)` 的 16 字节，按 RFC 4122 改写版本位
-/// （`0x30`）与变体位（`0x80`）后构造 UUID。`uuid` crate 的 `v3` feature 未启用（本 crate
-/// 不允许新增依赖），故这里就地实现 MD5。
+/// `java.util.UUID.nameUUIDFromBytes` takes the 16 bytes of `MD5(name)` and rewrites the version bits
+/// (`0x30`) and variant bits (`0x80`) per RFC 4122 before constructing the UUID. The `uuid` crate's `v3` feature is not enabled (this crate
+/// does not allow new dependencies), so MD5 is implemented in place here.
 fn name_uuid_from_bytes(name: &[u8]) -> Uuid {
     let mut digest = md5(name);
 
@@ -612,18 +612,18 @@ fn name_uuid_from_bytes(name: &[u8]) -> Uuid {
     Uuid::from_bytes(digest)
 }
 
-/// MD5 每轮的左移位数。
+/// Left-shift amounts for each MD5 round.
 ///
-/// 对应 RFC 1321 的 `s` 表。
+/// Corresponds to RFC 1321's `s` table.
 const MD5_S: [u32; 64] = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
     14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
     21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 ];
 
-/// MD5 每轮的加常量（`floor(2^32 * abs(sin(i + 1)))`）。
+/// Additive constants for each MD5 round (`floor(2^32 * abs(sin(i + 1)))`).
 ///
-/// 对应 RFC 1321 的 `K` 表。
+/// Corresponds to RFC 1321's `K` table.
 const MD5_K: [u32; 64] = [
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
     0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
@@ -635,11 +635,11 @@ const MD5_K: [u32; 64] = [
     0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 ];
 
-/// 计算 MD5 摘要（RFC 1321）。
+/// Computes the MD5 digest (RFC 1321).
 ///
-/// Rust 特有：Java 侧该能力由 `java.security.MessageDigest` 提供。
+/// Rust-specific: on the Java side this capability is provided by `java.security.MessageDigest`.
 fn md5(input: &[u8]) -> [u8; 16] {
-    // 填充：追加 0x80，补零至 56 mod 64，再接 8 字节小端的比特长度
+    // Padding: append 0x80, zero-pad to 56 mod 64, then append the 8-byte little-endian bit length
     let mut message = input.to_vec();
     let bit_length = (input.len() as u64).wrapping_mul(8);
     message.push(0x80);
@@ -713,17 +713,17 @@ mod tests {
     use crate::mpp::ole::PoifsFileSystem;
     use crate::task_field::TaskField;
 
-    /// 内置任务字段 NAME 的字段号。
+    /// Field number of the built-in task field NAME.
     fn name_field_id() -> i32 {
         MPPTaskField::TASK_FIELD_BASE | 14
     }
 
-    /// 内置任务字段 NAME。
+    /// Built-in task field NAME.
     fn name_field() -> MppFieldType {
         MppFieldType::Builtin(FieldKey::Task(TaskField::Name))
     }
 
-    /// UTF-16LE（NUL 结尾）字节。
+    /// UTF-16LE (NUL-terminated) bytes.
     fn utf16(text: &str) -> Vec<u8> {
         let mut bytes = Vec::new();
         for unit in text.encode_utf16() {
@@ -733,12 +733,12 @@ mod tests {
         bytes
     }
 
-    /// 构造一个把大纲代码流写入 `TBkndOutlCode` 存储的复合文档。
+    /// Builds a compound document that writes the outline code streams into the `TBkndOutlCode` store.
     ///
-    /// `outline_code_records` 是定长数据块的记录（每条 20 字节：[0..2) = 索引，
-    /// [12..16) = 字段号）；`var_data` 是变长数据块的内容。
+    /// `outline_code_records` are the records of the fixed data block (20 bytes each: [0..2) = index,
+    /// [12..16) = field number); `var_data` is the content of the variable data block.
     fn compound_file(outline_code_records: &[Vec<u8>], var_data: &[u8], var_meta: &[u8]) -> Vec<u8> {
-        // FixedMeta：10 字节记录，偏移取自各条记录在数据体中的位置
+        // FixedMeta: 10-byte records, with offsets taken from the position of each record in the data body
         let mut fixed_meta = Vec::new();
         fixed_meta.extend_from_slice(&0xFADF_ADBA_u32.to_le_bytes());
         fixed_meta.extend_from_slice(&0i32.to_le_bytes());
@@ -753,31 +753,31 @@ mod tests {
             body.extend_from_slice(record);
         }
 
-        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("应能创建复合文档");
-        file.create_storage("/TBkndOutlCode").expect("创建存储");
+        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("should be able to create compound document");
+        file.create_storage("/TBkndOutlCode").expect("create storage");
         file.create_stream("/TBkndOutlCode/FixedMeta")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(&fixed_meta)
-            .expect("写入 FixedMeta");
+            .expect("write FixedMeta");
         file.create_stream("/TBkndOutlCode/FixedData")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(&body)
-            .expect("写入 FixedData");
+            .expect("write FixedData");
         file.create_stream("/TBkndOutlCode/VarMeta")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(var_meta)
-            .expect("写入 VarMeta");
+            .expect("write VarMeta");
         file.create_stream("/TBkndOutlCode/Var2Data")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(var_data)
-            .expect("写入 Var2Data");
+            .expect("write Var2Data");
 
         file.into_inner().into_inner()
     }
 
-    /// 打开复合文档并取根存储。
+    /// Opens the compound document and gets the root store.
     ///
-    /// 传入空切片时改用一个不含任何流的复合文档（对应「项目存储里没有 `TBkndOutlCode`」）。
+    /// When an empty slice is passed, uses a compound document containing no streams instead (corresponding to "there is no `TBkndOutlCode` in the project store").
     fn root_directory(bytes: Vec<u8>) -> DirectoryEntry {
         let bytes = if bytes.is_empty() {
             empty_compound_file()
@@ -786,19 +786,19 @@ mod tests {
         };
 
         PoifsFileSystem::new(Cursor::new(bytes))
-            .expect("复合文档可解析")
+            .expect("compound document is parseable")
             .get_root()
     }
 
-    /// 构造一个不含任何流的复合文档（对应「项目存储里没有 `TBkndOutlCode`」）。
+    /// Builds a compound document containing no streams (corresponding to "there is no `TBkndOutlCode` in the project store").
     fn empty_compound_file() -> Vec<u8> {
         CompoundFile::create(Cursor::new(Vec::new()))
-            .expect("应能创建复合文档")
+            .expect("should be able to create compound document")
             .into_inner()
             .into_inner()
     }
 
-    /// 大纲代码定长数据块的一条记录（20 字节）。
+    /// One record of the outline code fixed data block (20 bytes).
     fn outline_code_record(index: i32, field_id: i32) -> Vec<u8> {
         let mut record = vec![0u8; 20];
         record[0..2].copy_from_slice(&(index as u16).to_le_bytes());
@@ -806,7 +806,7 @@ mod tests {
         record
     }
 
-    /// MD5 与标准测试向量一致（RFC 1321 附录 A.5）。
+    /// MD5 matches the standard test vectors (RFC 1321 Appendix A.5).
     #[test]
     fn md5_matches_known_vectors() {
         assert_eq!(
@@ -825,35 +825,35 @@ mod tests {
         );
     }
 
-    /// `nameUUIDFromBytes` 与 Java 的「版本 3」UUID 一致。
+    /// `nameUUIDFromBytes` matches Java's "version 3" UUID.
     #[test]
     fn name_uuid_matches_java() {
         // Java: UUID.nameUUIDFromBytes("test".getBytes()) →
         //       098f6bcd-4621-3373-8ade-4e832627b4f6
         assert_eq!(
             name_uuid_from_bytes(b"test"),
-            Uuid::parse_str("098f6bcd-4621-3373-8ade-4e832627b4f6").expect("合法 GUID")
+            Uuid::parse_str("098f6bcd-4621-3373-8ade-4e832627b4f6").expect("valid GUID")
         );
-        // 版本位为 3、变体位为 RFC 4122
+        // Version bits are 3, variant bits are RFC 4122
         let bytes = name_uuid_from_bytes(b"test").into_bytes();
         assert_eq!(bytes[6] >> 4, 3);
         assert_eq!(bytes[8] >> 6, 0b10);
     }
 
-    /// `Props.TASK_FIELD_ATTRIBUTES` 里的取值列表被读成取值项（描述 / 取值 / 类型 / GUID）。
+    /// The value lists in `Props.TASK_FIELD_ATTRIBUTES` are read as value items (description / value / type / GUID).
     #[test]
     fn process_reads_task_field_attributes() {
-        // 数据块布局：
-        //   [0..4)   总长度
-        //   [4..8)   取值列表个数
-        //   [8..12)  字段号  [12..16) 取值列表偏移（绝对）
-        //   [32..40) 保留  [40..44) 数据偏移（相对）  [44..48) 数据结束  [48..52) 描述结束
+        // Data block layout:
+        //   [0..4)   total length
+        //   [4..8)   number of value lists
+        //   [8..12)  field number  [12..16) value list offset (absolute)
+        //   [32..40) reserved  [40..44) data offset (relative)  [44..48) data end  [48..52) description end
         let mut block = vec![0u8; 66];
         block[0..4].copy_from_slice(&66i32.to_le_bytes());
         block[4..8].copy_from_slice(&1i32.to_le_bytes());
         block[8..12].copy_from_slice(&name_field_id().to_le_bytes());
         block[12..16].copy_from_slice(&32i32.to_le_bytes());
-        // 值为 "AB"，描述为 "X"
+        // Value is "AB", description is "X"
         block[32 + 24..32 + 30].copy_from_slice(&utf16("AB"));
         block[32 + 30..32 + 34].copy_from_slice(&utf16("X"));
         block[32 + 8..32 + 12].copy_from_slice(&24i32.to_le_bytes());
@@ -864,21 +864,21 @@ mod tests {
         props.put(PropsKey::TaskFieldAttributes.get_value(), block);
 
         let file = ProjectFile::new();
-        // 根存储下没有 TBkndOutlCode：大纲代码分支返回 Ok(())
+        // There is no TBkndOutlCode under the root store: the outline code branch returns Ok(())
         let the_root = root_directory(Vec::new());
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &props);
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
 
         let container = file.borrow().get_custom_fields();
         let item = container
             .borrow()
             .get_custom_field_value_item_by_unique_id(1)
-            .expect("取值项应已登记");
+            .expect("value item should be registered");
         let item = item.borrow();
         assert_eq!(item.get_description(), Some("X"));
         assert_eq!(item.get_value(), Some(&FieldValue::String("AB".to_owned())));
         assert_eq!(item.get_type(), Some(CustomFieldValueDataType::Text));
-        // GUID = nameUUIDFromBytes(字段名 + uniqueID)
+        // GUID = nameUUIDFromBytes(field name + uniqueID)
         let field_name = name_field().get_name();
         assert_eq!(
             item.get_guid(),
@@ -887,11 +887,11 @@ mod tests {
             ))
         );
 
-        // 查找表：GUID = nameUUIDFromBytes(字段名)
+        // Lookup table: GUID = nameUUIDFromBytes(field name)
         let custom_field = container
             .borrow()
             .get(FieldKey::Task(TaskField::Name))
-            .expect("字段配置应已创建");
+            .expect("field configuration should be created");
         let custom_field = custom_field.borrow();
         assert_eq!(
             custom_field.get_lookup_table().get_guid(),
@@ -900,24 +900,24 @@ mod tests {
         assert_eq!(custom_field.get_lookup_table().len(), 1);
     }
 
-    /// `TASK_FIELD_ATTRIBUTES` 为空 / 截断时不 panic。
+    /// Does not panic when `TASK_FIELD_ATTRIBUTES` is empty / truncated.
     #[test]
     fn process_handles_missing_task_field_attributes() {
         let file = ProjectFile::new();
         let the_root = root_directory(Vec::new());
 
-        // 完全没有该属性
+        // The property is entirely absent
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
         assert!(file.borrow().get_custom_fields().borrow().is_empty());
 
-        // 只有 4 字节（读不出取值列表个数）
+        // Only 4 bytes (cannot read the number of value lists)
         let mut props = Props::new();
         props.put(PropsKey::TaskFieldAttributes.get_value(), vec![0u8; 4]);
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &props);
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
 
-        // 字段号指向未识别的值（FieldTypeHelper 返回 None）
+        // The field number points to an unrecognized value (FieldTypeHelper returns None)
         let mut block = vec![0u8; 20];
         block[0..4].copy_from_slice(&20i32.to_le_bytes());
         block[4..8].copy_from_slice(&1i32.to_le_bytes());
@@ -926,13 +926,13 @@ mod tests {
         let mut props = Props::new();
         props.put(PropsKey::TaskFieldAttributes.get_value(), block);
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &props);
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
     }
 
-    /// 大纲代码：字段号映射 + 变长数据块里的取值 / 描述被写进查找表。
+    /// Outline codes: the field number mapping + the values / descriptions in the variable data block are written into the lookup table.
     #[test]
     fn process_reads_outline_code_values() {
-        // 变长数据块：id=1 与 id=2 各有取值（类型 1）与描述（类型 2）
+        // Variable data block: id=1 and id=2 each have a value (type 1) and a description (type 2)
         let items = vec![
             utf16("A"),
             utf16("desc A"),
@@ -946,7 +946,7 @@ mod tests {
             var_data.len() as i32,
         );
 
-        // 三条定长记录：前两条映射到 NAME，第三条字段号无法识别
+        // Three fixed records: the first two map to NAME, the third has an unrecognized field number
         let records = vec![
             outline_code_record(1, name_field_id()),
             outline_code_record(2, name_field_id()),
@@ -956,66 +956,66 @@ mod tests {
 
         let file = ProjectFile::new();
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
 
         let container = file.borrow().get_custom_fields();
         let custom_field = container
             .borrow()
             .get(FieldKey::Task(TaskField::Name))
-            .expect("字段配置应已创建");
+            .expect("field configuration should be created");
         let custom_field = custom_field.borrow();
         let table = custom_field.get_lookup_table();
 
-        // 无法识别的字段号（第三条）不产生取值项
+        // The unrecognized field number (the third) produces no value item
         assert_eq!(table.len(), 2);
         assert_eq!(table.get(0).and_then(|item| item.get_value()), Some(&FieldValue::String("A".to_owned())));
         assert_eq!(table.get(0).and_then(|item| item.get_description()), Some("desc A"));
         assert_eq!(table.get(1).and_then(|item| item.get_value()), Some(&FieldValue::String("B".to_owned())));
         assert_eq!(table.get(1).and_then(|item| item.get_description()), Some("desc B"));
-        // unique ID 由计数器递增产生（Java 的 `++m_valueUniqueIDCounter`）
+        // The unique ID is produced by incrementing the counter (Java's `++m_valueUniqueIDCounter`)
         assert_eq!(table.get(0).map(|item| item.get_unique_id()), Some(1));
         assert_eq!(table.get(1).map(|item| item.get_unique_id()), Some(2));
-        // 取值类型来自字段的 DataType（STRING → TEXT）
+        // The value type comes from the field's DataType (STRING → TEXT)
         assert_eq!(table.get(0).and_then(|item| item.get_type()), Some(CustomFieldValueDataType::Text));
     }
 
-    /// 大纲代码流缺失 / 畸形时不 panic。
+    /// Does not panic when the outline code streams are missing / malformed.
     #[test]
     fn process_handles_broken_outline_code_streams() {
         let file = ProjectFile::new();
 
-        // 存储存在但四个流都不存在
-        let mut compound = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
-        compound.create_storage("/TBkndOutlCode").expect("创建存储");
+        // The store exists but none of the four streams exist
+        let mut compound = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
+        compound.create_storage("/TBkndOutlCode").expect("create storage");
         let the_root = root_directory(compound.into_inner().into_inner());
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
 
-        // FixedMeta 内容非法（magic 不对）→ 返回 Err
-        let mut compound = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
-        compound.create_storage("/TBkndOutlCode").expect("创建存储");
+        // FixedMeta content is invalid (wrong magic) → returns Err
+        let mut compound = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
+        compound.create_storage("/TBkndOutlCode").expect("create storage");
         compound
             .create_stream("/TBkndOutlCode/FixedMeta")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(&[0u8; 32])
-            .expect("写入");
+            .expect("write");
         compound
             .create_stream("/TBkndOutlCode/FixedData")
-            .expect("创建流")
+            .expect("create stream")
             .write_all(&[0u8; 32])
-            .expect("写入");
+            .expect("write");
         let the_root = root_directory(compound.into_inner().into_inner());
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
         assert!(reader.process().is_err());
 
-        // FixedData 比元数据声明的短：读取时跳过，不 panic
+        // FixedData is shorter than the metadata declares: skip when reading, do not panic
         let var_meta = var_meta9_bytes(&[], &[], 0);
         let the_root = root_directory(compound_file(&[outline_code_record(1, name_field_id())], &[], &var_meta));
         let mut reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
-        reader.process().expect("解析不应失败");
+        reader.process().expect("parsing should not fail");
     }
 
-    /// 取值类型映射（`getDataType` 的静态映射表 + 兜底 TEXT）。
+    /// Value type mapping (`getDataType`'s static mapping table + TEXT as the fallback).
     #[test]
     fn data_type_mapping_matches_java() {
         let cases = [
@@ -1025,7 +1025,7 @@ mod tests {
             (DataType::Date, CustomFieldValueDataType::Date),
             (DataType::Duration, CustomFieldValueDataType::Duration),
             (DataType::Boolean, CustomFieldValueDataType::Flag),
-            // 未在表中的类型 → TEXT
+            // Type not in the table → TEXT
             (DataType::Custom, CustomFieldValueDataType::Text),
         ];
 
@@ -1049,14 +1049,14 @@ mod tests {
         );
     }
 
-    /// `convertType` 的各分支（`Vec<Option<FieldValue>>` 保持 Java 的下标对齐）。
+    /// The branches of `convertType` (`Vec<Option<FieldValue>>` keeps Java's index alignment).
     #[test]
     fn convert_type_matches_java() {
         let file = ProjectFile::new();
         let the_root = root_directory(Vec::new());
         let reader = CustomFieldValueReader9::new(&the_root, &file, &Props::new());
 
-        // STRING：UTF-16LE + NUL，按 (length + 1) * 2 前进
+        // STRING: UTF-16LE + NUL, advance by (length + 1) * 2
         let values = reader.convert_type(DataType::String, &[0x41, 0x00, 0x42, 0x00, 0x00, 0x00, 0x43, 0x00, 0x00, 0x00]);
         assert_eq!(
             values,
@@ -1066,7 +1066,7 @@ mod tests {
             ]
         );
 
-        // CURRENCY / NUMERIC：8 字节双精度
+        // CURRENCY / NUMERIC: 8-byte double precision
         assert_eq!(
             reader.convert_type(DataType::Currency, &250.0f64.to_le_bytes()),
             vec![Some(FieldValue::Double(2.5))]
@@ -1076,25 +1076,25 @@ mod tests {
             vec![Some(FieldValue::Double(1.5))]
         );
 
-        // DATE：4 字节时间戳（天数非法时为 None，但下标仍前进一步）
+        // DATE: 4-byte timestamp (None when the day count is invalid, but the index still advances by one)
         assert_eq!(
             reader.convert_type(DataType::Date, &[0x00, 0x00, 0x02, 0x00]),
             vec![Some(FieldValue::DateTime(
                 chrono::NaiveDate::from_ymd_opt(1984, 1, 2)
-                    .expect("合法日期")
+                    .expect("valid date")
                     .and_hms_opt(0, 0, 0)
-                    .expect("合法时间")
+                    .expect("valid time")
             ))]
         );
 
-        // DURATION：4 字节工期 + 2 字节单位
+        // DURATION: 4-byte duration + 2-byte units
         let mut duration = 0i32.to_le_bytes().to_vec();
         duration.extend_from_slice(&7u16.to_le_bytes());
         let values = reader.convert_type(DataType::Duration, &duration);
         assert_eq!(values.len(), 1);
         assert!(matches!(values[0], Some(FieldValue::Duration(_))));
 
-        // BOOLEAN：短整数 == 1
+        // BOOLEAN: short integer == 1
         assert_eq!(
             reader.convert_type(DataType::Boolean, &[0x01, 0x00, 0x00, 0x00]),
             vec![
@@ -1103,10 +1103,10 @@ mod tests {
             ]
         );
 
-        // 未支持的类型：直接结束解析
+        // Unsupported type: end parsing immediately
         assert!(reader.convert_type(DataType::Guid, &[0u8; 16]).is_empty());
 
-        // 空数据
+        // Empty data
         assert!(reader.convert_type(DataType::String, &[]).is_empty());
     }
 }

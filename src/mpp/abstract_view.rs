@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/AbstractView.java`
+//! Corresponds to Java: `org/mpxj/mpp/AbstractView.java`
 //!
-//! 所有视图的公共基类：保存视图 ID、名称、类型与「表格部分」的名称，并按名称
-//! 在当前项目的表格容器里查出对应的表实例。
+//! Common base class for all views: stores the view ID, name, type, and the name of the "table part", and looks up
+//! the corresponding table instance by name in the current project's table container.
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` | 本类未使用 |
-//! | `Serializable` | Rust 无该机制（本类在 Java 侧也未实现） |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` | this class does not use them |
+//! | `Serializable` | Rust has no such mechanism (and this class does not implement it on the Java side either) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `protected final ProjectFile m_file` | 私有字段 `m_file: Weak<RefCell<ProjectFile>>` | `ProjectFile` 通过 `ViewContainer` 持有视图，视图再用强引用回指父文件会形成 `Rc` 循环，故按要求用弱引用；父文件已释放 / 正被可变借用时，[`AbstractView::get_table`] 返回 `None`（Java 会抛 `NullPointerException`） |
-//! | `protected final TableContainer m_tables = parent.getTables()` | 不缓存，按需经父文件取 | Rust 侧 `TableContainer` 由 `ProjectFile` 内联持有（不是 `Rc`），无法在视图里长期借用，故每次经 `m_file` 解析（语义与 Java 相同） |
-//! | `protected Integer m_id` 等 4 个可写字段 | 私有字段 + [`AbstractView::set_id`] / [`AbstractView::set_name`] / [`AbstractView::set_type`] / [`AbstractView::set_table_name`] | Rust 无继承，子类（如 `GenericView`、`View8`）无法直接写父类字段，改以 setter 表达 Java 的 protected 字段赋值 |
-//! | `implements View` | `impl View for AbstractView` | 与 [`crate::view::View`] trait 一一对应 |
-//! | `toString()` | `impl Display` | Java 用字符串拼接，`null` 渲染为 `"null"`，Rust 侧保持一致 |
+//! | `protected final ProjectFile m_file` | private field `m_file: Weak<RefCell<ProjectFile>>` | `ProjectFile` holds the view via `ViewContainer`, and a strong reference back from the view to the parent file would form an `Rc` cycle, so a weak reference is used as required; when the parent file has been released / is being mutably borrowed, [`AbstractView::get_table`] returns `None` (Java would throw `NullPointerException`) |
+//! | `protected final TableContainer m_tables = parent.getTables()` | not cached; fetched on demand via the parent file | on the Rust side `TableContainer` is held inline by `ProjectFile` (not an `Rc`), so it cannot be borrowed long-term in the view; therefore it is resolved via `m_file` each time (same semantics as Java) |
+//! | `protected Integer m_id` and the other 4 writable fields | private fields + [`AbstractView::set_id`] / [`AbstractView::set_name`] / [`AbstractView::set_type`] / [`AbstractView::set_table_name`] | Rust has no inheritance, so subclasses (such as `GenericView`, `View8`) cannot write base class fields directly; setters are used instead to express Java's protected field assignments |
+//! | `implements View` | `impl View for AbstractView` | corresponds one-to-one with the [`crate::view::View`] trait |
+//! | `toString()` | `impl Display` | Java uses string concatenation and renders `null` as `"null"`; the Rust side stays consistent |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # Inheritance reconstruction approach: composition + forwarding
 //!
-//! Java 的 `AbstractView implements View` 是**被继承的基类**：`AbstractMppView extends
-//! AbstractView`。Rust 无继承，`AbstractMppView`（见 `abstract_mpp_view.rs`）改为**持有**
-//! 一个本类型的实例并把 5 个 `View` 方法与 4 个 setter 全部转发，语义等价。
-//! 本类自身没有抽象方法，因此可直接实例化。
+//! Java's `AbstractView implements View` is a **base class that is inherited**: `AbstractMppView extends
+//! AbstractView`. Rust has no inheritance, so `AbstractMppView` (see `abstract_mpp_view.rs`) instead **holds**
+//! an instance of this type and forwards all 5 `View` methods and the 4 setters, with equivalent semantics.
+//! This class itself has no abstract methods, so it can be instantiated directly.
 
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
@@ -36,42 +36,42 @@ use crate::table::Table;
 use crate::view::View;
 use crate::view_type::ViewType;
 
-/// 所有视图的公共基类。
+/// Common base class for all views.
 ///
-/// 对应 Java: `public abstract class AbstractView implements View`
+/// Corresponds to Java: `public abstract class AbstractView implements View`
 pub struct AbstractView {
-    /// 父项目文件。
+/// Parent project file.
     ///
-    /// 对应 Java 字段: `protected final ProjectFile m_file;`
+    /// Corresponds to Java field: `protected final ProjectFile m_file;`
     m_file: Weak<RefCell<ProjectFile>>,
 
-    /// 视图 ID。
+/// View ID.
     ///
-    /// 对应 Java 字段: `protected Integer m_id;`
+    /// Corresponds to Java field: `protected Integer m_id;`
     m_id: Option<i32>,
 
-    /// 视图名称。
+/// View name.
     ///
-    /// 对应 Java 字段: `protected String m_name;`
+    /// Corresponds to Java field: `protected String m_name;`
     m_name: Option<String>,
 
-    /// 视图类型。
+/// View type.
     ///
-    /// 对应 Java 字段: `protected ViewType m_type;`
+    /// Corresponds to Java field: `protected ViewType m_type;`
     m_type: Option<ViewType>,
 
-    /// 视图中表格部分的名称。
+/// Name of the table part in the view.
     ///
-    /// 对应 Java 字段: `protected String m_tableName;`
+    /// Corresponds to Java field: `protected String m_tableName;`
     m_table_name: Option<String>,
 }
 
 impl AbstractView {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public AbstractView(ProjectFile parent)`
+    /// Corresponds to Java: `public AbstractView(ProjectFile parent)`
     ///
-    /// Java 侧同时把 `parent.getTables()` 缓存在 `m_tables`；Rust 侧不缓存，见文件头说明。
+/// The Java side also caches `parent.getTables()` in `m_tables`; the Rust side does not cache it, see the file header.
     pub fn new(parent: &Rc<RefCell<ProjectFile>>) -> Self {
         Self {
             m_file: Rc::downgrade(parent),
@@ -82,70 +82,70 @@ impl AbstractView {
         }
     }
 
-    /// 取父项目文件。
+/// Get the parent project file.
     ///
-    /// Rust 特有：Java 的 `m_file` 是 protected 字段，由子类直接读取；父文件已释放时返回
-    /// `None`。
+/// Rust-specific: Java's `m_file` is a protected field read directly by subclasses; returns
+    /// `None`.
     pub fn get_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.m_file.upgrade()
     }
 
-    /// 设置视图 ID。
+/// Set the view ID.
     ///
-    /// Rust 特有：对应 Java 子类对 `protected Integer m_id` 的赋值。
+/// Rust-specific: corresponds to a Java subclass assigning to `protected Integer m_id`.
     pub fn set_id(&mut self, id: Option<i32>) {
         self.m_id = id;
     }
 
-    /// 设置视图名称。
+/// Set the view name.
     ///
-    /// Rust 特有：对应 Java 子类对 `protected String m_name` 的赋值。
+/// Rust-specific: corresponds to a Java subclass assigning to `protected String m_name`.
     pub fn set_name(&mut self, name: Option<String>) {
         self.m_name = name;
     }
 
-    /// 设置视图类型。
+/// Set the view type.
     ///
-    /// Rust 特有：对应 Java 子类对 `protected ViewType m_type` 的赋值。
+/// Rust-specific: corresponds to a Java subclass assigning to `protected ViewType m_type`.
     pub fn set_type(&mut self, type_: Option<ViewType>) {
         self.m_type = type_;
     }
 
-    /// 设置视图中表格部分的名称。
+/// Set the name of the table part in the view.
     ///
-    /// Rust 特有：对应 Java 子类对 `protected String m_tableName` 的赋值。
+/// Rust-specific: corresponds to a Java subclass assigning to `protected String m_tableName`.
     pub fn set_table_name(&mut self, table_name: Option<String>) {
         self.m_table_name = table_name;
     }
 }
 
 impl View for AbstractView {
-    /// 对应 Java: `@Override public Integer getID()`
+    /// Corresponds to Java: `@Override public Integer getID()`
     fn get_id(&self) -> Option<i32> {
         self.m_id
     }
 
-    /// 对应 Java: `@Override public String getName()`
+    /// Corresponds to Java: `@Override public String getName()`
     fn get_name(&self) -> Option<&str> {
         self.m_name.as_deref()
     }
 
-    /// 对应 Java: `@Override public ViewType getType()`
+    /// Corresponds to Java: `@Override public ViewType getType()`
     fn get_type(&self) -> Option<ViewType> {
         self.m_type
     }
 
-    /// 对应 Java: `@Override public String getTableName()`
+    /// Corresponds to Java: `@Override public String getTableName()`
     fn get_table_name(&self) -> Option<&str> {
         self.m_table_name.as_deref()
     }
 
-    /// 取视图中表格部分对应的表实例。
+/// Get the table instance corresponding to the table part in the view.
     ///
-    /// 对应 Java: `@Override public Table getTable()`
+    /// Corresponds to Java: `@Override public Table getTable()`
     ///
     /// Java: `return m_tables.getTaskTableByName(m_tableName);`
-    /// 父文件已释放或正被可变借用时返回 `None`（Java 会抛 `NullPointerException`）。
+/// Returns `None` when the parent file has been released or is being mutably borrowed (Java would throw `NullPointerException`).
     fn get_table(&self) -> Option<Rc<RefCell<Table>>> {
         let file = self.m_file.upgrade()?;
         let file_ref = file.try_borrow().ok()?;
@@ -157,12 +157,12 @@ impl View for AbstractView {
 }
 
 impl Display for AbstractView {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
     /// Java: `"[View id=" + m_id + " type=" + m_type + " name=" + m_name
     /// + (m_tableName == null ? "" : " table=" + m_tableName) + "]"`
     ///
-    /// 拼接时 Java 把 `null` 渲染为 `"null"`（`ViewType` 走其 `toString()`，即常量名）。
+/// When concatenating, Java renders `null` as `"null"` (`ViewType` goes through its `toString()`, i.e. the constant name).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[View id={} type={} name={}", java_int(self.m_id), java_view_type(self.m_type), java_str(self.m_name.as_deref()))?;
 
@@ -174,7 +174,7 @@ impl Display for AbstractView {
     }
 }
 
-/// 按 Java 的字符串拼接规则渲染可空整数（`null` → `"null"`）。
+/// Render a nullable integer using Java's string concatenation rules (`null` -> `"null"`).
 fn java_int(value: Option<i32>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -182,7 +182,7 @@ fn java_int(value: Option<i32>) -> String {
     }
 }
 
-/// 按 Java 的字符串拼接规则渲染可空 `ViewType`（`null` → `"null"`，否则用 `toString()`）。
+/// Render a nullable `ViewType` using Java's string concatenation rules (`null` -> `"null"`, otherwise use `toString()`).
 fn java_view_type(value: Option<ViewType>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -190,7 +190,7 @@ fn java_view_type(value: Option<ViewType>) -> String {
     }
 }
 
-/// 按 Java 的字符串拼接规则渲染可空字符串（`null` → `"null"`）。
+/// Render a nullable string using Java's string concatenation rules (`null` -> `"null"`).
 fn java_str(value: Option<&str>) -> &str {
     value.unwrap_or("null")
 }
@@ -199,7 +199,7 @@ fn java_str(value: Option<&str>) -> &str {
 mod tests {
     use super::*;
 
-    /// 构造一个带「Entry」表与「Resource」表的项目文件。
+/// Construct a project file with an "Entry" table and a "Resource" table.
     fn file_with_tables() -> Rc<RefCell<ProjectFile>> {
         let file = ProjectFile::new();
 
@@ -218,7 +218,7 @@ mod tests {
         file
     }
 
-    /// 构造方法、访问器与 `toString()` 的输出与 Java 一致。
+/// The constructor, accessors, and `toString()` output are consistent with Java.
     #[test]
     fn accessors_and_display_match_java() {
         let file = file_with_tables();
@@ -238,7 +238,7 @@ mod tests {
         );
     }
 
-    /// 未赋值的字段在 `toString()` 中渲染成 `"null"`，且不输出 `table=`。
+/// Unassigned fields are rendered as `"null"` in `toString()`, and `table=` is not output.
     #[test]
     fn empty_view_display_matches_java() {
         let file = file_with_tables();
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(view.to_string(), "[View id=null type=null name=null]");
     }
 
-    /// `getTable()` 按名称命中表格容器中的任务表。
+/// `getTable()` hits the task table in the table container by name.
     #[test]
     fn get_table_resolves_by_name() {
         let file = file_with_tables();
@@ -262,18 +262,18 @@ mod tests {
             .borrow()
             .get_tables()
             .get_task_table_by_name(Some("Entry"))
-            .expect("表中存在 Entry");
-        let found = view.get_table().expect("应能查到表");
+            .expect("Entry exists in the table");
+        let found = view.get_table().expect("should find table");
         assert!(Rc::ptr_eq(&found, &expected));
 
-        // 名称不存在 / 未设置名称 → None
+// name does not exist / name not set -> None
         view.set_table_name(Some("Missing".to_owned()));
         assert!(view.get_table().is_none());
         view.set_table_name(None);
         assert!(view.get_table().is_none());
     }
 
-    /// 父文件被释放后取表返回 `None`（Java 会抛 `NullPointerException`），不 panic。
+/// After the parent file is released, getting the table returns `None` (Java would throw `NullPointerException`) without panicking.
     #[test]
     fn dropped_parent_yields_none() {
         let file = file_with_tables();

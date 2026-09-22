@@ -1,38 +1,39 @@
-//! 对应 Java: `org/mpxj/ActivityType.java`
+//! Corresponds to Java: `org/mpxj/ActivityType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// P6/PPX 的活动类型。
+/// P6/PPX activity type.
 ///
-/// 对应 Java: `public enum ActivityType`
+/// Corresponds to Java: `public enum ActivityType`
 ///
-/// Java 侧该枚举不实现 `MpxjEnum`，也没有 `getInstance`；Rust 侧按声明顺序提供
-/// [`ActivityType::ALL`]，并用「序号（`ordinal()`）」实现 [`MpxjEnum::value`]，
-/// 使 int 与枚举可以互转（`get_instance` 在 Java 侧无对应方法）。
+/// On the Java side this enum does not implement `MpxjEnum` and has no `getInstance`; the Rust
+/// side provides [`ActivityType::ALL`] in declaration order and implements [`MpxjEnum::value`]
+/// using the ordinal (`ordinal()`), so ints and the enum can convert between each other
+/// (`get_instance` has no counterpart on the Java side).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActivityType {
-    /// 对应 Java: `TASK_DEPENDENT`
+    /// Corresponds to Java: `TASK_DEPENDENT`
     TaskDependent,
-    /// 对应 Java: `RESOURCE_DEPENDENT`
+    /// Corresponds to Java: `RESOURCE_DEPENDENT`
     ResourceDependent,
-    /// 对应 Java: `LEVEL_OF_EFFORT`
+    /// Corresponds to Java: `LEVEL_OF_EFFORT`
     LevelOfEffort,
-    /// 对应 Java: `START_MILESTONE`
+    /// Corresponds to Java: `START_MILESTONE`
     StartMilestone,
-    /// 对应 Java: `FINISH_MILESTONE`
+    /// Corresponds to Java: `FINISH_MILESTONE`
     FinishMilestone,
-    /// 对应 Java: `WBS_SUMMARY`
+    /// Corresponds to Java: `WBS_SUMMARY`
     WbsSummary,
-    /// 对应 Java: `HAMMOCK`
+    /// Corresponds to Java: `HAMMOCK`
     Hammock,
-    /// 对应 Java: `START_FLAG`
+    /// Corresponds to Java: `START_FLAG`
     StartFlag,
-    /// 对应 Java: `FINISH_FLAG`
+    /// Corresponds to Java: `FINISH_FLAG`
     FinishFlag,
 }
 
 impl ActivityType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as Java's declaration order.
     pub const ALL: [ActivityType; 9] = [
         ActivityType::TaskDependent,
         ActivityType::ResourceDependent,
@@ -45,9 +46,9 @@ impl ActivityType {
         ActivityType::FinishFlag,
     ];
 
-    /// 按序号（Java 的 `ordinal()`）取枚举实例，越界返回 `None`。
+    /// Return an enum instance by ordinal (Java's `ordinal()`); returns `None` when out of bounds.
     ///
-    /// Java 侧无对应方法（Java 直接使用枚举常量或 `values()[n]`）。
+    /// No counterpart on the Java side (Java uses the enum constants directly or `values()[n]`).
     pub fn get_instance(value: i32) -> Option<ActivityType> {
         match value {
             0 => Some(ActivityType::TaskDependent),
@@ -65,9 +66,9 @@ impl ActivityType {
 }
 
 impl MpxjEnum for ActivityType {
-    /// 返回声明顺序对应的序号。
+    /// Return the ordinal corresponding to declaration order.
     ///
-    /// Java 侧无 `getValue()`，此处对应 `Enum.ordinal()`。
+    /// Java has no `getValue()`; this corresponds to `Enum.ordinal()`.
     fn value(&self) -> i32 {
         *self as i32
     }

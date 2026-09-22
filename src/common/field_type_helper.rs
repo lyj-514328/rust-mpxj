@@ -1,37 +1,40 @@
-//! 对应 Java: `org/mpxj/common/FieldTypeHelper.java`
+//! Corresponds to Java: `org/mpxj/common/FieldTypeHelper.java`
 //!
-//! `FieldType` 相关的工具方法：字段号 ↔ `FieldType` 的互换、文本型字段的回退映射、
-//! 以及「字段值是否为默认值」的判断。
+//! `FieldType`-related utility methods: field ID ↔ `FieldType` conversion, fallback mapping
+//! for text fields, and the "is the field value the default value" check.
 //!
-//! # 与 Java 的差异（Rust 特有的接线）
+//! # Differences from Java (Rust-specific wiring)
 //!
-//! - **`FieldType` → [`MppFieldType`]**：Java 的 `FieldType` 是接口，可同时容纳
-//!   `TaskField` / `ResourceField` / … 与 `UserDefinedField`；Rust 侧用
-//!   [`crate::common::mpp_field_type::MppFieldType`] 表达这两种情形。
-//! - **`null` → `Option`**：`getFieldID(null)` 在 Java 中返回 `-1`，Rust 侧以
-//!   `Option<&MppFieldType>` 表达该可空入参。
-//! - **`getPlaceholder`（跳过的 Java 方法）**：Java 的 `getInstance` 在无法识别字段号时
-//!   返回一个匿名 `FieldType` 实现 —— `getFieldTypeClass()` 恒为 `FieldTypeClass.UNKNOWN`、
-//!   `name()` 恒为 `"UNKNOWN"`、`getValue()` 为字段号 `fieldID`、
-//!   `getName()` 为 `"Unknown"`（`type` 为 `null` 时）或
-//!   `"Unknown " + 类型简单名 + "(" + fieldID + ")"`、`getDataType()` 与 `getUnitsType()`
-//!   恒为 `null`。Rust 的 `MppFieldType` 只有内置字段与自定义字段两种变体，
-//!   `FieldKey` 也没有 `UNKNOWN` 变体，**无法表达该占位对象**，因此所有原本返回占位对象的
-//!   分支统一返回 `None`（调用方若要区分「未知类型」与「无字段」，需另行处理）。
-//! - **`Object value` → `Option<&FieldValue>`**：Java 的 `valueIsNotDefault` 接收任意对象，
-//!   按 `DataType` 强转（类型不符时抛 `ClassCastException` / `dataType` 为 `null` 时抛
-//!   `NullPointerException`）；Rust 侧用 [`FieldValue`] 表达，遇到不符合预期的类型一律返回
-//!   「是默认值」（不 `panic`），`dataType` 缺失时保留 Java 初始化值 `true`。
+//! - **`FieldType` → [`MppFieldType`]**: Java's `FieldType` is an interface that can hold both
+//!   `TaskField` / `ResourceField` / … and `UserDefinedField`; the Rust side uses
+//!   [`crate::common::mpp_field_type::MppFieldType`] to express these two cases.
+//! - **`null` → `Option`**: `getFieldID(null)` returns `-1` in Java; the Rust side expresses
+//!   this nullable input as `Option<&MppFieldType>`.
+//! - **`getPlaceholder` (skipped Java method)**: Java's `getInstance` returns an anonymous
+//!   `FieldType` implementation when it cannot recognize a field ID — `getFieldTypeClass()` is
+//!   always `FieldTypeClass.UNKNOWN`, `name()` is always `"UNKNOWN"`, `getValue()` is the field
+//!   ID `fieldID`, `getName()` is `"Unknown"` (when `type` is `null`) or
+//!   `"Unknown " + type simple name + "(" + fieldID + ")"`, and `getDataType()` and
+//!   `getUnitsType()` are always `null`. Rust's `MppFieldType` has only the built-in and custom
+//!   variants, and `FieldKey` has no `UNKNOWN` variant, so **it cannot express that placeholder
+//!   object**; therefore all branches that would return the placeholder uniformly return `None`
+//!   (callers that need to distinguish "unknown type" from "no field" must handle this
+//!   separately).
+//! - **`Object value` → `Option<&FieldValue>`**: Java's `valueIsNotDefault` accepts any object
+//!   and casts it by `DataType` (throws `ClassCastException` on a type mismatch /
+//!   `NullPointerException` when `dataType` is `null`); the Rust side expresses it with
+//!   [`FieldValue`] and returns "is the default value" for any unexpected type (without
+//!   `panic`), keeping Java's initialized value `true` when `dataType` is missing.
 //!
-//! # 依赖
+//! # Dependencies
 //!
-//! `getFieldID` / `getInstance` 需要兄弟模块 `MPPResourceField` / `MPPAssignmentField` /
-//! `MPPProjectField` / `MPPConstraintField`（与 `MPPTaskField` 同批移植）的公开成员：
-//! `RESOURCE_FIELD_BASE` / `ASSIGNMENT_FIELD_BASE` / `PROJECT_FIELD_BASE` /
-//! `CONSTRAINT_FIELD_BASE` 常量以及 `get_id`、`get_instance_with_data_type`（约束字段为
-//! `get_instance`）方法。
+//! `getFieldID` / `getInstance` require the public members of the sibling modules
+//! `MPPResourceField` / `MPPAssignmentField` / `MPPProjectField` / `MPPConstraintField` (ported
+//! together with `MPPTaskField`): the `RESOURCE_FIELD_BASE` / `ASSIGNMENT_FIELD_BASE` /
+//! `PROJECT_FIELD_BASE` / `CONSTRAINT_FIELD_BASE` constants and the `get_id`,
+//! `get_instance_with_data_type` (constraint fields use `get_instance`) methods.
 //!
-//! 未移植的 Java 方法：`getPlaceholder`（见上）。
+//! Unported Java methods: `getPlaceholder` (see above).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -51,17 +54,17 @@ use crate::priority::Priority;
 use crate::project_file::ProjectFile;
 use crate::task_field::TaskField;
 
-/// `FieldType` 相关工具。
+/// `FieldType`-related utilities.
 ///
-/// 对应 Java: `public final class FieldTypeHelper`
+/// Corresponds to Java: `public final class FieldTypeHelper`
 pub struct FieldTypeHelper;
 
 impl FieldTypeHelper {
-    /// 根据 MPXJ 的字段类型取 MPP9/MPP12 使用的字段号。
+    /// Get the field ID used by MPP9/MPP12 from MPXJ's field type.
     ///
-    /// 对应 Java: `public static int getFieldID(FieldType type)`
+    /// Corresponds to Java: `public static int getFieldID(FieldType type)`
     ///
-    /// `None` 对应 Java 的 `null`（返回 `-1`）。
+    /// `None` corresponds to Java's `null` (returns `-1`).
     pub fn get_field_id(value: Option<&MppFieldType>) -> i32 {
         // Java: if (type == null) { result = -1; }
         let Some(value) = value else {
@@ -82,22 +85,23 @@ impl FieldTypeHelper {
             Some(FieldTypeClass::Project) => {
                 MPPProjectField::PROJECT_FIELD_BASE | MPPProjectField::get_id(value)
             }
-            // Java: default: result = -1;（Constraint / Unknown，以及自定义字段的 type class 为 null）
+            // Java: default: result = -1; (Constraint / Unknown, and custom fields whose type class is null)
             _ => -1,
         }
     }
 
-    /// 根据 MPP9/MPP12/MPP14 文件中的字段号取字段类型。
+    /// Get the field type from a field ID in an MPP9/MPP12/MPP14 file.
     ///
-    /// 对应 Java: `public static final FieldType getInstance(ProjectFile project, int fieldID)`
+    /// Corresponds to Java: `public static final FieldType getInstance(ProjectFile project, int fieldID)`
     pub fn get_instance(project: &Rc<RefCell<ProjectFile>>, field_id: i32) -> Option<MppFieldType> {
         // Java: return getInstance(project, fieldID, DataType.CUSTOM);
         Self::get_instance_with_data_type(project, field_id, DataType::Custom)
     }
 
-    /// 根据 MPP9/MPP12/MPP14 文件中的字段号取字段类型（自定义字段可指定数据类型）。
+    /// Get the field type from a field ID in an MPP9/MPP12/MPP14 file (custom fields may
+    /// specify a data type).
     ///
-    /// 对应 Java: `public static final FieldType getInstance(ProjectFile project, int fieldID, DataType customFieldDataType)`
+    /// Corresponds to Java: `public static final FieldType getInstance(ProjectFile project, int fieldID, DataType customFieldDataType)`
     pub fn get_instance_with_data_type(
         project: &Rc<RefCell<ProjectFile>>,
         field_id: i32,
@@ -109,7 +113,7 @@ impl FieldTypeHelper {
         }
 
         // Java: int prefix = fieldID & 0xFFFF0000; int index = fieldID & 0x0000FFFF;
-        // （Java 的 `int` 为 32 位补码，`0xFFFF0000` 无法直接写成 Rust 的 `i32` 字面量）
+        // (Java's `int` is 32-bit two's complement, and `0xFFFF0000` cannot be written directly as a Rust `i32` literal)
         let prefix = field_id & (0xFFFF_0000u32 as i32);
         let index = field_id & 0x0000FFFF;
 
@@ -127,24 +131,24 @@ impl FieldTypeHelper {
                 index,
                 custom_field_data_type,
             ),
-            // Java: result = MPPConstraintField.getInstance(index);（Java 无 project 参数，
-            // Rust 侧为统一签名保留了该参数，约束字段没有自定义字段分支）
+            // Java: result = MPPConstraintField.getInstance(index); (Java has no project parameter,
+            // the Rust side keeps that parameter for a uniform signature; constraint fields have no custom-field branch)
             MPPConstraintField::CONSTRAINT_FIELD_BASE => {
                 MPPConstraintField::get_instance(project, index)
             }
             MPPProjectField::PROJECT_FIELD_BASE => {
                 MPPProjectField::get_instance_with_data_type(project, index, custom_field_data_type)
             }
-            // Java: default: result = getPlaceholder(null, index);（占位对象无法表达，见模块说明）
+            // Java: default: result = getPlaceholder(null, index); (the placeholder object cannot be expressed, see the module notes)
             _ => None,
         }
     }
 
-    /// 把「文本版字段」（如 Start Text）映射回需要处理的非文本版字段。
+    /// Map a "text version field" (e.g. Start Text) back to the non-text field that needs handling.
     ///
-    /// 对应 Java: `public static FieldType mapTextFields(FieldType field)`
+    /// Corresponds to Java: `public static FieldType mapTextFields(FieldType field)`
     ///
-    /// Java 仅处理 `TaskField`，其余类型原样返回。
+    /// Java only handles `TaskField` and returns other types unchanged.
     pub fn map_text_fields(field: MppFieldType) -> MppFieldType {
         match field {
             MppFieldType::Builtin(FieldKey::Task(task_field)) => match task_field {
@@ -154,7 +158,7 @@ impl FieldTypeHelper {
                 TaskField::FinishText => MppFieldType::Builtin(FieldKey::Task(TaskField::Finish)),
                 // Java: case DURATION_TEXT: field = TaskField.DURATION; break;
                 TaskField::DurationText => MppFieldType::Builtin(FieldKey::Task(TaskField::Duration)),
-                // Java: default: break;（原样返回）
+                // Java: default: break; (return unchanged)
                 other => MppFieldType::Builtin(FieldKey::Task(other)),
             },
             // Java: if (!(field instanceof TaskField)) { return field; }
@@ -162,11 +166,11 @@ impl FieldTypeHelper {
         }
     }
 
-    /// 判断给定值对该字段类型而言是否为「非默认值」。
+    /// Determine whether the given value is a "non-default value" for the field type.
     ///
-    /// 对应 Java: `public static final boolean valueIsNotDefault(FieldType type, Object value)`
+    /// Corresponds to Java: `public static final boolean valueIsNotDefault(FieldType type, Object value)`
     ///
-    /// `None` 对应 Java 的 `null`（返回 `false`，即「是默认值」）。
+    /// `None` corresponds to Java's `null` (returns `false`, i.e., "is the default value").
     pub fn value_is_not_default(field_type: &MppFieldType, value: Option<&FieldValue>) -> bool {
         // Java: boolean result = true; if (value == null) { result = false; }
         let Some(value) = value else {
@@ -174,18 +178,18 @@ impl FieldTypeHelper {
         };
 
         // Java: switch (type.getDataType()) { ... }
-        // Java 在 data type 为 null（自定义字段未设置时）会抛 NullPointerException；
-        // Rust 侧保留初始化值 true（即「非默认值」，不 panic）。
+        // Java throws NullPointerException when the data type is null (a custom field that was never set);
+        // the Rust side keeps the initialized value true (i.e., "non-default value", without panicking).
         match data_type_of(field_type) {
             // Java: result = !(value.toString()).isEmpty();
-            // 非字符串值（数字、布尔、日期等）的 toString 结果恒非空。
+            // The toString result of a non-string value (number, boolean, date, etc.) is always non-empty.
             Some(DataType::String) | Some(DataType::Notes) => match value {
                 FieldValue::String(text) => !text.is_empty(),
                 _ => true,
             },
 
             // Java: result = ((Number) value).doubleValue() != 0.0;
-            // 非数值类型在 Java 中抛 ClassCastException，Rust 侧按「是默认值」处理。
+            // Non-numeric types throw ClassCastException in Java; the Rust side treats them as "is the default value".
             Some(DataType::Numeric)
             | Some(DataType::Currency)
             | Some(DataType::Percentage)
@@ -212,20 +216,20 @@ impl FieldTypeHelper {
             Some(DataType::Boolean) => value.as_boolean().unwrap_or(false),
 
             // Java: result = ((Priority) value).getValue() != Priority.MEDIUM;
-            // Rust 的 `FieldValue` 没有 `Priority` 变体，优先级以整数存储。
+            // Rust's `FieldValue` has no `Priority` variant; priority is stored as an integer.
             Some(DataType::Priority) => value
                 .as_integer()
                 .map_or(false, |priority| priority != Priority::MEDIUM),
 
-            // Java: default: break;（保留初始化值 true）
+            // Java: default: break; (keeps the initialized value true)
             _ => true,
         }
     }
 }
 
-/// 取字段所属的实体类型；自定义字段无类型时返回 `None`。
+/// Get the entity type the field belongs to; returns `None` when a custom field has no type.
 ///
-/// Java: `FieldType.getFieldTypeClass()`（`UserDefinedField` 可能返回 `null`）
+/// Java: `FieldType.getFieldTypeClass()` (`UserDefinedField` may return `null`)
 fn field_type_class_of(field: &MppFieldType) -> Option<FieldTypeClass> {
     match field {
         MppFieldType::Builtin(key) => Some(key.get_field_type_class()),
@@ -236,7 +240,7 @@ fn field_type_class_of(field: &MppFieldType) -> Option<FieldTypeClass> {
     }
 }
 
-/// 取字段的数据类型；自定义字段无类型时返回 `None`（Java 为 `null`）。
+/// Get the field's data type; returns `None` when a custom field has no type (Java returns `null`).
 fn data_type_of(field: &MppFieldType) -> Option<DataType> {
     match field {
         MppFieldType::Builtin(key) => Some(key.get_data_type()),
@@ -254,20 +258,20 @@ mod tests {
     use crate::rate::Rate;
     use crate::time_unit::TimeUnit;
 
-    /// 构造一个项目（自定义字段用）。
+    /// Construct a project (used for custom fields).
     fn project() -> Rc<RefCell<ProjectFile>> {
         ProjectFile::new()
     }
 
-    /// 构造一个内置任务字段。
+    /// Construct a built-in task field.
     fn task_field(field: TaskField) -> MppFieldType {
         MppFieldType::Builtin(FieldKey::Task(field))
     }
 
-    /// 构造一个指定数据类型的自定义字段。
+    /// Construct a custom field with the specified data type.
     fn custom_field(project: &Rc<RefCell<ProjectFile>>, data_type: DataType) -> MppFieldType {
         MPPTaskField::get_instance_with_data_type(project, 0x8000, data_type)
-            .expect("应创建自定义字段")
+            .expect("should create custom field")
     }
 
     #[test]
@@ -275,24 +279,24 @@ mod tests {
         assert_eq!(FieldTypeHelper::get_field_id(None), -1);
 
         // Java: MPPTaskField.TASK_FIELD_BASE | MPPTaskField.getID(type)
-        // NAME 只出现在 FIELD_ARRAY[14]
+        // NAME only appears in FIELD_ARRAY[14]
         assert_eq!(
             FieldTypeHelper::get_field_id(Some(&task_field(TaskField::Name))),
             MPPTaskField::TASK_FIELD_BASE | 14
         );
-        // START 出现在 35 与 1283，ID_ARRAY 取后者
+        // START appears at 35 and 1283; ID_ARRAY takes the latter
         assert_eq!(
             FieldTypeHelper::get_field_id(Some(&task_field(TaskField::Start))),
             MPPTaskField::TASK_FIELD_BASE | 1283
         );
 
-        // Java: default: result = -1;（ConstraintField 不在 switch 中）
+        // Java: default: result = -1; (ConstraintField is not in the switch)
         let constraint = MppFieldType::Builtin(FieldKey::Constraint(
             crate::constraint_field::ConstraintField::UniqueId,
         ));
         assert_eq!(FieldTypeHelper::get_field_id(Some(&constraint)), -1);
 
-        // 自定义任务字段：Java 走 TASK 分支，getID 返回其 unique ID
+        // Custom task field: Java takes the TASK branch, getID returns its unique ID
         let custom = custom_field(&project(), DataType::Custom);
         assert_eq!(
             FieldTypeHelper::get_field_id(Some(&custom)),
@@ -309,10 +313,10 @@ mod tests {
 
         // Java: prefix == MPPTaskField.TASK_FIELD_BASE → MPPTaskField.getInstance(...)
         let field = FieldTypeHelper::get_instance(&project, MPPTaskField::TASK_FIELD_BASE | 14)
-            .expect("应映射到 TaskField.NAME");
+            .expect("should map to TaskField.NAME");
         assert_eq!(field.as_builtin(), Some(FieldKey::Task(TaskField::Name)));
 
-        // Java: 前缀未知 → getPlaceholder(null, index)（Rust 无法表达，返回 None）
+        // Java: unknown prefix → getPlaceholder(null, index) (Rust cannot express it, returns None)
         assert!(FieldTypeHelper::get_instance(&project, 0x12340000 | 5).is_none());
     }
 
@@ -331,13 +335,13 @@ mod tests {
             Some(FieldKey::Task(TaskField::Duration))
         );
 
-        // 其它任务字段原样返回
+        // Other task fields are returned unchanged
         assert_eq!(
             FieldTypeHelper::map_text_fields(task_field(TaskField::Name)).as_builtin(),
             Some(FieldKey::Task(TaskField::Name))
         );
 
-        // 非 TaskField（含自定义字段）原样返回
+        // Non-TaskField (including custom fields) returned unchanged
         let custom = custom_field(&project(), DataType::Custom);
         assert_eq!(
             FieldTypeHelper::map_text_fields(custom.clone()).to_key(),
@@ -355,7 +359,7 @@ mod tests {
             None
         ));
 
-        // STRING / NOTES：非空即非默认
+        // STRING / NOTES: non-empty means non-default
         let name = task_field(TaskField::Name);
         assert!(!FieldTypeHelper::value_is_not_default(
             &name,
@@ -371,7 +375,7 @@ mod tests {
             Some(&FieldValue::String(String::new()))
         ));
 
-        // NUMERIC / CURRENCY / PERCENTAGE / INTEGER：非 0 即非默认
+        // NUMERIC / CURRENCY / PERCENTAGE / INTEGER: non-zero means non-default
         for field in [
             task_field(TaskField::Cost),
             task_field(TaskField::PercentComplete),
@@ -387,7 +391,7 @@ mod tests {
             ));
         }
 
-        // WORK / DURATION：字符串按非空判断，否则按工期是否为 0 判断
+        // WORK / DURATION: strings are judged by non-emptiness, otherwise by whether the duration is 0
         let duration = task_field(TaskField::Duration);
         assert!(!FieldTypeHelper::value_is_not_default(
             &duration,
@@ -412,7 +416,7 @@ mod tests {
             )))
         ));
 
-        // RATE：费率金额非 0 即非默认
+        // RATE: a non-zero rate amount means non-default
         let rate_field = custom_field(&project, DataType::Rate);
         assert!(!FieldTypeHelper::value_is_not_default(
             &rate_field,
@@ -423,7 +427,7 @@ mod tests {
             Some(&FieldValue::Rate(Rate::new(10.0, TimeUnit::Hours)))
         ));
 
-        // BOOLEAN：值本身
+        // BOOLEAN: the value itself
         let milestone = task_field(TaskField::Milestone);
         assert!(!FieldTypeHelper::value_is_not_default(
             &milestone,
@@ -434,7 +438,7 @@ mod tests {
             Some(&FieldValue::Boolean(true))
         ));
 
-        // PRIORITY：非 MEDIUM 即非默认
+        // PRIORITY: anything other than MEDIUM is non-default
         let priority = task_field(TaskField::Priority);
         assert!(!FieldTypeHelper::value_is_not_default(
             &priority,
@@ -445,7 +449,7 @@ mod tests {
             Some(&FieldValue::Integer(Priority::HIGH))
         ));
 
-        // 未列举的数据类型（如 DATE）：Java 保留初始化值 true
+        // Unlisted data types (e.g. DATE): Java keeps the initialized value true
         assert!(FieldTypeHelper::value_is_not_default(
             &task_field(TaskField::Start),
             Some(&FieldValue::String(String::new()))

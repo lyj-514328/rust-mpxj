@@ -1,54 +1,54 @@
-//! 对应 Java: `org/mpxj/ProjectCalendarHours.java`
+//! Corresponds to Java: `org/mpxj/ProjectCalendarHours.java`
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 关于继承自 `AbstractList` / `AbstractCollection` 的方法：
-//! - Java 的 `addAll(Collection)` 在 Java 源文件里没有出现，但 `ProjectCalendarWeek`、
-//!   `ProjectCalendarException` 都会调用它，故本文件提供 [`ProjectCalendarHours::add_all`]；
-//! - 其余继承方法（`isEmpty`、`indexOf`、`contains`、`subList` 等）在上层代码中没有被调用，
-//!   且 Rust 的 `Vec` / 切片已经能直接表达同等能力，故不逐个重建。
-//! - `equals` / `hashCode` 由 `AbstractList` 提供（按元素比较、按元素计算哈希），
-//!   Rust 侧由 `PartialEq` / `Eq` / `Hash` 派生表达，语义一致。
+//! About methods inherited from `AbstractList` / `AbstractCollection`:
+//! - Java's `addAll(Collection)` does not appear in the Java source file, but `ProjectCalendarWeek`
+//! and `ProjectCalendarException` both call it, so this file provides [`ProjectCalendarHours::add_all`];
+//! - The remaining inherited methods (`isEmpty`, `indexOf`, `contains`, `subList`, etc.) are not called by higher-level code,
+//! and Rust's `Vec` / slices already express the same capability directly, so they are not rebuilt one by one.
+//! - `equals` / `hashCode` are provided by `AbstractList` (compare by element, compute hash by element);
+//! Rust expresses these via derived `PartialEq` / `Eq` / `Hash`, with the same semantics.
 
 use std::fmt::{self, Display, Formatter};
 use std::slice::Iter;
 
 use crate::local_time_range::LocalTimeRange;
 
-/// 表示日历中的工作时段集合（一天内可以有多个工作时段）。
+/// Represents the collection of working hours in a calendar (there can be multiple working periods in a day).
 ///
-/// 对应 Java: `public class ProjectCalendarHours extends AbstractList<LocalTimeRange>`
+/// Corresponds to Java: `public class ProjectCalendarHours extends AbstractList<LocalTimeRange>`
 ///
-/// 移植说明：Java 通过继承 `AbstractList` 获得 List 语义，Rust 侧用内部的
-/// `Vec<LocalTimeRange>` 表达，并保留 Java 源文件中显式覆写的方法。
+/// Porting note: Java gains List semantics by inheriting `AbstractList`; Rust uses an internal
+/// `Vec<LocalTimeRange>` and keeps the methods explicitly overridden in the Java source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ProjectCalendarHours {
-    /// 对应 Java 字段 `private final List<LocalTimeRange> m_ranges`
+    /// Corresponds to Java field `private final List<LocalTimeRange> m_ranges`
     ranges: Vec<LocalTimeRange>,
 }
 
 impl ProjectCalendarHours {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式无参构造方法 `ProjectCalendarHours()`
+/// Corresponds to Java: implicit no-arg constructor `ProjectCalendarHours()`
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 添加一个工作时段，始终返回 `true`（与 Java `AbstractList.add` 一致）。
+/// Adds a working period and always returns `true` (consistent with Java `AbstractList.add`).
     ///
-    /// 对应 Java: `@Override public boolean add(LocalTimeRange range)`
+    /// Corresponds to Java: `@Override public boolean add(LocalTimeRange range)`
     pub fn add(&mut self, range: LocalTimeRange) -> bool {
         self.ranges.push(range);
         true
     }
 
-    /// 替换指定下标的工作时段，返回被替换掉的旧值。
+/// Replaces the working period at the given index and returns the replaced old value.
     ///
-    /// 对应 Java: `@Override public LocalTimeRange set(int index, LocalTimeRange value)`
+    /// Corresponds to Java: `@Override public LocalTimeRange set(int index, LocalTimeRange value)`
     ///
-    /// Java 在下标越界时抛 `IndexOutOfBoundsException`，Rust 侧返回 `None`。
-    /// Java 的 `int index` 允许为负数，Rust 侧用 `usize` 表达（负数不可表示）。
+/// Java throws `IndexOutOfBoundsException` when the index is out of bounds; Rust returns `None`.
+/// Java's `int index` may be negative; Rust uses `usize` (negatives are not representable).
     pub fn set(&mut self, index: usize, value: LocalTimeRange) -> Option<LocalTimeRange> {
         match self.ranges.get_mut(index) {
             Some(slot) => Some(std::mem::replace(slot, value)),
@@ -56,12 +56,12 @@ impl ProjectCalendarHours {
         }
     }
 
-    /// 取指定下标的工作时段。
+/// Gets the working period at the given index.
     ///
-    /// 对应 Java: `@Override public LocalTimeRange get(int index)`
+    /// Corresponds to Java: `@Override public LocalTimeRange get(int index)`
     ///
-    /// 下标越界时返回 [`LocalTimeRange::EMPTY_RANGE`]，与 Java 行为一致；
-    /// Rust 侧下标为 `usize`，Java 中「负数下标返回空区间」的分支不可表示。
+/// Returns [`LocalTimeRange::EMPTY_RANGE`] when the index is out of bounds, matching Java;
+/// on the Rust side the index is `usize`, so Java's "negative index returns an empty range" branch is not representable.
     pub fn get(&self, index: usize) -> LocalTimeRange {
         self.ranges
             .get(index)
@@ -69,34 +69,34 @@ impl ProjectCalendarHours {
             .unwrap_or(LocalTimeRange::EMPTY_RANGE)
     }
 
-    /// 遍历工作时段（按添加顺序）。
+/// Iterates over the working periods (in insertion order).
     ///
-    /// 对应 Java: `@Override public Iterator<LocalTimeRange> iterator()`
+    /// Corresponds to Java: `@Override public Iterator<LocalTimeRange> iterator()`
     pub fn iter(&self) -> Iter<'_, LocalTimeRange> {
         self.ranges.iter()
     }
 
-    /// 工作时段数量。
+/// Number of working periods.
     ///
-    /// 对应 Java: `@Override public int size()`
+    /// Corresponds to Java: `@Override public int size()`
     pub fn size(&self) -> usize {
         self.ranges.len()
     }
 
-    /// 清空所有工作时段。
+/// Clears all working periods.
     ///
-    /// 对应 Java: `@Override public void clear()`
+    /// Corresponds to Java: `@Override public void clear()`
     pub fn clear(&mut self) {
         self.ranges.clear();
     }
 
-    /// 追加另一个工作时段集合中的全部时段。
+/// Appends all periods from another working-hour collection.
     ///
-    /// 对应 Java: `AbstractCollection.addAll(Collection)`（由父类提供，
-    /// `ProjectCalendarWeek#convertToRecurringExceptions` 与
-    /// `ProjectCalendarException#getExpandedExceptions` 会调用）。
+/// Corresponds to Java: `AbstractCollection.addAll(Collection)` (provided by the base class;
+/// `ProjectCalendarWeek#convertToRecurringExceptions` and
+/// `ProjectCalendarException#getExpandedExceptions` call it).
     ///
-    /// 返回是否发生了变更（与 Java `addAll` 的返回值含义一致）。
+/// Returns whether a change occurred (same meaning as the Java `addAll` return value).
     pub fn add_all(&mut self, other: &ProjectCalendarHours) -> bool {
         if other.ranges.is_empty() {
             return false;
@@ -111,14 +111,14 @@ impl<'a> IntoIterator for &'a ProjectCalendarHours {
     type Item = &'a LocalTimeRange;
     type IntoIter = Iter<'a, LocalTimeRange>;
 
-    /// 对应 Java 的增强 for 循环语义（`for (LocalTimeRange range : this)`）。
+/// Corresponds to Java's enhanced for-loop semantics (`for (LocalTimeRange range : this)`).
     fn into_iter(self) -> Self::IntoIter {
         self.ranges.iter()
     }
 }
 
 impl Display for ProjectCalendarHours {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[ProjectCalendarHours ")?;
         for range in &self.ranges {
@@ -138,7 +138,7 @@ mod tests {
     use super::*;
 
     fn time(hour: u32, minute: u32) -> NaiveTime {
-        NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间")
+        NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time")
     }
 
     fn range(from: u32, to: u32) -> LocalTimeRange {
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(hours.size(), 2);
         assert_eq!(hours.get(0), range(8, 12));
         assert_eq!(hours.get(1), range(13, 17));
-        // Java: 越界返回 EMPTY_RANGE
+// Java: out of bounds returns EMPTY_RANGE
         assert_eq!(hours.get(2), LocalTimeRange::EMPTY_RANGE);
         assert_eq!(hours.get(usize::MAX), LocalTimeRange::EMPTY_RANGE);
     }
@@ -164,10 +164,10 @@ mod tests {
         let mut hours = ProjectCalendarHours::new();
         hours.add(range(8, 12));
 
-        // Java: 返回被替换掉的旧值
+// Java: returns the replaced old value
         assert_eq!(hours.set(0, range(9, 12)), Some(range(8, 12)));
         assert_eq!(hours.get(0), range(9, 12));
-        // Java: 越界抛 IndexOutOfBoundsException，Rust 侧返回 None
+// Java: out of bounds throws IndexOutOfBoundsException; Rust returns None
         assert_eq!(hours.set(5, range(9, 12)), None);
     }
 

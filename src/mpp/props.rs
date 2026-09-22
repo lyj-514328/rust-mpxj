@@ -1,43 +1,43 @@
-//! 对应 Java: `org/mpxj/mpp/Props.java`
+//! Corresponds to Java: `org/mpxj/mpp/Props.java`
 //!
-//! `Props` 描述 MPP 文件中的 `Props*` 流：它是一张「整数键 → 字节数组」的属性表，
-//! 由各版本的子类按自己的字节布局填充，再由上层（`ProjectPropertiesReader`、
-//! `DocumentInputStreamFactory` 等）按键取值。
+//! `Props` describes the `Props*` streams in an MPP file: it is an "integer key -> byte array" property table,
+//! populated by the version-specific subclasses according to their own byte layout, then read by key from upper layers (`ProjectPropertiesReader`,
+//! `DocumentInputStreamFactory`, etc.).
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Restoring inheritance (composition + forwarding)
 //!
-//! Java: `class Props extends MPPComponent`，且 `Props8/Props9/Props12/Props14/PropsBlock
-//! extends Props`。Rust 无继承，故：
+//! Java: `class Props extends MPPComponent`, and `Props8/Props9/Props12/Props14/PropsBlock
+//! extends Props`. Rust has no inheritance, so:
 //!
-//! - `MPPComponent`（只提供基于 `InputStream` 的 `readByte` / `readShort` / `readInt` /
-//!   `readByteArray`）按本工程约定把 `InputStream` 换成 `&[u8]`，已由
-//!   [`crate::mpp::mpp_component::MPPComponent`] 落地；本文件的 [`InputStreamCursor`]
-//!   在提供「游标」便利的同时，其 `read_int` / `read_short` / `read` 直接转发给它，
-//!   不再复刻一份字节解析逻辑。[`Props`] 自身不需要父类（Java 的
-//!   `extends MPPComponent` 只是复用 4 个读取助手）。
-//! - `Props8/9/12/14/PropsBlock` 各自**持有一个 [`Props`]**（私有字段 `props`），并把它
-//!   的全部公开方法原样转发；`Props8/9/12/14` 另实现 `Deref`/`DerefMut`（目标为 [`Props`]），
-//!   使 `&Props9` 之类的引用能自动强转成 `&Props` —— 与 Java 的继承（子类实例可直接传给
-//!   基类形参）等价，手法同 [`crate::recurring_task`]。
+//! - `MPPComponent` (which only provides the `InputStream`-based `readByte` / `readShort` / `readInt` /
+//!   `readByteArray`) replaces `InputStream` with `&[u8]` per this project's convention, and has been
+//!   implemented by [`crate::mpp::mpp_component::MPPComponent`]; the [`InputStreamCursor`] in this file
+//!   provides "cursor" convenience while its `read_int` / `read_short` / `read` forward directly to it,
+//!   without duplicating byte-parsing logic. [`Props`] itself needs no base class (Java's
+//!   `extends MPPComponent` merely reuses 4 read helpers).
+//! - `Props8/9/12/14/PropsBlock` each **hold a [`Props`]** (private field `props`) and forward
+//!   all of its public methods unchanged; `Props8/9/12/14` additionally implement `Deref`/`DerefMut` (targeting [`Props`]),
+//!   so that references like `&Props9` auto-coerce to `&Props` -- equivalent to Java's inheritance (where a subclass instance can be passed directly to a
+//!   base-class parameter), using the same technique as [`crate::recurring_task`].
 //!
-//! # 本类与 Java 的差异
+//! # Differences from Java in this class
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `byte[] getByteArray(PropsKey)` | `Option<&[u8]>` | 返回内部缓冲的借用，不复制；`null` → `None` |
-//! | `byte getByte(PropsKey)` | `i8` | Java 的 `byte` 有符号；属性为空数组时 Java 抛 `AIOOBE`，Rust 返回 0 |
-//! | `int getShort/getInt` | `i32` | 属性长度不足时 Java 抛 `AIOOBE`，Rust 返回 0 |
-//! | `double getDouble` | `f64` | 同上 |
-//! | `LocalTime getTime` | `Option<NaiveTime>` | 同上，返回 `None` |
-//! | `LocalDateTime getTimestamp` | `Option<NaiveDateTime>` | 同上，返回 `None` |
-//! | `UUID getUUID` | `Option<Uuid>` | MPP9 的字符串形式解析失败时 Java 抛 `IllegalArgumentException`，Rust 返回 `None` |
-//! | `Set<Integer> keySet()` | `Vec<i32>` | 按 `TreeMap` 迭代顺序（升序）返回键的副本 |
-//! | `toString()` | `Display` | `PrintWriter.println` 的平台换行统一为 `\n` |
-//! | `protected final TreeMap<Integer, byte[]> m_map` | 私有字段 `map` + [`Props::put`] / `get_byte_array_by_key` / `entries` | Java 的子类直接读写该字段；Rust 侧由本类提供三个 `pub(crate)` 读写入口（唯一被改动的可见性） |
+//! | `byte[] getByteArray(PropsKey)` | `Option<&[u8]>` | Returns a borrow of the internal buffer without copying; `null` -> `None` |
+//! | `byte getByte(PropsKey)` | `i8` | Java's `byte` is signed; when the property is an empty array Java throws `AIOOBE`, Rust returns 0 |
+//! | `int getShort/getInt` | `i32` | When the property is too short Java throws `AIOOBE`, Rust returns 0 |
+//! | `double getDouble` | `f64` | Same as above |
+//! | `LocalTime getTime` | `Option<NaiveTime>` | Same as above, returns `None` |
+//! | `LocalDateTime getTimestamp` | `Option<NaiveDateTime>` | Same as above, returns `None` |
+//! | `UUID getUUID` | `Option<Uuid>` | When parsing the MPP9 string form fails Java throws `IllegalArgumentException`, Rust returns `None` |
+//! | `Set<Integer> keySet()` | `Vec<i32>` | Returns a copy of the keys in `TreeMap` iteration order (ascending) |
+//! | `toString()` | `Display` | The platform line separator of `PrintWriter.println` is normalized to `\n` |
+//! | `protected final TreeMap<Integer, byte[]> m_map` | Private field `map` + [`Props::put`] / `get_byte_array_by_key` / `entries` | Java subclasses read and write this field directly; on the Rust side this class provides three `pub(crate)` read/write entry points (the only visibility change) |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! # 对相关模块 `crate::mpp::mpp_utility::MPPUtility` 的接口假设（已核对一致）
+//! # Interface assumptions about the related module `crate::mpp::mpp_utility::MPPUtility` (verified consistent)
 //!
 //! ```text
 //! MPPUtility::get_double(&[u8], usize) -> f64                                // Java getDouble
@@ -60,155 +60,155 @@ use crate::mpp::mpp_component::MPPComponent;
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::mpp::props_key::PropsKey;
 
-/// 属性表：整数键 → 字节数组。
+/// Property table: integer key -> byte array.
 ///
-/// 对应 Java: `class Props extends MPPComponent`
+/// Corresponds to Java: `class Props extends MPPComponent`
 ///
-/// Rust 特有：Java 没有显式构造方法（默认构造 + 子类填充 `m_map`），此处提供
-/// [`Props::new`]。
+/// Rust-specific: Java has no explicit constructor (default constructor + subclasses populate `m_map`), so this provides
+/// [`Props::new`].
 #[derive(Debug, Default)]
 pub struct Props {
-    /// 对应 Java: `protected final TreeMap<Integer, byte[]> m_map`
+    /// Corresponds to Java: `protected final TreeMap<Integer, byte[]> m_map`
     ///
-    /// 用 `BTreeMap` 与 Java 的 `TreeMap` 对应（键升序）。
+    /// Uses `BTreeMap` to correspond to Java's `TreeMap` (keys ascending).
     map: BTreeMap<i32, Vec<u8>>,
 }
 
 impl Props {
-    /// 构造空的属性表。
+    /// Construct an empty property table.
     ///
-    /// Java 侧无对应方法（隐式默认构造）。
+    /// No corresponding method on the Java side (implicit default constructor).
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
         }
     }
 
-    /// 写入一条属性。
+    /// Write one property.
     ///
-    /// 对应 Java: 子类对 `m_map.put(Integer, byte[])` 的调用（例如 `Props8`、`PropsBlock`）
+    /// Corresponds to Java: calls to `m_map.put(Integer, byte[])` made by subclasses (e.g. `Props8`, `PropsBlock`)
     pub fn put(&mut self, key: i32, value: Vec<u8>) {
         self.map.insert(key, value);
     }
 
-    /// 按另一份属性表的内容重建一份等价的 [`Props`]。
+    /// Rebuild an equivalent [`Props`] from the contents of another property table.
     ///
-    /// Rust 特有：Java 的 `Props9/12/14 extends Props`，`ViewStateReader.getProps` 直接返回
-    /// 子类实例、随后按基类引用使用；本 crate 的子类用组合实现「继承」（见文件头），`Deref`
-    /// 只能给出借用、无法按值取出内部的 [`Props`]，故「需要拥有所有权的 [`Props`]」的场景
-    /// 在此按键值重建一份（内容与来源完全一致，含 `PropsKey` 未覆盖的键）。
+    /// Rust-specific: Java's `Props9/12/14 extends Props` and `ViewStateReader.getProps` returns
+    /// a subclass instance directly, which is then used through a base-class reference; subclasses in this crate implement "inheritance" via composition (see the file header), and `Deref`
+    /// can only yield a borrow and cannot take the inner [`Props`] out by value, so scenarios that "need an owned [`Props`]"
+    /// rebuild one here by key value (contents identical to the source, including keys not covered by `PropsKey`).
     pub(crate) fn copied_from(source: &Props) -> Props {
         Props {
             map: source.map.clone(),
         }
     }
 
-    /// 取属性数据（原始字节）。
+    /// Get the property data (raw bytes).
     ///
-    /// 对应 Java: `public byte[] getByteArray(PropsKey key)`
+    /// Corresponds to Java: `public byte[] getByteArray(PropsKey key)`
     pub fn get_byte_array(&self, key: PropsKey) -> Option<&[u8]> {
         self.get_byte_array_by_key(key.get_value())
     }
 
-    /// 按整数键取属性数据。
+    /// Get the property data by integer key.
     ///
-    /// Rust 特有：Java 的子类直接读 protected 字段 `m_map`
-    /// （例如 `PropsBlock.getByteArray(Integer)`），Rust 侧改用本方法暴露读取入口。
+    /// Rust-specific: Java subclasses read the protected field `m_map` directly
+    /// (e.g. `PropsBlock.getByteArray(Integer)`); on the Rust side this method exposes the read entry point instead.
     pub(crate) fn get_byte_array_by_key(&self, key: i32) -> Option<&[u8]> {
         self.map.get(&key).map(Vec::as_slice)
     }
 
-    /// 按键升序遍历全部属性。
+    /// Iterate over all properties in ascending key order.
     ///
-    /// Rust 特有：Java 的子类直接遍历 protected 字段 `m_map`（例如 `Props8.toString()`）。
+    /// Rust-specific: Java subclasses iterate the protected field `m_map` directly (e.g. `Props8.toString()`).
     pub(crate) fn entries(&self) -> impl Iterator<Item = (&i32, &Vec<u8>)> {
         self.map.iter()
     }
 
-    /// 取字节值。
+    /// Get a byte value.
     ///
-    /// 对应 Java: `public byte getByte(PropsKey key)`
+    /// Corresponds to Java: `public byte getByte(PropsKey key)`
     ///
-    /// Java 返回有符号 `byte`，Rust 用 `i8` 对应；属性不存在时返回 0，
-    /// 属性为空数组时 Java 抛 `ArrayIndexOutOfBoundsException`，Rust 同样返回 0。
+    /// Java returns a signed `byte`; Rust uses `i8` to match. Returns 0 when the property does not exist,
+    /// and returns 0 in Rust when the property is an empty array (Java throws `ArrayIndexOutOfBoundsException`).
     pub fn get_byte(&self, key: PropsKey) -> i8 {
         value_byte(self.get_byte_array(key))
     }
 
-    /// 取短整型值。
+    /// Get a short value.
     ///
-    /// 对应 Java: `public int getShort(PropsKey key)`
+    /// Corresponds to Java: `public int getShort(PropsKey key)`
     pub fn get_short(&self, key: PropsKey) -> i32 {
         value_short(self.get_byte_array(key))
     }
 
-    /// 取整型值。
+    /// Get an int value.
     ///
-    /// 对应 Java: `public int getInt(PropsKey key)`
+    /// Corresponds to Java: `public int getInt(PropsKey key)`
     pub fn get_int(&self, key: PropsKey) -> i32 {
         value_int(self.get_byte_array(key))
     }
 
-    /// 取双精度值。
+    /// Get a double value.
     ///
-    /// 对应 Java: `public double getDouble(PropsKey key)`
+    /// Corresponds to Java: `public double getDouble(PropsKey key)`
     pub fn get_double(&self, key: PropsKey) -> f64 {
         value_double(self.get_byte_array(key))
     }
 
-    /// 取时间值（当日时刻）。
+    /// Get a time value (time of day).
     ///
-    /// 对应 Java: `public LocalTime getTime(PropsKey key)`
+    /// Corresponds to Java: `public LocalTime getTime(PropsKey key)`
     pub fn get_time(&self, key: PropsKey) -> Option<NaiveTime> {
         value_time(self.get_byte_array(key))
     }
 
-    /// 取时间戳。
+    /// Get a timestamp.
     ///
-    /// 对应 Java: `public LocalDateTime getTimestamp(PropsKey key)`
+    /// Corresponds to Java: `public LocalDateTime getTimestamp(PropsKey key)`
     pub fn get_timestamp(&self, key: PropsKey) -> Option<NaiveDateTime> {
         value_timestamp(self.get_byte_array(key))
     }
 
-    /// 取布尔值（短整型是否为非零）。
+    /// Get a boolean value (whether the short is non-zero).
     ///
-    /// 对应 Java: `public boolean getBoolean(PropsKey key)`
+    /// Corresponds to Java: `public boolean getBoolean(PropsKey key)`
     pub fn get_boolean(&self, key: PropsKey) -> bool {
         value_boolean(self.get_byte_array(key))
     }
 
-    /// 取 UTF-16LE 字符串。
+    /// Get a UTF-16LE string.
     ///
-    /// 对应 Java: `public String getUnicodeString(PropsKey key)`
+    /// Corresponds to Java: `public String getUnicodeString(PropsKey key)`
     pub fn get_unicode_string(&self, key: PropsKey) -> Option<String> {
         value_unicode_string(self.get_byte_array(key))
     }
 
-    /// 取 GUID。
+    /// Get a GUID.
     ///
-    /// 对应 Java: `public UUID getUUID(PropsKey key)`
+    /// Corresponds to Java: `public UUID getUUID(PropsKey key)`
     ///
-    /// Java 在属性长度大于 16 字节时先尝试按 MPP9 的「字符串形式 GUID」解析
-    /// （`{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`，最多 76 字节）。
+    /// When the property is longer than 16 bytes Java first tries to parse it as an MPP9 "string-form GUID"
+    /// (`{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`, at most 76 bytes).
     pub fn get_uuid(&self, key: PropsKey) -> Option<Uuid> {
         value_uuid(self.get_byte_array(key))
     }
 
-    /// 取全部键（升序，对应 Java `TreeMap` 的迭代顺序）。
+    /// Get all keys (ascending, matching Java `TreeMap` iteration order).
     ///
-    /// 对应 Java: `public Set<Integer> keySet()`
+    /// Corresponds to Java: `public Set<Integer> keySet()`
     pub fn key_set(&self) -> Vec<i32> {
         self.map.keys().copied().collect()
     }
 }
 
 impl fmt::Display for Props {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 用 `PrintWriter.println`，换行符为平台相关（Windows 下是 `\r\n`）；
-    /// Rust 侧统一用 `\n`。
+    /// Java uses `PrintWriter.println`, whose line separator is platform-dependent (on Windows it is `\r\n`);
+    /// the Rust side always uses `\n`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Java: 建立「键值 → PropsKey 列表」的映射（一个键值可能对应多个枚举常量）
+        // Java: build a "key value -> PropsKey list" mapping (one key value may correspond to multiple enum constants)
         let mut key_labels: BTreeMap<i32, Vec<PropsKey>> = BTreeMap::new();
         for key in PropsKey::ALL {
             key_labels.entry(key.get_value()).or_default().push(key);
@@ -243,21 +243,21 @@ impl fmt::Display for Props {
     }
 }
 
-/// 顺序读取 `&[u8]` 的游标。
+/// A cursor for sequentially reading `&[u8]`.
 ///
-/// Rust 特有：Java 的 `Props8/9/12/14` 构造方法接收 `InputStream`，并用
-/// `MPPComponent.readInt/readShort`、`InputStreamHelper.read/skip` 与
-/// `InputStream.available()` 读取数据。本工程约定把 `InputStream` 换成 `&[u8]`，
-/// 故用本结构提供一一对应的操作。
+/// Rust-specific: Java's `Props8/9/12/14` constructors accept an `InputStream` and use
+/// `MPPComponent.readInt/readShort`, `InputStreamHelper.read/skip` and
+/// `InputStream.available()` to read data. This project's convention replaces `InputStream` with `&[u8]`,
+/// so this struct provides one-to-one corresponding operations.
 ///
-/// 其中 `read_int` / `read_short` / `read` 直接转发到已落地的
-/// [`crate::mpp::mpp_component::MPPComponent`]（对应 `MPPComponent.readInt/readShort` 与
-/// `InputStreamHelper.read`），本文件不再复刻一份等价实现；
-/// `available` / `skip` 对应的是 `InputStream.available()` 与 `InputStreamHelper.skip`，
-/// `MPPComponent` 中没有等价方法，故仍在本文件实现。
+/// Here `read_int` / `read_short` / `read` forward directly to the already-implemented
+/// [`crate::mpp::mpp_component::MPPComponent`] (corresponding to `MPPComponent.readInt/readShort` and
+/// `InputStreamHelper.read`), and this file does not duplicate an equivalent implementation;
+/// `available` / `skip` correspond to `InputStream.available()` and `InputStreamHelper.skip`,
+/// for which `MPPComponent` has no equivalent, so they remain implemented in this file.
 ///
-/// 越界（Java 会抛 `EOFException` / `RuntimeException`）一律返回 `None` / 不移动位置，
-/// 由调用方决定是「返回 `Err`」还是「中断解析」，绝不 panic。
+/// Out of bounds (where Java throws `EOFException` / `RuntimeException`) always returns `None` / leaves the position unmoved,
+/// leaving it to the caller to decide whether to return `Err` or abort parsing; never panics.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct InputStreamCursor<'a> {
     data: &'a [u8],
@@ -265,104 +265,104 @@ pub(crate) struct InputStreamCursor<'a> {
 }
 
 impl<'a> InputStreamCursor<'a> {
-    /// 创建游标。
+    /// Create a cursor.
     pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, position: 0 }
     }
 
-    /// 剩余字节数。
+    /// Number of remaining bytes.
     ///
-    /// 对应 Java: `InputStream.available()`
+    /// Corresponds to Java: `InputStream.available()`
     ///
-    /// `MPPComponent` 没有等价成员，故保留在本文件。
+    /// `MPPComponent` has no equivalent member, so this remains in this file.
     pub(crate) fn available(&self) -> usize {
         self.data.len().saturating_sub(self.position)
     }
 
-    /// 读一个四字节小端整数。
+    /// Read a four-byte little-endian integer.
     ///
-    /// 对应 Java: `MPPComponent.readInt(InputStream)`（转发到
-    /// [`MPPComponent::read_int`]）
+    /// Corresponds to Java: `MPPComponent.readInt(InputStream)` (forwards to
+    /// [`MPPComponent::read_int`])
     pub(crate) fn read_int(&mut self) -> Option<i32> {
         MPPComponent::read_int(self.data, &mut self.position)
     }
 
-    /// 读一个两字节小端短整数（0..65535）。
+    /// Read a two-byte little-endian short (0..65535).
     ///
-    /// 对应 Java: `MPPComponent.readShort(InputStream)`（转发到
-    /// [`MPPComponent::read_short`]）
+    /// Corresponds to Java: `MPPComponent.readShort(InputStream)` (forwards to
+    /// [`MPPComponent::read_short`])
     pub(crate) fn read_short(&mut self) -> Option<i32> {
         MPPComponent::read_short(self.data, &mut self.position)
     }
 
-    /// 读指定长度的字节切片。
+    /// Read a byte slice of the specified length.
     ///
-    /// 对应 Java: `InputStreamHelper.read(InputStream, int)`
-    /// （转发到 [`MPPComponent::read_byte_array`]；长度不足时 Java 抛异常，Rust 返回 `None`）
+    /// Corresponds to Java: `InputStreamHelper.read(InputStream, int)`
+    /// (forwards to [`MPPComponent::read_byte_array`]; when the length is insufficient Java throws an exception, Rust returns `None`)
     pub(crate) fn read(&mut self, size: usize) -> Option<&'a [u8]> {
         MPPComponent::read_byte_array(self.data, &mut self.position, size)
     }
 
-    /// 跳过指定长度的字节。
+    /// Skip the specified number of bytes.
     ///
-    /// 对应 Java: `InputStreamHelper.skip(InputStream, long)`
-    /// （Java 在无法跳过时抛 `IOException`，Rust 侧直接定位到末尾）
+    /// Corresponds to Java: `InputStreamHelper.skip(InputStream, long)`
+    /// (Java throws `IOException` when it cannot skip; the Rust side positions directly at the end)
     ///
-    /// `MPPComponent` 没有等价成员，故保留在本文件。
+    /// `MPPComponent` has no equivalent member, so this remains in this file.
     pub(crate) fn skip(&mut self, size: usize) {
         self.position = (self.position + size).min(self.data.len());
     }
 }
 
-/// 读取属性对应的异常（对应 Java `InputStreamHelper.read` 抛出的
-/// `RuntimeException("Unable to read the required number of bytes")`）。
+/// The exception for reading a property (corresponding to what Java's `InputStreamHelper.read` throws)
+/// `RuntimeException("Unable to read the required number of bytes")`).
 pub(crate) fn read_error() -> crate::mpxj_exception::MpxjError {
     crate::mpxj_exception::MpxjError::new("Unable to read the required number of bytes")
 }
 
-/// 取字节值。[`Props::get_byte`] 与 `PropsBlock::get_byte_array_by_type` 路径共用。
+/// Get a byte value. Shared by the [`Props::get_byte`] and `PropsBlock::get_byte_array_by_type` paths.
 pub(crate) fn value_byte(item: Option<&[u8]>) -> i8 {
     match item {
         None => 0,
-        // Java 对空数组取 item[0] 会抛 AIOOBE，Rust 返回 0
+        // Java throws AIOOBE when taking item[0] from an empty array; Rust returns 0
         Some(item) => item.first().map_or(0, |value| *value as i8),
     }
 }
 
-/// 取短整型值。
+/// Get a short value.
 pub(crate) fn value_short(item: Option<&[u8]>) -> i32 {
     match item {
-        // Java 在数据不足时抛 AIOOBE，Rust 返回 0
+        // Java throws AIOOBE when there is insufficient data; Rust returns 0
         None => 0,
         Some(item) if item.len() < 2 => 0,
         Some(item) => ByteArrayHelper::get_short(item, 0),
     }
 }
 
-/// 取整型值。
+/// Get an int value.
 pub(crate) fn value_int(item: Option<&[u8]>) -> i32 {
     match item {
-        // Java 在数据不足时抛 AIOOBE，Rust 返回 0
+        // Java throws AIOOBE when there is insufficient data; Rust returns 0
         None => 0,
         Some(item) if item.len() < 4 => 0,
         Some(item) => ByteArrayHelper::get_int(item, 0),
     }
 }
 
-/// 取双精度值。
+/// Get a double value.
 pub(crate) fn value_double(item: Option<&[u8]>) -> f64 {
     match item {
-        // Java 在数据不足时抛 AIOOBE，Rust 返回 0
+        // Java throws AIOOBE when there is insufficient data; Rust returns 0
         None => 0.0,
         Some(item) if item.len() < 8 => 0.0,
         Some(item) => MPPUtility::get_double(item, 0),
     }
 }
 
-/// 取时间值（当日时刻）。
+/// Get a time value (time of day).
 pub(crate) fn value_time(item: Option<&[u8]>) -> Option<NaiveTime> {
     let item = item?;
-    // Java 在数据不足时抛 AIOOBE，Rust 返回 None
+    // Java throws AIOOBE when there is insufficient data; Rust returns None
     if item.len() < 2 {
         return None;
     }
@@ -370,10 +370,10 @@ pub(crate) fn value_time(item: Option<&[u8]>) -> Option<NaiveTime> {
     Some(MPPUtility::get_time(item, 0))
 }
 
-/// 取时间戳。
+/// Get a timestamp.
 pub(crate) fn value_timestamp(item: Option<&[u8]>) -> Option<NaiveDateTime> {
     let item = item?;
-    // Java 在数据不足时抛 AIOOBE，Rust 返回 None
+    // Java throws AIOOBE when there is insufficient data; Rust returns None
     if item.len() < 4 {
         return None;
     }
@@ -381,19 +381,19 @@ pub(crate) fn value_timestamp(item: Option<&[u8]>) -> Option<NaiveDateTime> {
     MPPUtility::get_timestamp(item, 0)
 }
 
-/// 取布尔值。
+/// Get a boolean value.
 pub(crate) fn value_boolean(item: Option<&[u8]>) -> bool {
     // Java: !(ByteArrayHelper.getShort(item, 0) == 0)
     value_short(item) != 0
 }
 
-/// 取 UTF-16LE 字符串。
+/// Get a UTF-16LE string.
 pub(crate) fn value_unicode_string(item: Option<&[u8]>) -> Option<String> {
     let item = item?;
     Some(MPPUtility::get_unicode_string(item, 0))
 }
 
-/// 取 GUID（MPP9 会存字符串形式，最多 76 字节）。
+/// Get a GUID (MPP9 stores it in string form, at most 76 bytes).
 pub(crate) fn value_uuid(item: Option<&[u8]>) -> Option<Uuid> {
     let item = item?;
 
@@ -402,10 +402,10 @@ pub(crate) fn value_uuid(item: Option<&[u8]>) -> Option<Uuid> {
         let value = MPPUtility::get_unicode_string_with_max_length(item, 0, 76);
 
         // Java: value.length() == 38 && value.charAt(0) == '{' && value.charAt(37) == '}'
-        // 按字符（而非字节）计数，与 Java 的 char 语义一致。
+        // Counts by character (not byte), consistent with Java's char semantics.
         if value.chars().count() == 38 && value.starts_with('{') && value.ends_with('}') {
-            // Java: UUID.fromString(value.substring(1, 37)) —— 解析失败时 Java 抛
-            // IllegalArgumentException，Rust 返回 None
+            // Java: UUID.fromString(value.substring(1, 37)) -- when parsing fails Java throws
+            // IllegalArgumentException; Rust returns None
             let inner: String = value.chars().skip(1).take(36).collect();
             return Uuid::parse_str(&inner).ok();
         }
@@ -418,33 +418,33 @@ pub(crate) fn value_uuid(item: Option<&[u8]>) -> Option<Uuid> {
 mod tests {
     use super::*;
 
-    /// 构造一份包含各种类型属性的表。
+    /// Construct a table containing properties of various types.
     fn sample_props() -> Props {
         let mut props = Props::new();
 
-        // 单字节
+        // Single byte
         props.put(PropsKey::Company.get_value(), vec![0x07]);
-        // 两字节短整数：258
+        // Two-byte short: 258
         props.put(PropsKey::DaysPerMonth.get_value(), vec![0x02, 0x01]);
-        // 四字节整数：1234
+        // Four-byte integer: 1234
         props.put(PropsKey::MinutesPerDay.get_value(), vec![0xD2, 0x04, 0x00, 0x00]);
-        // 双精度：1.5
+        // Double: 1.5
         props.put(
             PropsKey::StandardRate.get_value(),
             1.5f64.to_le_bytes().to_vec(),
         );
-        // UTF-16LE 字符串 "AB"
+        // UTF-16LE string "AB"
         props.put(
             PropsKey::Manager.get_value(),
             vec![0x41, 0x00, 0x42, 0x00, 0x00, 0x00],
         );
-        // 布尔：false（短整数 0）/ true（短整数 1）
+        // Boolean: false (short 0) / true (short 1)
         props.put(PropsKey::ScheduleFrom.get_value(), vec![0x00, 0x00]);
         props.put(PropsKey::HonorConstraints.get_value(), vec![0x01, 0x00]);
-        // 时间：短整数 600 → 600/10*60 = 3600 秒 = 01:00:00
+        // Time: short 600 -> 600/10*60 = 3600 seconds = 01:00:00
         props.put(PropsKey::StartTime.get_value(), vec![0x58, 0x02]);
-        // 时间戳：首 2 字节为当日秒数/6（=10 → 60 秒），后 2 字节为天数（=2）
-        // → 1983-12-31 + 2 天 = 1984-01-02 00:01:00
+        // Timestamp: the first 2 bytes are seconds-of-day/6 (=10 -> 60 seconds), the next 2 bytes are the day count (=2)
+        // -> 1983-12-31 + 2 days = 1984-01-02 00:01:00
         props.put(
             PropsKey::StatusDate.get_value(),
             vec![0x0A, 0x00, 0x02, 0x00],
@@ -469,15 +469,15 @@ mod tests {
         assert!(props.get_boolean(PropsKey::HonorConstraints));
         assert_eq!(
             props.get_time(PropsKey::StartTime),
-            Some(NaiveTime::from_hms_opt(1, 0, 0).expect("合法时间"))
+            Some(NaiveTime::from_hms_opt(1, 0, 0).expect("valid time"))
         );
         assert_eq!(
             props.get_timestamp(PropsKey::StatusDate),
             Some(
                 chrono::NaiveDate::from_ymd_opt(1984, 1, 2)
-                    .expect("合法日期")
+                    .expect("valid date")
                     .and_hms_opt(0, 1, 0)
-                    .expect("合法时间")
+                    .expect("valid time")
             )
         );
     }
@@ -492,7 +492,7 @@ mod tests {
         let keys = props.key_set();
         let mut sorted = keys.clone();
         sorted.sort_unstable();
-        assert_eq!(keys, sorted, "key_set 应按 key 升序返回");
+        assert_eq!(keys, sorted, "key_set should return keys in ascending order");
         assert_eq!(keys.len(), 9);
     }
 
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn short_values_do_not_panic() {
         let mut props = Props::new();
-        // 空数组与长度不足的数组：Java 会抛 AIOOBE，Rust 必须返回默认值
+        // Empty arrays and arrays that are too short: Java throws AIOOBE, Rust must return the default value
         props.put(PropsKey::Company.get_value(), Vec::new());
         props.put(PropsKey::Manager.get_value(), vec![0x01]);
 
@@ -536,7 +536,7 @@ mod tests {
         let mut props = Props::new();
         props.put(PropsKey::Company.get_value(), vec![0xFF]);
 
-        // Java: byte 有符号，(byte) 0xFF == -1
+        // Java: byte is signed, (byte) 0xFF == -1
         assert_eq!(props.get_byte(PropsKey::Company), -1);
     }
 
@@ -544,18 +544,18 @@ mod tests {
     fn uuid_from_binary_and_from_string() {
         let mut props = Props::new();
 
-        // 16 字节二进制形式（Java 的 getGUID 要求低 8 字节非全零，否则返回 null）
+        // 16-byte binary form (Java's getGUID requires the low 8 bytes to be non-zero, otherwise it returns null)
         let mut binary = vec![0u8; 16];
         binary[15] = 1;
         props.put(PropsKey::Guid.get_value(), binary);
-        let uuid = props.get_uuid(PropsKey::Guid).expect("应能解析二进制 GUID");
+        let uuid = props.get_uuid(PropsKey::Guid).expect("should parse binary GUID");
         assert_eq!(uuid.as_bytes()[15], 1);
 
-        // 全零的二进制形式（Java: long1 == 0 && long2 == 0 → null）
+        // All-zero binary form (Java: long1 == 0 && long2 == 0 -> null)
         props.put(PropsKey::Comments.get_value(), vec![0u8; 16]);
         assert_eq!(props.get_uuid(PropsKey::Comments), None);
 
-        // MPP9 的字符串形式（76 字节，UTF-16LE，"{" + 36 字符 + "}"）
+        // MPP9 string form (76 bytes, UTF-16LE, "{" + 36 characters + "}")
         let text = "{01234567-89AB-CDEF-0123-456789ABCDEF}";
         assert_eq!(text.chars().count(), 38);
         let mut bytes = Vec::new();
@@ -566,11 +566,11 @@ mod tests {
         props.put(PropsKey::Category.get_value(), bytes);
         assert_eq!(
             props.get_uuid(PropsKey::Category),
-            Some(Uuid::parse_str("01234567-89AB-CDEF-0123-456789ABCDEF").expect("合法 GUID"))
+            Some(Uuid::parse_str("01234567-89AB-CDEF-0123-456789ABCDEF").expect("valid GUID"))
         );
 
-        // 长度 38 且带花括号、但内容不是合法 GUID：Java 抛 IllegalArgumentException，
-        // Rust 返回 None（不 panic）
+        // Length 38 with braces but the content is not a valid GUID: Java throws IllegalArgumentException,
+        // Rust returns None (without panicking)
         let text = format!("{{{}}}", "x".repeat(36));
         assert_eq!(text.chars().count(), 38);
         let mut bytes = Vec::new();
@@ -585,7 +585,7 @@ mod tests {
     fn display_matches_java_layout() {
         let mut props = Props::new();
         props.put(PropsKey::Company.get_value(), vec![0xAB, 0xCD]);
-        // 未知键（不在 PropsKey 中）应按十进制输出
+        // Unknown keys (not in PropsKey) should be printed in decimal
         props.put(99, vec![0x00]);
 
         let text = props.to_string();
@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn duplicate_key_values_are_all_listed() {
         let mut props = Props::new();
-        // 574619658 同时对应 TABLE_NAME 与 UPPER_VIEW_NAME
+        // 574619658 corresponds to both TABLE_NAME and UPPER_VIEW_NAME
         props.put(574619658, vec![0x01]);
 
         let text = props.to_string();
@@ -617,7 +617,7 @@ mod tests {
         assert_eq!(cursor.read(1), Some(&[0x07][..]));
         assert_eq!(cursor.available(), 0);
 
-        // 越界返回 None 且不 panic
+        // Out of bounds returns None without panicking
         assert_eq!(cursor.read(1), None);
         assert_eq!(cursor.read_int(), None);
         cursor.skip(10);

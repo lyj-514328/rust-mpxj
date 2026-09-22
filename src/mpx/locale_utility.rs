@@ -1,61 +1,61 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleUtility.java`
 //!
-//! # 移植取舍（`java.util.Locale` / `ResourceBundle` / `DateFormatSymbols`）
+//! # Porting trade-offs (`java.util.Locale` / `ResourceBundle` / `DateFormatSymbols`)
 //!
-//! Java 侧 `LocaleUtility` 依赖 `java.util.Locale` 与 `ResourceBundle`：所有取值都通过
-//! `LocaleData.getString/getChar/getObject/getInteger` 从资源包中读取，依据语言加载
-//! `LocaleData_<lang>`（`LocaleData_en` 为空，即英文全部使用 `LocaleData` 里的默认值）。
-//! Rust 标准库没有对应物，本模块的处理方式：
+//! Java's `LocaleUtility` depends on `java.util.Locale` and `ResourceBundle`: all values are read
+//! from resource bundles through `LocaleData.getString/getChar/getObject/getInteger`, loading
+//! `LocaleData_<lang>` by language (`LocaleData_en` is empty, so English uses all the defaults in `LocaleData`).
+//! The Rust standard library has no equivalent, so this module handles it as follows:
 //!
-//! - 用本模块定义的 [`MpxLocale`] 取代 `java.util.Locale`，只承载 MPX 关心的语言代码
-//!   （EN/DE/FR/IT/PT/SV/ZH/ES/RU，即 Java 侧 `SUPPORTED_LOCALES`）；
-//! - 资源包的「变体覆盖 + 父包回落」语义由 [`crate::mpx::locale_data::LocaleData`] 承载
-//!   （各语言变体的 `OVERRIDES` 覆盖 [`crate::mpx::locale_data::RESOURCE_DATA`] 的默认值），
-//!   [`LocaleUtility::set_locale`] 逐键调用其 `get_string` / `get_char` / `get_integer` /
-//!   `get_code_page` 等，与 Java 的 `ResourceBundle` 取值一一对应，因此德语、法语等
-//!   非英语区域设置会得到各自的货币符号、分隔符、日期 / 时间格式等属性；
-//! - Java 的 `DateFormatSymbols` 在本类中并未使用（MPX 的日期/数字格式由 `MPXJFormats`
-//!   处理），此处不涉及。
+//! - [`MpxLocale`], defined in this module, replaces `java.util.Locale` and carries only the language codes MPX cares about
+//!   (EN/DE/FR/IT/PT/SV/ZH/ES/RU, that is, Java's `SUPPORTED_LOCALES`);
+//! - The resource bundle's "variant override + parent bundle fallback" semantics are carried by [`crate::mpx::locale_data::LocaleData`]
+//!   (each language variant's `OVERRIDES` override the defaults in [`crate::mpx::locale_data::RESOURCE_DATA`]);
+//!   [`LocaleUtility::set_locale`] calls its `get_string` / `get_char` / `get_integer` /
+//!   `get_code_page` etc. key by key, corresponding one-to-one with Java's `ResourceBundle` lookups, so non-English
+//!   locales such as German and French get their own currency symbol, separators, date / time formats, and other properties;
+//! - Java's `DateFormatSymbols` is not used in this class (MPX date/number formats are handled by `MPXJFormats`)
+//!   and is not involved here.
 //!
-//! 未移植的成员：无（`setLocale`、`getSupportedLocales` 均已移植并新增 `MpxLocale`）。
+//! Skipped Java methods/members: none (`setLocale` and `getSupportedLocales` are both ported, with `MpxLocale` added).
 
 use chrono::NaiveTime;
 
 use crate::mpx::locale_data::LocaleData;
 use crate::project_properties::ProjectProperties;
 
-/// MPX 支持的区域设置标识，替代 Java 的 `java.util.Locale`。
+/// Locale identifier supported by MPX, replacing Java's `java.util.Locale`.
 ///
-/// 对应 Java: `LocaleUtility.SUPPORTED_LOCALES` 中的 `new Locale("EN")` 等常量。
+/// Corresponds to Java: constants such as `new Locale("EN")` in `LocaleUtility.SUPPORTED_LOCALES`.
 ///
-/// Java 的 `Locale` 还包含国家、变体与语言显示名，MPX 只需要语言代码，故这里只保留
-/// 语言维度。Java 侧 `Locale` 实现了 `equals` / `hashCode`，Rust 侧用派生实现对应。
+/// Java's `Locale` also includes country, variant, and language display name; MPX needs only the language code, so only
+/// the language dimension is kept here. Java's `Locale` implements `equals` / `hashCode`; the Rust side corresponds with derived implementations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MpxLocale {
-    /// 英语。
+    /// English.
     En,
-    /// 德语。
+    /// German.
     De,
-    /// 法语。
+    /// French.
     Fr,
-    /// 意大利语。
+    /// Italian.
     It,
-    /// 葡萄牙语。
+    /// Portuguese.
     Pt,
-    /// 瑞典语。
+    /// Swedish.
     Sv,
-    /// 中文。
+    /// Chinese.
     Zh,
-    /// 西班牙语。
+    /// Spanish.
     Es,
-    /// 俄语。
+    /// Russian.
     Ru,
 }
 
 impl MpxLocale {
-    /// 全部支持的区域设置，顺序与 Java 侧 `SUPPORTED_LOCALES` 一致。
+    /// All supported locales, in the same order as Java's `SUPPORTED_LOCALES`.
     ///
-    /// 对应 Java: `private static final Locale[] SUPPORTED_LOCALES`
+    /// Corresponds to Java: `private static final Locale[] SUPPORTED_LOCALES`
     pub const ALL: [MpxLocale; 9] = [
         MpxLocale::En,
         MpxLocale::De,
@@ -68,11 +68,11 @@ impl MpxLocale {
         MpxLocale::Ru,
     ];
 
-    /// 按语言代码取区域设置，大小写不敏感（Java 的 `Locale(String)` 会把语言码转为小写）。
+    /// Return the locale for a language code, case-insensitively (Java's `Locale(String)` lowercases the language code).
     ///
-    /// 对应 Java: `new Locale("EN")` 之类的构造。无法识别时返回 `None`
-    /// （Java 侧会得到一个不在 `SUPPORTED_LOCALES` 中的 `Locale`，其资源解析回落到默认值，
-    /// 与这里的英文回落等价）。
+    /// Corresponds to Java: constructions such as `new Locale("EN")`. Returns `None` when unrecognized
+    /// (Java would obtain a `Locale` not in `SUPPORTED_LOCALES`, whose resource resolution falls back to the defaults,
+    /// equivalent to the English fallback here).
     pub fn get_instance(language: &str) -> Option<MpxLocale> {
         MpxLocale::ALL
             .iter()
@@ -80,9 +80,9 @@ impl MpxLocale {
             .copied()
     }
 
-    /// 返回语言代码（小写）。
+    /// Return the language code (lowercase).
     ///
-    /// 对应 Java: `Locale.getLanguage()`
+    /// Corresponds to Java: `Locale.getLanguage()`
     pub fn get_language(&self) -> &'static str {
         match self {
             MpxLocale::En => "en",
@@ -99,31 +99,31 @@ impl MpxLocale {
 }
 
 impl std::fmt::Display for MpxLocale {
-    /// 对应 Java: `Locale.toString()`（只含语言时为小写语言代码）。
+    /// Corresponds to Java: `Locale.toString()` (the lowercase language code when only a language is present).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.get_language())
     }
 }
 
-/// MPX 文件的区域设置工具方法。
+/// Locale utility methods for MPX files.
 ///
-/// 对应 Java: `final class LocaleUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class LocaleUtility` (a private constructor prevents instantiation; the Rust side uses a fieldless type).
 pub struct LocaleUtility;
 
 impl LocaleUtility {
-    /// 在父文件区域设置更新时，把与区域相关的属性重置为新区域设置的默认值。
+    /// When the parent file's locale is updated, reset locale-related properties to the new locale's defaults.
     ///
-    /// 对应 Java: `public static void setLocale(ProjectProperties properties, Locale locale)`
+    /// Corresponds to Java: `public static void setLocale(ProjectProperties properties, Locale locale)`
     ///
-    /// 取舍：Java 经 `ResourceBundle` 按 `locale` 取本地化资源（变体覆盖 + 英文默认值回落）；
-    /// Rust 侧由 [`LocaleData`] 的同名取键方法承担该语义，逐项对应 Java 的
-    /// `LocaleData.getString/getChar/getObject/getInteger`。
+    /// Trade-off: Java obtains localized resources by `locale` through `ResourceBundle` (variant override + English default fallback);
+    /// the Rust side delegates this semantics to [`LocaleData`]'s same-named key accessors, corresponding item by item to Java's
+    /// `LocaleData.getString/getChar/getObject/getInteger`.
     ///
-    /// 注：Java 的 `getChar` / `getObject` 对缺失键抛 `MissingResourceException`（这些键在
-    /// 资源包中必定存在）；Rust 侧的 `get_char` 对未取到值返回 `None`，此处为不 panic
-    /// 而只在取到值时设置。
+    /// Note: Java's `getChar` / `getObject` throw `MissingResourceException` for missing keys (these keys always exist in the
+    /// resource bundle); the Rust side's `get_char` returns `None` when no value is found, so here we only set the value when one
+    /// is found, to avoid panicking.
     pub fn set_locale(properties: &mut ProjectProperties, locale: MpxLocale) {
-        // ---- MPX 特有的属性 ----
+        // ---- MPX-specific properties ----
         // Java: properties.setMpxDelimiter(LocaleData.getChar(locale, LocaleData.FILE_DELIMITER));
         if let Some(delimiter) = LocaleData::get_char(locale, LocaleData::FILE_DELIMITER) {
             properties.set_mpx_delimiter(delimiter);
@@ -167,7 +167,7 @@ impl LocaleUtility {
         properties.set_date_format(Some(date_format));
         properties.set_bar_text_date_format(Some(date_format));
 
-        // ---- 通用属性 ----
+        // ---- General properties ----
         // Java: properties.setCurrencySymbol(LocaleData.getString(locale, LocaleData.CURRENCY_SYMBOL));
         properties.set_currency_symbol(
             LocaleData::get_string(locale, LocaleData::CURRENCY_SYMBOL).map(str::to_owned),
@@ -195,7 +195,7 @@ impl LocaleUtility {
         }
 
         // Java: LocalTime.ofSecondOfDay(LocaleData.getInteger(locale, DEFAULT_START_TIME) * 60L)
-        // 越界时 Java 抛 DateTimeException，Rust 侧忽略该属性（返回 None）。
+        // For an out-of-bounds value Java throws DateTimeException; the Rust side ignores the property (returns None).
         if let Some(time) = LocaleData::get_integer(locale, LocaleData::DEFAULT_START_TIME)
             .and_then(time_of_day_from_minutes)
         {
@@ -203,17 +203,17 @@ impl LocaleUtility {
         }
     }
 
-    /// 返回 MPX 功能支持的区域设置。
+    /// Return the locales supported by MPX functionality.
     ///
-    /// 对应 Java: `public static Locale[] getSupportedLocales()`
+    /// Corresponds to Java: `public static Locale[] getSupportedLocales()`
     pub fn get_supported_locales() -> &'static [MpxLocale] {
         &MpxLocale::ALL
     }
 }
 
-/// 把「自午夜起的分钟数」转换为时间，对应 Java `LocalTime.ofSecondOfDay(minutes * 60L)`。
+/// Convert "minutes since midnight" into a time, corresponding to Java's `LocalTime.ofSecondOfDay(minutes * 60L)`.
 ///
-/// Java 对越界值（负数或 >= 86400 秒）抛 `DateTimeException`；Rust 侧不 panic，返回 `None`。
+/// Java throws `DateTimeException` for out-of-bounds values (negative or >= 86400 seconds); the Rust side does not panic and returns `None`.
 fn time_of_day_from_minutes(minutes: i32) -> Option<NaiveTime> {
     let seconds = i64::from(minutes) * 60;
     if !(0..86_400).contains(&seconds) {
@@ -223,12 +223,12 @@ fn time_of_day_from_minutes(minutes: i32) -> Option<NaiveTime> {
     NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, 0)
 }
 
-/// 大小写不敏感的字符串比较。
+/// Case-insensitive string comparison.
 ///
-/// 对应 Java: `java.lang.String.equalsIgnoreCase`（JDK 方法，非 MPXJ 成员）。
-/// Java 侧用 `Character.toLowerCase/toUpperCase` 逐字符比较，Rust 侧用
-/// `str::to_lowercase` 近似（两者对极少数字符的大小写折叠结果可能不同）。
-/// `null` 入参对应 `None`：Java 的 `a.equalsIgnoreCase(null)` 返回 `false`。
+/// Corresponds to Java: `java.lang.String.equalsIgnoreCase` (a JDK method, not an MPXJ member).
+/// Java compares character by character using `Character.toLowerCase/toUpperCase`, while the Rust side approximates
+/// with `str::to_lowercase` (the two may differ in case folding for a few characters).
+/// A `null` argument corresponds to `None`: Java's `a.equalsIgnoreCase(null)` returns `false`.
 pub(crate) fn equals_ignore_case(name: &str, value: Option<&str>) -> bool {
     match value {
         None => false,
@@ -243,7 +243,7 @@ mod tests {
     use super::*;
     use crate::code_page::CodePage;
 
-    /// 构造一个用于测试的项目属性（无父文件）。
+    /// Build a project properties instance for testing (no parent file).
     fn properties() -> ProjectProperties {
         ProjectProperties::new(Weak::new())
     }
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(LocaleUtility::get_supported_locales().len(), 9);
         for locale in MpxLocale::ALL {
             assert_eq!(MpxLocale::get_instance(locale.get_language()), Some(locale));
-            // Java: new Locale("EN") 会把语言码转小写，构造参数大小写不敏感。
+            // Java: new Locale("EN") lowercases the language code; the constructor argument is case-insensitive.
             assert_eq!(
                 MpxLocale::get_instance(&locale.get_language().to_uppercase()),
                 Some(locale)
@@ -286,13 +286,13 @@ mod tests {
         );
     }
 
-    /// 非英语区域设置按其本地化资源取值（修复前一律回落到英文默认资源）。
+    /// Non-English locales take their values from their localized resources (before the fix they always fell back to the English default resources).
     ///
-    /// 期望值与 Java 的 `LocaleData_de` / `LocaleData_fr` 一致（见 `locale_data_de` /
-    /// `locale_data_fr` 的常量）。
+    /// Expected values match Java's `LocaleData_de` / `LocaleData_fr` (see the constants in `locale_data_de` /
+    /// `locale_data_fr`).
     #[test]
     fn set_locale_applies_localised_values_for_non_english_locales() {
-        // 德语：分隔符 ';'、日期分隔符 '.'、24 小时制、货币符号后置且带空格
+        // German: delimiter ';', date separator '.', 24-hour clock, currency symbol trailing with a space
         let mut german_properties = properties();
         LocaleUtility::set_locale(&mut german_properties, MpxLocale::De);
 
@@ -308,7 +308,7 @@ mod tests {
             NaiveTime::from_hms_opt(8, 0, 0).unwrap()
         );
 
-        // 法语：分隔符 ';'、货币符号为空字符串
+        // French: delimiter ';', currency symbol is an empty string
         let mut french_properties = properties();
         LocaleUtility::set_locale(&mut french_properties, MpxLocale::Fr);
 
@@ -320,7 +320,7 @@ mod tests {
     fn time_of_day_conversion_matches_java() {
         assert_eq!(time_of_day_from_minutes(480), NaiveTime::from_hms_opt(8, 0, 0));
         assert_eq!(time_of_day_from_minutes(0), NaiveTime::from_hms_opt(0, 0, 0));
-        // Java: LocalTime.ofSecondOfDay 对越界值抛 DateTimeException。
+        // Java: LocalTime.ofSecondOfDay throws DateTimeException for out-of-bounds values.
         assert_eq!(time_of_day_from_minutes(-1), None);
         assert_eq!(time_of_day_from_minutes(24 * 60), None);
     }

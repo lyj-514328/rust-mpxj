@@ -1,108 +1,108 @@
-﻿//! 对应 Java: `org/mpxj/ProjectProperties.java`
+//! Corresponds to Java: `org/mpxj/ProjectProperties.java`
 //!
-//! 整个项目的属性集合（MPX 头记录 / MPP 项目属性）。Java 侧声明为
-//! `public final class ProjectProperties extends AbstractFieldContainer<ProjectProperties> implements TimeUnitDefaultsContainer`，
-//! 本文件按本 crate 的既定做法做以下取舍。
+//! Property collection for the entire project (MPX header record / MPP project properties). Java declares it as
+//! `public final class ProjectProperties extends AbstractFieldContainer<ProjectProperties> implements TimeUnitDefaultsContainer`,
+//! This file makes the following trade-offs following this crate's established conventions.
 //!
-//! # 结构取舍：继承 → 组合 + 转发
+//! # Structural trade-offs: inheritance -> composition + forwarding
 //!
-//! Java 通过**继承** `AbstractFieldContainer` 获得 `set` / `get` / `get_cached_value` /
-//! `addFieldListener` / `removeFieldListener` / `disableEvents` / `enableEvents`。
-//! Rust 侧 [`ProjectProperties`] 以字段组合持有一个
-//! [`crate::abstract_field_container::AbstractFieldContainer`]，并把上述方法逐个转发出去；
-//! Java 的三个抽象方法按 `src/abstract_field_container.rs` 的约定在本类自行实现：
+//! Java obtains `set` / `get` / `get_cached_value` / by **inheriting** `AbstractFieldContainer`,
+//! `addFieldListener` / `removeFieldListener` / `disableEvents` / `enableEvents`.
+//! while the Rust side [`ProjectProperties`] holds one by field composition
+//! [`crate::abstract_field_container::AbstractFieldContainer`] and forwards each of the above methods;
+//! The three Java abstract methods are implemented in this class itself per the conventions of `src/abstract_field_container.rs`:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `handleFieldChange(field, old, new)` | [`ProjectProperties::set`] 内通过 `AbstractFieldContainer::update` 的闭包调用私有函数 `handle_field_change` |
-//! | `getAlwaysCalculatedField(field)` | 私有函数 `is_always_calculated_field`（由 [`ProjectProperties::get`] 使用） |
-//! | `getCalculationMethod(field)`（`Function<ProjectProperties, Object>`） | 私有方法 `calculate_field`（用 `match` 分派，等价于 Java 的 `CALCULATED_FIELD_MAP`） |
+//! | `handleFieldChange(field, old, new)` | inside [`ProjectProperties::set`], calls the private function `handle_field_change` via the closure of `AbstractFieldContainer::update` |
+//! | `getAlwaysCalculatedField(field)` | private function `is_always_calculated_field` (used by [`ProjectProperties::get`]) |
+//! | `getCalculationMethod(field)` (`Function<ProjectProperties, Object>`) | private method `calculate_field` (dispatches with `match`, equivalent to Java's `CALCULATED_FIELD_MAP`) |
 //!
-//! # 与 Java 的差异（结构性）
+//! # Differences from Java (structural)
 //!
-//! - **父文件反向引用**：Java 用强引用 `private final ProjectFile m_parentFile;`；Rust 侧按
-//!   本 crate 的既定做法改用 `Weak<RefCell<ProjectFile>>`（`ProjectFile` 强引用本类，反向强引用
-//!   会形成 `Rc` 循环），[`ProjectProperties::get_parent_file`] 在父文件已释放时返回 `None`。
-//! - **默认日历 / 活动默认日历**：Java 只把唯一 ID 存进字段表，取值时通过
-//!   `m_parentFile.getCalendars().getByUniqueID(...)` 解析。Rust 侧除沿用该路径外，
-//!   另持有 `Weak<RefCell<ProjectCalendar>>`（见 [`ProjectProperties::set_default_calendar`]），
-//!   在父文件不可用（未接线 / 已被释放 / 借用冲突）时作为回退，从而在没有父文件的环境中
-//!   也能完成「设置 → 读取」往返。注意：只调用
-//!   [`ProjectProperties::set_default_calendar_unique_id`] 而不给出日历对象时，取值仍以
-//!   父文件的日历容器为准（与 Java 一致，字段表中的缓存值因「始终计算字段」而不参与读取）。
-//! - **`get` 不写回计算结果**：Java 的 `AbstractFieldContainer.get` 在「字段非始终计算且
-//!   缓存为空」时会用计算结果 `set(field, result)` 写回字段表。Rust 侧
-//!   [`crate::field_container::FieldContainer::get`] 只接受 `&self`，无法写回；语义等价
-//!   （每次 `get` 都会重算），仅 `get_cached_value` 观察不到该缓存。
-//! - **字段值的表示**：本 crate 的 [`crate::field_value::FieldValue`] 只能承载标量
-//!   （Integer / Short / Double / Boolean / String / Date / Time / DateTime / Duration /
-//!   Rate）。Java 字段表里的 `Character` / 枚举 / `UUID` / `Notes` / `Map` 因此按下述方式
-//!   落位：
-//!   * `Character`（date / time / thousands / decimal separator、mpx delimiter）以单字符
-//!     `FieldValue::String` 存放；
-//!   * 带 int 值的枚举（`TimeUnit`、`DateOrder`、`ProjectTimeFormat`、`ProjectDateFormat`、
-//!     `CurrencySymbolPosition`、`ScheduleFrom`、`EarnedValueMethod`、`AccrueType`、
-//!     `FileVersion`）以 `FieldValue::Integer(getValue())` 存放；
-//!     不带 int 值的枚举（`TaskType`、`CriticalActivityType`、`TotalSlackCalculationType`、
-//!     `RelationshipLagCalendar`、`SchedulingProgressedActivities`）以「声明顺序序号」存放；
-//!     `CodePage` 以 MPX 代码页名（`get_value()`）存放；
-//!   * `DayOfWeek` 以 Java 的 1（周一）…7（周日）存放；
-//!   * `UUID` 以标准字符串形式存放；
-//!   * `Map<String, Object>`（`CUSTOM_PROPERTIES`）与 `Map<ProjectCode, ProjectCodeValue>`
-//!     （`PROJECT_CODE_VALUES`）无法放进 `FieldValue`，其中前者改用独立字段
-//!     [`ProjectProperties::get_custom_properties`] 承载；
-//!   * `Notes` 是 trait（Java 的基类），本类仍统一以纯文本存放，
-//!     [`ProjectProperties::get_notes_object`] 返回 `PlainNotes`
-//!     （`Task` / `ResourceAssignment` 已改用 [`crate::field_value::FieldValue::Notes`]
-//!     保真保存子类型，本类保持原样以免扩大改动面）。
-//! - **重载**：Rust 无重载，Java 的 `getBaselineDate(int)` / `setBaselineDate(int, LocalDateTime)`
-//!   按本 crate 惯例加 `_for_index` 后缀。
-//! - **空值语义**：Java 多处直接解引用可能为 `null` 的日期 / 容器（会抛 NPE），Rust 侧
-//!   不 panic，退化为返回 `None` / 空字符串 / Java 的默认值，具体见各方法注释。
+//! - **Parent file back-reference**: Java uses the strong reference `private final ProjectFile m_parentFile;`; the Rust side, following
+//! this crate's established conventions, uses `Weak<RefCell<ProjectFile>>` instead (`ProjectFile` strongly references this class, and a reverse strong reference
+//! would form an `Rc` cycle), and [`ProjectProperties::get_parent_file`] returns `None` when the parent file has been dropped.
+//! - **Default calendar / activity default calendar**: Java stores only the unique ID in the field table and resolves the value via
+//! `m_parentFile.getCalendars().getByUniqueID(...)`. Besides following this path, the Rust side
+//! additionally holds a `Weak<RefCell<ProjectCalendar>>` (see [`ProjectProperties::set_default_calendar`])
+//! as a fallback when the parent file is unavailable (not wired up / already dropped / borrow conflict), so that even in an environment without a parent file
+//! the "set -> get" round trip can still be completed. Note: when only
+//! [`ProjectProperties::set_default_calendar_unique_id`] is called without providing a calendar object, the value still comes from
+//! the parent file's calendar container (consistent with Java; the cached value in the field table does not participate in reads because it is an "always calculated field").
+//! - **`get` does not write back the calculated result**: Java's `AbstractFieldContainer.get`, when "the field is not always calculated and
+//! the cache is empty", writes the calculated result back to the field table with `set(field, result)`. The Rust side's
+//! [`crate::field_container::FieldContainer::get`] only accepts `&self` and cannot write back; the semantics are equivalent
+//! (every `get` recalculates), only `get_cached_value` cannot observe that cache.
+//! - **Representation of field values**: this crate's [`crate::field_value::FieldValue`] can only carry scalar
+//!   (Integer / Short / Double / Boolean / String / Date / Time / DateTime / Duration /
+//! Rate). The `Character` / enum / `UUID` / `Notes` / `Map` values in Java's field table are therefore
+//! mapped as follows:
+//! * `Character` (date / time / thousands / decimal separator, mpx delimiter) is stored as a single-character
+//! `FieldValue::String`;
+//! * enums with an int value (`TimeUnit`, `DateOrder`, `ProjectTimeFormat`, `ProjectDateFormat`,
+//!     `CurrencySymbolPosition`,`ScheduleFrom`,`EarnedValueMethod`,`AccrueType`,
+//! `FileVersion`) are stored as `FieldValue::Integer(getValue())`;
+//! enums without an int value (`TaskType`, `CriticalActivityType`, `TotalSlackCalculationType`,
+//! `RelationshipLagCalendar`, `SchedulingProgressedActivities`) are stored as the "declaration-order ordinal";
+//! `CodePage` is stored as the MPX code page name (`get_value()`);
+//! * `DayOfWeek` is stored as Java's 1 (Monday) ... 7 (Sunday);
+//! * `UUID` is stored as a standard string;
+//! * `Map<String, Object>` (`CUSTOM_PROPERTIES`) and `Map<ProjectCode, ProjectCodeValue>`
+//! (`PROJECT_CODE_VALUES`) cannot fit into `FieldValue`; the former is carried by a separate field
+//! [`ProjectProperties::get_custom_properties`] instead;
+//! * `Notes` is a trait (the Java base class); this class still uniformly stores plain text,
+//! and [`ProjectProperties::get_notes_object`] returns `PlainNotes`
+//! (`Task` / `ResourceAssignment` have switched to [`crate::field_value::FieldValue::Notes`]
+//! to faithfully preserve the subtype; this class keeps the original approach to avoid widening the change surface).
+//! - **Overloads**: Rust has no overloading, so Java's `getBaselineDate(int)` / `setBaselineDate(int, LocalDateTime)`
+//! are given the `_for_index` suffix per this crate's convention.
+//! - **Null semantics**: Java dereferences possibly-`null` dates / containers in many places (throwing NPE), while the Rust side
+//! does not panic and degrades gracefully to returning `None` / an empty string / Java's default value; see each method's docs for details.
 //!
-//! # 跳过的 Java 方法及原因
+//! # Skipped Java methods and reasons
 //!
-//! - `getLocation()` / `setLocation(Location)`：`Location` 未在 `src/lib.rs` 声明
-//!   （`ProjectContext` 同样未移植 `getLocations()`）。`getLocationUniqueID()` /
-//!   `setLocationUniqueID(...)` 已翻译。
-//! - `getProjectCodeValues()` / `addProjectCodeValue(ProjectCodeValue)`：
-//!   `ProjectCode` / `ProjectCodeValue` 未在 `src/lib.rs` 声明。
-//! - `getPopulatedFields()` 已由 [`ProjectProperties::get_populated_fields`] 移植；
-//!   返回 [`crate::field_key::FieldKey`] 集合，用自定义字段的 unique ID 等价键表示身份，
-//!   不包含字段名称等展示元信息。
-//! - `getResourcePoolObject()`：**无法移植**（原因见本节的下一节「无法移植的原因」）。
-//!   `getResourcePoolFile()` / `setResourcePoolFile(...)` 已翻译。
-//! - `removeFieldListener(FieldListener)`：Java 按对象身份移除监听器，Rust 无法表达，
-//!   按 [`crate::field_container::FieldContainer`] 的约定改为 `clear_field_listeners()`。
-//! - Java 特有机制（反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`）：本类中未出现
-//!   （唯一相关的是 `TimeUnit` 等枚举的 `EnumHelper.createTypeArray` 建表，已在各枚举模块内
-//!   以 `match` 替代）。
+//! - `getLocation()` / `setLocation(Location)`: `Location` is not declared in `src/lib.rs`
+//! (`ProjectContext` likewise does not port `getLocations()`). `getLocationUniqueID()` /
+//! `setLocationUniqueID(...)` has been translated.
+//! - `getProjectCodeValues()` / `addProjectCodeValue(ProjectCodeValue)`:
+//! `ProjectCode` / `ProjectCodeValue` are not declared in `src/lib.rs`.
+//! - `getPopulatedFields()` has been ported by [`ProjectProperties::get_populated_fields`];
+//! it returns a [`crate::field_key::FieldKey`] collection, using the custom field's unique ID as an equivalent identity key,
+//! without including display metadata such as field names.
+//! - `getResourcePoolObject()`: **cannot be ported** (see the next subsection of this section, "Reasons it cannot be ported").
+//! `getResourcePoolFile()` / `setResourcePoolFile(...)` have been translated.
+//! - `removeFieldListener(FieldListener)`: Java removes the listener by object identity, which Rust cannot express,
+//! so per the conventions of [`crate::field_container::FieldContainer`] it is changed to `clear_field_listeners()`.
+//! - Java-specific mechanisms (reflection, JDBC, XML/JAXB, GUI, `javax.*`, `Serializable`): none appear in this class
+//! (the only related item is the `EnumHelper.createTypeArray` table construction for enums such as `TimeUnit`, which has been replaced with
+//! `match` in each enum module).
 //!
-//! # 无法移植的原因：`getResourcePoolObject()`
+//! # Reasons it cannot be ported: `getResourcePoolObject()`
 //!
-//! Java 的实现是 `return m_parentFile.readExternalProject(getResourcePoolFile());`，
-//! 即「取父文件 → 读外部项目（结果缓存）」。Rust 侧这条链路有两个硬限制：
+//! Java's implementation is `return m_parentFile.readExternalProject(getResourcePoolFile());`,
+//! i.e. "get the parent file -> read the external project (caching the result)". This path has two hard limitations on the Rust side:
 //!
-//! 1. **`&mut ProjectFile` 拿不到**：`readExternalProject` 会写
-//!    `ExternalProjectContainer` 的缓存（`m_fileMap` / `m_projectMap`），对应本 crate 的
-//!    [`ProjectFile::read_external_project`]（`&mut self`）。而本类型的 `parent_file` 是
-//!    `Weak<RefCell<ProjectFile>>`，要取 `&mut ProjectFile` 必须 `try_borrow_mut`；
-//!    可是**能调用本方法的前提就是已经借用了该 `ProjectFile`**（`ProjectProperties`
-//!    是 `ProjectFile` 的字段，只能经 `&ProjectFile` / `&mut ProjectFile` 取得），
-//!    除「游离的 `ProjectProperties` 实例」（不属于任何文件，Java 无此概念）外
-//!    `try_borrow_mut` 必然失败 ⇒ 该方法只能恒返回 `None`，与 Java 行为不符。
-//!    这是 `RefCell` 借用模型导致的限制（Java 的稳定引用没有这个问题）。
-//! 2. **外部文件读取本身未接线**：读取动作依赖 `UniversalProjectReader`（`Class.forName`
-//!    反射分发），本工程类别性跳过，`ExternalProjectContainer` 只能靠调用方经
+//! 1. **`&mut ProjectFile` cannot be obtained**: `readExternalProject` writes to
+//! the cache of `ExternalProjectContainer` (`m_fileMap` / `m_projectMap`), corresponding to this crate's
+//! [`ProjectFile::read_external_project`] (`&mut self`). However, this type's `parent_file` is
+//! `Weak<RefCell<ProjectFile>>`, and obtaining `&mut ProjectFile` requires `try_borrow_mut`;
+//! yet **the very precondition for calling this method is that the `ProjectFile` is already borrowed** (`ProjectProperties`
+//! is a field of `ProjectFile`, obtainable only via `&ProjectFile` / `&mut ProjectFile`),
+//! so except for a "detached `ProjectProperties` instance" (belonging to no file, a concept Java does not have)
+//! `try_borrow_mut` necessarily fails => the method could only ever return `None`, which does not match Java's behavior.
+//! This is a limitation imposed by the `RefCell` borrow model (Java's stable references do not have this problem).
+//! 2. **External file reading itself is not wired up**: the read action depends on `UniversalProjectReader` (`Class.forName`
+//! reflection dispatch), which this project categorically skips; `ExternalProjectContainer` can only rely on the caller
 //!    [`crate::external_project_container::ExternalProjectContainer::set_project_reader`]
-//!    注入回调，未注入时读取恒失败（返回 `None`，等价于 Java 的 `catch (MPXJException)`）。
+//! injecting a callback, and when none is injected the read always fails (returns `None`, equivalent to Java's `catch (MPXJException)`).
 //!
-//! 需要该功能时，请持有 `&mut ProjectFile`（例如 `Task::expand_subproject` 的调用形态）
-//! 后直接调用 [`ProjectFile::read_external_project`]，其语义与 Java 相同。
+//! When this feature is needed, hold `&mut ProjectFile` (for example the call form of `Task::expand_subproject`)
+//! and then call [`ProjectFile::read_external_project`] directly; its semantics match Java.
 //!
-//! # 使用的模型层接口（均已落地，此处仅作索引）
+//! # Model-layer interfaces used (all already in place; listed here only as an index)
 //!
-//! `ProjectFile` / `Task` 按下列签名使用：
+//! `ProjectFile` / `Task` are used with the following signatures:
 //!
 //! ```text
 //! ProjectFile::get_project_context(&self) -> Rc<RefCell<ProjectContext>>
@@ -111,12 +111,12 @@
 //! ProjectFile::get_latest_finish_date(&self) -> Option<NaiveDateTime>    // Java: getLatestFinishDate()
 //! ProjectFile::get_actual_start(&self) -> Option<NaiveDateTime>          // Java: getActualStart()
 //! ProjectFile::get_actual_finish(&self) -> Option<NaiveDateTime>         // Java: getActualFinish()
-//! Task: FieldContainer（用于 Java 的 getValueFromSummaryTask）
+//! Task: FieldContainer (used for Java's getValueFromSummaryTask)
 //! ```
 //!
-//! 默认日历、时间单位默认值均经由 `ProjectContext`（已落地）访问，与 Java 中
+//! The default calendar and time unit defaults are both accessed via `ProjectContext` (already in place), matching Java's
 //! `m_parentFile.getCalendars()` / `m_parentFile.getProjectContext().getTimeUnitDefaults()`
-//! 的取值路径一致。
+//! value retrieval path.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -158,109 +158,109 @@ use crate::time_unit_defaults::TimeUnitDefaults;
 use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
 use crate::total_slack_calculation_type::TotalSlackCalculationType;
 
-/// 默认时间分隔符。
+/// Default time separator.
 ///
-/// 对应 Java: `private static final char DEFAULT_TIME_SEPARATOR = ':';`
+/// Corresponds to Java: `private static final char DEFAULT_TIME_SEPARATOR = ':';`
 const DEFAULT_TIME_SEPARATOR: char = ':';
 
-/// 默认日期分隔符。
+/// Default date separator.
 ///
-/// 对应 Java: `private static final char DEFAULT_DATE_SEPARATOR = '/';`
+/// Corresponds to Java: `private static final char DEFAULT_DATE_SEPARATOR = '/';`
 const DEFAULT_DATE_SEPARATOR: char = '/';
 
-/// 默认千位分隔符。
+/// Default thousands separator.
 ///
-/// 对应 Java: `private static final char DEFAULT_THOUSANDS_SEPARATOR = ',';`
+/// Corresponds to Java: `private static final char DEFAULT_THOUSANDS_SEPARATOR = ',';`
 const DEFAULT_THOUSANDS_SEPARATOR: char = ',';
 
-/// 默认小数分隔符。
+/// Default decimal separator.
 ///
-/// 对应 Java: `private static final char DEFAULT_DECIMAL_SEPARATOR = '.';`
+/// Corresponds to Java: `private static final char DEFAULT_DECIMAL_SEPARATOR = '.';`
 const DEFAULT_DECIMAL_SEPARATOR: char = '.';
 
-/// 默认货币符号。
+/// Default currency symbol.
 ///
-/// 对应 Java: `private static final String DEFAULT_CURRENCY_SYMBOL = "$";`
+/// Corresponds to Java: `private static final String DEFAULT_CURRENCY_SYMBOL = "$";`
 const DEFAULT_CURRENCY_SYMBOL: &str = "$";
 
-/// 默认货币小数位数。
+/// Default currency decimal places.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_CURRENCY_DIGITS = Integer.valueOf(2);`
+/// Corresponds to Java: `private static final Integer DEFAULT_CURRENCY_DIGITS = Integer.valueOf(2);`
 const DEFAULT_CURRENCY_DIGITS: i32 = 2;
 
-/// 默认 MPX 分隔符。
+/// Default MPX delimiter.
 ///
-/// 对应 Java: `private static final char DEFAULT_MPX_DELIMITER = ',';`
+/// Corresponds to Java: `private static final char DEFAULT_MPX_DELIMITER = ',';`
 const DEFAULT_MPX_DELIMITER: char = ',';
 
-/// 默认挣值基准编号。
+/// Default earned value baseline number.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_BASELINE_FOR_EARNED_VALUE = Integer.valueOf(0);`
+/// Corresponds to Java: `private static final Integer DEFAULT_BASELINE_FOR_EARNED_VALUE = Integer.valueOf(0);`
 const DEFAULT_BASELINE_FOR_EARNED_VALUE: i32 = 0;
 
-/// 默认会计年度起始月份。
+/// Default fiscal year start month.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_FISCAL_YEAR_START_MONTH = Integer.valueOf(1);`
+/// Corresponds to Java: `private static final Integer DEFAULT_FISCAL_YEAR_START_MONTH = Integer.valueOf(1);`
 const DEFAULT_FISCAL_YEAR_START_MONTH: i32 = 1;
 
-/// 其他项目分配优先级的默认值。
+/// Default value for the other project assignment priority.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_OTHER_PROJECT_ASSIGNMENT_PRIORITY = Integer.valueOf(5);`
+/// Corresponds to Java: `private static final Integer DEFAULT_OTHER_PROJECT_ASSIGNMENT_PRIORITY = Integer.valueOf(5);`
 const DEFAULT_OTHER_PROJECT_ASSIGNMENT_PRIORITY: i32 = 5;
 
-/// 资源过度分配百分比的默认值。
+/// Default value for the resource overallocation percentage.
 ///
-/// 对应 Java: `private static final Double DEFAULT_OVERALLOCATION = Double.valueOf(25.0);`
+/// Corresponds to Java: `private static final Double DEFAULT_OVERALLOCATION = Double.valueOf(25.0);`
 const DEFAULT_OVERALLOCATION: f64 = 25.0;
 
-/// 浮时路径最大数量的默认值。
+/// Default value for the maximum number of slack paths.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_FLOAT_PATHS = Integer.valueOf(10);`
+/// Corresponds to Java: `private static final Integer DEFAULT_FLOAT_PATHS = Integer.valueOf(10);`
 const DEFAULT_FLOAT_PATHS: i32 = 10;
 
-/// Activity ID 后缀默认值。
+/// Default value for the Activity ID suffix.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_ACTIVITY_ID_SUFFIX = Integer.valueOf(1000);`
+/// Corresponds to Java: `private static final Integer DEFAULT_ACTIVITY_ID_SUFFIX = Integer.valueOf(1000);`
 const DEFAULT_ACTIVITY_ID_SUFFIX: i32 = 1000;
 
-/// Activity ID 自增步长默认值。
+/// Default value for the Activity ID auto-increment step.
 ///
-/// 对应 Java: `private static final Integer DEFAULT_ACTIVITY_ID_INCREMENT = Integer.valueOf(10);`
+/// Corresponds to Java: `private static final Integer DEFAULT_ACTIVITY_ID_INCREMENT = Integer.valueOf(10);`
 const DEFAULT_ACTIVITY_ID_INCREMENT: i32 = 10;
 
-/// MPX 程序名默认值。
+/// Default value for the MPX program name.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.MPX_PROGRAM_NAME, p -> "Microsoft Project for Windows");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.MPX_PROGRAM_NAME, p -> "Microsoft Project for Windows");`
 const DEFAULT_MPX_PROGRAM_NAME: &str = "Microsoft Project for Windows";
 
-/// AM 文本默认值。
+/// Default value for the AM text.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.AM_TEXT, p -> "am");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.AM_TEXT, p -> "am");`
 const DEFAULT_AM_TEXT: &str = "am";
 
-/// PM 文本默认值。
+/// Default value for the PM text.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.PM_TEXT, p -> "pm");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.PM_TEXT, p -> "pm");`
 const DEFAULT_PM_TEXT: &str = "pm";
 
-/// WBS 编码分隔符默认值。
+/// Default value for the WBS code separator.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.WBS_CODE_SEPARATOR, p -> ".");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.WBS_CODE_SEPARATOR, p -> ".");`
 const DEFAULT_WBS_CODE_SEPARATOR: &str = ".";
 
-/// 平衡优先级表达式默认值。
+/// Default value for the leveling priority expression.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.LEVELING_PRIORITIES, p -> "(0||priority_type(sort_type|ASC)())");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.LEVELING_PRIORITIES, p -> "(0||priority_type(sort_type|ASC)())");`
 const DEFAULT_LEVELING_PRIORITIES: &str = "(0||priority_type(sort_type|ASC)())";
 
-/// Activity ID 前缀默认值。
+/// Default value for the Activity ID prefix.
 ///
-/// 对应 Java: `CALCULATED_FIELD_MAP.put(ProjectField.ACTIVITY_ID_PREFIX, p -> "A");`
+/// Corresponds to Java: `CALCULATED_FIELD_MAP.put(ProjectField.ACTIVITY_ID_PREFIX, p -> "A");`
 const DEFAULT_ACTIVITY_ID_PREFIX: &str = "A";
 
-/// Java 的 `ProjectFieldLists.BASELINE_DATES`。
+/// Java's `ProjectFieldLists.BASELINE_DATES`.
 ///
-/// 对应 Java: `org/mpxj/common/ProjectFieldLists.java`（该辅助类未移植，故在此复刻常量）。
+/// Corresponds to Java: `org/mpxj/common/ProjectFieldLists.java` (that helper class is not ported, so the constant is replicated here).
 const BASELINE_DATES: [ProjectField; 10] = [
     ProjectField::Baseline1Date,
     ProjectField::Baseline2Date,
@@ -274,64 +274,64 @@ const BASELINE_DATES: [ProjectField; 10] = [
     ProjectField::Baseline10Date,
 ];
 
-/// 默认开始时间（08:00）。
+/// Default start time (08:00).
 ///
-/// 对应 Java: `private static final LocalTime DEFAULT_START_TIME = LocalTime.of(8, 0);`
+/// Corresponds to Java: `private static final LocalTime DEFAULT_START_TIME = LocalTime.of(8, 0);`
 fn default_start_time() -> NaiveTime {
     NaiveTime::from_hms_opt(8, 0, 0).unwrap_or(NaiveTime::MIN)
 }
 
-/// 默认关键浮时上限（0 天）。
+/// Default critical slack threshold (0 days).
 ///
-/// 对应 Java: `private static final Duration DEFAULT_CRITICAL_SLACK_LIMIT = Duration.getInstance(0, TimeUnit.DAYS);`
+/// Corresponds to Java: `private static final Duration DEFAULT_CRITICAL_SLACK_LIMIT = Duration.getInstance(0, TimeUnit.DAYS);`
 fn default_critical_slack_limit() -> Duration {
     Duration::get_instance_int(0, TimeUnit::Days)
 }
 
-/// 平衡时需保留的最小浮时（1 小时）。
+/// Minimum slack to preserve during leveling (1 hour).
 ///
-/// 对应 Java: `private static final Duration DEFAULT_MINIMUM_FLOAT = Duration.getInstance(1, TimeUnit.HOURS);`
+/// Corresponds to Java: `private static final Duration DEFAULT_MINIMUM_FLOAT = Duration.getInstance(1, TimeUnit.HOURS);`
 fn default_minimum_float() -> Duration {
     Duration::get_instance_int(1, TimeUnit::Hours)
 }
 
-/// 项目属性（对应 MPX 头记录 / MPP 项目属性）。
+/// Project properties (corresponding to the MPX header record / MPP project properties).
 ///
-/// 对应 Java: `public final class ProjectProperties extends AbstractFieldContainer<ProjectProperties> implements TimeUnitDefaultsContainer`
+/// Corresponds to Java: `public final class ProjectProperties extends AbstractFieldContainer<ProjectProperties> implements TimeUnitDefaultsContainer`
 pub struct ProjectProperties {
-    /// 父项目文件（Java 为强引用，Rust 侧用弱引用断环，见文件头说明）。
+/// Parent project file (Java uses a strong reference; the Rust side uses a weak reference to break the cycle, see the file header).
     ///
-    /// 对应 Java 字段: `private final ProjectFile m_parentFile;`
+    /// Corresponds to Java field: `private final ProjectFile m_parentFile;`
     parent_file: Weak<RefCell<ProjectFile>>,
 
-    /// 字段存储（对应 Java 的继承关系 `extends AbstractFieldContainer<ProjectProperties>`）。
+/// Field storage (corresponding to Java's inheritance relationship `extends AbstractFieldContainer<ProjectProperties>`).
     fields: AbstractFieldContainer,
 
-    /// 默认日历（仅作为父文件不可用时的回退，见文件头说明）。
+/// Default calendar (used only as a fallback when the parent file is unavailable, see the file header).
     ///
-    /// 对应 Java: 无此字段；Java 通过 `ProjectField.DEFAULT_CALENDAR_UNIQUE_ID` +
-    /// `m_parentFile.getCalendars()` 解析。
+/// Corresponds to Java: no such field; Java resolves it via `ProjectField.DEFAULT_CALENDAR_UNIQUE_ID` +
+/// `m_parentFile.getCalendars()`.
     default_calendar: Weak<RefCell<ProjectCalendar>>,
 
-    /// 活动默认日历（仅作为父文件不可用时的回退，见文件头说明）。
+/// Activity default calendar (used only as a fallback when the parent file is unavailable, see the file header).
     ///
-    /// 对应 Java: 无此字段；Java 通过 `ProjectField.ACTIVITY_DEFAULT_CALENDAR_UNIQUE_ID` +
-    /// `m_parentFile.getCalendars()` 解析。
+/// Corresponds to Java: no such field; Java resolves it via `ProjectField.ACTIVITY_DEFAULT_CALENDAR_UNIQUE_ID` +
+/// `m_parentFile.getCalendars()`.
     activity_default_calendar: Weak<RefCell<ProjectCalendar>>,
 
-    /// 自定义文档属性。
+/// Custom document properties.
     ///
-    /// 对应 Java 字段: `ProjectField.CUSTOM_PROPERTIES` 中存放的 `Map<String, Object>`。
+/// Corresponds to Java field: the `Map<String, Object>` stored in `ProjectField.CUSTOM_PROPERTIES`.
     ///
-    /// `FieldValue` 无法承载 `Map`，故本 crate 用独立字段承载；`get(ProjectField.CUSTOM_PROPERTIES)`
-    /// 因此返回 `None`（见文件头说明）。
+/// `FieldValue` cannot carry a `Map`, so this crate carries it in a separate field; `get(ProjectField.CUSTOM_PROPERTIES)`
+/// therefore returns `None` (see the file header).
     custom_properties: HashMap<String, FieldValue>,
 }
 
 impl ProjectProperties {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `ProjectProperties(ProjectFile file)`
+    /// Corresponds to Java: `ProjectProperties(ProjectFile file)`
     pub fn new(parent_file: Weak<RefCell<ProjectFile>>) -> ProjectProperties {
         ProjectProperties {
             parent_file,
@@ -342,28 +342,28 @@ impl ProjectProperties {
         }
     }
 
-    /// 取父项目文件（父文件已释放时返回 `None`）。
+/// Get the parent project file (returns `None` when the parent file has been dropped).
     ///
-    /// 对应 Java: `public ProjectFile getParentFile()`
+    /// Corresponds to Java: `public ProjectFile getParentFile()`
     pub fn get_parent_file(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.parent_file.upgrade()
     }
 
     //
-    // 默认工期 / 工时单位、费率
+// Default duration / work units, rates
     //
 
-    /// 取默认工期单位，未设置时使用 Java 的默认值 `DAYS`。
+/// Get the default duration unit; uses Java's default value `DAYS` when unset.
     ///
-    /// 对应 Java: `public TimeUnit getDefaultDurationUnits()`
+    /// Corresponds to Java: `public TimeUnit getDefaultDurationUnits()`
     pub fn get_default_duration_units(&self) -> TimeUnit {
         self.opt_int(ProjectField::DefaultDurationUnits.into())
             .map_or(TimeUnit::Days, TimeUnit::get_instance)
     }
 
-    /// 设置默认工期单位。
+/// Set the default duration unit.
     ///
-    /// 对应 Java: `public void setDefaultDurationUnits(TimeUnit units)`
+    /// Corresponds to Java: `public void setDefaultDurationUnits(TimeUnit units)`
     pub fn set_default_duration_units(&mut self, units: Option<TimeUnit>) {
         self.set_field(
             ProjectField::DefaultDurationUnits.into(),
@@ -371,31 +371,31 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「默认工期类型是否固定」标志。
+/// Get the "default duration type is fixed" flag.
     ///
-    /// 对应 Java: `public boolean getDefaultDurationIsFixed()`
+    /// Corresponds to Java: `public boolean getDefaultDurationIsFixed()`
     pub fn get_default_duration_is_fixed(&self) -> bool {
         self.bool_value(ProjectField::DefaultDurationIsFixed.into())
     }
 
-    /// 设置「默认工期类型是否固定」标志。
+/// Set the "default duration type is fixed" flag.
     ///
-    /// 对应 Java: `public void setDefaultDurationIsFixed(boolean fixed)`
+    /// Corresponds to Java: `public void setDefaultDurationIsFixed(boolean fixed)`
     pub fn set_default_duration_is_fixed(&mut self, fixed: bool) {
         self.set_boolean(ProjectField::DefaultDurationIsFixed, fixed);
     }
 
-    /// 取默认工时单位，未设置时使用 Java 的默认值 `HOURS`。
+/// Get the default work unit; uses Java's default value `HOURS` when unset.
     ///
-    /// 对应 Java: `public TimeUnit getDefaultWorkUnits()`
+    /// Corresponds to Java: `public TimeUnit getDefaultWorkUnits()`
     pub fn get_default_work_units(&self) -> TimeUnit {
         self.opt_int(ProjectField::DefaultWorkUnits.into())
             .map_or(TimeUnit::Hours, TimeUnit::get_instance)
     }
 
-    /// 设置默认工时单位。
+/// Set the default work unit.
     ///
-    /// 对应 Java: `public void setDefaultWorkUnits(TimeUnit units)`
+    /// Corresponds to Java: `public void setDefaultWorkUnits(TimeUnit units)`
     pub fn set_default_work_units(&mut self, units: Option<TimeUnit>) {
         self.set_field(
             ProjectField::DefaultWorkUnits.into(),
@@ -403,16 +403,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认标准费率。
+/// Get the default standard rate.
     ///
-    /// 对应 Java: `public Rate getDefaultStandardRate()`
+    /// Corresponds to Java: `public Rate getDefaultStandardRate()`
     pub fn get_default_standard_rate(&self) -> Option<Rate> {
         self.opt_rate(ProjectField::DefaultStandardRate.into())
     }
 
-    /// 设置默认标准费率。
+/// Set the default standard rate.
     ///
-    /// 对应 Java: `public void setDefaultStandardRate(Rate rate)`
+    /// Corresponds to Java: `public void setDefaultStandardRate(Rate rate)`
     pub fn set_default_standard_rate(&mut self, rate: Option<Rate>) {
         self.set_field(
             ProjectField::DefaultStandardRate.into(),
@@ -420,16 +420,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认加班费率。
+/// Get the default overtime rate.
     ///
-    /// 对应 Java: `public Rate getDefaultOvertimeRate()`
+    /// Corresponds to Java: `public Rate getDefaultOvertimeRate()`
     pub fn get_default_overtime_rate(&self) -> Option<Rate> {
         self.opt_rate(ProjectField::DefaultOvertimeRate.into())
     }
 
-    /// 设置默认加班费率。
+/// Set the default overtime rate.
     ///
-    /// 对应 Java: `public void setDefaultOvertimeRate(Rate rate)`
+    /// Corresponds to Java: `public void setDefaultOvertimeRate(Rate rate)`
     pub fn set_default_overtime_rate(&mut self, rate: Option<Rate>) {
         self.set_field(
             ProjectField::DefaultOvertimeRate.into(),
@@ -437,49 +437,49 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「更新任务状态时同时更新资源状态」标志。
+/// Get the "update resource status when updating task status" flag.
     ///
-    /// 对应 Java: `public boolean getUpdatingTaskStatusUpdatesResourceStatus()`
+    /// Corresponds to Java: `public boolean getUpdatingTaskStatusUpdatesResourceStatus()`
     pub fn get_updating_task_status_updates_resource_status(&self) -> bool {
         self.bool_value(ProjectField::UpdatingTaskStatusUpdatesResourceStatus.into())
     }
 
-    /// 设置「更新任务状态时同时更新资源状态」标志。
+/// Set the "update resource status when updating task status" flag.
     ///
-    /// 对应 Java: `public void setUpdatingTaskStatusUpdatesResourceStatus(boolean flag)`
+    /// Corresponds to Java: `public void setUpdatingTaskStatusUpdatesResourceStatus(boolean flag)`
     pub fn set_updating_task_status_updates_resource_status(&mut self, flag: bool) {
         self.set_boolean(ProjectField::UpdatingTaskStatusUpdatesResourceStatus, flag);
     }
 
-    /// 取「拆分进行中的任务」标志。
+/// Get the "split in-progress tasks" flag.
     ///
-    /// 对应 Java: `public boolean getSplitInProgressTasks()`
+    /// Corresponds to Java: `public boolean getSplitInProgressTasks()`
     pub fn get_split_in_progress_tasks(&self) -> bool {
         self.bool_value(ProjectField::SplitInProgressTasks.into())
     }
 
-    /// 设置「拆分进行中的任务」标志。
+/// Set the "split in-progress tasks" flag.
     ///
-    /// 对应 Java: `public void setSplitInProgressTasks(boolean flag)`
+    /// Corresponds to Java: `public void setSplitInProgressTasks(boolean flag)`
     pub fn set_split_in_progress_tasks(&mut self, flag: bool) {
         self.set_boolean(ProjectField::SplitInProgressTasks, flag);
     }
 
     //
-    // 日期 / 时间格式
+// Date / time formats
     //
 
-    /// 取日期顺序（DMY / MDY / YMD），未设置时使用 Java 的默认值 `DMY`。
+/// Get the date order (DMY / MDY / YMD); uses Java's default value `DMY` when unset.
     ///
-    /// 对应 Java: `public DateOrder getDateOrder()`
+    /// Corresponds to Java: `public DateOrder getDateOrder()`
     pub fn get_date_order(&self) -> DateOrder {
         self.opt_int(ProjectField::DateOrder.into())
             .map_or(DateOrder::Dmy, DateOrder::get_instance)
     }
 
-    /// 设置日期顺序。
+/// Set the date order.
     ///
-    /// 对应 Java: `public void setDateOrder(DateOrder dateOrder)`
+    /// Corresponds to Java: `public void setDateOrder(DateOrder dateOrder)`
     pub fn set_date_order(&mut self, date_order: Option<DateOrder>) {
         self.set_field(
             ProjectField::DateOrder.into(),
@@ -487,17 +487,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取时间格式，未设置时使用 Java 的默认值 `TWELVE_HOUR`。
+/// Get the time format; uses Java's default value `TWELVE_HOUR` when unset.
     ///
-    /// 对应 Java: `public ProjectTimeFormat getTimeFormat()`
+    /// Corresponds to Java: `public ProjectTimeFormat getTimeFormat()`
     pub fn get_time_format(&self) -> ProjectTimeFormat {
         self.opt_int(ProjectField::TimeFormat.into())
             .map_or(ProjectTimeFormat::TwelveHour, ProjectTimeFormat::get_instance)
     }
 
-    /// 设置时间格式。
+/// Set the time format.
     ///
-    /// 对应 Java: `public void setTimeFormat(ProjectTimeFormat timeFormat)`
+    /// Corresponds to Java: `public void setTimeFormat(ProjectTimeFormat timeFormat)`
     pub fn set_time_format(&mut self, time_format: Option<ProjectTimeFormat>) {
         self.set_field(
             ProjectField::TimeFormat.into(),
@@ -505,17 +505,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认开始时间，未设置时使用 Java 的默认值 08:00。
+/// Get the default start time; uses Java's default value 08:00 when unset.
     ///
-    /// 对应 Java: `public LocalTime getDefaultStartTime()`
+    /// Corresponds to Java: `public LocalTime getDefaultStartTime()`
     pub fn get_default_start_time(&self) -> NaiveTime {
         self.opt_time(ProjectField::DefaultStartTime.into())
             .unwrap_or_else(default_start_time)
     }
 
-    /// 设置默认开始时间。
+/// Set the default start time.
     ///
-    /// 对应 Java: `public void setDefaultStartTime(LocalTime defaultStartTime)`
+    /// Corresponds to Java: `public void setDefaultStartTime(LocalTime defaultStartTime)`
     pub fn set_default_start_time(&mut self, default_start_time: Option<NaiveTime>) {
         self.set_field(
             ProjectField::DefaultStartTime.into(),
@@ -523,91 +523,91 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认结束时间。
+/// Get the default end time.
     ///
-    /// 对应 Java: `public LocalTime getDefaultEndTime()`
+    /// Corresponds to Java: `public LocalTime getDefaultEndTime()`
     pub fn get_default_end_time(&self) -> Option<NaiveTime> {
         self.opt_time(ProjectField::DefaultEndTime.into())
     }
 
-    /// 设置默认结束时间。
+/// Set the default end time.
     ///
-    /// 对应 Java: `public void setDefaultEndTime(LocalTime date)`
+    /// Corresponds to Java: `public void setDefaultEndTime(LocalTime date)`
     pub fn set_default_end_time(&mut self, date: Option<NaiveTime>) {
         self.set_field(ProjectField::DefaultEndTime.into(), date.map(FieldValue::Time));
     }
 
-    /// 取日期分隔符，未设置时使用 Java 的默认值 `'/'`。
+/// Get the date separator; uses Java's default value `'/'` when unset.
     ///
-    /// 对应 Java: `public char getDateSeparator()`
+    /// Corresponds to Java: `public char getDateSeparator()`
     ///
-    /// Java 在字段为 `null` 时会解引用 `null` 抛 NPE；Rust 侧回退到默认值。
+/// Java dereferences `null` and throws NPE when the field is `null`; the Rust side falls back to the default value.
     pub fn get_date_separator(&self) -> char {
         self.char_value(ProjectField::DateSeparator.into(), DEFAULT_DATE_SEPARATOR)
     }
 
-    /// 设置日期分隔符。
+/// Set the date separator.
     ///
-    /// 对应 Java: `public void setDateSeparator(char dateSeparator)`
+    /// Corresponds to Java: `public void setDateSeparator(char dateSeparator)`
     ///
-    /// `FieldValue` 无字符变体，故以单字符字符串存放（见文件头说明）。
+/// `FieldValue` has no character variant, so it is stored as a single-character string (see the file header).
     pub fn set_date_separator(&mut self, date_separator: char) {
         self.set_char(ProjectField::DateSeparator, date_separator);
     }
 
-    /// 取时间分隔符，未设置时使用 Java 的默认值 `':'`。
+/// Get the time separator; uses Java's default value `':'` when unset.
     ///
-    /// 对应 Java: `public char getTimeSeparator()`
+    /// Corresponds to Java: `public char getTimeSeparator()`
     pub fn get_time_separator(&self) -> char {
         self.char_value(ProjectField::TimeSeparator.into(), DEFAULT_TIME_SEPARATOR)
     }
 
-    /// 设置时间分隔符。
+/// Set the time separator.
     ///
-    /// 对应 Java: `public void setTimeSeparator(char timeSeparator)`
+    /// Corresponds to Java: `public void setTimeSeparator(char timeSeparator)`
     pub fn set_time_separator(&mut self, time_separator: char) {
         self.set_char(ProjectField::TimeSeparator, time_separator);
     }
 
-    /// 取 AM 文本，未设置时使用 Java 的默认值 `"am"`。
+/// Get the AM text; uses Java's default value `"am"` when unset.
     ///
-    /// 对应 Java: `public String getAMText()`
+    /// Corresponds to Java: `public String getAMText()`
     pub fn get_am_text(&self) -> String {
         self.string_value(ProjectField::AmText.into(), DEFAULT_AM_TEXT)
     }
 
-    /// 设置 AM 文本。
+/// Set the AM text.
     ///
-    /// 对应 Java: `public void setAMText(String amText)`
+    /// Corresponds to Java: `public void setAMText(String amText)`
     pub fn set_am_text(&mut self, am_text: Option<String>) {
         self.set_field(ProjectField::AmText.into(), am_text.map(FieldValue::String));
     }
 
-    /// 取 PM 文本，未设置时使用 Java 的默认值 `"pm"`。
+/// Get the PM text; uses Java's default value `"pm"` when unset.
     ///
-    /// 对应 Java: `public String getPMText()`
+    /// Corresponds to Java: `public String getPMText()`
     pub fn get_pm_text(&self) -> String {
         self.string_value(ProjectField::PmText.into(), DEFAULT_PM_TEXT)
     }
 
-    /// 设置 PM 文本。
+/// Set the PM text.
     ///
-    /// 对应 Java: `public void setPMText(String pmText)`
+    /// Corresponds to Java: `public void setPMText(String pmText)`
     pub fn set_pm_text(&mut self, pm_text: Option<String>) {
         self.set_field(ProjectField::PmText.into(), pm_text.map(FieldValue::String));
     }
 
-    /// 取日期格式，未设置时使用 Java 的默认值 `DD_MM_YYYY`。
+/// Get the date format; uses Java's default value `DD_MM_YYYY` when unset.
     ///
-    /// 对应 Java: `public ProjectDateFormat getDateFormat()`
+    /// Corresponds to Java: `public ProjectDateFormat getDateFormat()`
     pub fn get_date_format(&self) -> ProjectDateFormat {
         self.opt_int(ProjectField::DateFormat.into())
             .map_or(ProjectDateFormat::DdMmYyyy, ProjectDateFormat::get_instance)
     }
 
-    /// 设置日期格式。
+/// Set the date format.
     ///
-    /// 对应 Java: `public void setDateFormat(ProjectDateFormat dateFormat)`
+    /// Corresponds to Java: `public void setDateFormat(ProjectDateFormat dateFormat)`
     pub fn set_date_format(&mut self, date_format: Option<ProjectDateFormat>) {
         self.set_field(
             ProjectField::DateFormat.into(),
@@ -615,17 +615,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取条形图文字日期格式，未设置时使用 Java 的默认值 `DD_MM_YYYY`。
+/// Get the bar text date format; uses Java's default value `DD_MM_YYYY` when unset.
     ///
-    /// 对应 Java: `public ProjectDateFormat getBarTextDateFormat()`
+    /// Corresponds to Java: `public ProjectDateFormat getBarTextDateFormat()`
     pub fn get_bar_text_date_format(&self) -> ProjectDateFormat {
         self.opt_int(ProjectField::BarTextDateFormat.into())
             .map_or(ProjectDateFormat::DdMmYyyy, ProjectDateFormat::get_instance)
     }
 
-    /// 设置条形图文字日期格式。
+/// Set the bar text date format.
     ///
-    /// 对应 Java: `public void setBarTextDateFormat(ProjectDateFormat dateFormat)`
+    /// Corresponds to Java: `public void setBarTextDateFormat(ProjectDateFormat dateFormat)`
     pub fn set_bar_text_date_format(&mut self, date_format: Option<ProjectDateFormat>) {
         self.set_field(
             ProjectField::BarTextDateFormat.into(),
@@ -634,12 +634,12 @@ impl ProjectProperties {
     }
 
     //
-    // 标题 / 公司 / 负责人
+// Title / company / manager
     //
 
-    /// 设置项目标题。
+/// Set the project title.
     ///
-    /// 对应 Java: `public void setProjectTitle(String projectTitle)`
+    /// Corresponds to Java: `public void setProjectTitle(String projectTitle)`
     pub fn set_project_title(&mut self, project_title: Option<String>) {
         self.set_field(
             ProjectField::ProjectTitle.into(),
@@ -647,48 +647,48 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目标题。
+/// Get the project title.
     ///
-    /// 对应 Java: `public String getProjectTitle()`
+    /// Corresponds to Java: `public String getProjectTitle()`
     pub fn get_project_title(&self) -> Option<String> {
         self.opt_string(ProjectField::ProjectTitle.into())
     }
 
-    /// 设置公司名称。
+/// Set the company name.
     ///
-    /// 对应 Java: `public void setCompany(String company)`
+    /// Corresponds to Java: `public void setCompany(String company)`
     pub fn set_company(&mut self, company: Option<String>) {
         self.set_field(ProjectField::Company.into(), company.map(FieldValue::String));
     }
 
-    /// 取公司名称。
+/// Get the company name.
     ///
-    /// 对应 Java: `public String getCompany()`
+    /// Corresponds to Java: `public String getCompany()`
     pub fn get_company(&self) -> Option<String> {
         self.opt_string(ProjectField::Company.into())
     }
 
-    /// 设置负责人名称。
+/// Set the manager name.
     ///
-    /// 对应 Java: `public void setManager(String manager)`
+    /// Corresponds to Java: `public void setManager(String manager)`
     pub fn set_manager(&mut self, manager: Option<String>) {
         self.set_field(ProjectField::Manager.into(), manager.map(FieldValue::String));
     }
 
-    /// 取负责人名称。
+/// Get the manager name.
     ///
-    /// 对应 Java: `public String getManager()`
+    /// Corresponds to Java: `public String getManager()`
     pub fn get_manager(&self) -> Option<String> {
         self.opt_string(ProjectField::Manager.into())
     }
 
     //
-    // 默认日历 / 活动默认日历
+// Default calendar / activity default calendar
     //
 
-    /// 设置默认日历唯一 ID。
+/// Set the default calendar unique ID.
     ///
-    /// 对应 Java: `public void setDefaultCalendarUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setDefaultCalendarUniqueID(Integer id)`
     pub fn set_default_calendar_unique_id(&mut self, id: Option<i32>) {
         self.set_field(
             ProjectField::DefaultCalendarUniqueId.into(),
@@ -696,12 +696,12 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认日历唯一 ID（父文件可用时取父文件日历容器中的值）。
+/// Get the default calendar unique ID (uses the value from the parent file's calendar container when the parent file is available).
     ///
-    /// 对应 Java: `public Integer getDefaultCalendarUniqueID()`
+    /// Corresponds to Java: `public Integer getDefaultCalendarUniqueID()`
     ///
-    /// 该字段在 Java 中属于「始终计算字段」；父文件不可用时 Rust 侧回退到
-    /// [`ProjectProperties::default_calendar`] 弱引用所指向日历的唯一 ID。
+/// In Java this field is an "always calculated field"; when the parent file is unavailable the Rust side falls back to
+/// the unique ID of the calendar pointed to by the [`ProjectProperties::default_calendar`] weak reference.
     pub fn get_default_calendar_unique_id(&self) -> Option<i32> {
         if let Some(id) = self.calculate_default_calendar_unique_id() {
             return Some(id);
@@ -712,12 +712,12 @@ impl ProjectProperties {
             .and_then(|calendar| calendar.try_borrow().ok().and_then(|item| item.get_unique_id()))
     }
 
-    /// 设置默认日历。
+/// Set the default calendar.
     ///
-    /// 对应 Java: `public void setDefaultCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void setDefaultCalendar(ProjectCalendar calendar)`
     ///
-    /// 除写入唯一 ID 字段外，另把弱引用回退值记入
-    /// [`ProjectProperties::default_calendar`]（见文件头说明）。
+/// In addition to writing the unique ID field, it also records the weak-reference fallback value in
+/// [`ProjectProperties::default_calendar`] (see the file header).
     pub fn set_default_calendar(&mut self, calendar: Option<Rc<RefCell<ProjectCalendar>>>) {
         let unique_id = calendar
             .as_ref()
@@ -729,12 +729,12 @@ impl ProjectProperties {
         };
     }
 
-    /// 取默认日历。
+/// Get the default calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar getDefaultCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getDefaultCalendar()`
     ///
-    /// 先按唯一 ID 到父文件日历容器中解析；父文件不可用或未命中时回退到
-    /// [`ProjectProperties::default_calendar`] 弱引用。
+/// First resolves by unique ID in the parent file's calendar container; falls back to
+/// the [`ProjectProperties::default_calendar`] weak reference when the parent file is unavailable or there is no match.
     pub fn get_default_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         if let Some(context) = self.parent_context() {
             let id = self.calculate_default_calendar_unique_id();
@@ -746,9 +746,9 @@ impl ProjectProperties {
         self.default_calendar.upgrade()
     }
 
-    /// 设置活动默认日历唯一 ID。
+/// Set the activity default calendar unique ID.
     ///
-    /// 对应 Java: `public void setActivityDefaultCalendarUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setActivityDefaultCalendarUniqueID(Integer id)`
     pub fn set_activity_default_calendar_unique_id(&mut self, id: Option<i32>) {
         self.set_field(
             ProjectField::ActivityDefaultCalendarUniqueId.into(),
@@ -756,9 +756,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取活动默认日历唯一 ID。
+/// Get the activity default calendar unique ID.
     ///
-    /// 对应 Java: `public Integer getActivityDefaultCalendarUniqueID()`
+    /// Corresponds to Java: `public Integer getActivityDefaultCalendarUniqueID()`
     pub fn get_activity_default_calendar_unique_id(&self) -> Option<i32> {
         let result = self.opt_int(ProjectField::ActivityDefaultCalendarUniqueId.into());
         if result.is_some() {
@@ -770,12 +770,12 @@ impl ProjectProperties {
             .and_then(|calendar| calendar.try_borrow().ok().and_then(|item| item.get_unique_id()))
     }
 
-    /// 设置活动默认日历。
+/// Set the activity default calendar.
     ///
-    /// 对应 Java: `public void setActivityDefaultCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void setActivityDefaultCalendar(ProjectCalendar calendar)`
     ///
-    /// Java 未对 `calendar` 做空值判断（传 `null` 会抛 NPE）；Rust 侧把 `None` 视为
-    /// 「清除活动默认日历」。
+/// Java does not null-check `calendar` (passing `null` throws NPE); the Rust side treats `None` as
+/// "clear the activity default calendar".
     pub fn set_activity_default_calendar(&mut self, calendar: Option<Rc<RefCell<ProjectCalendar>>>) {
         let unique_id = calendar
             .as_ref()
@@ -787,9 +787,9 @@ impl ProjectProperties {
         };
     }
 
-    /// 取活动默认日历。
+/// Get the activity default calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar getActivityDefaultCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getActivityDefaultCalendar()`
     pub fn get_activity_default_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         if let Some(context) = self.parent_context() {
             let id = self.get_activity_default_calendar_unique_id();
@@ -802,33 +802,33 @@ impl ProjectProperties {
     }
 
     //
-    // 项目起止日期
+// Project start / finish dates
     //
 
-    /// 设置项目开始日期。
+/// Set the project start date.
     ///
-    /// 对应 Java: `public void setStartDate(LocalDateTime startDate)`
+    /// Corresponds to Java: `public void setStartDate(LocalDateTime startDate)`
     pub fn set_start_date(&mut self, start_date: Option<NaiveDateTime>) {
         self.set_field(ProjectField::StartDate.into(), start_date.map(FieldValue::DateTime));
     }
 
-    /// 取项目开始日期（未显式设置时取文件中最早的任务开始日期）。
+/// Get the project start date (uses the earliest task start date in the file when not explicitly set).
     ///
-    /// 对应 Java: `public LocalDateTime getStartDate()`
+    /// Corresponds to Java: `public LocalDateTime getStartDate()`
     pub fn get_start_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::StartDate.into())
     }
 
-    /// 取项目完成日期（未显式设置时取文件中最晚的任务完成日期）。
+/// Get the project finish date (uses the latest task finish date in the file when not explicitly set).
     ///
-    /// 对应 Java: `public LocalDateTime getFinishDate()`
+    /// Corresponds to Java: `public LocalDateTime getFinishDate()`
     pub fn get_finish_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::FinishDate.into())
     }
 
-    /// 设置项目完成日期。
+/// Set the project finish date.
     ///
-    /// 对应 Java: `public void setFinishDate(LocalDateTime finishDate)`
+    /// Corresponds to Java: `public void setFinishDate(LocalDateTime finishDate)`
     pub fn set_finish_date(&mut self, finish_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::FinishDate.into(),
@@ -836,17 +836,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取排程方向（从开始日期 / 完成日期排程），未设置时使用 Java 的默认值 `START`。
+/// Get the scheduling direction (schedule from start date / finish date); uses Java's default value `START` when unset.
     ///
-    /// 对应 Java: `public ScheduleFrom getScheduleFrom()`
+    /// Corresponds to Java: `public ScheduleFrom getScheduleFrom()`
     pub fn get_schedule_from(&self) -> ScheduleFrom {
         self.opt_int(ProjectField::ScheduleFrom.into())
             .map_or(ScheduleFrom::Start, ScheduleFrom::get_instance)
     }
 
-    /// 设置排程方向。
+/// Set the scheduling direction.
     ///
-    /// 对应 Java: `public void setScheduleFrom(ScheduleFrom scheduleFrom)`
+    /// Corresponds to Java: `public void setScheduleFrom(ScheduleFrom scheduleFrom)`
     pub fn set_schedule_from(&mut self, schedule_from: Option<ScheduleFrom>) {
         self.set_field(
             ProjectField::ScheduleFrom.into(),
@@ -854,17 +854,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取当前日期，未设置时使用 Java 的默认值「当前时刻」。
+/// Get the current date; uses Java's default value "the current moment" when unset.
     ///
-    /// 对应 Java: `public LocalDateTime getCurrentDate()`
+    /// Corresponds to Java: `public LocalDateTime getCurrentDate()`
     pub fn get_current_date(&self) -> NaiveDateTime {
         self.opt_date_time(ProjectField::CurrentDate.into())
             .unwrap_or_else(|| Local::now().naive_local())
     }
 
-    /// 设置当前日期。
+/// Set the current date.
     ///
-    /// 对应 Java: `public void setCurrentDate(LocalDateTime currentDate)`
+    /// Corresponds to Java: `public void setCurrentDate(LocalDateTime currentDate)`
     pub fn set_current_date(&mut self, current_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::CurrentDate.into(),
@@ -872,43 +872,43 @@ impl ProjectProperties {
         );
     }
 
-    /// 取备注文本。
+/// Get the notes text.
     ///
-    /// 对应 Java: `public String getComments()`
+    /// Corresponds to Java: `public String getComments()`
     pub fn get_comments(&self) -> Option<String> {
         self.opt_string(ProjectField::Comments.into())
     }
 
-    /// 设置备注文本。
+/// Set the notes text.
     ///
-    /// 对应 Java: `public void setComments(String comments)`
+    /// Corresponds to Java: `public void setComments(String comments)`
     pub fn set_comments(&mut self, comments: Option<String>) {
         self.set_field(ProjectField::Comments.into(), comments.map(FieldValue::String));
     }
 
     //
-    // 成本 / 工时 / 工期 / 完成百分比
+// Cost / work / duration / percent complete
     //
 
-    /// 取项目成本。
+/// Get the project cost.
     ///
-    /// 对应 Java: `public Number getCost()`
+    /// Corresponds to Java: `public Number getCost()`
     ///
-    /// Java 的 `Number` 在 Rust 侧统一为 `f64`（`FieldValue::as_double` 兼容整数与浮点）。
+/// Java's `Number` is unified to `f64` on the Rust side (`FieldValue::as_double` accepts both integers and floats).
     pub fn get_cost(&self) -> Option<f64> {
         self.opt_double(ProjectField::Cost.into())
     }
 
-    /// 设置项目成本。
+/// Set the project cost.
     ///
-    /// 对应 Java: `public void setCost(Number cost)`
+    /// Corresponds to Java: `public void setCost(Number cost)`
     pub fn set_cost(&mut self, cost: Option<f64>) {
         self.set_field(ProjectField::Cost.into(), cost.map(FieldValue::Double));
     }
 
-    /// 设置基准项目成本。
+/// Set the baseline project cost.
     ///
-    /// 对应 Java: `public void setBaselineCost(Number baselineCost)`
+    /// Corresponds to Java: `public void setBaselineCost(Number baselineCost)`
     pub fn set_baseline_cost(&mut self, baseline_cost: Option<f64>) {
         self.set_field(
             ProjectField::BaselineCost.into(),
@@ -916,16 +916,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取基准项目成本。
+/// Get the baseline project cost.
     ///
-    /// 对应 Java: `public Number getBaselineCost()`
+    /// Corresponds to Java: `public Number getBaselineCost()`
     pub fn get_baseline_cost(&self) -> Option<f64> {
         self.opt_double(ProjectField::BaselineCost.into())
     }
 
-    /// 设置实际项目成本。
+/// Set the actual project cost.
     ///
-    /// 对应 Java: `public void setActualCost(Number actualCost)`
+    /// Corresponds to Java: `public void setActualCost(Number actualCost)`
     pub fn set_actual_cost(&mut self, actual_cost: Option<f64>) {
         self.set_field(
             ProjectField::ActualCost.into(),
@@ -933,30 +933,30 @@ impl ProjectProperties {
         );
     }
 
-    /// 取实际项目成本。
+/// Get the actual project cost.
     ///
-    /// 对应 Java: `public Number getActualCost()`
+    /// Corresponds to Java: `public Number getActualCost()`
     pub fn get_actual_cost(&self) -> Option<f64> {
         self.opt_double(ProjectField::ActualCost.into())
     }
 
-    /// 设置项目工时。
+/// Set the project work.
     ///
-    /// 对应 Java: `public void setWork(Duration work)`
+    /// Corresponds to Java: `public void setWork(Duration work)`
     pub fn set_work(&mut self, work: Option<Duration>) {
         self.set_field(ProjectField::Work.into(), work.map(FieldValue::Duration));
     }
 
-    /// 取项目工时。
+/// Get the project work.
     ///
-    /// 对应 Java: `public Duration getWork()`
+    /// Corresponds to Java: `public Duration getWork()`
     pub fn get_work(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::Work.into())
     }
 
-    /// 设置基准项目工时。
+/// Set the baseline project work.
     ///
-    /// 对应 Java: `public void setBaselineWork(Duration baselineWork)`
+    /// Corresponds to Java: `public void setBaselineWork(Duration baselineWork)`
     pub fn set_baseline_work(&mut self, baseline_work: Option<Duration>) {
         self.set_field(
             ProjectField::BaselineWork.into(),
@@ -964,16 +964,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取基准项目工时。
+/// Get the baseline project work.
     ///
-    /// 对应 Java: `public Duration getBaselineWork()`
+    /// Corresponds to Java: `public Duration getBaselineWork()`
     pub fn get_baseline_work(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::BaselineWork.into())
     }
 
-    /// 设置实际项目工时。
+/// Set the actual project work.
     ///
-    /// 对应 Java: `public void setActualWork(Duration actualWork)`
+    /// Corresponds to Java: `public void setActualWork(Duration actualWork)`
     pub fn set_actual_work(&mut self, actual_work: Option<Duration>) {
         self.set_field(
             ProjectField::ActualWork.into(),
@@ -981,51 +981,51 @@ impl ProjectProperties {
         );
     }
 
-    /// 取实际项目工时。
+/// Get the actual project work.
     ///
-    /// 对应 Java: `public Duration getActualWork()`
+    /// Corresponds to Java: `public Duration getActualWork()`
     pub fn get_actual_work(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::ActualWork.into())
     }
 
-    /// 取项目的 "Work 2" 属性。
+/// Get the project's "Work 2" property.
     ///
-    /// 对应 Java: `public Number getWork2()`
+    /// Corresponds to Java: `public Number getWork2()`
     pub fn get_work2(&self) -> Option<f64> {
         self.opt_double(ProjectField::Work2.into())
     }
 
-    /// 设置项目的 "Work 2" 属性。
+/// Set the project's "Work 2" property.
     ///
-    /// 对应 Java: `public void setWork2(Number work2)`
+    /// Corresponds to Java: `public void setWork2(Number work2)`
     pub fn set_work2(&mut self, work2: Option<f64>) {
         self.set_field(ProjectField::Work2.into(), work2.map(FieldValue::Double));
     }
 
-    /// 取项目工期。
+/// Get the project duration.
     ///
-    /// 对应 Java: `public Duration getDuration()`
+    /// Corresponds to Java: `public Duration getDuration()`
     pub fn get_duration(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::Duration.into())
     }
 
-    /// 设置项目工期。
+/// Set the project duration.
     ///
-    /// 对应 Java: `public void setDuration(Duration duration)`
+    /// Corresponds to Java: `public void setDuration(Duration duration)`
     pub fn set_duration(&mut self, duration: Option<Duration>) {
         self.set_field(ProjectField::Duration.into(), duration.map(FieldValue::Duration));
     }
 
-    /// 取基准项目工期。
+/// Get the baseline project duration.
     ///
-    /// 对应 Java: `public Duration getBaselineDuration()`
+    /// Corresponds to Java: `public Duration getBaselineDuration()`
     pub fn get_baseline_duration(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::BaselineDuration.into())
     }
 
-    /// 设置基准项目工期。
+/// Set the baseline project duration.
     ///
-    /// 对应 Java: `public void setBaselineDuration(Duration baselineDuration)`
+    /// Corresponds to Java: `public void setBaselineDuration(Duration baselineDuration)`
     pub fn set_baseline_duration(&mut self, baseline_duration: Option<Duration>) {
         self.set_field(
             ProjectField::BaselineDuration.into(),
@@ -1033,16 +1033,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取实际项目工期。
+/// Get the actual project duration.
     ///
-    /// 对应 Java: `public Duration getActualDuration()`
+    /// Corresponds to Java: `public Duration getActualDuration()`
     pub fn get_actual_duration(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::ActualDuration.into())
     }
 
-    /// 设置实际项目工期。
+/// Set the actual project duration.
     ///
-    /// 对应 Java: `public void setActualDuration(Duration actualDuration)`
+    /// Corresponds to Java: `public void setActualDuration(Duration actualDuration)`
     pub fn set_actual_duration(&mut self, actual_duration: Option<Duration>) {
         self.set_field(
             ProjectField::ActualDuration.into(),
@@ -1050,16 +1050,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目完成百分比。
+/// Get the project percent complete.
     ///
-    /// 对应 Java: `public Number getPercentageComplete()`
+    /// Corresponds to Java: `public Number getPercentageComplete()`
     pub fn get_percentage_complete(&self) -> Option<f64> {
         self.opt_double(ProjectField::PercentageComplete.into())
     }
 
-    /// 设置项目完成百分比。
+/// Set the project percent complete.
     ///
-    /// 对应 Java: `public void setPercentageComplete(Number percentComplete)`
+    /// Corresponds to Java: `public void setPercentageComplete(Number percentComplete)`
     pub fn set_percentage_complete(&mut self, percent_complete: Option<f64>) {
         self.set_field(
             ProjectField::PercentageComplete.into(),
@@ -1068,12 +1068,12 @@ impl ProjectProperties {
     }
 
     //
-    // 基准 / 实际起止日期、偏差
+// Baseline / actual start and finish dates, variance
     //
 
-    /// 设置基准项目开始日期。
+/// Set the baseline project start date.
     ///
-    /// 对应 Java: `public void setBaselineStart(LocalDateTime baselineStartDate)`
+    /// Corresponds to Java: `public void setBaselineStart(LocalDateTime baselineStartDate)`
     pub fn set_baseline_start(&mut self, baseline_start_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::BaselineStart.into(),
@@ -1081,16 +1081,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取基准项目开始日期。
+/// Get the baseline project start date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineStart()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineStart()`
     pub fn get_baseline_start(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::BaselineStart.into())
     }
 
-    /// 设置基准项目完成日期。
+/// Set the baseline project finish date.
     ///
-    /// 对应 Java: `public void setBaselineFinish(LocalDateTime baselineFinishDate)`
+    /// Corresponds to Java: `public void setBaselineFinish(LocalDateTime baselineFinishDate)`
     pub fn set_baseline_finish(&mut self, baseline_finish_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::BaselineFinish.into(),
@@ -1098,16 +1098,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取基准项目完成日期。
+/// Get the baseline project finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineFinish()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineFinish()`
     pub fn get_baseline_finish(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::BaselineFinish.into())
     }
 
-    /// 设置实际项目开始日期。
+/// Set the actual project start date.
     ///
-    /// 对应 Java: `public void setActualStart(LocalDateTime actualStartDate)`
+    /// Corresponds to Java: `public void setActualStart(LocalDateTime actualStartDate)`
     pub fn set_actual_start(&mut self, actual_start_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::ActualStart.into(),
@@ -1115,16 +1115,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取实际项目开始日期。
+/// Get the actual project start date.
     ///
-    /// 对应 Java: `public LocalDateTime getActualStart()`
+    /// Corresponds to Java: `public LocalDateTime getActualStart()`
     pub fn get_actual_start(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::ActualStart.into())
     }
 
-    /// 设置实际项目完成日期。
+/// Set the actual project finish date.
     ///
-    /// 对应 Java: `public void setActualFinish(LocalDateTime actualFinishDate)`
+    /// Corresponds to Java: `public void setActualFinish(LocalDateTime actualFinishDate)`
     pub fn set_actual_finish(&mut self, actual_finish_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::ActualFinish.into(),
@@ -1132,23 +1132,23 @@ impl ProjectProperties {
         );
     }
 
-    /// 取实际项目完成日期。
+/// Get the actual project finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getActualFinish()`
+    /// Corresponds to Java: `public LocalDateTime getActualFinish()`
     pub fn get_actual_finish(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::ActualFinish.into())
     }
 
-    /// 取开始日期偏差。
+/// Get the start date variance.
     ///
-    /// 对应 Java: `public Duration getStartVariance()`
+    /// Corresponds to Java: `public Duration getStartVariance()`
     pub fn get_start_variance(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::StartVariance.into())
     }
 
-    /// 设置开始日期偏差。
+/// Set the start date variance.
     ///
-    /// 对应 Java: `public void setStartVariance(Duration startVariance)`
+    /// Corresponds to Java: `public void setStartVariance(Duration startVariance)`
     pub fn set_start_variance(&mut self, start_variance: Option<Duration>) {
         self.set_field(
             ProjectField::StartVariance.into(),
@@ -1156,16 +1156,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取完成日期偏差。
+/// Get the finish date variance.
     ///
-    /// 对应 Java: `public Duration getFinishVariance()`
+    /// Corresponds to Java: `public Duration getFinishVariance()`
     pub fn get_finish_variance(&self) -> Option<Duration> {
         self.opt_duration(ProjectField::FinishVariance.into())
     }
 
-    /// 设置完成日期偏差。
+/// Set the finish date variance.
     ///
-    /// 对应 Java: `public void setFinishVariance(Duration finishVariance)`
+    /// Corresponds to Java: `public void setFinishVariance(Duration finishVariance)`
     pub fn set_finish_variance(&mut self, finish_variance: Option<Duration>) {
         self.set_field(
             ProjectField::FinishVariance.into(),
@@ -1174,58 +1174,58 @@ impl ProjectProperties {
     }
 
     //
-    // 文档信息
+// Document information
     //
 
-    /// 取项目主题文本。
+/// Get the project subject text.
     ///
-    /// 对应 Java: `public String getSubject()`
+    /// Corresponds to Java: `public String getSubject()`
     pub fn get_subject(&self) -> Option<String> {
         self.opt_string(ProjectField::Subject.into())
     }
 
-    /// 设置项目主题文本。
+/// Set the project subject text.
     ///
-    /// 对应 Java: `public void setSubject(String subject)`
+    /// Corresponds to Java: `public void setSubject(String subject)`
     pub fn set_subject(&mut self, subject: Option<String>) {
         self.set_field(ProjectField::Subject.into(), subject.map(FieldValue::String));
     }
 
-    /// 取项目作者文本。
+/// Get the project author text.
     ///
-    /// 对应 Java: `public String getAuthor()`
+    /// Corresponds to Java: `public String getAuthor()`
     pub fn get_author(&self) -> Option<String> {
         self.opt_string(ProjectField::Author.into())
     }
 
-    /// 设置项目作者文本。
+/// Set the project author text.
     ///
-    /// 对应 Java: `public void setAuthor(String author)`
+    /// Corresponds to Java: `public void setAuthor(String author)`
     pub fn set_author(&mut self, author: Option<String>) {
         self.set_field(ProjectField::Author.into(), author.map(FieldValue::String));
     }
 
-    /// 取项目关键字文本。
+/// Get the project keywords text.
     ///
-    /// 对应 Java: `public String getKeywords()`
+    /// Corresponds to Java: `public String getKeywords()`
     pub fn get_keywords(&self) -> Option<String> {
         self.opt_string(ProjectField::Keywords.into())
     }
 
-    /// 设置项目关键字文本。
+/// Set the project keywords text.
     ///
-    /// 对应 Java: `public void setKeywords(String keywords)`
+    /// Corresponds to Java: `public void setKeywords(String keywords)`
     pub fn set_keywords(&mut self, keywords: Option<String>) {
         self.set_field(ProjectField::Keywords.into(), keywords.map(FieldValue::String));
     }
 
     //
-    // 货币
+// Currency
     //
 
-    /// 设置货币符号。
+/// Set the currency symbol.
     ///
-    /// 对应 Java: `public void setCurrencySymbol(String symbol)`
+    /// Corresponds to Java: `public void setCurrencySymbol(String symbol)`
     pub fn set_currency_symbol(&mut self, symbol: Option<String>) {
         self.set_field(
             ProjectField::CurrencySymbol.into(),
@@ -1233,16 +1233,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取货币符号，未设置时使用 Java 的默认值 `"$"`。
+/// Get the currency symbol; uses the Java default `"$"` when unset.
     ///
-    /// 对应 Java: `public String getCurrencySymbol()`
+    /// Corresponds to Java: `public String getCurrencySymbol()`
     pub fn get_currency_symbol(&self) -> String {
         self.string_value(ProjectField::CurrencySymbol.into(), DEFAULT_CURRENCY_SYMBOL)
     }
 
-    /// 设置货币符号位置。
+/// Set the currency symbol position.
     ///
-    /// 对应 Java: `public void setSymbolPosition(CurrencySymbolPosition value)`
+    /// Corresponds to Java: `public void setSymbolPosition(CurrencySymbolPosition value)`
     pub fn set_symbol_position(&mut self, value: Option<CurrencySymbolPosition>) {
         self.set_field(
             ProjectField::CurrencySymbolPosition.into(),
@@ -1250,17 +1250,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取货币符号位置，未设置时使用 Java 的默认值 `BEFORE`。
+/// Get the currency symbol position; uses the Java default `BEFORE` when unset.
     ///
-    /// 对应 Java: `public CurrencySymbolPosition getSymbolPosition()`
+    /// Corresponds to Java: `public CurrencySymbolPosition getSymbolPosition()`
     pub fn get_symbol_position(&self) -> CurrencySymbolPosition {
         self.opt_int(ProjectField::CurrencySymbolPosition.into())
             .map_or(CurrencySymbolPosition::Before, CurrencySymbolPosition::get_instance)
     }
 
-    /// 设置货币小数位数。
+/// Set the number of currency decimal places.
     ///
-    /// 对应 Java: `public void setCurrencyDigits(Integer currDigs)`
+    /// Corresponds to Java: `public void setCurrencyDigits(Integer currDigs)`
     pub fn set_currency_digits(&mut self, curr_digs: Option<i32>) {
         self.set_field(
             ProjectField::CurrencyDigits.into(),
@@ -1268,23 +1268,23 @@ impl ProjectProperties {
         );
     }
 
-    /// 取货币小数位数，未设置时使用 Java 的默认值 2。
+/// Get the number of currency decimal places; uses the Java default 2 when unset.
     ///
-    /// 对应 Java: `public Integer getCurrencyDigits()`
+    /// Corresponds to Java: `public Integer getCurrencyDigits()`
     pub fn get_currency_digits(&self) -> i32 {
         self.int_value(ProjectField::CurrencyDigits.into(), DEFAULT_CURRENCY_DIGITS)
     }
 
-    /// 设置千位分隔符。
+/// Set the thousands separator.
     ///
-    /// 对应 Java: `public void setThousandsSeparator(char sep)`
+    /// Corresponds to Java: `public void setThousandsSeparator(char sep)`
     pub fn set_thousands_separator(&mut self, sep: char) {
         self.set_char(ProjectField::ThousandsSeparator, sep);
     }
 
-    /// 取千位分隔符，未设置时使用 Java 的默认值 `','`。
+/// Get the thousands separator; uses the Java default `','` when unset.
     ///
-    /// 对应 Java: `public char getThousandsSeparator()`
+    /// Corresponds to Java: `public char getThousandsSeparator()`
     pub fn get_thousands_separator(&self) -> char {
         self.char_value(
             ProjectField::ThousandsSeparator.into(),
@@ -1292,30 +1292,30 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置小数分隔符。
+/// Set the decimal separator.
     ///
-    /// 对应 Java: `public void setDecimalSeparator(char decSep)`
+    /// Corresponds to Java: `public void setDecimalSeparator(char decSep)`
     pub fn set_decimal_separator(&mut self, dec_sep: char) {
         self.set_char(ProjectField::DecimalSeparator, dec_sep);
     }
 
-    /// 取小数分隔符，未设置时使用 Java 的默认值 `'.'`。
+/// Get the decimal separator; uses the Java default `'.'` when unset.
     ///
-    /// 对应 Java: `public char getDecimalSeparator()`
+    /// Corresponds to Java: `public char getDecimalSeparator()`
     pub fn get_decimal_separator(&self) -> char {
         self.char_value(ProjectField::DecimalSeparator.into(), DEFAULT_DECIMAL_SEPARATOR)
     }
 
-    /// 取货币代码。
+/// Get the currency code.
     ///
-    /// 对应 Java: `public String getCurrencyCode()`
+    /// Corresponds to Java: `public String getCurrencyCode()`
     pub fn get_currency_code(&self) -> Option<String> {
         self.opt_string(ProjectField::CurrencyCode.into())
     }
 
-    /// 设置货币代码。
+/// Set the currency code.
     ///
-    /// 对应 Java: `public void setCurrencyCode(String currencyCode)`
+    /// Corresponds to Java: `public void setCurrencyCode(String currencyCode)`
     pub fn set_currency_code(&mut self, currency_code: Option<String>) {
         self.set_field(
             ProjectField::CurrencyCode.into(),
@@ -1324,51 +1324,51 @@ impl ProjectProperties {
     }
 
     //
-    // 其他项目标志
+// Other project flags
     //
 
-    /// 取「项目被外部编辑过」标志。
+/// Get the "project was edited externally" flag.
     ///
-    /// 对应 Java: `public boolean getProjectExternallyEdited()`
+    /// Corresponds to Java: `public boolean getProjectExternallyEdited()`
     pub fn get_project_externally_edited(&self) -> bool {
         self.bool_value(ProjectField::ProjectExternallyEdited.into())
     }
 
-    /// 设置「项目被外部编辑过」标志。
+/// Set the "project was edited externally" flag.
     ///
-    /// 对应 Java: `public void setProjectExternallyEdited(boolean projectExternallyEdited)`
+    /// Corresponds to Java: `public void setProjectExternallyEdited(boolean projectExternallyEdited)`
     pub fn set_project_externally_edited(&mut self, project_externally_edited: bool) {
         self.set_boolean(ProjectField::ProjectExternallyEdited, project_externally_edited);
     }
 
-    /// 取类别文本。
+/// Get the category text.
     ///
-    /// 对应 Java: `public String getCategory()`
+    /// Corresponds to Java: `public String getCategory()`
     pub fn get_category(&self) -> Option<String> {
         self.opt_string(ProjectField::Category.into())
     }
 
-    /// 设置类别文本。
+/// Set the category text.
     ///
-    /// 对应 Java: `public void setCategory(String category)`
+    /// Corresponds to Java: `public void setCategory(String category)`
     pub fn set_category(&mut self, category: Option<String>) {
         self.set_field(ProjectField::Category.into(), category.map(FieldValue::String));
     }
 
     //
-    // 时间单位默认值
+// Time unit defaults
     //
 
-    /// 取每月天数（该字段属于 Java 的「始终计算字段」，取值来自项目上下文）。
+/// Get the number of days per month (this field is one of Java's "always calculated fields"; the value comes from the project context).
     ///
-    /// 对应 Java: `@Override public Integer getDaysPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getDaysPerMonth()`
     pub fn get_days_per_month(&self) -> Option<i32> {
         self.opt_int(ProjectField::DaysPerMonth.into())
     }
 
-    /// 设置每月天数。
+/// Set the number of days per month.
     ///
-    /// 对应 Java: `public void setDaysPerMonth(Integer daysPerMonth)`
+    /// Corresponds to Java: `public void setDaysPerMonth(Integer daysPerMonth)`
     pub fn set_days_per_month(&mut self, days_per_month: Option<i32>) {
         self.set_field(
             ProjectField::DaysPerMonth.into(),
@@ -1376,16 +1376,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取每天分钟数（该字段属于 Java 的「始终计算字段」，取值来自项目上下文）。
+/// Get the number of minutes per day (this field is one of Java's "always calculated fields"; the value comes from the project context).
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerDay()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerDay()`
     pub fn get_minutes_per_day(&self) -> Option<i32> {
         self.opt_int(ProjectField::MinutesPerDay.into())
     }
 
-    /// 设置每天分钟数。
+/// Set the number of minutes per day.
     ///
-    /// 对应 Java: `public void setMinutesPerDay(Integer minutesPerDay)`
+    /// Corresponds to Java: `public void setMinutesPerDay(Integer minutesPerDay)`
     pub fn set_minutes_per_day(&mut self, minutes_per_day: Option<i32>) {
         self.set_field(
             ProjectField::MinutesPerDay.into(),
@@ -1393,16 +1393,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取每周分钟数（该字段属于 Java 的「始终计算字段」，取值来自项目上下文）。
+/// Get the number of minutes per week (this field is one of Java's "always calculated fields"; the value comes from the project context).
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerWeek()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerWeek()`
     pub fn get_minutes_per_week(&self) -> Option<i32> {
         self.opt_int(ProjectField::MinutesPerWeek.into())
     }
 
-    /// 设置每周分钟数。
+/// Set the number of minutes per week.
     ///
-    /// 对应 Java: `public void setMinutesPerWeek(Integer minutesPerWeek)`
+    /// Corresponds to Java: `public void setMinutesPerWeek(Integer minutesPerWeek)`
     pub fn set_minutes_per_week(&mut self, minutes_per_week: Option<i32>) {
         self.set_field(
             ProjectField::MinutesPerWeek.into(),
@@ -1410,16 +1410,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取每月分钟数（该字段属于 Java 的「始终计算字段」，取值来自项目上下文）。
+/// Get the number of minutes per month (this field is one of Java's "always calculated fields"; the value comes from the project context).
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerMonth()`
     pub fn get_minutes_per_month(&self) -> Option<i32> {
         self.opt_int(ProjectField::MinutesPerMonth.into())
     }
 
-    /// 设置每月分钟数。
+/// Set the number of minutes per month.
     ///
-    /// 对应 Java: `public void setMinutesPerMonth(Integer minutesPerMonth)`
+    /// Corresponds to Java: `public void setMinutesPerMonth(Integer minutesPerMonth)`
     pub fn set_minutes_per_month(&mut self, minutes_per_month: Option<i32>) {
         self.set_field(
             ProjectField::MinutesPerMonth.into(),
@@ -1427,16 +1427,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取每年分钟数（该字段属于 Java 的「始终计算字段」，取值来自项目上下文）。
+/// Get the number of minutes per year (this field is one of Java's "always calculated fields"; the value comes from the project context).
     ///
-    /// 对应 Java: `@Override public Integer getMinutesPerYear()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerYear()`
     pub fn get_minutes_per_year(&self) -> Option<i32> {
         self.opt_int(ProjectField::MinutesPerYear.into())
     }
 
-    /// 设置每年分钟数。
+/// Set the number of minutes per year.
     ///
-    /// 对应 Java: `public void setMinutesPerYear(Integer minutesPerYear)`
+    /// Corresponds to Java: `public void setMinutesPerYear(Integer minutesPerYear)`
     pub fn set_minutes_per_year(&mut self, minutes_per_year: Option<i32>) {
         self.set_field(
             ProjectField::MinutesPerYear.into(),
@@ -1444,31 +1444,31 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「会计年度起始」标志。
+/// Get the "fiscal year start" flag.
     ///
-    /// 对应 Java: `public boolean getFiscalYearStart()`
+    /// Corresponds to Java: `public boolean getFiscalYearStart()`
     pub fn get_fiscal_year_start(&self) -> bool {
         self.bool_value(ProjectField::FiscalYearStart.into())
     }
 
-    /// 设置「会计年度起始」标志。
+/// Set the "fiscal year start" flag.
     ///
-    /// 对应 Java: `public void setFiscalYearStart(boolean fiscalYearStart)`
+    /// Corresponds to Java: `public void setFiscalYearStart(boolean fiscalYearStart)`
     pub fn set_fiscal_year_start(&mut self, fiscal_year_start: bool) {
         self.set_boolean(ProjectField::FiscalYearStart, fiscal_year_start);
     }
 
-    /// 取默认任务挣值方法，未设置时使用 Java 的默认值 `PERCENT_COMPLETE`。
+/// Get the default task earned value method; uses the Java default `PERCENT_COMPLETE` when unset.
     ///
-    /// 对应 Java: `public EarnedValueMethod getDefaultTaskEarnedValueMethod()`
+    /// Corresponds to Java: `public EarnedValueMethod getDefaultTaskEarnedValueMethod()`
     pub fn get_default_task_earned_value_method(&self) -> EarnedValueMethod {
         self.opt_int(ProjectField::DefaultTaskEarnedValueMethod.into())
             .map_or(EarnedValueMethod::PercentComplete, EarnedValueMethod::get_instance)
     }
 
-    /// 设置默认任务挣值方法。
+/// Set the default task earned value method.
     ///
-    /// 对应 Java: `public void setDefaultTaskEarnedValueMethod(EarnedValueMethod defaultTaskEarnedValueMethod)`
+    /// Corresponds to Java: `public void setDefaultTaskEarnedValueMethod(EarnedValueMethod defaultTaskEarnedValueMethod)`
     pub fn set_default_task_earned_value_method(&mut self, value: Option<EarnedValueMethod>) {
         self.set_field(
             ProjectField::DefaultTaskEarnedValueMethod.into(),
@@ -1476,90 +1476,90 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「移除文件属性」标志。
+/// Get the "remove file properties" flag.
     ///
-    /// 对应 Java: `public boolean getRemoveFileProperties()`
+    /// Corresponds to Java: `public boolean getRemoveFileProperties()`
     pub fn get_remove_file_properties(&self) -> bool {
         self.bool_value(ProjectField::RemoveFileProperties.into())
     }
 
-    /// 设置「移除文件属性」标志。
+/// Set the "remove file properties" flag.
     ///
-    /// 对应 Java: `public void setRemoveFileProperties(boolean removeFileProperties)`
+    /// Corresponds to Java: `public void setRemoveFileProperties(boolean removeFileProperties)`
     pub fn set_remove_file_properties(&mut self, remove_file_properties: bool) {
         self.set_boolean(ProjectField::RemoveFileProperties, remove_file_properties);
     }
 
     //
-    // 进度更新 / 排程标志
+// Progress update / scheduling flags
     //
 
-    /// 取「已完成的结束部分后移」标志。
+/// Get the "move completed ends back" flag.
     ///
-    /// 对应 Java: `public boolean getMoveCompletedEndsBack()`
+    /// Corresponds to Java: `public boolean getMoveCompletedEndsBack()`
     pub fn get_move_completed_ends_back(&self) -> bool {
         self.bool_value(ProjectField::MoveCompletedEndsBack.into())
     }
 
-    /// 设置「已完成的结束部分后移」标志。
+/// Set the "move completed ends back" flag.
     ///
-    /// 对应 Java: `public void setMoveCompletedEndsBack(boolean moveCompletedEndsBack)`
+    /// Corresponds to Java: `public void setMoveCompletedEndsBack(boolean moveCompletedEndsBack)`
     pub fn set_move_completed_ends_back(&mut self, move_completed_ends_back: bool) {
         self.set_boolean(ProjectField::MoveCompletedEndsBack, move_completed_ends_back);
     }
 
-    /// 取「新任务为估算值」标志。
+/// Get the "new tasks are estimated" flag.
     ///
-    /// 对应 Java: `public boolean getNewTasksEstimated()`
+    /// Corresponds to Java: `public boolean getNewTasksEstimated()`
     pub fn get_new_tasks_estimated(&self) -> bool {
         self.bool_value(ProjectField::NewTasksEstimated.into())
     }
 
-    /// 设置「新任务为估算值」标志。
+/// Set the "new tasks are estimated" flag.
     ///
-    /// 对应 Java: `public void setNewTasksEstimated(boolean newTasksEstimated)`
+    /// Corresponds to Java: `public void setNewTasksEstimated(boolean newTasksEstimated)`
     pub fn set_new_tasks_estimated(&mut self, new_tasks_estimated: bool) {
         self.set_boolean(ProjectField::NewTasksEstimated, new_tasks_estimated);
     }
 
-    /// 取「拆分实际成本」标志。
+/// Get the "split actual cost" flag.
     ///
-    /// 对应 Java: `public boolean getSpreadActualCost()`
+    /// Corresponds to Java: `public boolean getSpreadActualCost()`
     pub fn get_spread_actual_cost(&self) -> bool {
         self.bool_value(ProjectField::SpreadActualCost.into())
     }
 
-    /// 设置「拆分实际成本」标志。
+/// Set the "split actual cost" flag.
     ///
-    /// 对应 Java: `public void setSpreadActualCost(boolean spreadActualCost)`
+    /// Corresponds to Java: `public void setSpreadActualCost(boolean spreadActualCost)`
     pub fn set_spread_actual_cost(&mut self, spread_actual_cost: bool) {
         self.set_boolean(ProjectField::SpreadActualCost, spread_actual_cost);
     }
 
-    /// 取「多条关键路径」标志。
+/// Get the "multiple critical paths" flag.
     ///
-    /// 对应 Java: `public boolean getMultipleCriticalPaths()`
+    /// Corresponds to Java: `public boolean getMultipleCriticalPaths()`
     pub fn get_multiple_critical_paths(&self) -> bool {
         self.bool_value(ProjectField::MultipleCriticalPaths.into())
     }
 
-    /// 设置「多条关键路径」标志。
+/// Set the "multiple critical paths" flag.
     ///
-    /// 对应 Java: `public void setMultipleCriticalPaths(boolean multipleCriticalPaths)`
+    /// Corresponds to Java: `public void setMultipleCriticalPaths(boolean multipleCriticalPaths)`
     pub fn set_multiple_critical_paths(&mut self, multiple_critical_paths: bool) {
         self.set_boolean(ProjectField::MultipleCriticalPaths, multiple_critical_paths);
     }
 
-    /// 取「自动添加新资源与任务」标志。
+/// Get the "automatically add new resources and tasks" flag.
     ///
-    /// 对应 Java: `public boolean getAutoAddNewResourcesAndTasks()`
+    /// Corresponds to Java: `public boolean getAutoAddNewResourcesAndTasks()`
     pub fn get_auto_add_new_resources_and_tasks(&self) -> bool {
         self.bool_value(ProjectField::AutoAddNewResourcesAndTasks.into())
     }
 
-    /// 设置「自动添加新资源与任务」标志。
+/// Set the "automatically add new resources and tasks" flag.
     ///
-    /// 对应 Java: `public void setAutoAddNewResourcesAndTasks(boolean autoAddNewResourcesAndTasks)`
+    /// Corresponds to Java: `public void setAutoAddNewResourcesAndTasks(boolean autoAddNewResourcesAndTasks)`
     pub fn set_auto_add_new_resources_and_tasks(&mut self, auto_add_new_resources_and_tasks: bool) {
         self.set_boolean(
             ProjectField::AutoAddNewResourcesAndTasks,
@@ -1567,16 +1567,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取最后保存时间。
+/// Get the last saved time.
     ///
-    /// 对应 Java: `public LocalDateTime getLastSaved()`
+    /// Corresponds to Java: `public LocalDateTime getLastSaved()`
     pub fn get_last_saved(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::LastSaved.into())
     }
 
-    /// 设置最后保存时间。
+/// Set the last saved time.
     ///
-    /// 对应 Java: `public void setLastSaved(LocalDateTime lastSaved)`
+    /// Corresponds to Java: `public void setLastSaved(LocalDateTime lastSaved)`
     pub fn set_last_saved(&mut self, last_saved: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::LastSaved.into(),
@@ -1584,16 +1584,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取状态日期。
+/// Get the status date.
     ///
-    /// 对应 Java: `public LocalDateTime getStatusDate()`
+    /// Corresponds to Java: `public LocalDateTime getStatusDate()`
     pub fn get_status_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::StatusDate.into())
     }
 
-    /// 设置状态日期。
+/// Set the status date.
     ///
-    /// 对应 Java: `public void setStatusDate(LocalDateTime statusDate)`
+    /// Corresponds to Java: `public void setStatusDate(LocalDateTime statusDate)`
     pub fn set_status_date(&mut self, status_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::StatusDate.into(),
@@ -1601,16 +1601,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取最后排程日期。
+/// Get the last scheduled date.
     ///
-    /// 对应 Java: `public LocalDateTime getLastScheduledDate()`
+    /// Corresponds to Java: `public LocalDateTime getLastScheduledDate()`
     pub fn get_last_scheduled_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::LastScheduledDate.into())
     }
 
-    /// 设置最后排程日期。
+/// Set the last scheduled date.
     ///
-    /// 对应 Java: `public void setLastScheduledDate(LocalDateTime value)`
+    /// Corresponds to Java: `public void setLastScheduledDate(LocalDateTime value)`
     pub fn set_last_scheduled_date(&mut self, value: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::LastScheduledDate.into(),
@@ -1618,9 +1618,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 设置「活动完成百分比基于活动步骤」标志。
+/// Set the "activity percent complete based on activity steps" flag.
     ///
-    /// 对应 Java: `public void setActivityPercentCompleteBasedOnActivitySteps(boolean value)`
+    /// Corresponds to Java: `public void setActivityPercentCompleteBasedOnActivitySteps(boolean value)`
     pub fn set_activity_percent_complete_based_on_activity_steps(&mut self, value: bool) {
         self.set_boolean(
             ProjectField::ActivityPercentCompleteBasedOnActivitySteps,
@@ -1628,51 +1628,51 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「活动完成百分比基于活动步骤」标志（Java 中方法名为 `getStepCompleteFlag`）。
+/// Get the "activity percent complete based on activity steps" flag (the Java method name is `getStepCompleteFlag`).
     ///
-    /// 对应 Java: `public boolean getStepCompleteFlag()`
+    /// Corresponds to Java: `public boolean getStepCompleteFlag()`
     pub fn get_step_complete_flag(&self) -> bool {
         self.bool_value(ProjectField::ActivityPercentCompleteBasedOnActivitySteps.into())
     }
 
-    /// 取「剩余开始部分后移」标志。
+/// Get the "move remaining starts back" flag.
     ///
-    /// 对应 Java: `public boolean getMoveRemainingStartsBack()`
+    /// Corresponds to Java: `public boolean getMoveRemainingStartsBack()`
     pub fn get_move_remaining_starts_back(&self) -> bool {
         self.bool_value(ProjectField::MoveRemainingStartsBack.into())
     }
 
-    /// 设置「剩余开始部分后移」标志。
+/// Set the "move remaining starts back" flag.
     ///
-    /// 对应 Java: `public void setMoveRemainingStartsBack(boolean moveRemainingStartsBack)`
+    /// Corresponds to Java: `public void setMoveRemainingStartsBack(boolean moveRemainingStartsBack)`
     pub fn set_move_remaining_starts_back(&mut self, move_remaining_starts_back: bool) {
         self.set_boolean(ProjectField::MoveRemainingStartsBack, move_remaining_starts_back);
     }
 
-    /// 取「自动链接」标志。
+/// Get the "auto link" flag.
     ///
-    /// 对应 Java: `public boolean getAutolink()`
+    /// Corresponds to Java: `public boolean getAutolink()`
     pub fn get_autolink(&self) -> bool {
         self.bool_value(ProjectField::AutoLink.into())
     }
 
-    /// 设置「自动链接」标志。
+/// Set the "auto link" flag.
     ///
-    /// 对应 Java: `public void setAutolink(boolean autolink)`
+    /// Corresponds to Java: `public void setAutolink(boolean autolink)`
     pub fn set_autolink(&mut self, autolink: bool) {
         self.set_boolean(ProjectField::AutoLink, autolink);
     }
 
-    /// 取「Microsoft Project Server URL」标志。
+/// Get the "Microsoft Project Server URL" flag.
     ///
-    /// 对应 Java: `public boolean getMicrosoftProjectServerURL()`
+    /// Corresponds to Java: `public boolean getMicrosoftProjectServerURL()`
     pub fn get_microsoft_project_server_url(&self) -> bool {
         self.bool_value(ProjectField::MicrosoftProjectServerUrl.into())
     }
 
-    /// 设置「Microsoft Project Server URL」标志。
+/// Set the "Microsoft Project Server URL" flag.
     ///
-    /// 对应 Java: `public void setMicrosoftProjectServerURL(boolean microsoftProjectServerURL)`
+    /// Corresponds to Java: `public void setMicrosoftProjectServerURL(boolean microsoftProjectServerURL)`
     pub fn set_microsoft_project_server_url(&mut self, microsoft_project_server_url: bool) {
         self.set_boolean(
             ProjectField::MicrosoftProjectServerUrl,
@@ -1680,44 +1680,44 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「遵守约束」标志。
+/// Get the "honor constraints" flag.
     ///
-    /// 对应 Java: `public boolean getHonorConstraints()`
+    /// Corresponds to Java: `public boolean getHonorConstraints()`
     pub fn get_honor_constraints(&self) -> bool {
         self.bool_value(ProjectField::HonorConstraints.into())
     }
 
-    /// 设置「遵守约束」标志。
+/// Set the "honor constraints" flag.
     ///
-    /// 对应 Java: `public void setHonorConstraints(boolean honorConstraints)`
+    /// Corresponds to Java: `public void setHonorConstraints(boolean honorConstraints)`
     pub fn set_honor_constraints(&mut self, honor_constraints: bool) {
         self.set_boolean(ProjectField::HonorConstraints, honor_constraints);
     }
 
-    /// 取「管理项目」标志。
+/// Get the "managed project" flag.
     ///
-    /// 对应 Java: `public boolean getAdminProject()`
+    /// Corresponds to Java: `public boolean getAdminProject()`
     pub fn get_admin_project(&self) -> bool {
         self.bool_value(ProjectField::AdminProject.into())
     }
 
-    /// 设置「管理项目」标志。
+/// Set the "managed project" flag.
     ///
-    /// 对应 Java: `public void setAdminProject(boolean adminProject)`
+    /// Corresponds to Java: `public void setAdminProject(boolean adminProject)`
     pub fn set_admin_project(&mut self, admin_project: bool) {
         self.set_boolean(ProjectField::AdminProject, admin_project);
     }
 
-    /// 取「插入的项目按摘要任务处理」标志。
+/// Get the "inserted projects are treated as summary tasks" flag.
     ///
-    /// 对应 Java: `public boolean getInsertedProjectsLikeSummary()`
+    /// Corresponds to Java: `public boolean getInsertedProjectsLikeSummary()`
     pub fn get_inserted_projects_like_summary(&self) -> bool {
         self.bool_value(ProjectField::InsertedProjectsLikeSummary.into())
     }
 
-    /// 设置「插入的项目按摘要任务处理」标志。
+/// Set the "inserted projects are treated as summary tasks" flag.
     ///
-    /// 对应 Java: `public void setInsertedProjectsLikeSummary(boolean insertedProjectsLikeSummary)`
+    /// Corresponds to Java: `public void setInsertedProjectsLikeSummary(boolean insertedProjectsLikeSummary)`
     pub fn set_inserted_projects_like_summary(&mut self, inserted_projects_like_summary: bool) {
         self.set_boolean(
             ProjectField::InsertedProjectsLikeSummary,
@@ -1725,44 +1725,44 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目名称。
+/// Get the project name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<String> {
         self.opt_string(ProjectField::Name.into())
     }
 
-    /// 设置项目名称。
+/// Set the project name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.set_field(ProjectField::Name.into(), name.map(FieldValue::String));
     }
 
-    /// 取「拆分完成百分比」标志。
+/// Get the "split percent complete" flag.
     ///
-    /// 对应 Java: `public boolean getSpreadPercentComplete()`
+    /// Corresponds to Java: `public boolean getSpreadPercentComplete()`
     pub fn get_spread_percent_complete(&self) -> bool {
         self.bool_value(ProjectField::SpreadPercentComplete.into())
     }
 
-    /// 设置「拆分完成百分比」标志。
+/// Set the "split percent complete" flag.
     ///
-    /// 对应 Java: `public void setSpreadPercentComplete(boolean spreadPercentComplete)`
+    /// Corresponds to Java: `public void setSpreadPercentComplete(boolean spreadPercentComplete)`
     pub fn set_spread_percent_complete(&mut self, spread_percent_complete: bool) {
         self.set_boolean(ProjectField::SpreadPercentComplete, spread_percent_complete);
     }
 
-    /// 取「已完成的结束部分前移」标志。
+/// Get the "move completed ends forward" flag.
     ///
-    /// 对应 Java: `public boolean getMoveCompletedEndsForward()`
+    /// Corresponds to Java: `public boolean getMoveCompletedEndsForward()`
     pub fn get_move_completed_ends_forward(&self) -> bool {
         self.bool_value(ProjectField::MoveCompletedEndsForward.into())
     }
 
-    /// 设置「已完成的结束部分前移」标志。
+/// Set the "move completed ends forward" flag.
     ///
-    /// 对应 Java: `public void setMoveCompletedEndsForward(boolean moveCompletedEndsForward)`
+    /// Corresponds to Java: `public void setMoveCompletedEndsForward(boolean moveCompletedEndsForward)`
     pub fn set_move_completed_ends_forward(&mut self, move_completed_ends_forward: bool) {
         self.set_boolean(
             ProjectField::MoveCompletedEndsForward,
@@ -1770,51 +1770,51 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「可编辑实际成本」标志。
+/// Get the "editable actual cost" flag.
     ///
-    /// 对应 Java: `public boolean getEditableActualCosts()`
+    /// Corresponds to Java: `public boolean getEditableActualCosts()`
     pub fn get_editable_actual_costs(&self) -> bool {
         self.bool_value(ProjectField::EditableActualCosts.into())
     }
 
-    /// 设置「可编辑实际成本」标志。
+/// Set the "editable actual cost" flag.
     ///
-    /// 对应 Java: `public void setEditableActualCosts(boolean editableActualCosts)`
+    /// Corresponds to Java: `public void setEditableActualCosts(boolean editableActualCosts)`
     pub fn set_editable_actual_costs(&mut self, editable_actual_costs: bool) {
         self.set_boolean(ProjectField::EditableActualCosts, editable_actual_costs);
     }
 
     //
-    // 标识
+// Identity
     //
 
-    /// 取项目唯一 ID。
+/// Get the project unique ID.
     ///
-    /// 对应 Java: `public Integer getUniqueID()`
+    /// Corresponds to Java: `public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.opt_int(ProjectField::UniqueId.into())
     }
 
-    /// 设置项目唯一 ID。
+/// Set the project unique ID.
     ///
-    /// 对应 Java: `public void setUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setUniqueID(Integer uniqueID)`
     pub fn set_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field(ProjectField::UniqueId.into(), unique_id.map(FieldValue::Integer));
     }
 
-    /// 取项目 GUID。
+/// Get the project GUID.
     ///
-    /// 对应 Java: `public UUID getGUID()`
+    /// Corresponds to Java: `public UUID getGUID()`
     ///
-    /// `FieldValue` 无 UUID 变体，故以标准字符串存放（见文件头说明）；无法解析时返回 `None`。
+/// `FieldValue` has no UUID variant, so it is stored as a plain string (see the file header notes); returns `None` when it cannot be parsed.
     pub fn get_guid(&self) -> Option<Uuid> {
         self.opt_string(ProjectField::Guid.into())
             .and_then(|value| Uuid::parse_str(&value).ok())
     }
 
-    /// 设置项目 GUID。
+/// Set the project GUID.
     ///
-    /// 对应 Java: `public void setGUID(UUID guid)`
+    /// Corresponds to Java: `public void setGUID(UUID guid)`
     pub fn set_guid(&mut self, guid: Option<Uuid>) {
         self.set_field(
             ProjectField::Guid.into(),
@@ -1822,44 +1822,44 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目修订号。
+/// Get the project revision number.
     ///
-    /// 对应 Java: `public Integer getRevision()`
+    /// Corresponds to Java: `public Integer getRevision()`
     pub fn get_revision(&self) -> Option<i32> {
         self.opt_int(ProjectField::Revision.into())
     }
 
-    /// 设置项目修订号。
+/// Set the project revision number.
     ///
-    /// 对应 Java: `public void setRevision(Integer revision)`
+    /// Corresponds to Java: `public void setRevision(Integer revision)`
     pub fn set_revision(&mut self, revision: Option<i32>) {
         self.set_field(ProjectField::Revision.into(), revision.map(FieldValue::Integer));
     }
 
-    /// 取「新任务为投入比导向」标志。
+/// Get the "new tasks are effort driven" flag.
     ///
-    /// 对应 Java: `public boolean getNewTasksEffortDriven()`
+    /// Corresponds to Java: `public boolean getNewTasksEffortDriven()`
     pub fn get_new_tasks_effort_driven(&self) -> bool {
         self.bool_value(ProjectField::NewTasksEffortDriven.into())
     }
 
-    /// 设置「新任务为投入比导向」标志。
+/// Set the "new tasks are effort driven" flag.
     ///
-    /// 对应 Java: `public void setNewTasksEffortDriven(boolean newTasksEffortDriven)`
+    /// Corresponds to Java: `public void setNewTasksEffortDriven(boolean newTasksEffortDriven)`
     pub fn set_new_tasks_effort_driven(&mut self, new_tasks_effort_driven: bool) {
         self.set_boolean(ProjectField::NewTasksEffortDriven, new_tasks_effort_driven);
     }
 
-    /// 取「剩余开始部分前移」标志。
+/// Get the "move remaining starts forward" flag.
     ///
-    /// 对应 Java: `public boolean getMoveRemainingStartsForward()`
+    /// Corresponds to Java: `public boolean getMoveRemainingStartsForward()`
     pub fn get_move_remaining_starts_forward(&self) -> bool {
         self.bool_value(ProjectField::MoveRemainingStartsForward.into())
     }
 
-    /// 设置「剩余开始部分前移」标志。
+/// Set the "move remaining starts forward" flag.
     ///
-    /// 对应 Java: `public void setMoveRemainingStartsForward(boolean moveRemainingStartsForward)`
+    /// Corresponds to Java: `public void setMoveRemainingStartsForward(boolean moveRemainingStartsForward)`
     pub fn set_move_remaining_starts_forward(&mut self, move_remaining_starts_forward: bool) {
         self.set_boolean(
             ProjectField::MoveRemainingStartsForward,
@@ -1867,32 +1867,32 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「实际值已同步」标志。
+/// Get the "actuals synchronized" flag.
     ///
-    /// 对应 Java: `public boolean getActualsInSync()`
+    /// Corresponds to Java: `public boolean getActualsInSync()`
     pub fn get_actuals_in_sync(&self) -> bool {
         self.bool_value(ProjectField::ActualsInSync.into())
     }
 
-    /// 设置「实际值已同步」标志。
+/// Set the "actuals synchronized" flag.
     ///
-    /// 对应 Java: `public void setActualsInSync(boolean actualsInSync)`
+    /// Corresponds to Java: `public void setActualsInSync(boolean actualsInSync)`
     pub fn set_actuals_in_sync(&mut self, actuals_in_sync: bool) {
         self.set_boolean(ProjectField::ActualsInSync, actuals_in_sync);
     }
 
-    /// 取默认任务类型，未设置时使用 Java 的默认值 `FIXED_UNITS`。
+/// Get the default task type; uses the Java default `FIXED_UNITS` when unset.
     ///
-    /// 对应 Java: `public TaskType getDefaultTaskType()`
+    /// Corresponds to Java: `public TaskType getDefaultTaskType()`
     pub fn get_default_task_type(&self) -> TaskType {
         self.opt_int(ProjectField::DefaultTaskType.into())
             .and_then(TaskType::get_instance)
             .unwrap_or(TaskType::FixedUnits)
     }
 
-    /// 设置默认任务类型。
+/// Set the default task type.
     ///
-    /// 对应 Java: `public void setDefaultTaskType(TaskType defaultTaskType)`
+    /// Corresponds to Java: `public void setDefaultTaskType(TaskType defaultTaskType)`
     pub fn set_default_task_type(&mut self, default_task_type: Option<TaskType>) {
         self.set_field(
             ProjectField::DefaultTaskType.into(),
@@ -1900,17 +1900,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取挣值方法。
+/// Get the earned value method.
     ///
-    /// 对应 Java: `public EarnedValueMethod getEarnedValueMethod()`
+    /// Corresponds to Java: `public EarnedValueMethod getEarnedValueMethod()`
     pub fn get_earned_value_method(&self) -> Option<EarnedValueMethod> {
         self.opt_int(ProjectField::EarnedValueMethod.into())
             .map(EarnedValueMethod::get_instance)
     }
 
-    /// 设置挣值方法。
+/// Set the earned value method.
     ///
-    /// 对应 Java: `public void setEarnedValueMethod(EarnedValueMethod earnedValueMethod)`
+    /// Corresponds to Java: `public void setEarnedValueMethod(EarnedValueMethod earnedValueMethod)`
     pub fn set_earned_value_method(&mut self, earned_value_method: Option<EarnedValueMethod>) {
         self.set_field(
             ProjectField::EarnedValueMethod.into(),
@@ -1918,16 +1918,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目创建日期。
+/// Get the project creation date.
     ///
-    /// 对应 Java: `public LocalDateTime getCreationDate()`
+    /// Corresponds to Java: `public LocalDateTime getCreationDate()`
     pub fn get_creation_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::CreationDate.into())
     }
 
-    /// 设置项目创建日期。
+/// Set the project creation date.
     ///
-    /// 对应 Java: `public void setCreationDate(LocalDateTime creationDate)`
+    /// Corresponds to Java: `public void setCreationDate(LocalDateTime creationDate)`
     pub fn set_creation_date(&mut self, creation_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::CreationDate.into(),
@@ -1935,16 +1935,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取扩展创建日期。
+/// Get the extended creation date.
     ///
-    /// 对应 Java: `public LocalDateTime getExtendedCreationDate()`
+    /// Corresponds to Java: `public LocalDateTime getExtendedCreationDate()`
     pub fn get_extended_creation_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::ExtendedCreationDate.into())
     }
 
-    /// 设置扩展创建日期。
+/// Set the extended creation date.
     ///
-    /// 对应 Java: `public void setExtendedCreationDate(LocalDateTime creationDate)`
+    /// Corresponds to Java: `public void setExtendedCreationDate(LocalDateTime creationDate)`
     pub fn set_extended_creation_date(&mut self, creation_date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::ExtendedCreationDate.into(),
@@ -1952,18 +1952,18 @@ impl ProjectProperties {
         );
     }
 
-    /// 取默认固定成本计提方式，未设置时使用 Java 的默认值 `END`。
+/// Get the default fixed cost accrual method; uses the Java default `END` when unset.
     ///
-    /// 对应 Java: `public AccrueType getDefaultFixedCostAccrual()`
+    /// Corresponds to Java: `public AccrueType getDefaultFixedCostAccrual()`
     pub fn get_default_fixed_cost_accrual(&self) -> AccrueType {
         self.opt_int(ProjectField::DefaultFixedCostAccrual.into())
             .and_then(AccrueType::get_instance)
             .unwrap_or(AccrueType::End)
     }
 
-    /// 设置默认固定成本计提方式。
+/// Set the default fixed cost accrual method.
     ///
-    /// 对应 Java: `public void setDefaultFixedCostAccrual(AccrueType defaultFixedCostAccrual)`
+    /// Corresponds to Java: `public void setDefaultFixedCostAccrual(AccrueType defaultFixedCostAccrual)`
     pub fn set_default_fixed_cost_accrual(&mut self, default_fixed_cost_accrual: Option<AccrueType>) {
         self.set_field(
             ProjectField::DefaultFixedCostAccrual.into(),
@@ -1971,17 +1971,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取关键浮时上限，未设置时使用 Java 的默认值「0 天」。
+/// Get the critical slack limit; uses the Java default "0 days" when unset.
     ///
-    /// 对应 Java: `public Duration getCriticalSlackLimit()`
+    /// Corresponds to Java: `public Duration getCriticalSlackLimit()`
     pub fn get_critical_slack_limit(&self) -> Duration {
         self.opt_duration(ProjectField::CriticalSlackLimit.into())
             .unwrap_or_else(default_critical_slack_limit)
     }
 
-    /// 设置关键浮时上限。
+/// Set the critical slack limit.
     ///
-    /// 对应 Java: `public void setCriticalSlackLimit(Duration criticalSlackLimit)`
+    /// Corresponds to Java: `public void setCriticalSlackLimit(Duration criticalSlackLimit)`
     pub fn set_critical_slack_limit(&mut self, critical_slack_limit: Option<Duration>) {
         self.set_field(
             ProjectField::CriticalSlackLimit.into(),
@@ -1989,9 +1989,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取挣值计算所使用的基准编号，未设置时使用 Java 的默认值 0。
+/// Get the baseline number used for earned value calculations; uses the Java default 0 when unset.
     ///
-    /// 对应 Java: `public Integer getBaselineForEarnedValue()`
+    /// Corresponds to Java: `public Integer getBaselineForEarnedValue()`
     pub fn get_baseline_for_earned_value(&self) -> i32 {
         self.int_value(
             ProjectField::BaselineForEarnedValue.into(),
@@ -1999,9 +1999,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置挣值计算所使用的基准编号。
+/// Set the baseline number used for earned value calculations.
     ///
-    /// 对应 Java: `public void setBaselineForEarnedValue(Integer baselineForEarnedValue)`
+    /// Corresponds to Java: `public void setBaselineForEarnedValue(Integer baselineForEarnedValue)`
     pub fn set_baseline_for_earned_value(&mut self, baseline_for_earned_value: Option<i32>) {
         self.set_field(
             ProjectField::BaselineForEarnedValue.into(),
@@ -2009,9 +2009,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取会计年度起始月份（1 月 = 1，12 月 = 12），未设置时使用 Java 的默认值 1。
+/// Get the fiscal year start month (January = 1, December = 12); uses the Java default 1 when unset.
     ///
-    /// 对应 Java: `public Integer getFiscalYearStartMonth()`
+    /// Corresponds to Java: `public Integer getFiscalYearStartMonth()`
     pub fn get_fiscal_year_start_month(&self) -> i32 {
         self.int_value(
             ProjectField::FiscalYearStartMonth.into(),
@@ -2019,9 +2019,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置会计年度起始月份。
+/// Set the fiscal year start month.
     ///
-    /// 对应 Java: `public void setFiscalYearStartMonth(Integer fiscalYearStartMonth)`
+    /// Corresponds to Java: `public void setFiscalYearStartMonth(Integer fiscalYearStartMonth)`
     pub fn set_fiscal_year_start_month(&mut self, fiscal_year_start_month: Option<i32>) {
         self.set_field(
             ProjectField::FiscalYearStartMonth.into(),
@@ -2029,16 +2029,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「新任务开始日期默认为项目开始日期」标志。
+/// Get the "new task start dates default to the project start date" flag.
     ///
-    /// 对应 Java: `public boolean getNewTaskStartIsProjectStart()`
+    /// Corresponds to Java: `public boolean getNewTaskStartIsProjectStart()`
     pub fn get_new_task_start_is_project_start(&self) -> bool {
         self.bool_value(ProjectField::NewTaskStartIsProjectStart.into())
     }
 
-    /// 设置「新任务开始日期默认为项目开始日期」标志。
+/// Set the "new task start dates default to the project start date" flag.
     ///
-    /// 对应 Java: `public void setNewTaskStartIsProjectStart(boolean newTaskStartIsProjectStart)`
+    /// Corresponds to Java: `public void setNewTaskStartIsProjectStart(boolean newTaskStartIsProjectStart)`
     pub fn set_new_task_start_is_project_start(&mut self, new_task_start_is_project_start: bool) {
         self.set_boolean(
             ProjectField::NewTaskStartIsProjectStart,
@@ -2046,35 +2046,35 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「新任务默认为手动排程」标志。
+/// Get the "new tasks default to manually scheduled" flag.
     ///
-    /// 对应 Java: `public boolean getNewTasksAreManual()`
+    /// Corresponds to Java: `public boolean getNewTasksAreManual()`
     pub fn get_new_tasks_are_manual(&self) -> bool {
         self.bool_value(ProjectField::NewTasksAreManual.into())
     }
 
-    /// 设置「新任务默认为手动排程」标志。
+/// Set the "new tasks default to manually scheduled" flag.
     ///
-    /// 对应 Java: `public void setNewTasksAreManual(boolean newTasksAreManual)`
+    /// Corresponds to Java: `public void setNewTasksAreManual(boolean newTasksAreManual)`
     pub fn set_new_tasks_are_manual(&mut self, new_tasks_are_manual: bool) {
         self.set_boolean(ProjectField::NewTasksAreManual, new_tasks_are_manual);
     }
 
-    /// 取每周起始日，未设置时使用 Java 的默认值 `MONDAY`。
+/// Get the week start day; uses the Java default `MONDAY` when unset.
     ///
-    /// 对应 Java: `public DayOfWeek getWeekStartDay()`
+    /// Corresponds to Java: `public DayOfWeek getWeekStartDay()`
     ///
-    /// Rust 的 [`Weekday`] 与 Java `DayOfWeek` 一致（周一 … 周日）；字段以 Java 的
-    /// 1（周一）…7（周日）存放。
+/// Rust's [`Weekday`] matches Java's `DayOfWeek` (Monday … Sunday); the field stores Java's
+/// 1 (Monday) … 7 (Sunday).
     pub fn get_week_start_day(&self) -> Weekday {
         self.opt_int(ProjectField::WeekStartDay.into())
             .and_then(weekday_from_java_day)
             .unwrap_or(Weekday::Mon)
     }
 
-    /// 设置每周起始日。
+/// Set the week start day.
     ///
-    /// 对应 Java: `public void setWeekStartDay(DayOfWeek weekStartDay)`
+    /// Corresponds to Java: `public void setWeekStartDay(DayOfWeek weekStartDay)`
     pub fn set_week_start_day(&mut self, week_start_day: Option<Weekday>) {
         self.set_field(
             ProjectField::WeekStartDay.into(),
@@ -2083,33 +2083,33 @@ impl ProjectProperties {
     }
 
     //
-    // 自定义文档属性 / 超链接
+// Custom document properties / hyperlinks
     //
 
-    /// 设置自定义文档属性。
+/// Set the custom document properties.
     ///
-    /// 对应 Java: `public void setCustomProperties(Map<String, Object> customProperties)`
+    /// Corresponds to Java: `public void setCustomProperties(Map<String, Object> customProperties)`
     ///
-    /// `FieldValue` 无法承载 `Map`，故本 crate 用独立字段承载（见文件头说明）。
+/// `FieldValue` cannot hold a `Map`, so this crate stores it in a dedicated field (see the file header notes).
     pub fn set_custom_properties(&mut self, custom_properties: HashMap<String, FieldValue>) {
         self.custom_properties = custom_properties;
     }
 
-    /// 取自定义文档属性。
+/// Get the custom document properties.
     ///
-    /// 对应 Java: `public Map<String, Object> getCustomProperties()`
+    /// Corresponds to Java: `public Map<String, Object> getCustomProperties()`
     pub fn get_custom_properties(&self) -> &HashMap<String, FieldValue> {
         &self.custom_properties
     }
 
-    /// 取自定义文档属性的可变引用（Rust 特有：Java 直接返回可变 Map）。
+/// Get a mutable reference to the custom document properties (Rust-specific: Java returns a mutable Map directly).
     pub fn get_custom_properties_mut(&mut self) -> &mut HashMap<String, FieldValue> {
         &mut self.custom_properties
     }
 
-    /// 设置超链接基地址。
+/// Set the hyperlink base.
     ///
-    /// 对应 Java: `public void setHyperlinkBase(String hyperlinkBase)`
+    /// Corresponds to Java: `public void setHyperlinkBase(String hyperlinkBase)`
     pub fn set_hyperlink_base(&mut self, hyperlink_base: Option<String>) {
         self.set_field(
             ProjectField::HyperlinkBase.into(),
@@ -2117,61 +2117,61 @@ impl ProjectProperties {
         );
     }
 
-    /// 取超链接基地址。
+/// Get the hyperlink base.
     ///
-    /// 对应 Java: `public String getHyperlinkBase()`
+    /// Corresponds to Java: `public String getHyperlinkBase()`
     pub fn get_hyperlink_base(&self) -> Option<String> {
         self.opt_string(ProjectField::HyperlinkBase.into())
     }
 
-    /// 取「显示项目摘要任务」标志。
+/// Get the "show project summary task" flag.
     ///
-    /// 对应 Java: `public boolean getShowProjectSummaryTask()`
+    /// Corresponds to Java: `public boolean getShowProjectSummaryTask()`
     pub fn get_show_project_summary_task(&self) -> bool {
         self.bool_value(ProjectField::ShowProjectSummaryTask.into())
     }
 
-    /// 设置「显示项目摘要任务」标志。
+/// Set the "show project summary task" flag.
     ///
-    /// 对应 Java: `public void setShowProjectSummaryTask(boolean value)`
+    /// Corresponds to Java: `public void setShowProjectSummaryTask(boolean value)`
     pub fn set_show_project_summary_task(&mut self, value: bool) {
         self.set_boolean(ProjectField::ShowProjectSummaryTask, value);
     }
 
     //
-    // 基准日期
+// Baseline dates
     //
 
-    /// 取基准日期。
+/// Get the baseline date.
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineDate()`
+    /// Corresponds to Java: `public LocalDateTime getBaselineDate()`
     pub fn get_baseline_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::BaselineDate.into())
     }
 
-    /// 设置基准日期。
+/// Set the baseline date.
     ///
-    /// 对应 Java: `public void setBaselineDate(LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineDate(LocalDateTime value)`
     pub fn set_baseline_date(&mut self, value: Option<NaiveDateTime>) {
         self.set_field(ProjectField::BaselineDate.into(), value.map(FieldValue::DateTime));
     }
 
-    /// 取指定编号的基准日期（编号 1-10）。
+/// Get the baseline date with the given number (number 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getBaselineDate(int baselineNumber)`
+    /// Corresponds to Java: `public LocalDateTime getBaselineDate(int baselineNumber)`
     ///
-    /// Java 对越界编号抛 `IllegalArgumentException`；Rust 侧返回 `None`（不 panic），
-    /// 故加 `_for_index` 后缀以区别于无参重载。
+/// Java throws `IllegalArgumentException` for an out-of-bounds number; the Rust side returns `None` (without panicking),
+/// so it is given the `_for_index` suffix to distinguish it from the no-argument overload.
     pub fn get_baseline_date_for_index(&self, baseline_number: i32) -> Option<NaiveDateTime> {
         let field = select_field(&BASELINE_DATES, baseline_number)?;
         self.opt_date_time(field.into())
     }
 
-    /// 设置指定编号的基准日期（编号 1-10）。
+/// Set the baseline date with the given number (number 1-10).
     ///
-    /// 对应 Java: `public void setBaselineDate(int baselineNumber, LocalDateTime value)`
+    /// Corresponds to Java: `public void setBaselineDate(int baselineNumber, LocalDateTime value)`
     ///
-    /// Java 对越界编号抛 `IllegalArgumentException`；Rust 侧退化为不写入。
+/// Java throws `IllegalArgumentException` for an out-of-bounds number; the Rust side degrades gracefully by not writing.
     pub fn set_baseline_date_for_index(&mut self, baseline_number: i32, value: Option<NaiveDateTime>) {
         let Some(field) = select_field(&BASELINE_DATES, baseline_number) else {
             return;
@@ -2180,33 +2180,33 @@ impl ProjectProperties {
     }
 
     //
-    // 文档摘要信息
+// Document summary information
     //
 
-    /// 取模板属性。
+/// Get the template property.
     ///
-    /// 对应 Java: `public String getTemplate()`
+    /// Corresponds to Java: `public String getTemplate()`
     pub fn get_template(&self) -> Option<String> {
         self.opt_string(ProjectField::Template.into())
     }
 
-    /// 设置模板属性。
+/// Set the template property.
     ///
-    /// 对应 Java: `public void setTemplate(String template)`
+    /// Corresponds to Java: `public void setTemplate(String template)`
     pub fn set_template(&mut self, template: Option<String>) {
         self.set_field(ProjectField::Template.into(), template.map(FieldValue::String));
     }
 
-    /// 取「最后修改者」属性。
+/// Get the "last modified by" property.
     ///
-    /// 对应 Java: `public String getLastAuthor()`
+    /// Corresponds to Java: `public String getLastAuthor()`
     pub fn get_last_author(&self) -> Option<String> {
         self.opt_string(ProjectField::LastAuthor.into())
     }
 
-    /// 设置「最后修改者」属性。
+/// Set the "last modified by" property.
     ///
-    /// 对应 Java: `public void setLastAuthor(String projectUser)`
+    /// Corresponds to Java: `public void setLastAuthor(String projectUser)`
     pub fn set_last_author(&mut self, project_user: Option<String>) {
         self.set_field(
             ProjectField::LastAuthor.into(),
@@ -2214,16 +2214,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取最后打印时间。
+/// Get the last printed time.
     ///
-    /// 对应 Java: `public LocalDateTime getLastPrinted()`
+    /// Corresponds to Java: `public LocalDateTime getLastPrinted()`
     pub fn get_last_printed(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::Lastprinted.into())
     }
 
-    /// 设置最后打印时间。
+/// Set the last printed time.
     ///
-    /// 对应 Java: `public void setLastPrinted(LocalDateTime lastPrinted)`
+    /// Corresponds to Java: `public void setLastPrinted(LocalDateTime lastPrinted)`
     pub fn set_last_printed(&mut self, last_printed: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::Lastprinted.into(),
@@ -2231,16 +2231,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取应用程序简称。
+/// Get the application short name.
     ///
-    /// 对应 Java: `public String getShortApplicationName()`
+    /// Corresponds to Java: `public String getShortApplicationName()`
     pub fn get_short_application_name(&self) -> Option<String> {
         self.opt_string(ProjectField::ShortApplicationName.into())
     }
 
-    /// 设置应用程序简称。
+/// Set the application short name.
     ///
-    /// 对应 Java: `public void setShortApplicationName(String application)`
+    /// Corresponds to Java: `public void setShortApplicationName(String application)`
     pub fn set_short_application_name(&mut self, application: Option<String>) {
         self.set_field(
             ProjectField::ShortApplicationName.into(),
@@ -2248,16 +2248,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取编辑时间属性。
+/// Get the edit time property.
     ///
-    /// 对应 Java: `public Integer getEditingTime()`
+    /// Corresponds to Java: `public Integer getEditingTime()`
     pub fn get_editing_time(&self) -> Option<i32> {
         self.opt_int(ProjectField::EditingTime.into())
     }
 
-    /// 设置编辑时间属性。
+/// Set the edit time property.
     ///
-    /// 对应 Java: `public void setEditingTime(Integer editingTime)`
+    /// Corresponds to Java: `public void setEditingTime(Integer editingTime)`
     pub fn set_editing_time(&mut self, editing_time: Option<i32>) {
         self.set_field(
             ProjectField::EditingTime.into(),
@@ -2265,16 +2265,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取版面格式属性。
+/// Get the format property.
     ///
-    /// 对应 Java: `public String getPresentationFormat()`
+    /// Corresponds to Java: `public String getPresentationFormat()`
     pub fn get_presentation_format(&self) -> Option<String> {
         self.opt_string(ProjectField::PresentationFormat.into())
     }
 
-    /// 设置版面格式属性。
+/// Set the format property.
     ///
-    /// 对应 Java: `public void setPresentationFormat(String format)`
+    /// Corresponds to Java: `public void setPresentationFormat(String format)`
     pub fn set_presentation_format(&mut self, format: Option<String>) {
         self.set_field(
             ProjectField::PresentationFormat.into(),
@@ -2282,16 +2282,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取内容类型属性。
+/// Get the content type property.
     ///
-    /// 对应 Java: `public String getContentType()`
+    /// Corresponds to Java: `public String getContentType()`
     pub fn get_content_type(&self) -> Option<String> {
         self.opt_string(ProjectField::ContentType.into())
     }
 
-    /// 设置内容类型属性。
+/// Set the content type property.
     ///
-    /// 对应 Java: `public void setContentType(String contentType)`
+    /// Corresponds to Java: `public void setContentType(String contentType)`
     pub fn set_content_type(&mut self, content_type: Option<String>) {
         self.set_field(
             ProjectField::ContentType.into(),
@@ -2299,16 +2299,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取内容状态属性。
+/// Get the content status property.
     ///
-    /// 对应 Java: `public String getContentStatus()`
+    /// Corresponds to Java: `public String getContentStatus()`
     pub fn get_content_status(&self) -> Option<String> {
         self.opt_string(ProjectField::ContentStatus.into())
     }
 
-    /// 设置内容状态属性。
+/// Set the content status property.
     ///
-    /// 对应 Java: `public void setContentStatus(String contentStatus)`
+    /// Corresponds to Java: `public void setContentStatus(String contentStatus)`
     pub fn set_content_status(&mut self, content_status: Option<String>) {
         self.set_field(
             ProjectField::ContentStatus.into(),
@@ -2316,30 +2316,30 @@ impl ProjectProperties {
         );
     }
 
-    /// 取语言属性。
+/// Get the language property.
     ///
-    /// 对应 Java: `public String getLanguage()`
+    /// Corresponds to Java: `public String getLanguage()`
     pub fn get_language(&self) -> Option<String> {
         self.opt_string(ProjectField::Language.into())
     }
 
-    /// 设置语言属性。
+/// Set the language property.
     ///
-    /// 对应 Java: `public void setLanguage(String language)`
+    /// Corresponds to Java: `public void setLanguage(String language)`
     pub fn set_language(&mut self, language: Option<String>) {
         self.set_field(ProjectField::Language.into(), language.map(FieldValue::String));
     }
 
-    /// 取文档版本属性。
+/// Get the document version property.
     ///
-    /// 对应 Java: `public String getDocumentVersion()`
+    /// Corresponds to Java: `public String getDocumentVersion()`
     pub fn get_document_version(&self) -> Option<String> {
         self.opt_string(ProjectField::DocumentVersion.into())
     }
 
-    /// 设置文档版本属性。
+/// Set the document version property.
     ///
-    /// 对应 Java: `public void setDocumentVersion(String documentVersion)`
+    /// Corresponds to Java: `public void setDocumentVersion(String documentVersion)`
     pub fn set_document_version(&mut self, document_version: Option<String>) {
         self.set_field(
             ProjectField::DocumentVersion.into(),
@@ -2348,26 +2348,26 @@ impl ProjectProperties {
     }
 
     //
-    // MPX 特有属性
+// MPX-specific properties
     //
 
-    /// 设置 MPX 分隔符（默认 `','`）。
+/// Set the MPX delimiter (default `','`).
     ///
-    /// 对应 Java: `public void setMpxDelimiter(char delimiter)`
+    /// Corresponds to Java: `public void setMpxDelimiter(char delimiter)`
     pub fn set_mpx_delimiter(&mut self, delimiter: char) {
         self.set_char(ProjectField::MpxDelimiter, delimiter);
     }
 
-    /// 取 MPX 分隔符，未设置时使用 Java 的默认值 `','`。
+/// Get the MPX delimiter; uses the Java default `','` when unset.
     ///
-    /// 对应 Java: `public char getMpxDelimiter()`
+    /// Corresponds to Java: `public char getMpxDelimiter()`
     pub fn get_mpx_delimiter(&self) -> char {
         self.char_value(ProjectField::MpxDelimiter.into(), DEFAULT_MPX_DELIMITER)
     }
 
-    /// 设置创建文件的程序名。
+/// Set the name of the program that created the file.
     ///
-    /// 对应 Java: `public void setMpxProgramName(String programName)`
+    /// Corresponds to Java: `public void setMpxProgramName(String programName)`
     pub fn set_mpx_program_name(&mut self, program_name: Option<String>) {
         self.set_field(
             ProjectField::MpxProgramName.into(),
@@ -2375,16 +2375,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取创建文件的程序名，未设置时使用 Java 的默认值 `"Microsoft Project for Windows"`。
+/// Get the name of the program that created the file; uses the Java default `"Microsoft Project for Windows"` when unset.
     ///
-    /// 对应 Java: `public String getMpxProgramName()`
+    /// Corresponds to Java: `public String getMpxProgramName()`
     pub fn get_mpx_program_name(&self) -> String {
         self.string_value(ProjectField::MpxProgramName.into(), DEFAULT_MPX_PROGRAM_NAME)
     }
 
-    /// 设置 MPX 文件版本。
+/// Set the MPX file version.
     ///
-    /// 对应 Java: `public void setMpxFileVersion(FileVersion version)`
+    /// Corresponds to Java: `public void setMpxFileVersion(FileVersion version)`
     pub fn set_mpx_file_version(&mut self, version: Option<FileVersion>) {
         self.set_field(
             ProjectField::MpxFileVersion.into(),
@@ -2392,9 +2392,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取 MPX 文件版本，未设置时使用 Java 的默认值 `VERSION_4_0`。
+/// Get the MPX file version; uses the Java default `VERSION_4_0` when unset.
     ///
-    /// 对应 Java: `public FileVersion getMpxFileVersion()`
+    /// Corresponds to Java: `public FileVersion getMpxFileVersion()`
     pub fn get_mpx_file_version(&self) -> FileVersion {
         match self.opt_int(ProjectField::MpxFileVersion.into()) {
             Some(1) => FileVersion::Version1_0,
@@ -2403,9 +2403,9 @@ impl ProjectProperties {
         }
     }
 
-    /// 设置 MPX 代码页。
+/// Set the MPX code page.
     ///
-    /// 对应 Java: `public void setMpxCodePage(CodePage codePage)`
+    /// Corresponds to Java: `public void setMpxCodePage(CodePage codePage)`
     pub fn set_mpx_code_page(&mut self, code_page: Option<CodePage>) {
         self.set_field(
             ProjectField::MpxCodePage.into(),
@@ -2413,17 +2413,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取 MPX 代码页，未设置时使用 Java 的默认值 `ANSI`。
+/// Get the MPX code page; uses the Java default `ANSI` when unset.
     ///
-    /// 对应 Java: `public CodePage getMpxCodePage()`
+    /// Corresponds to Java: `public CodePage getMpxCodePage()`
     pub fn get_mpx_code_page(&self) -> CodePage {
         self.opt_string(ProjectField::MpxCodePage.into())
             .map_or(CodePage::Ansi, |value| CodePage::get_instance(&value))
     }
 
-    /// 设置项目文件路径。
+/// Set the project file path.
     ///
-    /// 对应 Java: `public void setProjectFilePath(String projectFilePath)`
+    /// Corresponds to Java: `public void setProjectFilePath(String projectFilePath)`
     pub fn set_project_file_path(&mut self, project_file_path: Option<String>) {
         self.set_field(
             ProjectField::ProjectFilePath.into(),
@@ -2431,23 +2431,23 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目文件路径。
+/// Get the project file path.
     ///
-    /// 对应 Java: `public String getProjectFilePath()`
+    /// Corresponds to Java: `public String getProjectFilePath()`
     pub fn get_project_file_path(&self) -> Option<String> {
         self.opt_string(ProjectField::ProjectFilePath.into())
     }
 
-    /// 取创建本项目数据的应用程序全名。
+/// Get the full name of the application that created this project data.
     ///
-    /// 对应 Java: `public String getFullApplicationName()`
+    /// Corresponds to Java: `public String getFullApplicationName()`
     pub fn get_full_application_name(&self) -> Option<String> {
         self.opt_string(ProjectField::FullApplicationName.into())
     }
 
-    /// 设置创建本项目数据的应用程序全名。
+/// Set the full name of the application that created this project data.
     ///
-    /// 对应 Java: `public void setFullApplicationName(String name)`
+    /// Corresponds to Java: `public void setFullApplicationName(String name)`
     pub fn set_full_application_name(&mut self, name: Option<String>) {
         self.set_field(
             ProjectField::FullApplicationName.into(),
@@ -2455,16 +2455,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取创建本项目的应用程序版本。
+/// Get the version of the application that created this project.
     ///
-    /// 对应 Java: `public Integer getApplicationVersion()`
+    /// Corresponds to Java: `public Integer getApplicationVersion()`
     pub fn get_application_version(&self) -> Option<i32> {
         self.opt_int(ProjectField::ApplicationVersion.into())
     }
 
-    /// 设置创建本项目的应用程序版本。
+/// Set the version of the application that created this project.
     ///
-    /// 对应 Java: `public void setApplicationVersion(Integer version)`
+    /// Corresponds to Java: `public void setApplicationVersion(Integer version)`
     pub fn set_application_version(&mut self, version: Option<i32>) {
         self.set_field(
             ProjectField::ApplicationVersion.into(),
@@ -2472,16 +2472,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取已读取的 MPP 文件类型（8 = Project 98，9 = Project 2000/2002，12 = Project 2003/2007，14 = Project 2010/2013）。
+/// Get the type of the MPP file that was read (8 = Project 98, 9 = Project 2000/2002, 12 = Project 2003/2007, 14 = Project 2010/2013).
     ///
-    /// 对应 Java: `public Integer getMppFileType()`
+    /// Corresponds to Java: `public Integer getMppFileType()`
     pub fn get_mpp_file_type(&self) -> Option<i32> {
         self.opt_int(ProjectField::MppFileType.into())
     }
 
-    /// 设置 MPP 文件类型（内部使用）。
+/// Set the MPP file type (internal use).
     ///
-    /// 对应 Java: `public void setMppFileType(Integer fileType)`
+    /// Corresponds to Java: `public void setMppFileType(Integer fileType)`
     pub fn set_mpp_file_type(&mut self, file_type: Option<i32>) {
         self.set_field(
             ProjectField::MppFileType.into(),
@@ -2489,30 +2489,30 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「启用自动筛选」标志。
+/// Get the "auto filter enabled" flag.
     ///
-    /// 对应 Java: `public boolean getAutoFilter()`
+    /// Corresponds to Java: `public boolean getAutoFilter()`
     pub fn get_auto_filter(&self) -> bool {
         self.bool_value(ProjectField::Autofilter.into())
     }
 
-    /// 设置「启用自动筛选」标志。
+/// Set the "auto filter enabled" flag.
     ///
-    /// 对应 Java: `public void setAutoFilter(boolean autoFilter)`
+    /// Corresponds to Java: `public void setAutoFilter(boolean autoFilter)`
     pub fn set_auto_filter(&mut self, auto_filter: bool) {
         self.set_boolean(ProjectField::Autofilter, auto_filter);
     }
 
-    /// 取生成本 `ProjectFile` 的文件的提供方。
+/// Get the provider of the file that generated this `ProjectFile`.
     ///
-    /// 对应 Java: `public String getFileApplication()`
+    /// Corresponds to Java: `public String getFileApplication()`
     pub fn get_file_application(&self) -> Option<String> {
         self.opt_string(ProjectField::FileApplication.into())
     }
 
-    /// 设置生成本 `ProjectFile` 的文件的提供方。
+/// Set the provider of the file that generated this `ProjectFile`.
     ///
-    /// 对应 Java: `public void setFileApplication(String type)`
+    /// Corresponds to Java: `public void setFileApplication(String type)`
     pub fn set_file_application(&mut self, r#type: Option<String>) {
         self.set_field(
             ProjectField::FileApplication.into(),
@@ -2520,44 +2520,44 @@ impl ProjectProperties {
         );
     }
 
-    /// 取生成本 `ProjectFile` 的文件类型。
+/// Get the file type that generated this `ProjectFile`.
     ///
-    /// 对应 Java: `public String getFileType()`
+    /// Corresponds to Java: `public String getFileType()`
     pub fn get_file_type(&self) -> Option<String> {
         self.opt_string(ProjectField::FileType.into())
     }
 
-    /// 设置生成本 `ProjectFile` 的文件类型。
+/// Set the file type that generated this `ProjectFile`.
     ///
-    /// 对应 Java: `public void setFileType(String type)`
+    /// Corresponds to Java: `public void setFileType(String type)`
     pub fn set_file_type(&mut self, r#type: Option<String>) {
         self.set_field(ProjectField::FileType.into(), r#type.map(FieldValue::String));
     }
 
-    /// 取 P6 导出标志（用于区分「显式选择导出」与「因外部关系而附带导出」的项目）。
+/// Get the P6 export flag (used to distinguish projects that were explicitly selected for export from those exported incidentally because of external relationships).
     ///
-    /// 对应 Java: `public boolean getExportFlag()`
+    /// Corresponds to Java: `public boolean getExportFlag()`
     pub fn get_export_flag(&self) -> bool {
         self.bool_value(ProjectField::ExportFlag.into())
     }
 
-    /// 设置 P6 导出标志。
+/// Set the P6 export flag.
     ///
-    /// 对应 Java: `public void setExportFlag(boolean value)`
+    /// Corresponds to Java: `public void setExportFlag(boolean value)`
     pub fn set_export_flag(&mut self, value: bool) {
         self.set_boolean(ProjectField::ExportFlag, value);
     }
 
-    /// 取基准项目唯一 ID。
+/// Get the baseline project unique ID.
     ///
-    /// 对应 Java: `public Integer getBaselineProjectUniqueID()`
+    /// Corresponds to Java: `public Integer getBaselineProjectUniqueID()`
     pub fn get_baseline_project_unique_id(&self) -> Option<i32> {
         self.opt_int(ProjectField::BaselineProjectUniqueId.into())
     }
 
-    /// 设置基准项目唯一 ID。
+/// Set the baseline project unique ID.
     ///
-    /// 对应 Java: `public void setBaselineProjectUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setBaselineProjectUniqueID(Integer uniqueID)`
     pub fn set_baseline_project_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field(
             ProjectField::BaselineProjectUniqueId.into(),
@@ -2565,32 +2565,32 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目 ID。
+/// Get the project ID.
     ///
-    /// 对应 Java: `public String getProjectID()`
+    /// Corresponds to Java: `public String getProjectID()`
     pub fn get_project_id(&self) -> Option<String> {
         self.opt_string(ProjectField::ProjectId.into())
     }
 
-    /// 设置项目 ID。
+/// Set the project ID.
     ///
-    /// 对应 Java: `public void setProjectID(String id)`
+    /// Corresponds to Java: `public void setProjectID(String id)`
     pub fn set_project_id(&mut self, id: Option<String>) {
         self.set_field(ProjectField::ProjectId.into(), id.map(FieldValue::String));
     }
 
-    /// 取关键活动判定方式，未设置时使用 Java 的默认值 `TOTAL_FLOAT`。
+/// Get the critical activity determination method; falls back to the Java default `TOTAL_FLOAT` when unset.
     ///
-    /// 对应 Java: `public CriticalActivityType getCriticalActivityType()`
+    /// Corresponds to Java: `public CriticalActivityType getCriticalActivityType()`
     pub fn get_critical_activity_type(&self) -> CriticalActivityType {
         self.opt_int(ProjectField::CriticalActivityType.into())
             .and_then(CriticalActivityType::get_instance)
             .unwrap_or(CriticalActivityType::TotalFloat)
     }
 
-    /// 设置关键活动判定方式。
+/// Set the critical activity determination method.
     ///
-    /// 对应 Java: `public void setCriticalActivityType(CriticalActivityType value)`
+    /// Corresponds to Java: `public void setCriticalActivityType(CriticalActivityType value)`
     pub fn set_critical_activity_type(&mut self, value: Option<CriticalActivityType>) {
         self.set_field(
             ProjectField::CriticalActivityType.into(),
@@ -2598,9 +2598,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 设置「必须完成于」日期。
+/// Set the "must finish by" date.
     ///
-    /// 对应 Java: `public void setMustFinishBy(LocalDateTime date)`
+    /// Corresponds to Java: `public void setMustFinishBy(LocalDateTime date)`
     pub fn set_must_finish_by(&mut self, date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::MustFinishBy.into(),
@@ -2608,16 +2608,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「必须完成于」日期。
+/// Get the "must finish by" date.
     ///
-    /// 对应 Java: `public LocalDateTime getMustFinishBy()`
+    /// Corresponds to Java: `public LocalDateTime getMustFinishBy()`
     pub fn get_must_finish_by(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::MustFinishBy.into())
     }
 
-    /// 设置「计划完成于」日期。
+/// Set the "scheduled finish" date.
     ///
-    /// 对应 Java: `public void setScheduledFinish(LocalDateTime date)`
+    /// Corresponds to Java: `public void setScheduledFinish(LocalDateTime date)`
     pub fn set_scheduled_finish(&mut self, date: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::ScheduledFinish.into(),
@@ -2625,37 +2625,37 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「计划完成于」日期。
+/// Get the "scheduled finish" date.
     ///
-    /// 对应 Java: `public LocalDateTime getScheduledFinish()`
+    /// Corresponds to Java: `public LocalDateTime getScheduledFinish()`
     pub fn get_scheduled_finish(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::ScheduledFinish.into())
     }
 
-    /// 设置「计划开始于」日期。
+/// Set the "scheduled start" date.
     ///
-    /// 对应 Java: `public void setPlannedStart(LocalDateTime date)`
+    /// Corresponds to Java: `public void setPlannedStart(LocalDateTime date)`
     pub fn set_planned_start(&mut self, date: Option<NaiveDateTime>) {
         self.set_field(ProjectField::PlannedStart.into(), date.map(FieldValue::DateTime));
     }
 
-    /// 取「计划开始于」日期。
+/// Get the "scheduled start" date.
     ///
-    /// 对应 Java: `public LocalDateTime getPlannedStart()`
+    /// Corresponds to Java: `public LocalDateTime getPlannedStart()`
     pub fn get_planned_start(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::PlannedStart.into())
     }
 
-    /// 取位置唯一 ID。
+/// Get the location unique ID.
     ///
-    /// 对应 Java: `public Integer getLocationUniqueID()`
+    /// Corresponds to Java: `public Integer getLocationUniqueID()`
     pub fn get_location_unique_id(&self) -> Option<i32> {
         self.opt_int(ProjectField::LocationUniqueId.into())
     }
 
-    /// 设置位置唯一 ID。
+/// Set the location unique ID.
     ///
-    /// 对应 Java: `public void setLocationUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setLocationUniqueID(Integer uniqueID)`
     pub fn set_location_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field(
             ProjectField::LocationUniqueId.into(),
@@ -2663,16 +2663,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取资源库文件。
+/// Get the resource pool file.
     ///
-    /// 对应 Java: `public String getResourcePoolFile()`
+    /// Corresponds to Java: `public String getResourcePoolFile()`
     pub fn get_resource_pool_file(&self) -> Option<String> {
         self.opt_string(ProjectField::ResourcePoolFile.into())
     }
 
-    /// 设置资源库文件。
+/// Set the resource pool file.
     ///
-    /// 对应 Java: `public void setResourcePoolFile(String file)`
+    /// Corresponds to Java: `public void setResourcePoolFile(String file)`
     pub fn set_resource_pool_file(&mut self, file: Option<String>) {
         self.set_field(
             ProjectField::ResourcePoolFile.into(),
@@ -2680,9 +2680,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 设置总浮时计算方式。
+/// Set the total slack calculation method.
     ///
-    /// 对应 Java: `public void setTotalSlackCalculationType(TotalSlackCalculationType type)`
+    /// Corresponds to Java: `public void setTotalSlackCalculationType(TotalSlackCalculationType type)`
     pub fn set_total_slack_calculation_type(&mut self, r#type: Option<TotalSlackCalculationType>) {
         self.set_field(
             ProjectField::TotalSlackCalculationType.into(),
@@ -2690,18 +2690,18 @@ impl ProjectProperties {
         );
     }
 
-    /// 取总浮时计算方式，未设置时使用 Java 的默认值 `SMALLEST_SLACK`。
+/// Get the total slack calculation method; falls back to the Java default `SMALLEST_SLACK` when unset.
     ///
-    /// 对应 Java: `public TotalSlackCalculationType getTotalSlackCalculationType()`
+    /// Corresponds to Java: `public TotalSlackCalculationType getTotalSlackCalculationType()`
     pub fn get_total_slack_calculation_type(&self) -> TotalSlackCalculationType {
         self.opt_int(ProjectField::TotalSlackCalculationType.into())
             .and_then(TotalSlackCalculationType::get_instance)
             .unwrap_or(TotalSlackCalculationType::SmallestSlack)
     }
 
-    /// 设置关系延隔所用日历。
+/// Set the calendar used for relationship lag.
     ///
-    /// 对应 Java: `public void setRelationshipLagCalendar(RelationshipLagCalendar calendar)`
+    /// Corresponds to Java: `public void setRelationshipLagCalendar(RelationshipLagCalendar calendar)`
     pub fn set_relationship_lag_calendar(&mut self, calendar: Option<RelationshipLagCalendar>) {
         self.set_field(
             ProjectField::RelationshipLagCalendar.into(),
@@ -2711,25 +2711,25 @@ impl ProjectProperties {
         );
     }
 
-    /// 取关系延隔所用日历，未设置时使用 Java 的默认值 `PREDECESSOR`。
+/// Get the calendar used for relationship lag; falls back to the Java default `PREDECESSOR` when unset.
     ///
-    /// 对应 Java: `public RelationshipLagCalendar getRelationshipLagCalendar()`
+    /// Corresponds to Java: `public RelationshipLagCalendar getRelationshipLagCalendar()`
     pub fn get_relationship_lag_calendar(&self) -> RelationshipLagCalendar {
         self.opt_int(ProjectField::RelationshipLagCalendar.into())
             .and_then(RelationshipLagCalendar::get_instance)
             .unwrap_or(RelationshipLagCalendar::Predecessor)
     }
 
-    /// 取 WBS 编码分隔符，未设置时使用 Java 的默认值 `"."`。
+/// Get the WBS code separator; falls back to the Java default `"."` when unset.
     ///
-    /// 对应 Java: `public String getWbsCodeSeparator()`
+    /// Corresponds to Java: `public String getWbsCodeSeparator()`
     pub fn get_wbs_code_separator(&self) -> String {
         self.string_value(ProjectField::WbsCodeSeparator.into(), DEFAULT_WBS_CODE_SEPARATOR)
     }
 
-    /// 设置 WBS 编码分隔符。
+/// Set the WBS code separator.
     ///
-    /// 对应 Java: `public void setWbsCodeSeparator(String value)`
+    /// Corresponds to Java: `public void setWbsCodeSeparator(String value)`
     pub fn set_wbs_code_separator(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::WbsCodeSeparator.into(),
@@ -2737,23 +2737,23 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「平衡时考虑其他项目中的分配」标志。
+/// Get the "consider assignments in other projects when leveling" flag.
     ///
-    /// 对应 Java: `public boolean getConsiderAssignmentsInOtherProjects()`
+    /// Corresponds to Java: `public boolean getConsiderAssignmentsInOtherProjects()`
     pub fn get_consider_assignments_in_other_projects(&self) -> bool {
         self.bool_value(ProjectField::ConsiderAssignmentsInOtherProjects.into())
     }
 
-    /// 设置「平衡时考虑其他项目中的分配」标志。
+/// Set the "consider assignments in other projects when leveling" flag.
     ///
-    /// 对应 Java: `public void setConsiderAssignmentsInOtherProjects(boolean value)`
+    /// Corresponds to Java: `public void setConsiderAssignmentsInOtherProjects(boolean value)`
     pub fn set_consider_assignments_in_other_projects(&mut self, value: bool) {
         self.set_boolean(ProjectField::ConsiderAssignmentsInOtherProjects, value);
     }
 
-    /// 取平衡时要考虑的其他项目分配优先级下限，未设置时使用 Java 的默认值 5。
+/// Get the minimum priority of assignments from other projects to consider when leveling; falls back to the Java default 5 when unset.
     ///
-    /// 对应 Java: `public Integer getConsiderAssignmentsInOtherProjectsWithPriorityEqualHigherThan()`
+    /// Corresponds to Java: `public Integer getConsiderAssignmentsInOtherProjectsWithPriorityEqualHigherThan()`
     pub fn get_consider_assignments_in_other_projects_with_priority_equal_higher_than(&self) -> i32 {
         self.int_value(
             ProjectField::ConsiderAssignmentsInOtherProjectsWithPriorityEqualHigherThan.into(),
@@ -2761,9 +2761,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置平衡时要考虑的其他项目分配优先级下限。
+/// Set the minimum priority of assignments from other projects to consider when leveling.
     ///
-    /// 对应 Java: `public void setConsiderAssignmentsInOtherProjectsWithPriorityEqualHigherThan(Integer value)`
+    /// Corresponds to Java: `public void setConsiderAssignmentsInOtherProjectsWithPriorityEqualHigherThan(Integer value)`
     pub fn set_consider_assignments_in_other_projects_with_priority_equal_higher_than(
         &mut self,
         value: Option<i32>,
@@ -2774,59 +2774,59 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「保留已排程的最早 / 最晚日期」标志。
+/// Get the "retain scheduled earliest / latest dates" flag.
     ///
-    /// 对应 Java: `public boolean getPreserveScheduledEarlyAndLateDates()`
+    /// Corresponds to Java: `public boolean getPreserveScheduledEarlyAndLateDates()`
     pub fn get_preserve_scheduled_early_and_late_dates(&self) -> bool {
         self.bool_value(ProjectField::PreserveScheduledEarlyAndLateDates.into())
     }
 
-    /// 设置「保留已排程的最早 / 最晚日期」标志。
+/// Set the "retain scheduled earliest / latest dates" flag.
     ///
-    /// 对应 Java: `public void setPreserveScheduledEarlyAndLateDates(boolean value)`
+    /// Corresponds to Java: `public void setPreserveScheduledEarlyAndLateDates(boolean value)`
     pub fn set_preserve_scheduled_early_and_late_dates(&mut self, value: bool) {
         self.set_boolean(ProjectField::PreserveScheduledEarlyAndLateDates, value);
     }
 
-    /// 取「平衡所有资源」标志。
+/// Get the "level all resources" flag.
     ///
-    /// 对应 Java: `public boolean getLevelAllResources()`
+    /// Corresponds to Java: `public boolean getLevelAllResources()`
     pub fn get_level_all_resources(&self) -> bool {
         self.bool_value(ProjectField::LevelAllResources.into())
     }
 
-    /// 设置「平衡所有资源」标志。
+/// Set the "level all resources" flag.
     ///
-    /// 对应 Java: `public void setLevelAllResources(boolean value)`
+    /// Corresponds to Java: `public void setLevelAllResources(boolean value)`
     pub fn set_level_all_resources(&mut self, value: bool) {
         self.set_boolean(ProjectField::LevelAllResources, value);
     }
 
-    /// 取「仅在活动总浮时范围内平衡资源」标志。
+/// Get the "level resources only within activity total slack" flag.
     ///
-    /// 对应 Java: `public boolean getLevelResourcesOnlyWithinActivityTotalFloat()`
+    /// Corresponds to Java: `public boolean getLevelResourcesOnlyWithinActivityTotalFloat()`
     pub fn get_level_resources_only_within_activity_total_float(&self) -> bool {
         self.bool_value(ProjectField::LevelResourcesOnlyWithinActivityTotalFloat.into())
     }
 
-    /// 设置「仅在活动总浮时范围内平衡资源」标志。
+/// Set the "level resources only within activity total slack" flag.
     ///
-    /// 对应 Java: `public void setLevelResourcesOnlyWithinActivityTotalFloat(boolean value)`
+    /// Corresponds to Java: `public void setLevelResourcesOnlyWithinActivityTotalFloat(boolean value)`
     pub fn set_level_resources_only_within_activity_total_float(&mut self, value: bool) {
         self.set_boolean(ProjectField::LevelResourcesOnlyWithinActivityTotalFloat, value);
     }
 
-    /// 取平衡时保留的最小浮时，未设置时使用 Java 的默认值「1 小时」。
+/// Get the minimum slack to retain when leveling; falls back to the Java default "1 hour" when unset.
     ///
-    /// 对应 Java: `public Duration getPreserveMinimumFloatWhenLeveling()`
+    /// Corresponds to Java: `public Duration getPreserveMinimumFloatWhenLeveling()`
     pub fn get_preserve_minimum_float_when_leveling(&self) -> Duration {
         self.opt_duration(ProjectField::PreserveMinimumFloatWhenLeveling.into())
             .unwrap_or_else(default_minimum_float)
     }
 
-    /// 设置平衡时保留的最小浮时。
+/// Set the minimum slack to retain when leveling.
     ///
-    /// 对应 Java: `public void setPreserveMinimumFloatWhenLeveling(Duration value)`
+    /// Corresponds to Java: `public void setPreserveMinimumFloatWhenLeveling(Duration value)`
     pub fn set_preserve_minimum_float_when_leveling(&mut self, value: Option<Duration>) {
         self.set_field(
             ProjectField::PreserveMinimumFloatWhenLeveling.into(),
@@ -2834,17 +2834,17 @@ impl ProjectProperties {
         );
     }
 
-    /// 取资源过度分配的最大百分比，未设置时使用 Java 的默认值 25.0。
+/// Get the maximum percentage of resource over-allocation; falls back to the Java default 25.0 when unset.
     ///
-    /// 对应 Java: `public Number getMaxPercentToOverallocateResources()`
+    /// Corresponds to Java: `public Number getMaxPercentToOverallocateResources()`
     pub fn get_max_percent_to_overallocate_resources(&self) -> f64 {
         self.opt_double(ProjectField::MaxPercentToOverallocateResources.into())
             .unwrap_or(DEFAULT_OVERALLOCATION)
     }
 
-    /// 设置资源过度分配的最大百分比。
+/// Set the maximum percentage of resource over-allocation.
     ///
-    /// 对应 Java: `public void setMaxPercentToOverallocateResources(Number value)`
+    /// Corresponds to Java: `public void setMaxPercentToOverallocateResources(Number value)`
     pub fn set_max_percent_to_overallocate_resources(&mut self, value: Option<f64>) {
         self.set_field(
             ProjectField::MaxPercentToOverallocateResources.into(),
@@ -2852,9 +2852,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取平衡优先级表达式，未设置时使用 Java 的默认值。
+/// Get the leveling priority expression; falls back to the Java default when unset.
     ///
-    /// 对应 Java: `public String getLevelingPriorities()`
+    /// Corresponds to Java: `public String getLevelingPriorities()`
     pub fn get_leveling_priorities(&self) -> String {
         self.string_value(
             ProjectField::LevelingPriorities.into(),
@@ -2862,9 +2862,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置平衡优先级表达式。
+/// Set the leveling priority expression.
     ///
-    /// 对应 Java: `public void setLevelingPriorities(String value)`
+    /// Corresponds to Java: `public void setLevelingPriorities(String value)`
     pub fn set_leveling_priorities(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::LevelingPriorities.into(),
@@ -2872,16 +2872,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「数据日期与计划开始日期设置为项目预测开始日期」标志。
+/// Get the "set data date and scheduled start date to the project forecast start date" flag.
     ///
-    /// 对应 Java: `public boolean getDataDateAndPlannedStartSetToProjectForecastStart()`
+    /// Corresponds to Java: `public boolean getDataDateAndPlannedStartSetToProjectForecastStart()`
     pub fn get_data_date_and_planned_start_set_to_project_forecast_start(&self) -> bool {
         self.bool_value(ProjectField::DataDateAndPlannedStartSetToProjectForecastStart.into())
     }
 
-    /// 设置「数据日期与计划开始日期设置为项目预测开始日期」标志。
+/// Set the "set data date and scheduled start date to the project forecast start date" flag.
     ///
-    /// 对应 Java: `public void setDataDateAndPlannedStartSetToProjectForecastStart(boolean value)`
+    /// Corresponds to Java: `public void setDataDateAndPlannedStartSetToProjectForecastStart(boolean value)`
     pub fn set_data_date_and_planned_start_set_to_project_forecast_start(&mut self, value: bool) {
         self.set_boolean(
             ProjectField::DataDateAndPlannedStartSetToProjectForecastStart,
@@ -2889,114 +2889,114 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「忽略与其他项目之间的逻辑关系」标志。
+/// Get the "ignore logical relationships with other projects" flag.
     ///
-    /// 对应 Java: `public boolean getIgnoreRelationshipsToAndFromOtherProjects()`
+    /// Corresponds to Java: `public boolean getIgnoreRelationshipsToAndFromOtherProjects()`
     pub fn get_ignore_relationships_to_and_from_other_projects(&self) -> bool {
         self.bool_value(ProjectField::IgnoreRelationshipsToAndFromOtherProjects.into())
     }
 
-    /// 设置「忽略与其他项目之间的逻辑关系」标志。
+/// Set the "ignore logical relationships with other projects" flag.
     ///
-    /// 对应 Java: `public void setIgnoreRelationshipsToAndFromOtherProjects(boolean value)`
+    /// Corresponds to Java: `public void setIgnoreRelationshipsToAndFromOtherProjects(boolean value)`
     pub fn set_ignore_relationships_to_and_from_other_projects(&mut self, value: bool) {
         self.set_boolean(ProjectField::IgnoreRelationshipsToAndFromOtherProjects, value);
     }
 
-    /// 取「将开放端活动标记为关键」标志。
+/// Get the "mark open-ended activities as critical" flag.
     ///
-    /// 对应 Java: `public boolean getMakeOpenEndedActivitiesCritical()`
+    /// Corresponds to Java: `public boolean getMakeOpenEndedActivitiesCritical()`
     pub fn get_make_open_ended_activities_critical(&self) -> bool {
         self.bool_value(ProjectField::MakeOpenEndedActivitiesCritical.into())
     }
 
-    /// 设置「将开放端活动标记为关键」标志。
+/// Set the "mark open-ended activities as critical" flag.
     ///
-    /// 对应 Java: `public void setMakeOpenEndedActivitiesCritical(boolean value)`
+    /// Corresponds to Java: `public void setMakeOpenEndedActivitiesCritical(boolean value)`
     pub fn set_make_open_ended_activities_critical(&mut self, value: bool) {
         self.set_boolean(ProjectField::MakeOpenEndedActivitiesCritical, value);
     }
 
-    /// 取「使用预计完成日期」标志。
+/// Get the "use expected finish date" flag.
     ///
-    /// 对应 Java: `public boolean getUseExpectedFinishDates()`
+    /// Corresponds to Java: `public boolean getUseExpectedFinishDates()`
     pub fn get_use_expected_finish_dates(&self) -> bool {
         self.bool_value(ProjectField::UseExpectedFinishDates.into())
     }
 
-    /// 设置「使用预计完成日期」标志。
+/// Set the "use expected finish date" flag.
     ///
-    /// 对应 Java: `public void setUseExpectedFinishDates(boolean value)`
+    /// Corresponds to Java: `public void setUseExpectedFinishDates(boolean value)`
     pub fn set_use_expected_finish_dates(&mut self, value: bool) {
         self.set_boolean(ProjectField::UseExpectedFinishDates, value);
     }
 
-    /// 取「从最早开始日期计算开始到开始的延隔」标志。
+/// Get the "calculate start-to-start lag from the earliest start date" flag.
     ///
-    /// 对应 Java: `public boolean getComputeStartToStartLagFromEarlyStart()`
+    /// Corresponds to Java: `public boolean getComputeStartToStartLagFromEarlyStart()`
     pub fn get_compute_start_to_start_lag_from_early_start(&self) -> bool {
         self.bool_value(ProjectField::ComputeStartToStartLagFromEarlyStart.into())
     }
 
-    /// 设置「从最早开始日期计算开始到开始的延隔」标志。
+/// Set the "calculate start-to-start lag from the earliest start date" flag.
     ///
-    /// 对应 Java: `public void setComputeStartToStartLagFromEarlyStart(boolean value)`
+    /// Corresponds to Java: `public void setComputeStartToStartLagFromEarlyStart(boolean value)`
     pub fn set_compute_start_to_start_lag_from_early_start(&mut self, value: bool) {
         self.set_boolean(ProjectField::ComputeStartToStartLagFromEarlyStart, value);
     }
 
-    /// 取「按每个项目的完成日期计算浮时」标志。
+/// Get the "calculate slack against each project's finish date" flag.
     ///
-    /// 对应 Java: `public boolean getCalculateFloatBasedOnFinishDateOfEachProject()`
+    /// Corresponds to Java: `public boolean getCalculateFloatBasedOnFinishDateOfEachProject()`
     pub fn get_calculate_float_based_on_finish_date_of_each_project(&self) -> bool {
         self.bool_value(ProjectField::CalculateFloatBasedOnFinishDateOfEachProject.into())
     }
 
-    /// 设置「按每个项目的完成日期计算浮时」标志。
+/// Set the "calculate slack against each project's finish date" flag.
     ///
-    /// 对应 Java: `public void setCalculateFloatBasedOnFinishDateOfEachProject(boolean value)`
+    /// Corresponds to Java: `public void setCalculateFloatBasedOnFinishDateOfEachProject(boolean value)`
     pub fn set_calculate_float_based_on_finish_date_of_each_project(&mut self, value: bool) {
         self.set_boolean(ProjectField::CalculateFloatBasedOnFinishDateOfEachProject, value);
     }
 
-    /// 取「计算多条浮时路径」标志。
+/// Get the "calculate multiple float paths" flag.
     ///
-    /// 对应 Java: `public boolean getCalculateMultipleFloatPaths()`
+    /// Corresponds to Java: `public boolean getCalculateMultipleFloatPaths()`
     pub fn get_calculate_multiple_float_paths(&self) -> bool {
         self.bool_value(ProjectField::CalculateMultipleFloatPaths.into())
     }
 
-    /// 设置「计算多条浮时路径」标志。
+/// Set the "calculate multiple float paths" flag.
     ///
-    /// 对应 Java: `public void setCalculateMultipleFloatPaths(boolean value)`
+    /// Corresponds to Java: `public void setCalculateMultipleFloatPaths(boolean value)`
     pub fn set_calculate_multiple_float_paths(&mut self, value: bool) {
         self.set_boolean(ProjectField::CalculateMultipleFloatPaths, value);
     }
 
-    /// 取「使用总浮时计算多条浮时路径」标志。
+/// Get the "calculate multiple float paths using total slack" flag.
     ///
-    /// 对应 Java: `public boolean getCalculateMultipleFloatPathsUsingTotalFloat()`
+    /// Corresponds to Java: `public boolean getCalculateMultipleFloatPathsUsingTotalFloat()`
     pub fn get_calculate_multiple_float_paths_using_total_float(&self) -> bool {
         self.bool_value(ProjectField::CalculateMultipleFloatPathsUsingTotalFloat.into())
     }
 
-    /// 设置「使用总浮时计算多条浮时路径」标志。
+/// Set the "calculate multiple float paths using total slack" flag.
     ///
-    /// 对应 Java: `public void setCalculateMultipleFloatPathsUsingTotalFloat(boolean value)`
+    /// Corresponds to Java: `public void setCalculateMultipleFloatPathsUsingTotalFloat(boolean value)`
     pub fn set_calculate_multiple_float_paths_using_total_float(&mut self, value: bool) {
         self.set_boolean(ProjectField::CalculateMultipleFloatPathsUsingTotalFloat, value);
     }
 
-    /// 取「多条浮时路径的终点活动唯一 ID」。
+/// Get the "unique ID of the ending activity for multiple float paths".
     ///
-    /// 对应 Java: `public Integer getDisplayMultipleFloatPathsEndingWithActivityUniqueID()`
+    /// Corresponds to Java: `public Integer getDisplayMultipleFloatPathsEndingWithActivityUniqueID()`
     pub fn get_display_multiple_float_paths_ending_with_activity_unique_id(&self) -> Option<i32> {
         self.opt_int(ProjectField::DisplayMultipleFloatPathsEndingWithActivityUniqueId.into())
     }
 
-    /// 设置「多条浮时路径的终点活动唯一 ID」。
+/// Set the "unique ID of the ending activity for multiple float paths".
     ///
-    /// 对应 Java: `public void setDisplayMultipleFloatPathsEndingWithActivityUniqueID(Integer value)`
+    /// Corresponds to Java: `public void setDisplayMultipleFloatPathsEndingWithActivityUniqueID(Integer value)`
     pub fn set_display_multiple_float_paths_ending_with_activity_unique_id(
         &mut self,
         value: Option<i32>,
@@ -3007,23 +3007,23 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「限制要计算的浮时路径数量」标志。
+/// Get the "limit the number of float paths to calculate" flag.
     ///
-    /// 对应 Java: `public boolean getLimitNumberOfFloatPathsToCalculate()`
+    /// Corresponds to Java: `public boolean getLimitNumberOfFloatPathsToCalculate()`
     pub fn get_limit_number_of_float_paths_to_calculate(&self) -> bool {
         self.bool_value(ProjectField::LimitNumberOfFloatPathsToCalculate.into())
     }
 
-    /// 设置「限制要计算的浮时路径数量」标志。
+/// Set the "limit the number of float paths to calculate" flag.
     ///
-    /// 对应 Java: `public void setLimitNumberOfFloatPathsToCalculate(boolean value)`
+    /// Corresponds to Java: `public void setLimitNumberOfFloatPathsToCalculate(boolean value)`
     pub fn set_limit_number_of_float_paths_to_calculate(&mut self, value: bool) {
         self.set_boolean(ProjectField::LimitNumberOfFloatPathsToCalculate, value);
     }
 
-    /// 取要计算的浮时路径最大数量，未设置时使用 Java 的默认值 10。
+/// Get the maximum number of float paths to calculate; falls back to the Java default 10 when unset.
     ///
-    /// 对应 Java: `public Integer getMaximumNumberOfFloatPathsToCalculate()`
+    /// Corresponds to Java: `public Integer getMaximumNumberOfFloatPathsToCalculate()`
     pub fn get_maximum_number_of_float_paths_to_calculate(&self) -> i32 {
         self.int_value(
             ProjectField::MaximumNumberOfFloatPathsToCalculate.into(),
@@ -3031,9 +3031,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置要计算的浮时路径最大数量。
+/// Set the maximum number of float paths to calculate.
     ///
-    /// 对应 Java: `public void setMaximumNumberOfFloatPathsToCalculate(Integer value)`
+    /// Corresponds to Java: `public void setMaximumNumberOfFloatPathsToCalculate(Integer value)`
     pub fn set_maximum_number_of_float_paths_to_calculate(&mut self, value: Option<i32>) {
         self.set_field(
             ProjectField::MaximumNumberOfFloatPathsToCalculate.into(),
@@ -3041,9 +3041,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 设置已推进活动的排程方式。
+/// Set the scheduling method for progressed activities.
     ///
-    /// 对应 Java: `public void setSchedulingProgressedActivities(SchedulingProgressedActivities value)`
+    /// Corresponds to Java: `public void setSchedulingProgressedActivities(SchedulingProgressedActivities value)`
     pub fn set_scheduling_progressed_activities(
         &mut self,
         value: Option<SchedulingProgressedActivities>,
@@ -3056,25 +3056,25 @@ impl ProjectProperties {
         );
     }
 
-    /// 取已推进活动的排程方式，未设置时使用 Java 的默认值 `RETAINED_LOGIC`。
+/// Get the scheduling method for progressed activities; falls back to the Java default `RETAINED_LOGIC` when unset.
     ///
-    /// 对应 Java: `public SchedulingProgressedActivities getSchedulingProgressedActivities()`
+    /// Corresponds to Java: `public SchedulingProgressedActivities getSchedulingProgressedActivities()`
     pub fn get_scheduling_progressed_activities(&self) -> SchedulingProgressedActivities {
         self.opt_int(ProjectField::SchedulingProgressedActivities.into())
             .and_then(SchedulingProgressedActivities::get_instance)
             .unwrap_or(SchedulingProgressedActivities::RetainedLogic)
     }
 
-    /// 取与本项目关联的基准类型名称。
+/// Get the name of the baseline type associated with this project.
     ///
-    /// 对应 Java: `public String getBaselineTypeName()`
+    /// Corresponds to Java: `public String getBaselineTypeName()`
     pub fn get_baseline_type_name(&self) -> Option<String> {
         self.opt_string(ProjectField::BaselineTypeName.into())
     }
 
-    /// 设置与本项目关联的基准类型名称。
+/// Set the name of the baseline type associated with this project.
     ///
-    /// 对应 Java: `public void setBaselineTypeName(String value)`
+    /// Corresponds to Java: `public void setBaselineTypeName(String value)`
     pub fn set_baseline_type_name(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::BaselineTypeName.into(),
@@ -3082,16 +3082,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取与本项目关联的基准类型唯一 ID。
+/// Get the unique ID of the baseline type associated with this project.
     ///
-    /// 对应 Java: `public Integer getBaselineTypeUniqueID()`
+    /// Corresponds to Java: `public Integer getBaselineTypeUniqueID()`
     pub fn get_baseline_type_unique_id(&self) -> Option<i32> {
         self.opt_int(ProjectField::BaselineTypeUniqueId.into())
     }
 
-    /// 设置与本项目关联的基准类型唯一 ID。
+/// Set the unique ID of the baseline type associated with this project.
     ///
-    /// 对应 Java: `public void setBaselineTypeUniqueID(Integer value)`
+    /// Corresponds to Java: `public void setBaselineTypeUniqueID(Integer value)`
     pub fn set_baseline_type_unique_id(&mut self, value: Option<i32>) {
         self.set_field(
             ProjectField::BaselineTypeUniqueId.into(),
@@ -3099,16 +3099,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取最后一次基准更新时间。
+/// Get the last baseline update time.
     ///
-    /// 对应 Java: `public LocalDateTime getLastBaselineUpdateDate()`
+    /// Corresponds to Java: `public LocalDateTime getLastBaselineUpdateDate()`
     pub fn get_last_baseline_update_date(&self) -> Option<NaiveDateTime> {
         self.opt_date_time(ProjectField::LastBaselineUpdateDate.into())
     }
 
-    /// 设置最后一次基准更新时间。
+/// Set the last baseline update time.
     ///
-    /// 对应 Java: `public void setLastBaselineUpdateDate(LocalDateTime value)`
+    /// Corresponds to Java: `public void setLastBaselineUpdateDate(LocalDateTime value)`
     pub fn set_last_baseline_update_date(&mut self, value: Option<NaiveDateTime>) {
         self.set_field(
             ProjectField::LastBaselineUpdateDate.into(),
@@ -3116,16 +3116,16 @@ impl ProjectProperties {
         );
     }
 
-    /// 取创建 Activity ID 时使用的前缀，未设置时使用 Java 的默认值 `"A"`。
+/// Get the prefix used when creating Activity IDs; falls back to the Java default `"A"` when unset.
     ///
-    /// 对应 Java: `public String getActivityIdPrefix()`
+    /// Corresponds to Java: `public String getActivityIdPrefix()`
     pub fn get_activity_id_prefix(&self) -> String {
         self.string_value(ProjectField::ActivityIdPrefix.into(), DEFAULT_ACTIVITY_ID_PREFIX)
     }
 
-    /// 设置创建 Activity ID 时使用的前缀。
+/// Set the prefix used when creating Activity IDs.
     ///
-    /// 对应 Java: `public void setActivityIdPrefix(String value)`
+    /// Corresponds to Java: `public void setActivityIdPrefix(String value)`
     pub fn set_activity_id_prefix(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::ActivityIdPrefix.into(),
@@ -3133,9 +3133,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取创建 Activity ID 时使用的后缀，未设置时使用 Java 的默认值 1000。
+/// Get the suffix used when creating Activity IDs; falls back to the Java default 1000 when unset.
     ///
-    /// 对应 Java: `public Integer getActivityIdSuffix()`
+    /// Corresponds to Java: `public Integer getActivityIdSuffix()`
     pub fn get_activity_id_suffix(&self) -> i32 {
         self.int_value(
             ProjectField::ActivityIdSuffix.into(),
@@ -3143,9 +3143,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置创建 Activity ID 时使用的后缀。
+/// Set the suffix used when creating Activity IDs.
     ///
-    /// 对应 Java: `public void setActivityIdSuffix(Integer value)`
+    /// Corresponds to Java: `public void setActivityIdSuffix(Integer value)`
     pub fn set_activity_id_suffix(&mut self, value: Option<i32>) {
         self.set_field(
             ProjectField::ActivityIdSuffix.into(),
@@ -3153,9 +3153,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 取创建 Activity ID 时的自增步长，未设置时使用 Java 的默认值 10。
+/// Get the increment used when creating Activity IDs; falls back to the Java default 10 when unset.
     ///
-    /// 对应 Java: `public Integer getActivityIdIncrement()`
+    /// Corresponds to Java: `public Integer getActivityIdIncrement()`
     pub fn get_activity_id_increment(&self) -> i32 {
         self.int_value(
             ProjectField::ActivityIdIncrement.into(),
@@ -3163,9 +3163,9 @@ impl ProjectProperties {
         )
     }
 
-    /// 设置创建 Activity ID 时的自增步长。
+/// Set the increment used when creating Activity IDs.
     ///
-    /// 对应 Java: `public void setActivityIdIncrement(Integer value)`
+    /// Corresponds to Java: `public void setActivityIdIncrement(Integer value)`
     pub fn set_activity_id_increment(&mut self, value: Option<i32>) {
         self.set_field(
             ProjectField::ActivityIdIncrement.into(),
@@ -3173,30 +3173,30 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「基于选中活动递增 Activity ID」标志。
+/// Get the "increment Activity IDs based on selected activities" flag.
     ///
-    /// 对应 Java: `public boolean getActivityIdIncrementBasedOnSelectedActivity()`
+    /// Corresponds to Java: `public boolean getActivityIdIncrementBasedOnSelectedActivity()`
     pub fn get_activity_id_increment_based_on_selected_activity(&self) -> bool {
         self.bool_value(ProjectField::ActivityIdIncrementBasedOnSelectedActivity.into())
     }
 
-    /// 设置「基于选中活动递增 Activity ID」标志。
+/// Set the "increment Activity IDs based on selected activities" flag.
     ///
-    /// 对应 Java: `public void setActivityIdIncrementBasedOnSelectedActivity(boolean value)`
+    /// Corresponds to Java: `public void setActivityIdIncrementBasedOnSelectedActivity(boolean value)`
     pub fn set_activity_id_increment_based_on_selected_activity(&mut self, value: bool) {
         self.set_boolean(ProjectField::ActivityIdIncrementBasedOnSelectedActivity, value);
     }
 
-    /// 取基准日历名称。
+/// Get the baseline calendar name.
     ///
-    /// 对应 Java: `public String getBaselineCalendarName()`
+    /// Corresponds to Java: `public String getBaselineCalendarName()`
     pub fn get_baseline_calendar_name(&self) -> Option<String> {
         self.opt_string(ProjectField::BaselineCalendarName.into())
     }
 
-    /// 设置基准日历名称。
+/// Set the baseline calendar name.
     ///
-    /// 对应 Java: `public void setBaselineCalendarName(String value)`
+    /// Corresponds to Java: `public void setBaselineCalendarName(String value)`
     pub fn set_baseline_calendar_name(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::BaselineCalendarName.into(),
@@ -3204,30 +3204,30 @@ impl ProjectProperties {
         );
     }
 
-    /// 判断本 `ProjectFile` 是否表示一个基准。
+/// Determine whether this `ProjectFile` represents a baseline.
     ///
-    /// 对应 Java: `public boolean getProjectIsBaseline()`
+    /// Corresponds to Java: `public boolean getProjectIsBaseline()`
     pub fn get_project_is_baseline(&self) -> bool {
         self.bool_value(ProjectField::ProjectIsBaseline.into())
     }
 
-    /// 设置本 `ProjectFile` 是否表示一个基准。
+/// Set whether this `ProjectFile` represents a baseline.
     ///
-    /// 对应 Java: `public void setProjectIsBaseline(boolean value)`
+    /// Corresponds to Java: `public void setProjectIsBaseline(boolean value)`
     pub fn set_project_is_baseline(&mut self, value: bool) {
         self.set_boolean(ProjectField::ProjectIsBaseline, value);
     }
 
-    /// 取项目网站 URL。
+/// Get the project website URL.
     ///
-    /// 对应 Java: `public String getProjectWebsiteUrl()`
+    /// Corresponds to Java: `public String getProjectWebsiteUrl()`
     pub fn get_project_website_url(&self) -> Option<String> {
         self.opt_string(ProjectField::ProjectWebsiteUrl.into())
     }
 
-    /// 设置项目网站 URL。
+/// Set the project website URL.
     ///
-    /// 对应 Java: `public void setProjectWebsiteUrl(String value)`
+    /// Corresponds to Java: `public void setProjectWebsiteUrl(String value)`
     pub fn set_project_website_url(&mut self, value: Option<String>) {
         self.set_field(
             ProjectField::ProjectWebsiteUrl.into(),
@@ -3236,22 +3236,22 @@ impl ProjectProperties {
     }
 
     //
-    // 项目笔记
+// Project notes
     //
 
-    /// 取项目笔记的纯文本形式（无笔记时返回空字符串）。
+/// Get the project notes as plain text (returns an empty string when there are no notes).
     ///
-    /// 对应 Java: `public String getNotes()`
+    /// Corresponds to Java: `public String getNotes()`
     ///
-    /// Java 使用 `TaskField.NOTES`（而非 `ProjectField.NOTES`）作为字段键，Rust 侧保持一致。
+/// Java uses `TaskField.NOTES` (rather than `ProjectField.NOTES`) as the field key; the Rust side does the same.
     pub fn get_notes(&self) -> String {
         self.opt_string(FieldKey::Task(TaskField::Notes))
             .unwrap_or_default()
     }
 
-    /// 设置项目笔记。
+/// Set the project notes.
     ///
-    /// 对应 Java: `public void setNotes(String notes)`
+    /// Corresponds to Java: `public void setNotes(String notes)`
     pub fn set_notes(&mut self, notes: Option<String>) {
         self.set_field(
             FieldKey::Task(TaskField::Notes),
@@ -3259,20 +3259,20 @@ impl ProjectProperties {
         );
     }
 
-    /// 取项目笔记对象。
+/// Get the project notes object.
     ///
-    /// 对应 Java: `public Notes getNotesObject()`
+    /// Corresponds to Java: `public Notes getNotesObject()`
     ///
-    /// `Notes` 是 trait（Java 的基类），无法存入 `FieldValue`，Rust 侧统一以纯文本存放，
-    /// 故此处返回 [`PlainNotes`]（见文件头说明）。
+/// `Notes` is a trait (Java's base class) and cannot be stored in `FieldValue`; the Rust side stores it uniformly as plain text,
+/// so this method returns [`PlainNotes`] (see the file header notes).
     pub fn get_notes_object(&self) -> Option<PlainNotes> {
         self.opt_string(FieldKey::Task(TaskField::Notes))
             .map(|text| PlainNotes::new(Some(text)))
     }
 
-    /// 设置项目笔记对象（取其纯文本形式存入字段表）。
+/// Set the project notes object (its plain text form is stored in the field table).
     ///
-    /// 对应 Java: `public void setNotesObject(Notes notes)`
+    /// Corresponds to Java: `public void setNotesObject(Notes notes)`
     pub fn set_notes_object(&mut self, notes: Option<&dyn Notes>) {
         self.set_field(
             FieldKey::Task(TaskField::Notes),
@@ -3280,44 +3280,44 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「启用发布」标志。
+/// Get the "publish enabled" flag.
     ///
-    /// 对应 Java: `public boolean getEnablePublication()`
+    /// Corresponds to Java: `public boolean getEnablePublication()`
     pub fn get_enable_publication(&self) -> bool {
         self.bool_value(ProjectField::EnablePublication.into())
     }
 
-    /// 设置「启用发布」标志。
+/// Set the "publish enabled" flag.
     ///
-    /// 对应 Java: `public void setEnablePublication(boolean value)`
+    /// Corresponds to Java: `public void setEnablePublication(boolean value)`
     pub fn set_enable_publication(&mut self, value: bool) {
         self.set_boolean(ProjectField::EnablePublication, value);
     }
 
-    /// 取「启用汇总」标志。
+/// Get the "summary enabled" flag.
     ///
-    /// 对应 Java: `public boolean getEnableSummarization()`
+    /// Corresponds to Java: `public boolean getEnableSummarization()`
     pub fn get_enable_summarization(&self) -> bool {
         self.bool_value(ProjectField::EnableSummarization.into())
     }
 
-    /// 设置「启用汇总」标志。
+/// Set the "summary enabled" flag.
     ///
-    /// 对应 Java: `public void setEnableSummarization(boolean value)`
+    /// Corresponds to Java: `public void setEnableSummarization(boolean value)`
     pub fn set_enable_summarization(&mut self, value: bool) {
         self.set_boolean(ProjectField::EnableSummarization, value);
     }
 
-    /// 取无资源 / 角色单价的活动的默认单价。
+/// Get the default price per unit for activities without a resource / role price.
     ///
-    /// 对应 Java: `public Number getActivityDefaultPricePerUnit()`
+    /// Corresponds to Java: `public Number getActivityDefaultPricePerUnit()`
     pub fn get_activity_default_price_per_unit(&self) -> Option<f64> {
         self.opt_double(ProjectField::ActivityDefaultPricePerUnit.into())
     }
 
-    /// 设置无资源 / 角色单价的活动的默认单价。
+/// Set the default price per unit for activities without a resource / role price.
     ///
-    /// 对应 Java: `public void setActivityDefaultPricePerUnit(Number value)`
+    /// Corresponds to Java: `public void setActivityDefaultPricePerUnit(Number value)`
     pub fn set_activity_default_price_per_unit(&mut self, value: Option<f64>) {
         self.set_field(
             ProjectField::ActivityDefaultPricePerUnit.into(),
@@ -3325,9 +3325,9 @@ impl ProjectProperties {
         );
     }
 
-    /// 设置「资源分配成本变化时更新单位」标志。
+/// Set the "update units when resource assignment costs change" flag.
     ///
-    /// 对应 Java: `public void setUpdateUnitsWhenCostsChangeOnResourceAssignments(boolean value)`
+    /// Corresponds to Java: `public void setUpdateUnitsWhenCostsChangeOnResourceAssignments(boolean value)`
     pub fn set_update_units_when_costs_change_on_resource_assignments(&mut self, value: bool) {
         self.set_boolean(
             ProjectField::UpdateUnitsWhenCostsChangeOnResourceAssignments,
@@ -3335,124 +3335,124 @@ impl ProjectProperties {
         );
     }
 
-    /// 取「资源分配成本变化时更新单位」标志。
+/// Get the "update units when resource assignment costs change" flag.
     ///
-    /// 对应 Java: `public boolean getUpdateUnitsWhenCostsChangeOnResourceAssignments()`
+    /// Corresponds to Java: `public boolean getUpdateUnitsWhenCostsChangeOnResourceAssignments()`
     pub fn get_update_units_when_costs_change_on_resource_assignments(&self) -> bool {
         self.bool_value(ProjectField::UpdateUnitsWhenCostsChangeOnResourceAssignments.into())
     }
 
     //
-    // 字段容器（Java 继承自 AbstractFieldContainer 的公开方法）
+// Field container (public methods inherited from Java's AbstractFieldContainer)
     //
 
-    /// 关闭字段更新时的依赖字段清理与事件触发。
+/// Disable dependent field cleanup and event firing on field updates.
     ///
-    /// 对应 Java: `public void disableEvents()`（继承自 `AbstractFieldContainer`）
+/// Corresponds to Java: `public void disableEvents()` (inherited from `AbstractFieldContainer`)
     pub fn disable_events(&mut self) {
         self.fields.disable_events();
     }
 
-    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+/// Enable dependent field cleanup and event firing on field updates (default state).
     ///
-    /// 对应 Java: `public void enableEvents()`（继承自 `AbstractFieldContainer`）
+/// Corresponds to Java: `public void enableEvents()` (inherited from `AbstractFieldContainer`)
     pub fn enable_events(&mut self) {
         self.fields.enable_events();
     }
 
     //
-    // 私有辅助方法
+// Private helper methods
     //
 
-    /// 取可空整数（`get` 的带类型包装）。
+/// Get a nullable integer (typed wrapper around `get`).
     fn opt_int(&self, field: FieldKey) -> Option<i32> {
         self.get(field).and_then(|value| value.as_integer())
     }
 
-    /// 取可空数值（Java 的 `Number`）。
+/// Get a nullable numeric value (Java's `Number`).
     fn opt_double(&self, field: FieldKey) -> Option<f64> {
         self.get(field).and_then(|value| value.as_double())
     }
 
-    /// 取布尔值；Java 的 `BooleanHelper.getBoolean(null)` 返回 `false`。
+/// Get a boolean value; Java's `BooleanHelper.getBoolean(null)` returns `false`.
     fn bool_value(&self, field: FieldKey) -> bool {
         self.get(field)
             .and_then(|value| value.as_boolean())
             .unwrap_or(false)
     }
 
-    /// 取整数，缺失时使用给定默认值。
+/// Get an integer, falling back to the given default when missing.
     fn int_value(&self, field: FieldKey, default: i32) -> i32 {
         self.opt_int(field).unwrap_or(default)
     }
 
-    /// 取字符串，缺失时使用给定默认值。
+/// Get a string, falling back to the given default when missing.
     fn string_value(&self, field: FieldKey, default: &str) -> String {
         self.opt_string(field)
             .unwrap_or_else(|| default.to_owned())
     }
 
-    /// 取可空字符串。
+/// Get a nullable string.
     fn opt_string(&self, field: FieldKey) -> Option<String> {
         self.get(field)
             .and_then(|value| value.as_string().map(str::to_owned))
     }
 
-    /// 取可空日期时间。
+/// Get a nullable date-time.
     fn opt_date_time(&self, field: FieldKey) -> Option<NaiveDateTime> {
         self.get(field).and_then(|value| value.as_date_time())
     }
 
-    /// 取可空时间。
+/// Get a nullable time.
     fn opt_time(&self, field: FieldKey) -> Option<NaiveTime> {
         self.get(field).and_then(|value| value.as_time())
     }
 
-    /// 取可空工期。
+/// Get a nullable duration.
     fn opt_duration(&self, field: FieldKey) -> Option<Duration> {
         self.get(field).and_then(|value| value.as_duration())
     }
 
-    /// 取可空费率。
+/// Get a nullable rate.
     fn opt_rate(&self, field: FieldKey) -> Option<Rate> {
         self.get(field).and_then(|value| value.as_rate())
     }
 
-    /// 取字符值，缺失时使用给定默认值（`FieldValue` 无字符变体，见文件头说明）。
+/// Get a character value, falling back to the given default when missing (`FieldValue` has no character variant; see the file header notes).
     fn char_value(&self, field: FieldKey, default: char) -> char {
         self.opt_string(field)
             .and_then(|text| text.chars().next())
             .unwrap_or(default)
     }
 
-    /// 写入字段值（`FieldContainer::set` 的内部入口）。
+/// Write a field value (internal entry point for `FieldContainer::set`).
     fn set_field(&mut self, field: FieldKey, value: Option<FieldValue>) {
         FieldContainer::set(self, field, value);
     }
 
-    /// 写入布尔字段（对应 Java 的 `private void set(FieldType field, boolean value)`）。
+/// Write a boolean field (corresponds to Java's `private void set(FieldType field, boolean value)`).
     fn set_boolean(&mut self, field: ProjectField, value: bool) {
         self.set_field(field.into(), Some(FieldValue::Boolean(value)));
     }
 
-    /// 写入字符字段（以单字符字符串存放，见文件头说明）。
+/// Write a character field (stored as a single-character string; see the file header notes).
     fn set_char(&mut self, field: ProjectField, value: char) {
         self.set_field(field.into(), Some(FieldValue::String(value.to_string())));
     }
 
-    /// 升级父文件并取其项目上下文（父文件已释放或借用冲突时返回 `None`）。
+/// Upgrade the parent file reference and get its project context (returns `None` when the parent file has been dropped or there is a borrow conflict).
     fn parent_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         parent_context_of(&self.parent_file)
     }
 
-    /// 在给定的项目上下文上取默认日历唯一 ID（对应 Java 的 `calculateDefaultCalendarUniqueID()`）。
+/// Get the default calendar unique ID from the given project context (corresponds to Java's `calculateDefaultCalendarUniqueID()`).
     fn calculate_default_calendar_unique_id(&self) -> Option<i32> {
         let context = self.parent_context()?;
         let context_ref = context.try_borrow().ok()?;
         context_ref.get_calendars().get_default_calendar_unique_id()
     }
 
-    /// 在给定上下文中按唯一 ID 查找日历。
+/// Find a calendar by unique ID in the given context.
     fn find_calendar(
         &self,
         context: &Rc<RefCell<ProjectContext>>,
@@ -3462,21 +3462,21 @@ impl ProjectProperties {
         context_ref.get_calendars().get_by_unique_id(unique_id)
     }
 
-    /// 计算字段取值（对应 Java 的 `CALCULATED_FIELD_MAP` + `getCalculationMethod`）。
+/// Compute the value of a calculated field (corresponds to Java's `CALCULATED_FIELD_MAP` + `getCalculationMethod`).
     ///
-    /// Java 侧该表的值是 `Function<ProjectProperties, Object>`；Rust 侧用 `match` 直接分派，
-    /// 并用「返回 `FieldValue`」代替 Java 的 `Object`。
+/// On the Java side the map values are `Function<ProjectProperties, Object>`; the Rust side dispatches directly with `match`,
+/// and uses "return `FieldValue`" in place of Java's `Object`.
     ///
-    /// `CUSTOM_PROPERTIES` / `PROJECT_CODE_VALUES` 在 Java 中的默认值是空 Map，
-    /// `FieldValue` 无法承载，故返回 `None`（`CUSTOM_PROPERTIES` 的真实取值见
-    /// [`ProjectProperties::get_custom_properties`]，见文件头说明）。
+/// In Java, the defaults for `CUSTOM_PROPERTIES` / `PROJECT_CODE_VALUES` are empty maps,
+/// which `FieldValue` cannot represent, so `None` is returned (for the actual value of `CUSTOM_PROPERTIES`, see
+/// [`ProjectProperties::get_custom_properties`]; see the file header notes).
     fn calculate_field(&self, field: FieldKey) -> Option<FieldValue> {
         let FieldKey::Project(project_field) = field else {
             return None;
         };
 
         match project_field {
-            // ---- 由任务汇总得到的值 ----
+// ---- Values rolled up from tasks ----
             ProjectField::ActualCost => self.get_value_from_summary_task(TaskField::ActualCost),
             ProjectField::ActualDuration => {
                 self.get_value_from_summary_task(TaskField::ActualDuration)
@@ -3510,9 +3510,9 @@ impl ProjectProperties {
                 self.get_value_from_summary_task(TaskField::StartVariance)
             }
             ProjectField::Work => self.get_value_from_summary_task(TaskField::Work),
-            // Java: ProjectField.WORK2 未登记计算方式（注释：待确认其含义）
+// Java: no calculation method is registered for ProjectField.WORK2 (comment: meaning to be confirmed)
 
-            // ---- 项目默认值 ----
+// ---- Project default values ----
             ProjectField::DefaultCalendarUniqueId => self
                 .calculate_default_calendar_unique_id()
                 .map(FieldValue::Integer),
@@ -3681,14 +3681,14 @@ impl ProjectProperties {
             ProjectField::ActivityPercentCompleteBasedOnActivitySteps => {
                 Some(FieldValue::Boolean(false))
             }
-            // Java 的 CUSTOM_PROPERTIES / PROJECT_CODE_VALUES 默认值为空 Map，无法用
-            // `FieldValue` 表达；其余字段没有登记计算方式。
+// Java's defaults for CUSTOM_PROPERTIES / PROJECT_CODE_VALUES are empty maps, which cannot be expressed
+// with `FieldValue`; no calculation method is registered for the remaining fields.
             _ => None,
         }
     }
 
-    /// 从项目上下文取时长单位默认值（对应 Java 计算字段里的
-    /// `p.m_parentFile.getProjectContext().getTimeUnitDefaults().getXxx()`）。
+/// Get the duration unit default from the project context (corresponds to the Java calculated field's
+    /// `p.m_parentFile.getProjectContext().getTimeUnitDefaults().getXxx()`).
     fn time_unit_default_value(
         &self,
         load: impl FnOnce(&TimeUnitDefaults) -> Option<i32>,
@@ -3698,7 +3698,7 @@ impl ProjectProperties {
         load(context_ref.get_time_unit_defaults())
     }
 
-    /// 项目最早开始日期（对应 Java: `m_parentFile.getEarliestStartDate()`）。
+/// Project earliest start date (Corresponds to Java: `m_parentFile.getEarliestStartDate()`).
     fn calculate_start_date(&self) -> Option<FieldValue> {
         let parent = self.parent_file.upgrade()?;
         let parent_ref = parent.try_borrow().ok()?;
@@ -3707,31 +3707,31 @@ impl ProjectProperties {
             .map(FieldValue::DateTime)
     }
 
-    /// 项目最晚完成日期（对应 Java: `m_parentFile.getLatestFinishDate()`）。
+/// Project latest finish date (Corresponds to Java: `m_parentFile.getLatestFinishDate()`).
     fn calculate_finish_date(&self) -> Option<FieldValue> {
         let parent = self.parent_file.upgrade()?;
         let parent_ref = parent.try_borrow().ok()?;
         parent_ref.get_latest_finish_date().map(FieldValue::DateTime)
     }
 
-    /// 项目实际开始日期（对应 Java: `m_parentFile.getActualStart()`）。
+/// Project actual start date (Corresponds to Java: `m_parentFile.getActualStart()`).
     fn calculate_actual_start(&self) -> Option<FieldValue> {
         let parent = self.parent_file.upgrade()?;
         let parent_ref = parent.try_borrow().ok()?;
         parent_ref.get_actual_start().map(FieldValue::DateTime)
     }
 
-    /// 项目实际完成日期（对应 Java: `m_parentFile.getActualFinish()`）。
+/// Project actual finish date (Corresponds to Java: `m_parentFile.getActualFinish()`).
     fn calculate_actual_finish(&self) -> Option<FieldValue> {
         let parent = self.parent_file.upgrade()?;
         let parent_ref = parent.try_borrow().ok()?;
         parent_ref.get_actual_finish().map(FieldValue::DateTime)
     }
 
-    /// 从唯一的子任务取值（对应 Java 的 `getValueFromSummaryTask(TaskField field)`）。
+/// Get a value from the single child task (corresponds to Java's `getValueFromSummaryTask(TaskField field)`).
     ///
-    /// Java 注释：`TODO: implement dummy project summary task to allow values to be rolled up`。
-    /// 子任务数量不为 1、父文件不可用或借用冲突时返回 `None`（Java 返回 `null`）。
+/// Java comment: `TODO: implement dummy project summary task to allow values to be rolled up`.
+/// Returns `None` when the number of child tasks is not 1, the parent file is unavailable, or there is a borrow conflict (Java returns `null`).
     fn get_value_from_summary_task(&self, field: TaskField) -> Option<FieldValue> {
         let parent = self.parent_file.upgrade()?;
         let parent_ref = parent.try_borrow().ok()?;
@@ -3747,10 +3747,10 @@ impl ProjectProperties {
 }
 
 impl ProjectProperties {
-    /// 返回项目属性中有非默认缓存值的字段。
+/// Return the fields that hold a non-default cached value in the project properties.
     ///
-    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；自定义字段由父文件
-    /// 调用者传入，避免借用中的项目文件被反向借用。
+/// Corresponds to Java: `public Set<FieldType> getPopulatedFields()`; custom fields are passed in by the parent file's
+/// caller so that a borrowed project file is not borrowed again in reverse.
     pub fn get_populated_fields(
         &self,
         custom: impl IntoIterator<Item = FieldKey>,
@@ -3766,9 +3766,9 @@ impl ProjectProperties {
 }
 
 impl FieldContainer for ProjectProperties {
-    /// 设置字段值，并把变更转发给 Java 的 `handleFieldChange`。
+/// Set a field value and forward the change to Java's `handleFieldChange`.
     ///
-    /// 对应 Java: `@Override public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `@Override public void set(FieldType field, Object value)`
     fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         let parent_file = self.parent_file.clone();
         self.fields.update(field, value, move |field, old_value, new_value| {
@@ -3776,11 +3776,11 @@ impl FieldContainer for ProjectProperties {
         });
     }
 
-    /// 读取字段值（含计算字段）。
+/// Read a field value (including calculated fields).
     ///
-    /// 对应 Java: `@Override public Object get(FieldType field)`
+    /// Corresponds to Java: `@Override public Object get(FieldType field)`
     ///
-    /// Java 会把计算结果写回字段表，Rust 侧 `&self` 无法写回，见文件头说明。
+/// Java writes the calculation result back to the field table; on the Rust side `&self` cannot write back, so see the file header notes.
     fn get(&self, field: FieldKey) -> Option<FieldValue> {
         if !is_always_calculated_field(field) {
             if let Some(value) = self.fields.get_cached_value(field) {
@@ -3791,19 +3791,19 @@ impl FieldContainer for ProjectProperties {
         self.calculate_field(field)
     }
 
-    /// 只读取已保存的字段值，不触发计算。
+/// Read only the stored field value without triggering a calculation.
     ///
-    /// 对应 Java: `@Override public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `@Override public Object getCachedValue(FieldType field)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 取以工期表示的 timephased 数据。
+/// Get timephased data expressed as durations.
     ///
-    /// 对应 Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
+    /// Corresponds to Java: `@Override public List<Duration> getTimephasedDurationValues(FieldType field, List<LocalDateTimeRange> ranges, TimeUnit units)`
     ///
-    /// Java 的实现体恒返回全 `null` 列表（项目级字段没有 timephased 数据），
-    /// 与 [`FieldContainer`] 的默认实现一致，此处按 Java 显式覆写。
+/// Java's implementation always returns a list of all `null` (project-level fields have no timephased data),
+/// consistent with the [`FieldContainer`] default implementation; it is explicitly overridden here to match Java.
     fn get_timephased_duration_values(
         &self,
         field: FieldKey,
@@ -3814,11 +3814,11 @@ impl FieldContainer for ProjectProperties {
         vec![None; ranges.len()]
     }
 
-    /// 取以数值表示的 timephased 数据。
+/// Get timephased data expressed as numeric values.
     ///
-    /// 对应 Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
+    /// Corresponds to Java: `@Override public List<Number> getTimephasedNumericValues(FieldType field, List<LocalDateTimeRange> ranges)`
     ///
-    /// 同 [`FieldContainer::get_timephased_duration_values`]，Java 恒返回全 `null` 列表。
+/// Same as [`FieldContainer::get_timephased_duration_values`]; Java always returns a list of all `null`.
     fn get_timephased_numeric_values(
         &self,
         field: FieldKey,
@@ -3828,62 +3828,62 @@ impl FieldContainer for ProjectProperties {
         vec![None; ranges.len()]
     }
 
-    /// 注册字段变更监听器。
+/// Register a field change listener.
     ///
-    /// 对应 Java: `@Override public void addFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void addFieldListener(FieldListener listener)`
     fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         self.fields.add_field_listener(listener);
     }
 
-    /// 清空字段变更监听器。
+/// Clear the field change listeners.
     ///
-    /// 对应 Java: `@Override public void removeFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `@Override public void removeFieldListener(FieldListener listener)`
     ///
-    /// Java 按对象身份移除监听器，Rust 无法表达，按 trait 约定改为清空（见文件头说明）。
+/// Java removes a listener by object identity, which Rust cannot express; by trait convention this clears the listeners instead (see the file header notes).
     fn clear_field_listeners(&mut self) {
         self.fields.clear_field_listeners();
     }
 }
 
 impl TimeUnitDefaultsContainer for ProjectProperties {
-    /// 对应 Java: `@Override public Integer getMinutesPerDay()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerDay()`
     fn get_minutes_per_day(&self) -> Option<i32> {
         ProjectProperties::get_minutes_per_day(self)
     }
 
-    /// 对应 Java: `@Override public Integer getMinutesPerWeek()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerWeek()`
     fn get_minutes_per_week(&self) -> Option<i32> {
         ProjectProperties::get_minutes_per_week(self)
     }
 
-    /// 对应 Java: `@Override public Integer getMinutesPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerMonth()`
     fn get_minutes_per_month(&self) -> Option<i32> {
         ProjectProperties::get_minutes_per_month(self)
     }
 
-    /// 对应 Java: `@Override public Integer getMinutesPerYear()`
+    /// Corresponds to Java: `@Override public Integer getMinutesPerYear()`
     fn get_minutes_per_year(&self) -> Option<i32> {
         ProjectProperties::get_minutes_per_year(self)
     }
 
-    /// 对应 Java: `@Override public Integer getDaysPerMonth()`
+    /// Corresponds to Java: `@Override public Integer getDaysPerMonth()`
     fn get_days_per_month(&self) -> Option<i32> {
         ProjectProperties::get_days_per_month(self)
     }
 }
 
-/// 升级父文件引用并取其项目上下文（父文件已释放、父文件借用冲突时返回 `None`）。
+/// Upgrade the parent file reference and get its project context (returns `None` when the parent file has been dropped or there is a parent file borrow conflict).
 fn parent_context_of(parent_file: &Weak<RefCell<ProjectFile>>) -> Option<Rc<RefCell<ProjectContext>>> {
     let parent = parent_file.upgrade()?;
     let parent_ref = parent.try_borrow().ok()?;
     Some(parent_ref.get_project_context())
 }
 
-/// 字段变更处理，对应 Java 的 `@Override void handleFieldChange(FieldType field, Object oldValue, Object newValue)`。
+/// Field change handling, corresponding to Java's `@Override void handleFieldChange(FieldType field, Object oldValue, Object newValue)`.
 ///
-/// Java 中该处理把「默认日历唯一 ID」「时长单位默认值」同步到父文件持有的容器；Rust 侧
-/// 经由父文件的 `ProjectContext` 完成同样的同步（父文件不可用或借用冲突时静默跳过，
-/// 与 Java 的强引用相比不会 panic）。
+/// In Java this handler synchronizes the "default calendar unique ID" and the "duration unit defaults" to the container held by the parent file; on the Rust side
+/// the same synchronization is done through the parent file's `ProjectContext` (silently skipped when the parent file is unavailable or there is a borrow conflict,
+/// which unlike Java's strong references will not panic).
 fn handle_field_change(
     parent_file: &Weak<RefCell<ProjectFile>>,
     field: FieldKey,
@@ -3940,7 +3940,7 @@ fn handle_field_change(
     }
 }
 
-/// 在父文件的项目上下文上修改时长单位默认值（父文件不可用或借用冲突时静默跳过）。
+/// Modify the duration unit defaults on the parent file's project context (silently skipped when the parent file is unavailable or there is a borrow conflict).
 fn with_time_unit_defaults(
     parent_file: &Weak<RefCell<ProjectFile>>,
     apply: impl FnOnce(&mut TimeUnitDefaults),
@@ -3955,9 +3955,9 @@ fn with_time_unit_defaults(
     apply(context_ref.get_time_unit_defaults_mut());
 }
 
-/// 判断字段是否属于 Java 的 `ALWAYS_CALCULATED_FIELDS`。
+/// Determine whether a field belongs to Java's `ALWAYS_CALCULATED_FIELDS`.
 ///
-/// 对应 Java: `@Override boolean getAlwaysCalculatedField(FieldType field)` 与
+/// Corresponds to Java: `@Override boolean getAlwaysCalculatedField(FieldType field)` and
 /// `private static final Set<FieldType> ALWAYS_CALCULATED_FIELDS`
 fn is_always_calculated_field(field: FieldKey) -> bool {
     matches!(
@@ -3973,9 +3973,9 @@ fn is_always_calculated_field(field: FieldKey) -> bool {
     )
 }
 
-/// 映射字段编号到字段（Java 的 `private ProjectField selectField(ProjectField[] fields, int index)`）。
+/// Map a field number to a field (Java's `private ProjectField selectField(ProjectField[] fields, int index)`).
 ///
-/// Java 对越界编号抛 `IllegalArgumentException`；Rust 侧返回 `None`（不 panic）。
+/// Java throws `IllegalArgumentException` for an out-of-bounds number; the Rust side returns `None` (no panic).
 fn select_field(fields: &[ProjectField], index: i32) -> Option<ProjectField> {
     if index < 1 || index > fields.len() as i32 {
         return None;
@@ -3984,21 +3984,21 @@ fn select_field(fields: &[ProjectField], index: i32) -> Option<ProjectField> {
     fields.get((index - 1) as usize).copied()
 }
 
-/// 取枚举值在 Java 声明顺序中的序号（用于不实现 `MpxjEnum` 的枚举的 int 互转）。
+/// Get the ordinal of an enum value in Java's declaration order (used for int conversion of enums that do not implement `MpxjEnum`).
 fn ordinal_of<T: PartialEq>(all: &[T], value: T) -> i32 {
     all.iter().position(|item| *item == value).unwrap_or(0) as i32
 }
 
-/// `DayOfWeek` → Java 的 1（周一）…7（周日）。
+/// `DayOfWeek` → Java's 1 (Monday) … 7 (Sunday).
 ///
-/// 对应 Java: `DayOfWeek.getValue()`
+/// Corresponds to Java: `DayOfWeek.getValue()`
 fn java_day_of_week(day: Weekday) -> i32 {
     day.num_days_from_monday() as i32 + 1
 }
 
-/// Java 的 1（周一）…7（周日）→ [`Weekday`]（越界返回 `None`）。
+/// Java's 1 (Monday) … 7 (Sunday) → [`Weekday`] (returns `None` when out of bounds).
 ///
-/// 对应 Java: `DayOfWeek.of(int dayOfWeek)`
+/// Corresponds to Java: `DayOfWeek.of(int dayOfWeek)`
 fn weekday_from_java_day(value: i32) -> Option<Weekday> {
     u8::try_from(value - 1)
         .ok()
@@ -4010,19 +4010,19 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
-    /// 无父文件的属性对象（父文件不可用时各计算字段退化为 `None` / Java 默认值）。
+/// A properties object with no parent file (when the parent file is unavailable each calculated field degrades gracefully to `None` / the Java default).
     fn new_properties() -> ProjectProperties {
         ProjectProperties::new(Weak::new())
     }
 
     fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         chrono::NaiveDate::from_ymd_opt(year, month, day)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(hour, minute, 0)
-            .expect("合法时间")
+            .expect("valid time")
     }
 
-    /// 造一个带唯一 ID 的日历（临时日历，不访问上下文）。
+/// Create a calendar with a unique ID (a temporary calendar that does not access the context).
     fn calendar(unique_id: i32) -> Rc<RefCell<ProjectCalendar>> {
         let mut calendar = ProjectCalendar::new(Weak::new(), true);
         calendar.set_unique_id(Some(unique_id));
@@ -4049,7 +4049,7 @@ mod tests {
         assert_eq!(properties.get_percentage_complete(), Some(25.0));
         assert_eq!(properties.get_unique_id(), Some(7));
 
-        // 写入后再清空
+// Write and then clear
         properties.set_name(None);
         assert_eq!(properties.get_name(), None);
         assert_eq!(
@@ -4078,7 +4078,7 @@ mod tests {
         properties.set_mpx_code_page(Some(CodePage::Zh));
         properties.set_week_start_day(Some(Weekday::Sun));
         properties.set_start_date(Some(date_time(2024, 3, 1, 8, 0)));
-        properties.set_default_end_time(Some(NaiveTime::from_hms_opt(17, 0, 0).expect("合法时间")));
+        properties.set_default_end_time(Some(NaiveTime::from_hms_opt(17, 0, 0).expect("valid time")));
 
         assert_eq!(properties.get_default_duration_units(), TimeUnit::Weeks);
         assert_eq!(properties.get_default_work_units(), TimeUnit::ElapsedHours);
@@ -4108,7 +4108,7 @@ mod tests {
         assert_eq!(properties.get_start_date(), Some(date_time(2024, 3, 1, 8, 0)));
         assert_eq!(
             properties.get_default_end_time(),
-            Some(NaiveTime::from_hms_opt(17, 0, 0).expect("合法时间"))
+            Some(NaiveTime::from_hms_opt(17, 0, 0).expect("valid time"))
         );
     }
 
@@ -4116,7 +4116,7 @@ mod tests {
     fn default_values_follow_java_calculated_field_map() {
         let properties = new_properties();
 
-        // 字符串 / 字符
+// String / character
         assert_eq!(properties.get_currency_symbol(), "$");
         assert_eq!(properties.get_am_text(), "am");
         assert_eq!(properties.get_pm_text(), "pm");
@@ -4130,7 +4130,7 @@ mod tests {
         assert_eq!(properties.get_decimal_separator(), '.');
         assert_eq!(properties.get_mpx_delimiter(), ',');
 
-        // 数字
+// Numeric
         assert_eq!(properties.get_currency_digits(), 2);
         assert_eq!(properties.get_baseline_for_earned_value(), 0);
         assert_eq!(properties.get_fiscal_year_start_month(), 1);
@@ -4143,7 +4143,7 @@ mod tests {
         assert_eq!(properties.get_activity_id_increment(), 10);
         assert_eq!(properties.get_max_percent_to_overallocate_resources(), 25.0);
 
-        // 枚举 / 时间 / 工期
+// Enum / time / duration
         assert_eq!(properties.get_default_duration_units(), TimeUnit::Days);
         assert_eq!(properties.get_default_work_units(), TimeUnit::Hours);
         assert_eq!(properties.get_date_order(), DateOrder::Dmy);
@@ -4177,7 +4177,7 @@ mod tests {
         );
         assert_eq!(
             properties.get_default_start_time(),
-            NaiveTime::from_hms_opt(8, 0, 0).expect("合法时间")
+            NaiveTime::from_hms_opt(8, 0, 0).expect("valid time")
         );
         assert_eq!(
             properties.get_critical_slack_limit(),
@@ -4188,7 +4188,7 @@ mod tests {
             Duration::get_instance_int(1, TimeUnit::Hours)
         );
 
-        // 布尔
+// Boolean
         assert!(properties.get_updating_task_status_updates_resource_status());
         assert!(!properties.get_split_in_progress_tasks());
         assert!(properties.get_new_tasks_estimated());
@@ -4198,11 +4198,11 @@ mod tests {
         assert!(properties.get_use_expected_finish_dates());
         assert!(properties.get_activity_id_increment_based_on_selected_activity());
         assert!(!properties.get_project_is_baseline());
-        // 无默认值的布尔字段经 BooleanHelper.getBoolean(null) 得到 false
+// Boolean fields with no default yield false via BooleanHelper.getBoolean(null)
         assert!(!properties.get_spread_percent_complete());
         assert!(!properties.get_honor_constraints());
 
-        // 无父文件时项目级取值不可用
+// Project-level values are unavailable when there is no parent file
         assert_eq!(properties.get_start_date(), None);
         assert_eq!(properties.get_finish_date(), None);
         assert_eq!(properties.get_actual_start(), None);
@@ -4219,11 +4219,11 @@ mod tests {
 
         properties.set_default_calendar(Some(Rc::clone(&calendar)));
         assert_eq!(properties.get_default_calendar_unique_id(), Some(42));
-        let resolved = properties.get_default_calendar().expect("应能取回默认日历");
+        let resolved = properties.get_default_calendar().expect("should retrieve the default calendar");
         assert!(Rc::ptr_eq(&resolved, &calendar));
 
-        // 仅设置唯一 ID（未设置日历对象）且无父文件时，始终计算字段取不到值（与 Java 一致：
-        // Java 同样忽略字段表中的缓存值，改由父文件日历容器解析）
+// When only the unique ID is set (no calendar object) and there is no parent file, an always-calculated field cannot be resolved (consistent with Java:
+// Java likewise ignores the cached value in the field table and resolves it through the parent file's calendar container)
         let mut properties = new_properties();
         properties.set_default_calendar_unique_id(Some(9));
         assert_eq!(properties.get_default_calendar_unique_id(), None);
@@ -4247,7 +4247,7 @@ mod tests {
         assert_eq!(properties.get_activity_default_calendar_unique_id(), Some(5));
         let resolved = properties
             .get_activity_default_calendar()
-            .expect("应能取回活动默认日历");
+            .expect("should retrieve the active default calendar");
         assert!(Rc::ptr_eq(&resolved, &calendar));
 
         properties.set_activity_default_calendar(None);
@@ -4259,7 +4259,7 @@ mod tests {
     fn time_unit_defaults_are_read_from_parent_context() {
         let mut properties = new_properties();
 
-        // 无父文件：始终计算字段取不到值，但原始值仍可写入字段表
+// No parent file: always-calculated fields cannot be resolved, but the raw value can still be written to the field table
         assert_eq!(properties.get_days_per_month(), None);
         assert_eq!(properties.get_minutes_per_day(), None);
         properties.set_days_per_month(Some(25));
@@ -4274,7 +4274,7 @@ mod tests {
             Some(&FieldValue::Integer(600))
         );
 
-        // 以 trait 对象使用：与 Java 的 TimeUnitDefaultsContainer 行为一致
+// Used as a trait object: behaves the same as Java's TimeUnitDefaultsContainer
         let container: &dyn TimeUnitDefaultsContainer = &properties;
         assert_eq!(container.get_days_per_month(), None);
         assert_eq!(container.get_minutes_per_day(), None);
@@ -4287,7 +4287,7 @@ mod tests {
     fn currency_and_working_day_settings_round_trip() {
         let mut properties = new_properties();
 
-        // 货币设置
+// Currency settings
         properties.set_currency_symbol(Some("€".to_owned()));
         properties.set_currency_code(Some("EUR".to_owned()));
         properties.set_currency_digits(Some(3));
@@ -4304,7 +4304,7 @@ mod tests {
         assert_eq!(properties.get_thousands_separator(), ' ');
         assert_eq!(properties.get_decimal_separator(), ',');
 
-        // 工作日 / 会计年度设置
+// Working day / fiscal year settings
         properties.set_week_start_day(Some(Weekday::Wed));
         properties.set_fiscal_year_start(true);
         properties.set_fiscal_year_start_month(Some(4));
@@ -4315,7 +4315,7 @@ mod tests {
         properties.set_week_start_day(Some(Weekday::Mon));
         assert_eq!(properties.get_week_start_day(), Weekday::Mon);
 
-        // 越界的星期值回退到默认的周一
+// An out-of-bounds weekday value falls back to the default Monday
         properties.set_field(
             FieldKey::Project(ProjectField::WeekStartDay),
             Some(FieldValue::Integer(99)),
@@ -4327,12 +4327,12 @@ mod tests {
     fn guid_notes_and_custom_properties_round_trip() {
         let mut properties = new_properties();
 
-        // GUID 以字符串形式存放
+// The GUID is stored as a string
         let guid = Uuid::from_u128(0x1234_5678_9abc_def0_1234_5678_9abc_def0);
         properties.set_guid(Some(guid));
         assert_eq!(properties.get_guid(), Some(guid));
 
-        // 笔记统一以纯文本存放
+// Notes are stored uniformly as plain text
         assert_eq!(properties.get_notes(), "");
         assert!(properties.get_notes_object().is_none());
         properties.set_notes(Some("项目笔记".to_owned()));
@@ -4348,7 +4348,7 @@ mod tests {
         properties.set_notes_object(None);
         assert_eq!(properties.get_notes(), "");
 
-        // 自定义属性以独立字段承载
+// Custom properties are carried by a separate field
         assert!(properties.get_custom_properties().is_empty());
         let custom_properties = HashMap::from([
             ("Author".to_owned(), FieldValue::String("Jon".to_owned())),
@@ -4382,7 +4382,7 @@ mod tests {
         );
         assert_eq!(properties.get_baseline_date_for_index(2), None);
 
-        // Java 对越界编号抛 IllegalArgumentException；Rust 侧返回 None / 不写入
+// Java throws IllegalArgumentException for an out-of-bounds number; the Rust side returns None / does not write
         assert_eq!(properties.get_baseline_date_for_index(0), None);
         assert_eq!(properties.get_baseline_date_for_index(11), None);
         properties.set_baseline_date_for_index(2, Some(date_time(2024, 2, 2, 8, 0)));
@@ -4391,7 +4391,7 @@ mod tests {
             Some(date_time(2024, 2, 2, 8, 0))
         );
 
-        // 无参重载使用 BASELINE_DATE 字段
+// The no-argument overload uses the BASELINE_DATE field
         properties.set_baseline_date(Some(date_time(2024, 5, 5, 8, 0)));
         assert_eq!(
             properties.get_baseline_date(),
@@ -4441,7 +4441,7 @@ mod tests {
         properties.set_name(Some("B".to_owned()));
         assert_eq!(log.borrow().len(), 2);
 
-        // disableEvents 只影响依赖字段清理，不影响监听器（与 Java 一致）
+// disableEvents only affects dependent field cleanup and not listeners (consistent with Java)
         let fired = Rc::new(Cell::new(0));
         let mut properties = new_properties();
         properties.add_field_listener(Box::new(Counter(Rc::clone(&fired))));
@@ -4467,7 +4467,7 @@ mod tests {
             Some(&FieldValue::String("X".to_owned()))
         );
 
-        // set(None) 会把字段从字段表中移除
+// set(None) removes the field from the field table
         properties.set_field(FieldKey::Project(ProjectField::Name), None);
         assert!(properties.fields.is_empty());
     }
@@ -4477,7 +4477,7 @@ mod tests {
         let properties = new_properties();
 
         assert!(properties.get_parent_file().is_none());
-        // 汇总字段（来自唯一子任务）在无父文件时取不到值
+// Summary fields (from the single child task) cannot be resolved when there is no parent file
         assert_eq!(properties.get_cost(), None);
         assert_eq!(properties.get_work(), None);
         assert_eq!(properties.get_duration(), None);

@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/LocalDateTimeRange.java`
+//! Corresponds to Java: `org/mpxj/LocalDateTimeRange.java`
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -6,23 +6,23 @@ use std::hash::{Hash, Hasher};
 
 use chrono::NaiveDateTime;
 
-/// 表示一段时间区间。
+/// Represents a time range.
 ///
-/// 对应 Java: `public final class LocalDateTimeRange implements Comparable<LocalDateTimeRange>`
+/// Corresponds to Java: `public final class LocalDateTimeRange implements Comparable<LocalDateTimeRange>`
 ///
-/// Java 侧的 `m_start`/`m_end` 允许为 `null`，Rust 侧统一用 [`Option`] 表示。
+/// Java's `m_start`/`m_end` may be `null`; Rust uniformly represents them with [`Option`].
 #[derive(Debug, Clone, Copy)]
 pub struct LocalDateTimeRange {
-    /// 对应 Java 字段 `m_start`
+    /// Corresponds to Java field `m_start`
     start: Option<NaiveDateTime>,
-    /// 对应 Java 字段 `m_end`
+    /// Corresponds to Java field `m_end`
     end: Option<NaiveDateTime>,
 }
 
 impl LocalDateTimeRange {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `LocalDateTimeRange(LocalDateTime startDate, LocalDateTime endDate)`
+    /// Corresponds to Java: `LocalDateTimeRange(LocalDateTime startDate, LocalDateTime endDate)`
     pub fn new(start_date: Option<NaiveDateTime>, end_date: Option<NaiveDateTime>) -> Self {
         Self {
             start: start_date,
@@ -30,64 +30,64 @@ impl LocalDateTimeRange {
         }
     }
 
-    /// 取区间起始日期时间。
+/// Gets the range start date-time.
     ///
-    /// 对应 Java: `getStart()`
+    /// Corresponds to Java: `getStart()`
     pub fn get_start(&self) -> Option<NaiveDateTime> {
         self.start
     }
 
-    /// 取区间结束日期时间。
+/// Gets the range end date-time.
     ///
-    /// 对应 Java: `getEnd()`
+    /// Corresponds to Java: `getEnd()`
     pub fn get_end(&self) -> Option<NaiveDateTime> {
         self.end
     }
 
-    /// 判断本区间是否整体早于给定区间。
+/// Determines whether this range is entirely before the given range.
     ///
-    /// 对应 Java: `isBefore(LocalDateTimeRange range)`
+    /// Corresponds to Java: `isBefore(LocalDateTimeRange range)`
     ///
-    /// Java 中字段为 `null` 时会抛 NPE，Rust 侧退化为返回 `false`。
+/// Java throws an NPE when a field is `null`; Rust degrades gracefully to returning `false`.
     pub fn is_before(&self, range: &LocalDateTimeRange) -> bool {
         matches!(self.compare_ranges(range), Some(result) if result < 0)
     }
 
-    /// 判断本区间是否整体晚于给定区间。
+/// Determines whether this range is entirely after the given range.
     ///
-    /// 对应 Java: `isAfter(LocalDateTimeRange range)`
+    /// Corresponds to Java: `isAfter(LocalDateTimeRange range)`
     ///
-    /// Java 中字段为 `null` 时会抛 NPE，Rust 侧退化为返回 `false`。
+/// Java throws an NPE when a field is `null`; Rust degrades gracefully to returning `false`.
     pub fn is_after(&self, range: &LocalDateTimeRange) -> bool {
         matches!(self.compare_ranges(range), Some(result) if result > 0)
     }
 
-    /// 判断本区间是否与给定区间相交。
+/// Determines whether this range intersects the given range.
     ///
-    /// 对应 Java: `intersectsWith(LocalDateTimeRange range)`
+    /// Corresponds to Java: `intersectsWith(LocalDateTimeRange range)`
     ///
-    /// Java 中字段为 `null` 时会抛 NPE，Rust 侧退化为返回 `false`。
+/// Java throws an NPE when a field is `null`; Rust degrades gracefully to returning `false`.
     pub fn intersects_with(&self, range: &LocalDateTimeRange) -> bool {
         matches!(self.compare_ranges(range), Some(0))
     }
 
-    /// 返回本区间与给定区间的交集，没有交集时返回 `null`（Rust 侧为 [`None`]）。
+/// Returns the intersection of this range and the given range, or `null` when there is no intersection ([`None`] on the Rust side).
     ///
-    /// 对应 Java: `intersection(LocalDateTimeRange range)`
+    /// Corresponds to Java: `intersection(LocalDateTimeRange range)`
     pub fn intersection(&self, range: &LocalDateTimeRange) -> Option<LocalDateTimeRange> {
-        // 没有交集，返回 null
+// no intersection, return null
         if !self.intersects_with(range) {
             return None;
         }
 
         match (self.start, self.end, range.start, range.end) {
             (Some(this_start), Some(this_end), Some(range_start), Some(range_end)) => {
-                // 给定区间完全落在本区间内，直接返回给定区间
+// the given range falls entirely within this range; return the given range directly
                 if range_start >= this_start && range_end <= this_end {
                     return Some(*range);
                 }
 
-                // 计算交集
+// compute the intersection
                 let start = if range_start < this_start {
                     this_start
                 } else {
@@ -99,24 +99,24 @@ impl LocalDateTimeRange {
                     range_end
                 };
 
-                // 本区间完全落在给定区间内则返回自身，否则新建交集区间
+// if this range falls entirely within the given range return itself, otherwise build a new intersection range
                 if start == this_start && end == this_end {
                     Some(*self)
                 } else {
                     Some(LocalDateTimeRange::new(Some(start), Some(end)))
                 }
             }
-            // intersects_with 为 false 时已经返回，此处不可达
+// when intersects_with is false we already returned, so this is unreachable
             _ => None,
         }
     }
 
-    /// 比较目标日期时间与区间：位于区间内返回 0，早于区间返回负数，晚于区间返回正数。
+/// Compares the target date-time with the range: returns 0 if within the range, negative if before it, positive if after it.
     ///
-    /// 对应 Java: `compareTo(LocalDateTime date)`（内部调用
-    /// `LocalDateTimeHelper.compare(LocalDateTime startDate, LocalDateTime endDate, LocalDateTime targetDate)`）。
+/// Corresponds to Java: `compareTo(LocalDateTime date)` (internally calls
+    /// `LocalDateTimeHelper.compare(LocalDateTime startDate, LocalDateTime endDate, LocalDateTime targetDate)`).
     ///
-    /// Java 中起始/结束日期时间为 `null` 时会抛 NPE，Rust 侧退化为返回 0。
+/// Java throws an NPE when the start/end date-time is `null`; Rust degrades gracefully to returning 0.
     pub fn compare_to_date(&self, date: NaiveDateTime) -> i32 {
         match (self.start, self.end) {
             (Some(start), Some(end)) => {
@@ -132,10 +132,10 @@ impl LocalDateTimeRange {
         }
     }
 
-    /// 对应 Java: `LocalDateTimeHelper.compare(LocalDateTime, LocalDateTime,
-    /// LocalDateTime, LocalDateTime)`，即两个区间的比较结果：
-    /// `-1` 表示本区间在给定区间开始之前结束，`1` 表示本区间在给定区间结束之后开始，
-    /// `0` 表示两个区间相交。任一字段为 `null` 时返回 [`None`]（Java 侧会抛 NPE）。
+    /// Corresponds to Java: `LocalDateTimeHelper.compare(LocalDateTime, LocalDateTime,
+/// LocalDateTime, LocalDateTime)`, i.e. the comparison result of two ranges:
+/// `-1` means this range ends before the given range starts, `1` means this range starts after the given range ends,
+/// `0` means the two ranges intersect. Returns [`None`] when any field is `null` (Java throws an NPE).
     fn compare_ranges(&self, range: &LocalDateTimeRange) -> Option<i32> {
         match (self.start, self.end, range.start, range.end) {
             (Some(start1), Some(end1), Some(start2), Some(end2)) => {
@@ -146,20 +146,20 @@ impl LocalDateTimeRange {
     }
 }
 
-/// 对应 Java: `LocalDateTimeHelper.compare(LocalDateTime startRange1, LocalDateTime endRange1,
-/// LocalDateTime startRange2, LocalDateTime endRange2)`。
+/// Corresponds to Java: `LocalDateTimeHelper.compare(LocalDateTime startRange1, LocalDateTime endRange1,
+/// LocalDateTime startRange2, LocalDateTime endRange2)`.
 fn compare_range_values(
     start_range1: NaiveDateTime,
     end_range1: NaiveDateTime,
     start_range2: NaiveDateTime,
     end_range2: NaiveDateTime,
 ) -> i32 {
-    // 区间 1 在区间 2 开始之前结束
+// range 1 ends before range 2 starts
     if end_range1 <= start_range2 {
         return -1;
     }
 
-    // 区间 1 在区间 2 结束之后开始
+// range 1 starts after range 2 ends
     if start_range1 >= end_range2 {
         return 1;
     }
@@ -167,9 +167,9 @@ fn compare_range_values(
     0
 }
 
-/// 对应 Java: `LocalDateTimeHelper.compare(LocalDateTime, LocalDateTime)`。
+/// Corresponds to Java: `LocalDateTimeHelper.compare(LocalDateTime, LocalDateTime)`.
 ///
-/// 保留 Java 的 null 语义：`null` 视为「更大」，即排在非 null 值之后。
+/// Keeps Java's null semantics: `null` is treated as "greater", i.e. sorted after non-null values.
 fn compare_optional_date_time(lhs: Option<NaiveDateTime>, rhs: Option<NaiveDateTime>) -> Ordering {
     match (lhs, rhs) {
         (None, None) => Ordering::Equal,
@@ -179,13 +179,13 @@ fn compare_optional_date_time(lhs: Option<NaiveDateTime>, rhs: Option<NaiveDateT
     }
 }
 
-/// 对应 Java: `LocalDateTime.toEpochSecond(ZoneOffset.UTC)`：`null` 视为 0。
+/// Corresponds to Java: `LocalDateTime.toEpochSecond(ZoneOffset.UTC)`: `null` is treated as 0.
 fn to_epoch_second(date_time: Option<NaiveDateTime>) -> i64 {
     date_time.map_or(0, |date_time| date_time.and_utc().timestamp())
 }
 
 impl Ord for LocalDateTimeRange {
-    /// 对应 Java: `compareTo(LocalDateTimeRange o)`：先比较起始日期时间，再比较结束日期时间。
+/// Corresponds to Java: `compareTo(LocalDateTimeRange o)`: compare the start date-time first, then the end date-time.
     fn cmp(&self, other: &Self) -> Ordering {
         let result = compare_optional_date_time(self.start, other.start);
         if result == Ordering::Equal {
@@ -203,7 +203,7 @@ impl PartialOrd for LocalDateTimeRange {
 }
 
 impl PartialEq for LocalDateTimeRange {
-    /// 对应 Java: `equals(Object o)`：以 `compareTo` 的结果是否为 0 判定。
+/// Corresponds to Java: `equals(Object o)`: decided by whether the result of `compareTo` is 0.
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
@@ -212,7 +212,7 @@ impl PartialEq for LocalDateTimeRange {
 impl Eq for LocalDateTimeRange {}
 
 impl Hash for LocalDateTimeRange {
-    /// 对应 Java: `hashCode()`：使用起始/结束日期时间的 epoch second 异或。
+/// Corresponds to Java: `hashCode()`: XOR of the epoch seconds of the start/end date-times.
     fn hash<H: Hasher>(&self, state: &mut H) {
         let start = to_epoch_second(self.start);
         let end = to_epoch_second(self.end);
@@ -222,9 +222,9 @@ impl Hash for LocalDateTimeRange {
 }
 
 impl Display for LocalDateTimeRange {
-    /// 对应 Java: `toString()`：`[LocalDateTimeRange start=... end=...]`，
-    /// `null` 字段输出为 `null`。Java 的 `LocalDateTime.toString()` 用 `T` 分隔
-    /// 日期与时间，这里沿用 chrono 的默认格式。
+    /// Corresponds to Java: `toString()`:`[LocalDateTimeRange start=... end=...]`,
+/// A `null` field is output as `null`. Java's `LocalDateTime.toString()` separates
+/// the date and time with `T`; here we keep chrono's default format.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,

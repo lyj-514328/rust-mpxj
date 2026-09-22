@@ -1,17 +1,17 @@
-//! 对应 Java: `org/mpxj/CustomFieldValueDataType.java`
+//! Corresponds to Java: `org/mpxj/CustomFieldValueDataType.java`
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::data_type::DataType;
 use crate::mpxj_enum::MpxjEnum;
 
-/// 自定义字段取值项（value item）的数据类型。
+/// Data type of a custom field value item.
 ///
-/// 对应 Java: `public enum CustomFieldValueDataType implements MpxjEnum`
+/// Corresponds to Java: `public enum CustomFieldValueDataType implements MpxjEnum`
 ///
-/// Java 侧每个常量携带 `(int value, int maskValue, DataType type)` 三个字段：
+/// On the Java side each constant carries three fields: `(int value, int maskValue, DataType type)`:
 ///
-/// | 常量 | `getValue()` | `getMaskValue()` | `getDataType()` |
+/// | Constant | `getValue()` | `getMaskValue()` | `getDataType()` |
 /// |---|---|---|---|
 /// | `DATE` | 4 | 4 | `DataType.DATE` |
 /// | `DURATION` | 6 | 6 | `DataType.DURATION` |
@@ -21,52 +21,52 @@ use crate::mpxj_enum::MpxjEnum;
 /// | `TEXT` | 21 | 3 | `DataType.STRING` |
 /// | `FINISH_DATE` | 27 | 9 | `DataType.DATE` |
 ///
-/// Rust 侧 `value` 用显式判别值承载（[`MpxjEnum::value`] 直接返回它），
-/// `maskValue` / `type` 由 [`CustomFieldValueDataType::get_mask_value`] 与
-/// [`CustomFieldValueDataType::get_data_type`] 用 `match` 返回。
+/// On the Rust side `value` is carried by the explicit discriminant (returned directly by [`MpxjEnum::value`]),
+/// while `maskValue` / `type` are returned by [`CustomFieldValueDataType::get_mask_value`] and
+/// [`CustomFieldValueDataType::get_data_type`] via `match`.
 ///
-/// # 与 Java 的差异：反射建表改为 `match`
+/// # Differences from Java: reflection-based table creation replaced by `match`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray` 反射生成两张表：
-/// * `TYPE_VALUES`：长度 `7 + 21 = 28`，按 `getValue()` 作下标；
-/// * `MASK_VALUES`：长度 28，按 `getMaskValue()` 作下标。
+/// Java uses `EnumHelper.createTypeArray` reflection to generate two tables:
+/// * `TYPE_VALUES`: length `7 + 21 = 28`, indexed by `getValue()`;
+/// * `MASK_VALUES`: length 28, indexed by `getMaskValue()`.
 ///
-/// Rust 侧不使用反射，改为 [`CustomFieldValueDataType::ALL`] 加 `match`；
-/// [`get_instance`](CustomFieldValueDataType::get_instance) 保留 Java 的「下标越界返回
-/// `null`」语义（越界或该下标没有对应常量时返回 `None`）。
+/// Rust does not use reflection; instead it uses [`CustomFieldValueDataType::ALL`] plus `match`;
+/// [`get_instance`](CustomFieldValueDataType::get_instance) keeps Java's "return on index out of bounds
+/// `null`" semantics (returns `None` when out of bounds or when the index has no corresponding constant).
 ///
-/// 被跳过的 Java 机制：反射（`EnumHelper.createTypeArray`，见上）。
+/// Skipped Java mechanism: reflection (`EnumHelper.createTypeArray`, see above).
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CustomFieldValueDataType {
-    /// 对应 Java: `DATE(4, 4, DataType.DATE)`
+    /// Corresponds to Java: `DATE(4, 4, DataType.DATE)`
     Date = 4,
-    /// 对应 Java: `DURATION(6, 6, DataType.DURATION)`
+    /// Corresponds to Java: `DURATION(6, 6, DataType.DURATION)`
     Duration = 6,
-    /// 对应 Java: `COST(9, 5, DataType.CURRENCY)`
+    /// Corresponds to Java: `COST(9, 5, DataType.CURRENCY)`
     Cost = 9,
-    /// 对应 Java: `NUMBER(15, 7, DataType.NUMERIC)`
+    /// Corresponds to Java: `NUMBER(15, 7, DataType.NUMERIC)`
     Number = 15,
-    /// 对应 Java: `FLAG(17, 17, DataType.BOOLEAN)`
+    /// Corresponds to Java: `FLAG(17, 17, DataType.BOOLEAN)`
     Flag = 17,
-    /// 对应 Java: `TEXT(21, 3, DataType.STRING)`
+    /// Corresponds to Java: `TEXT(21, 3, DataType.STRING)`
     Text = 21,
-    /// 对应 Java: `FINISH_DATE(27, 9, DataType.DATE)`
+    /// Corresponds to Java: `FINISH_DATE(27, 9, DataType.DATE)`
     FinishDate = 27,
 }
 
 impl CustomFieldValueDataType {
-    /// Java 侧 `TYPE_VALUES` 数组长度：`EnumHelper.createTypeArray(class, 21)` 生成
-    /// `常量个数(7) + 21 = 28` 个槽位。
+/// Java-side `TYPE_VALUES` array length: `EnumHelper.createTypeArray(class, 21)` generates
+/// `number of constants (7) + 21 = 28` slots.
     const TYPE_VALUES_LEN: i32 = 28;
 
-    /// Java 侧 `MASK_VALUES` 数组长度。
+/// Java-side `MASK_VALUES` array length.
     const MASK_VALUES_LEN: i32 = 28;
 
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as the Java declarations.
     ///
-    /// 对应 Java: `values()`（`EnumHelper.createTypeArray` 与静态块都依赖它）。
+/// Corresponds to Java: `values()` (both `EnumHelper.createTypeArray` and the static block depend on it).
     pub const ALL: [CustomFieldValueDataType; 7] = [
         CustomFieldValueDataType::Date,
         CustomFieldValueDataType::Duration,
@@ -77,12 +77,12 @@ impl CustomFieldValueDataType {
         CustomFieldValueDataType::FinishDate,
     ];
 
-    /// 根据 `getValue()` 的取值取枚举实例，取不到时返回 `None`。
+/// Gets the enum instance by its `getValue()` value; returns `None` when none is found.
     ///
-    /// 对应 Java: `public static CustomFieldValueDataType getInstance(int type)`
+    /// Corresponds to Java: `public static CustomFieldValueDataType getInstance(int type)`
     ///
-    /// Java 侧为 `TYPE_VALUES` 数组按下标取值，越界返回 `null`；Rust 侧用 `match`
-    /// 等价表达（`0..28` 之间没有对应常量的下标同样返回 `None`）。
+/// Java indexes into the `TYPE_VALUES` array and returns `null` when out of bounds; Rust uses `match`
+/// as an equivalent expression (indices in `0..28` with no corresponding constant also return `None`).
     pub fn get_instance(value: i32) -> Option<CustomFieldValueDataType> {
         if !(0..Self::TYPE_VALUES_LEN).contains(&value) {
             return None;
@@ -100,11 +100,11 @@ impl CustomFieldValueDataType {
         }
     }
 
-    /// 根据 mask 值取枚举实例，取不到时返回 `None`。
+/// Gets the enum instance by its mask value; returns `None` when none is found.
     ///
-    /// 对应 Java: `public static CustomFieldValueDataType getInstanceByMaskValue(int type)`
+    /// Corresponds to Java: `public static CustomFieldValueDataType getInstanceByMaskValue(int type)`
     ///
-    /// Java 侧为 `MASK_VALUES` 数组按下标取值，越界返回 `null`。
+/// Java indexes into the `MASK_VALUES` array and returns `null` when out of bounds.
     pub fn get_instance_by_mask_value(value: i32) -> Option<CustomFieldValueDataType> {
         if !(0..Self::MASK_VALUES_LEN).contains(&value) {
             return None;
@@ -122,9 +122,9 @@ impl CustomFieldValueDataType {
         }
     }
 
-    /// 取 MPXJ 数据类型。
+/// Gets the MPXJ data type.
     ///
-    /// 对应 Java: `public DataType getDataType()`
+    /// Corresponds to Java: `public DataType getDataType()`
     pub fn get_data_type(&self) -> DataType {
         match self {
             CustomFieldValueDataType::Date => DataType::Date,
@@ -137,9 +137,9 @@ impl CustomFieldValueDataType {
         }
     }
 
-    /// 取 mask 值。
+/// Gets the mask value.
     ///
-    /// 对应 Java: `public int getMaskValue()`
+    /// Corresponds to Java: `public int getMaskValue()`
     pub fn get_mask_value(&self) -> i32 {
         match self {
             CustomFieldValueDataType::Date => 4,
@@ -154,18 +154,18 @@ impl CustomFieldValueDataType {
 }
 
 impl MpxjEnum for CustomFieldValueDataType {
-    /// 返回该枚举关联的 int 值。
+/// Returns the int value associated with this enum.
     ///
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for CustomFieldValueDataType {
-    /// Java 枚举未覆写 `toString()`，默认返回常量名（如 `"DATE"`）；Rust 侧用
-    /// `Display` 提供同样的输出，供 [`crate::custom_field_value_mask::CustomFieldValueMask`]
-    /// 的 `toString()` 使用。
+/// The Java enum does not override `toString()`, so it returns the constant name by default (e.g. `"DATE"`); Rust uses
+/// `Display` to provide the same output, used by [`crate::custom_field_value_mask::CustomFieldValueMask`]
+/// `toString()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             CustomFieldValueDataType::Date => "DATE",
@@ -195,12 +195,12 @@ mod tests {
 
     #[test]
     fn get_instance_returns_none_outside_type_values() {
-        // 没有对应常量的下标
+// index with no corresponding constant
         assert_eq!(CustomFieldValueDataType::get_instance(0), None);
         assert_eq!(CustomFieldValueDataType::get_instance(5), None);
         assert_eq!(CustomFieldValueDataType::get_instance(26), None);
 
-        // 数组越界
+// array index out of bounds
         assert_eq!(CustomFieldValueDataType::get_instance(-1), None);
         assert_eq!(CustomFieldValueDataType::get_instance(28), None);
     }

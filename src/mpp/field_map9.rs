@@ -1,40 +1,40 @@
-//! 对应 Java: `org/mpxj/mpp/FieldMap9.java`
+//! Corresponds to Java: `org/mpxj/mpp/FieldMap9.java`
 //!
-//! MPP9 版的字段布局默认表。
+//! Default field layout tables for MPP9.
 //!
-//! # 与 Java 的差异（Java 继承 → Rust「构造器 + 配置函数」）
+//! # Differences from Java (Java inheritance -> Rust "constructor + configure function")
 //!
-//! Java 的 `FieldMap9 extends FieldMap` 通过**覆写**基类的抽象方法
-//! （`useTypeAsVarDataKey` / `getDefaultTaskData` / `getDefaultResourceData` /
-//! `getDefaultAssignmentData` / `getDefaultRelationData`）来提供本格式的默认布局表。
-//! Rust 的 [`FieldMap`] 是**具体类型、没有继承**，这些「默认表」在 `field_map.rs` 里
-//! 被做成了可配置状态（`set_use_type_as_var_data_key` / `set_default_*_data`）。
+//! Java's `FieldMap9 extends FieldMap` provides this format's default layout tables by **overriding** the base class's abstract methods
+//! (`useTypeAsVarDataKey` / `getDefaultTaskData` / `getDefaultResourceData` /
+//! `getDefaultAssignmentData` / `getDefaultRelationData`).
+//! Rust's [`FieldMap`] is a **concrete type with no inheritance**; these "default tables" are
+//! made configurable state in `field_map.rs` (`set_use_type_as_var_data_key` / `set_default_*_data`).
 //!
-//! 因此本类的还原方式是：Java 的每个覆写方法 → 同名的**关联函数**，
-//! 再由 Rust 特有的 [`FieldMap9::configure`] 把结果一次灌进 [`FieldMap`]。
+//! Therefore this class is reconstructed as: each Java override method -> a same-named **associated function**,
+//! and then the Rust-specific [`FieldMap9::configure`] feeds the results into [`FieldMap`] in one go.
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `class FieldMap9 extends FieldMap` | `pub struct FieldMap9`（无继承、无字段） | 只提供构造与配置，实例状态全部存在 [`FieldMap`] 里 |
-//! | `public FieldMap9(ProjectFile file)` | [`FieldMap9::new`] | 构造 [`FieldMap`] 后立即 `configure`；Java 的 `super(file)` 即 [`FieldMap::new`] |
-//! | `@Override useTypeAsVarDataKey()` | [`FieldMap9::use_type_as_var_data_key`] | 返回 `false`；由 `configure` 写入 [`FieldMap::set_use_type_as_var_data_key`] |
-//! | `@Override getDefaultTaskData()` | [`FieldMap9::get_default_task_data`] | 返回 `Vec<FieldItem>`（189 项）；由 `configure` 写入 [`FieldMap::set_default_task_data`] |
-//! | `@Override getDefaultResourceData()` | [`FieldMap9::get_default_resource_data`] | 返回 `Vec<FieldItem>`（187 项）；由 `configure` 写入 [`FieldMap::set_default_resource_data`] |
-//! | `@Override getDefaultAssignmentData()` | [`FieldMap9::get_default_assignment_data`] | 返回 `Vec<FieldItem>`（170 项）；由 `configure` 写入 [`FieldMap::set_default_assignment_data`] |
-//! | `@Override getDefaultRelationData()` | [`FieldMap9::get_default_relation_data`] | Java 返回 `new FieldItem[0]`，Rust 返回空 `Vec`；由 `configure` 写入 [`FieldMap::set_default_relation_data`] |
-//! | `FieldType` 常量（`TaskField.UNIQUE_ID` 等） | `MppFieldType::Builtin(FieldKey::Task(TaskField::UniqueId))` | 遵循本 crate 对 `FieldType` 的运行时擦除约定（见 `field_map.rs` 文件头），故用三个私有辅助函数 `task` / `resource` / `assignment` 包装 |
-//! | `null` | 无 | 本类不接收也不返回 `null` |
+//! | `class FieldMap9 extends FieldMap` | `pub struct FieldMap9` (no inheritance, no fields) | only provides construction and configuration; all instance state lives in [`FieldMap`] |
+//! | `public FieldMap9(ProjectFile file)` | [`FieldMap9::new`] | constructs [`FieldMap`] and then immediately calls `configure`; Java's `super(file)` is [`FieldMap::new`] |
+//! | `@Override useTypeAsVarDataKey()` | [`FieldMap9::use_type_as_var_data_key`] | returns `false`; written into [`FieldMap::set_use_type_as_var_data_key`] by `configure` |
+//! | `@Override getDefaultTaskData()` | [`FieldMap9::get_default_task_data`] | returns `Vec<FieldItem>` (189 entries); written into [`FieldMap::set_default_task_data`] by `configure` |
+//! | `@Override getDefaultResourceData()` | [`FieldMap9::get_default_resource_data`] | returns `Vec<FieldItem>` (187 entries); written into [`FieldMap::set_default_resource_data`] by `configure` |
+//! | `@Override getDefaultAssignmentData()` | [`FieldMap9::get_default_assignment_data`] | returns `Vec<FieldItem>` (170 entries); written into [`FieldMap::set_default_assignment_data`] by `configure` |
+//! | `@Override getDefaultRelationData()` | [`FieldMap9::get_default_relation_data`] | Java returns `new FieldItem[0]`, Rust returns an empty `Vec`; written into [`FieldMap::set_default_relation_data`] by `configure` |
+//! | `FieldType` constants (`TaskField.UNIQUE_ID` etc.) | `MppFieldType::Builtin(FieldKey::Task(TaskField::UniqueId))` | follows this crate's runtime erasure convention for `FieldType` (see the `field_map.rs` file header), hence wrapped by the three private helper functions `task` / `resource` / `assignment` |
+//! | `null` | none | this class neither accepts nor returns `null` |
 //!
-//! # 还原纪律
+//! # Reconstruction discipline
 //!
-//! 默认表**逐项照搬** Java：每条记录的「字段 / 位置 / 定长块序号 / 定长偏移 /
-//! 变长数据键 / 掩码 / 元数据块」七个值都原样保留（含 `VAR_DATA` 项固定的
-//! `65535` 偏移）。这些表决定每个字段在定长 / 变长块里的偏移与键，错一项就会读错
-//! 数据，因此不做任何裁剪、合并或去重。顺序也与 Java 完全一致（Java 的
-//! `populateDefaultData` 按数组顺序写入 `m_map`，重复键时后者覆盖前者）。
+//! The default tables **copy Java item by item**: each record's seven values "field / position / fixed-length block index / fixed-length offset /
+//! var data key / mask / metadata block" are preserved as-is (including the fixed
+//! `65535` offset of `VAR_DATA` entries). These tables determine the offset and key of each field in the fixed-length / var-length blocks; getting one entry wrong reads
+//! the wrong data, so no trimming, merging, or deduplication is done. The order is also exactly the same as Java (Java's
+//! `populateDefaultData` writes into `m_map` in array order, and on a duplicate key the later one overrides the earlier).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制，无跳过项。
-//! 跳过的 Java 方法：无（含构造方法与全部 5 个覆写方法）。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms, and nothing is skipped.
+//! Skipped Java methods: none (including the constructor and all 5 override methods).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -47,51 +47,51 @@ use crate::project_file::ProjectFile;
 use crate::resource_field::ResourceField;
 use crate::task_field::TaskField;
 
-/// 把内置任务字段包装成 [`MppFieldType`]（Rust 特有：对应 Java 直接传 `TaskField` 常量）。
+/// Wrap a built-in task field as [`MppFieldType`] (Rust-specific: corresponds to Java passing the `TaskField` constant directly).
 fn task(field: TaskField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Task(field))
 }
 
-/// 把内置资源字段包装成 [`MppFieldType`]（Rust 特有）。
+/// Wrap a built-in resource field as [`MppFieldType`] (Rust-specific).
 fn resource(field: ResourceField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Resource(field))
 }
 
-/// 把内置分派字段包装成 [`MppFieldType`]（Rust 特有）。
+/// Wrap a built-in assignment field as [`MppFieldType`] (Rust-specific).
 fn assignment(field: AssignmentField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Assignment(field))
 }
 
-/// MPP9 版的字段布局默认表。
+/// Default field layout tables for MPP9.
 ///
-/// 对应 Java: `class FieldMap9 extends FieldMap`
+/// Corresponds to Java: `class FieldMap9 extends FieldMap`
 pub struct FieldMap9;
 
 impl FieldMap9 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public FieldMap9(ProjectFile file)`
+    /// Corresponds to Java: `public FieldMap9(ProjectFile file)`
     ///
-    /// Java 的 `super(file)` 对应 [`FieldMap::new`]，随后把本格式的默认布局表灌进去
-    /// （对应 Java 子类对 5 个抽象方法的覆写）。
+/// Java's `super(file)` corresponds to [`FieldMap::new`], then this format's default layout tables are fed in
+/// (corresponds to the Java subclass's overrides of the 5 abstract methods).
     pub fn new(file: &Rc<RefCell<ProjectFile>>) -> FieldMap {
         let mut field_map = FieldMap::new(file);
         Self::configure(&mut field_map);
         field_map
     }
 
-    /// 是否用字段类型值的低 16 位作为变长数据键。
+/// Whether to use the low 16 bits of the field type value as the var data key.
     ///
-    /// 对应 Java: `@Override protected boolean useTypeAsVarDataKey()`
+    /// Corresponds to Java: `@Override protected boolean useTypeAsVarDataKey()`
     pub fn use_type_as_var_data_key() -> bool {
         false
     }
 
-    /// 任务字段的默认布局数据。
+/// Default layout data for task fields.
     ///
-    /// 对应 Java: `@Override protected FieldItem[] getDefaultTaskData()`
+    /// Corresponds to Java: `@Override protected FieldItem[] getDefaultTaskData()`
     ///
-    /// 对应 Java 数组中的 189 条记录，顺序与内容完全一致。
+/// Corresponds to the 189 records in the Java array; order and contents are exactly the same.
     pub fn get_default_task_data() -> Vec<FieldItem> {
         vec![
             FieldItem::new(task(TaskField::UniqueId), FieldLocation::FixedData, 0, 0, 0, 0, 0),
@@ -286,11 +286,11 @@ impl FieldMap9 {
         ]
     }
 
-    /// 资源字段的默认布局数据。
+/// Default layout data for resource fields.
     ///
-    /// 对应 Java: `@Override protected FieldItem[] getDefaultResourceData()`
+    /// Corresponds to Java: `@Override protected FieldItem[] getDefaultResourceData()`
     ///
-    /// 对应 Java 数组中的 187 条记录，顺序与内容完全一致。
+/// Corresponds to the 187 records in the Java array; order and contents are exactly the same.
     pub fn get_default_resource_data() -> Vec<FieldItem> {
         vec![
             FieldItem::new(resource(ResourceField::UniqueId), FieldLocation::FixedData, 0, 0, 0, 0, 0),
@@ -483,11 +483,11 @@ impl FieldMap9 {
         ]
     }
 
-    /// 分派字段的默认布局数据。
+/// Default layout data for assignment fields.
     ///
-    /// 对应 Java: `@Override protected FieldItem[] getDefaultAssignmentData()`
+    /// Corresponds to Java: `@Override protected FieldItem[] getDefaultAssignmentData()`
     ///
-    /// 对应 Java 数组中的 170 条记录，顺序与内容完全一致。
+/// Corresponds to the 170 records in the Java array; order and contents are exactly the same.
     pub fn get_default_assignment_data() -> Vec<FieldItem> {
         vec![
             FieldItem::new(assignment(AssignmentField::UniqueId), FieldLocation::FixedData, 0, 0, 0, 0, 0),
@@ -663,20 +663,20 @@ impl FieldMap9 {
         ]
     }
 
-    /// 关系字段的默认布局数据。
+/// Default layout data for relation fields.
     ///
-    /// 对应 Java: `@Override protected FieldItem[] getDefaultRelationData()`
+    /// Corresponds to Java: `@Override protected FieldItem[] getDefaultRelationData()`
     ///
-    /// Java 返回 `new FieldItem[0]`（空表），Rust 返回空 `Vec`。
+/// Java returns `new FieldItem[0]` (an empty table); Rust returns an empty `Vec`.
     pub fn get_default_relation_data() -> Vec<FieldItem> {
         vec![
         ]
     }
 
-    /// 把本格式的默认布局表写入 [`FieldMap`]。
+/// Write this format's default layout tables into [`FieldMap`].
     ///
-    /// Rust 特有：替代 Java 子类对 `useTypeAsVarDataKey()` 与 4 个
-    /// `getDefault*Data()` 方法的覆写（Rust 的 [`FieldMap`] 无继承，见文件头）。
+/// Rust-specific: replaces the Java subclass's overrides of `useTypeAsVarDataKey()` and the 4
+/// `getDefault*Data()` methods (Rust's [`FieldMap`] has no inheritance; see the file header).
     pub fn configure(field_map: &mut FieldMap) {
         field_map.set_use_type_as_var_data_key(Self::use_type_as_var_data_key());
         field_map.set_default_task_data(Self::get_default_task_data());
@@ -691,13 +691,13 @@ mod tests {
     use super::*;
     use crate::mpp::props::Props;
 
-    /// 构造 `FieldMap` 并应用 MPP9 默认布局表。
+/// Construct a `FieldMap` and apply the MPP9 default layout tables.
     fn field_map() -> FieldMap {
         let file = ProjectFile::new();
         FieldMap9::new(&file)
     }
 
-    /// 默认表的规模与代表项（逐项照搬 Java 的 `getDefault*Data()`）。
+/// The size and representative entries of the default tables (copied item by item from Java's `getDefault*Data()`).
     #[test]
     fn default_tables_match_java() {
         assert_eq!(FieldMap9::get_default_task_data().len(), 189);
@@ -705,21 +705,21 @@ mod tests {
         assert_eq!(FieldMap9::get_default_assignment_data().len(), 170);
         assert_eq!(FieldMap9::get_default_relation_data().len(), 0);
 
-        // 对应 Java: useTypeAsVarDataKey() 返回 false
+// Corresponds to Java: useTypeAsVarDataKey() returns false
         assert!(!FieldMap9::use_type_as_var_data_key());
     }
 
-    /// `Props` 中缺少字段布局表时，默认表决定字段的位置 / 偏移 / 变长数据键。
+/// When the field layout tables are missing from `Props`, the default tables determine each field's position / offset / var data key.
     #[test]
     fn default_data_is_used_when_props_have_no_field_map() {
         let mut field_map = field_map();
 
-        // Java: 三张表分别由 create*FieldMap 的 populateDefaultData 写入
+// Java: the three tables are written by populateDefaultData of create*FieldMap respectively
         field_map.create_task_field_map(&Props::new());
         field_map.create_resource_field_map(&Props::new());
         field_map.create_assignment_field_map(&Props::new());
 
-        // 任务：定长数据块 0 的偏移
+// Task: offset in fixed-length data block 0
         assert_eq!(
             field_map.get_field_location(&task(TaskField::UniqueId)),
             Some(FieldLocation::FixedData)
@@ -727,7 +727,7 @@ mod tests {
         assert_eq!(field_map.get_fixed_data_offset(&task(TaskField::UniqueId)), 0);
         assert_eq!(field_map.get_fixed_data_offset(&task(TaskField::Id)), 4);
         assert_eq!(field_map.get_fixed_data_offset(&task(TaskField::BaselineFixedCost)), 256);
-        // 变长数据项保留 Java 中的 65535 偏移
+// Var data entries keep the 65535 offset from Java
         assert_eq!(
             field_map.get_field_location(&task(TaskField::Name)),
             Some(FieldLocation::VarData)
@@ -741,7 +741,7 @@ mod tests {
             Some(8)
         );
 
-        // 资源
+// Resource
         assert_eq!(field_map.get_fixed_data_offset(&resource(ResourceField::UniqueId)), 0);
         assert_eq!(
             field_map.get_fixed_data_offset(&resource(ResourceField::RemainingOvertimeCost)),
@@ -753,7 +753,7 @@ mod tests {
             Some(185)
         );
 
-        // 分派
+// Assignment
         assert_eq!(field_map.get_fixed_data_offset(&assignment(AssignmentField::UniqueId)), 0);
         assert_eq!(
             field_map.get_fixed_data_offset(&assignment(AssignmentField::BaselineCost)),
@@ -764,12 +764,12 @@ mod tests {
             Some(215)
         );
 
-        // Java 的 populateDefaultData 只写 m_map，不更新 m_maxFixedDataSize
+// Java's populateDefaultData only writes m_map and does not update m_maxFixedDataSize
         assert_eq!(field_map.get_max_fixed_data_size(0), Some(0));
         assert_eq!(field_map.get_max_fixed_data_size(1), Some(0));
     }
 
-    /// 默认表中的字段可由变长数据键反查。
+/// Fields in the default tables can be looked up in reverse by var data key.
     #[test]
     fn default_data_is_reverse_lookupable() {
         let mut field_map = field_map();

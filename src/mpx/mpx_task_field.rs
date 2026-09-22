@@ -1,59 +1,59 @@
-//! 对应 Java: `org/mpxj/mpx/MPXTaskField.java`
+//! Corresponds to Java: `org/mpxj/mpx/MPXTaskField.java`
 //!
-//! MPX 文件中任务字段编号（MPX field ID）与 MPXJ 的
-//! [`TaskField`] 之间的双向映射表。
+//! Bidirectional mapping table between MPX file task field numbers (MPX field ID) and MPXJ's
+//! [`TaskField`].
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `final class MPXTaskField`（私有构造器） | [`MPXTaskField`] | 空结构体作为命名空间，语义为无状态工具类 |
-//! | `public static TaskField getMpxjField(int value)` | [`MPXTaskField::get_mpxj_field`] | Java 越界/未映射返回 `null` → `None` |
-//! | `public static int getMpxField(int value)` | [`MPXTaskField::get_mpx_field`] | 入参是 `TaskField` 的 int 值（即枚举 ordinal），越界/未映射返回 `0` |
+//! | `final class MPXTaskField` (private constructor) | [`MPXTaskField`] | An empty struct acts as a namespace, semantically a stateless utility class |
+//! | `public static TaskField getMpxjField(int value)` | [`MPXTaskField::get_mpxj_field`] | Java returns `null` for out-of-bounds/unmapped -> `None` |
+//! | `public static int getMpxField(int value)` | [`MPXTaskField::get_mpx_field`] | The argument is the int value of `TaskField` (that is, the enum ordinal); out-of-bounds/unmapped returns `0` |
 //! | `public static final int MAX_FIELDS` | [`MPXTaskField::MAX_FIELDS`] | |
-//! | `private static final TaskField[] MPX_MPXJ_ARRAY`（静态初始化块逐项赋值） | [`MPXTaskField::get_mpxj_field`] 内的 `match` | 见下 |
-//! | `private static final int[] MPXJ_MPX_ARRAY`（静态初始化块按 MPX 数组回填） | [`MPXTaskField::get_mpx_field`] + 模块私有函数 [`mpx_number_of`] 内的 `match` | 见下 |
-//! | `public static final List<FieldType> CUSTOM_FIELDS` | [`MPXTaskField::CUSTOM_FIELDS`] | Java 类型是 `List<FieldType>`（元素全是 `TaskField`），Rust 侧用 `&'static [TaskField]` |
+//! | `private static final TaskField[] MPX_MPXJ_ARRAY` (assigned item by item in a static initializer block) | The `match` inside [`MPXTaskField::get_mpxj_field`] | See below |
+//! | `private static final int[] MPXJ_MPX_ARRAY` (back-filled from the MPX array in a static initializer block) | The `match` inside [`MPXTaskField::get_mpx_field`] + the module-private function [`mpx_number_of`] | See below |
+//! | `public static final List<FieldType> CUSTOM_FIELDS` | [`MPXTaskField::CUSTOM_FIELDS`] | Java's type is `List<FieldType>` (all elements are `TaskField`); the Rust side uses `&'static [TaskField]` |
 //!
-//! 几点取舍：
+//! Several trade-offs:
 //!
-//! - Java 的 `MPX_MPXJ_ARRAY` 是定长 153 的稀疏数组（大量 `null`），Rust 侧用
-//!   `match` 表达「MPX 字段号 → 字段」的稀疏映射，语义等价且不需要 153 项字面量。
-//!   **顺序**：`match` 臂按 MPX 字段号升序排列，便于与 Java 静态块逐条比对。
-//! - Java 的 `MPXJ_MPX_ARRAY` 由 `MPX_MPXJ_ARRAY` 按下标升序回填，因此
-//!   **重复项以最后一个为准**：`MPX_MPXJ_ARRAY[151]` 与 `[152]` 都是
-//!   `TaskField.RESUME`，故 `RESUME` 的反向值是 `152`（`STOP` 是 `150`）。
-//!   本文件在 [`mpx_number_of`] 中显式保持该结果。
-//! - `get_mpx_field` 用 [`TaskField::get_instance`] 做边界检查：Java 的
-//!   `MPXJ_MPX_ARRAY.length == TaskField.MAX_VALUE`，与 `get_instance` 的合法区间一致，
-//!   未命中的下标在 Java 中取数组默认值 `0`，Rust 侧同样返回 `0`。
-//! - `CUSTOM_FIELDS`：Java 在静态块中用
-//!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(TaskFieldLists.CUSTOM_FIELDS::contains)`
-//!   生成，即「出现在 MPX 映射表中的自定义字段」，元素顺序为 MPX 字段号升序。
-//!   Rust 侧 `TaskFieldLists`（`src/common/task_field_lists.rs`）已落地；本文件为避免
-//!   跨模块依赖，仍直接给出过滤结果（与 Java 完全一致，共 41 项）。
+//! - Java's `MPX_MPXJ_ARRAY` is a fixed-length sparse array of 153 entries (many `null`); the Rust side uses a
+//!   `match` to express the sparse "MPX field number -> field" mapping, which is semantically equivalent and needs no 153-entry literal.
+//!   **Order**: the `match` arms are ordered by ascending MPX field number, to ease item-by-item comparison with the Java static block.
+//! - Java's `MPXJ_MPX_ARRAY` is back-filled from `MPX_MPXJ_ARRAY` by ascending index, so
+//!   **duplicates are resolved in favor of the last one**: `MPX_MPXJ_ARRAY[151]` and `[152]` are both
+//!   `TaskField.RESUME`, so the reverse value of `RESUME` is `152` (`STOP` is `150`).
+//!   This file explicitly preserves that result in [`mpx_number_of`].
+//! - `get_mpx_field` uses [`TaskField::get_instance`] for bounds checking: Java's
+//!   `MPXJ_MPX_ARRAY.length == TaskField.MAX_VALUE`, which matches the valid range of `get_instance`;
+//!   an index that does not match takes the array default value `0` in Java, and the Rust side likewise returns `0`.
+//! - `CUSTOM_FIELDS`: Java generates it in a static block with
+//!   `Arrays.stream(MPX_MPXJ_ARRAY).filter(TaskFieldLists.CUSTOM_FIELDS::contains)`,
+//!   that is, "the custom fields appearing in the MPX mapping table", with elements ordered by ascending MPX field number.
+//!   The Rust-side `TaskFieldLists` (`src/common/task_field_lists.rs`) is already in place; to avoid a
+//!   cross-module dependency, this file still gives the filter result directly (exactly matching Java, 41 entries).
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
-//! 未移植的方法：无。
+//! Reflection / JDBC / XML (JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
+//! Skipped Java methods: none.
 
 use crate::task_field::TaskField;
 
-/// MPX 任务字段编号与 [`TaskField`] 的映射工具。
+/// Mapping utility between MPX task field numbers and [`TaskField`].
 ///
-/// 对应 Java: `final class MPXTaskField`
+/// Corresponds to Java: `final class MPXTaskField`
 pub struct MPXTaskField;
 
 impl MPXTaskField {
-    /// MPX 文件中任务字段编号的最大个数（可用编号为 `0..MAX_FIELDS`）。
+    /// Maximum number of task field numbers in an MPX file (usable numbers are `0..MAX_FIELDS`).
     ///
-    /// 对应 Java: `public static final int MAX_FIELDS`
+    /// Corresponds to Java: `public static final int MAX_FIELDS`
     pub const MAX_FIELDS: usize = 153;
 
-    /// 根据 MPX 文件中读到的字段编号取 [`TaskField`]。
+    /// Return the [`TaskField`] for a field number read from an MPX file.
     ///
-    /// 对应 Java: `public static TaskField getMpxjField(int value)`
+    /// Corresponds to Java: `public static TaskField getMpxjField(int value)`
     ///
-    /// Java 对越界或未映射的编号返回 `null`，Rust 侧返回 `None`。
+    /// Java returns `null` for an out-of-bounds or unmapped number; the Rust side returns `None`.
     pub fn get_mpxj_field(value: i32) -> Option<TaskField> {
         match value {
             1 => Some(TaskField::Name),
@@ -173,13 +173,13 @@ impl MPXTaskField {
         }
     }
 
-    /// 取 [`TaskField`] 在 MPX 文件中对应的字段编号。
+    /// Return the field number corresponding to a [`TaskField`] in an MPX file.
     ///
-    /// 对应 Java: `public static int getMpxField(int value)`
+    /// Corresponds to Java: `public static int getMpxField(int value)`
     ///
-    /// `value` 是 `TaskField` 的 int 值（`getValue()`，即本 crate 中的
-    /// `*field as i32` / [`crate::mpxj_enum::MpxjEnum::value`]）；越界或未在
-    /// MPX 映射表中出现的字段返回 `0`（与 Java 的数组默认值一致）。
+    /// `value` is the int value of `TaskField` (`getValue()`, that is, in this crate
+    /// `*field as i32` / [`crate::mpxj_enum::MpxjEnum::value`]); a field that is out of bounds or absent from the
+    /// MPX mapping table returns `0` (consistent with Java's array default).
     pub fn get_mpx_field(value: i32) -> i32 {
         match TaskField::get_instance(value) {
             Some(field) => mpx_number_of(field),
@@ -187,14 +187,14 @@ impl MPXTaskField {
         }
     }
 
-    /// MPX 映射表中属于「自定义字段」的字段列表，按 MPX 字段号升序。
+    /// List of fields in the MPX mapping table that are "custom fields", ordered by ascending MPX field number.
     ///
-    /// 对应 Java: `public static final List<FieldType> CUSTOM_FIELDS`
+    /// Corresponds to Java: `public static final List<FieldType> CUSTOM_FIELDS`
     ///
-    /// 与 Java 的静态初始化块 `Arrays.stream(MPX_MPXJ_ARRAY).filter(
-    /// TaskFieldLists.CUSTOM_FIELDS::contains).forEach(CUSTOM_FIELDS::add)` 结果一致。
+    /// Matches Java's static initializer block `Arrays.stream(MPX_MPXJ_ARRAY).filter(
+    /// TaskFieldLists.CUSTOM_FIELDS::contains).forEach(CUSTOM_FIELDS::add)`.
     pub const CUSTOM_FIELDS: &'static [TaskField] = &[
-        // MPX 4..13：TEXT1..TEXT10
+        // MPX 4..13: TEXT1..TEXT10
         TaskField::Text1,
         TaskField::Text2,
         TaskField::Text3,
@@ -205,22 +205,22 @@ impl MPXTaskField {
         TaskField::Text8,
         TaskField::Text9,
         TaskField::Text10,
-        // MPX 36..38：COST1..COST3
+        // MPX 36..38: COST1..COST3
         TaskField::Cost1,
         TaskField::Cost2,
         TaskField::Cost3,
-        // MPX 46..48：DURATION1..DURATION3
+        // MPX 46..48: DURATION1..DURATION3
         TaskField::Duration1,
         TaskField::Duration2,
         TaskField::Duration3,
-        // MPX 60..65：START1..START3、FINISH1..FINISH3
+        // MPX 60..65: START1..START3, FINISH1..FINISH3
         TaskField::Start1,
         TaskField::Finish1,
         TaskField::Start2,
         TaskField::Finish2,
         TaskField::Start3,
         TaskField::Finish3,
-        // MPX 110..119：FLAG1..FLAG10
+        // MPX 110..119: FLAG1..FLAG10
         TaskField::Flag1,
         TaskField::Flag2,
         TaskField::Flag3,
@@ -231,12 +231,12 @@ impl MPXTaskField {
         TaskField::Flag8,
         TaskField::Flag9,
         TaskField::Flag10,
-        // MPX 126..129：START4、FINISH4、START5、FINISH5
+        // MPX 126..129: START4, FINISH4, START5, FINISH5
         TaskField::Start4,
         TaskField::Finish4,
         TaskField::Start5,
         TaskField::Finish5,
-        // MPX 140..144：NUMBER1..NUMBER5
+        // MPX 140..144: NUMBER1..NUMBER5
         TaskField::Number1,
         TaskField::Number2,
         TaskField::Number3,
@@ -245,13 +245,13 @@ impl MPXTaskField {
     ];
 }
 
-/// 取 [`TaskField`] 对应的 MPX 字段编号，未在 MPX 映射表中出现时返回 `0`。
+/// Return the MPX field number for a [`TaskField`], or `0` when it does not appear in the MPX mapping table.
 ///
-/// 对应 Java: `private static final int[] MPXJ_MPX_ARRAY` 的静态初始化块
-/// （按 `MPX_MPXJ_ARRAY` 下标升序回填，重复项以最后一个为准，
-/// 因此 `RESUME` 取 `152` 而不是 `151`）。
+/// Corresponds to Java: the static initializer block of `private static final int[] MPXJ_MPX_ARRAY`
+/// (back-filled by ascending `MPX_MPXJ_ARRAY` index, with duplicates resolved in favor of the last one,
+/// so `RESUME` takes `152` rather than `151`).
 ///
-/// 臂的顺序与 Java 静态块中的书写顺序一致（按 Java 枚举常量名字母序）。
+/// Arm order matches the writing order in Java's static block (alphabetical by Java enum constant name).
 fn mpx_number_of(field: TaskField) -> i32 {
     match field {
         TaskField::ActualCost => 32,
@@ -376,9 +376,9 @@ mod tests {
     use crate::mpxj_enum::MpxjEnum;
     use std::collections::HashMap;
 
-    /// Java `MPXTaskField` 静态初始化块中 `MPX_MPXJ_ARRAY[...]` 的全部赋值
-    /// （共 113 条，其中 `151` 与 `152` 都指向 `TaskField.RESUME`），
-    /// 此处按 MPX 字段号升序排列。
+    /// All assignments to `MPX_MPXJ_ARRAY[...]` in Java's `MPXTaskField` static initializer block
+    /// (113 entries, where both `151` and `152` point to `TaskField.RESUME`),
+    /// arranged here by ascending MPX field number.
     const JAVA_TABLE: [(i32, TaskField); 113] = [
         (1, TaskField::Name),
         (2, TaskField::Wbs),
@@ -495,8 +495,8 @@ mod tests {
         (152, TaskField::Resume),
     ];
 
-    /// Java `Arrays.stream(MPX_MPXJ_ARRAY).filter(TaskFieldLists.CUSTOM_FIELDS::contains)`
-    /// 的过滤结果。
+    /// Filter result of Java's `Arrays.stream(MPX_MPXJ_ARRAY).filter(
+    /// TaskFieldLists.CUSTOM_FIELDS::contains)`.
     const JAVA_CUSTOM_FIELDS: [TaskField; 41] = [
         TaskField::Text1,
         TaskField::Text2,
@@ -541,7 +541,7 @@ mod tests {
         TaskField::Number5,
     ];
 
-    /// 逐一核对 MPX 字段号 → `TaskField` 的映射（含全部未映射编号都返回 `None`）。
+    /// Verify the MPX field number -> `TaskField` mapping item by item (including that every unmapped number returns `None`).
     #[test]
     fn get_mpxj_field_matches_java_table() {
         assert_eq!(MPXTaskField::MAX_FIELDS, 153);
@@ -555,7 +555,7 @@ mod tests {
             assert_eq!(
                 MPXTaskField::get_mpxj_field(number),
                 expected[number as usize],
-                "MPX 字段号 {number}"
+                "MPX field number {number}"
             );
         }
 
@@ -566,10 +566,10 @@ mod tests {
         );
     }
 
-    /// 逐一核对 `TaskField` → MPX 字段号的反向映射。
+    /// Verify the reverse mapping `TaskField` -> MPX field number item by item.
     ///
-    /// Java 的 `MPXJ_MPX_ARRAY` 由静态块按 `MPX_MPXJ_ARRAY` 下标升序回填，
-    /// 重复项以最后一个为准，这里用 `HashMap` 模拟同一过程。
+    /// Java's `MPXJ_MPX_ARRAY` is back-filled by the static block in ascending `MPX_MPXJ_ARRAY` index order,
+    /// with duplicates resolved in favor of the last one; a `HashMap` is used here to simulate the same process.
     #[test]
     fn get_mpx_field_matches_java_table() {
         let mut expected: HashMap<TaskField, i32> = HashMap::new();
@@ -577,7 +577,7 @@ mod tests {
             expected.insert(field, number);
         }
 
-        // Java 中 RESUME 同时占据 151 与 152，最终取 152
+        // In Java RESUME occupies both 151 and 152, ultimately taking 152
         assert_eq!(MPXTaskField::get_mpx_field(TaskField::Resume.value()), 152);
         assert_eq!(MPXTaskField::get_mpx_field(TaskField::Stop.value()), 150);
 
@@ -590,10 +590,10 @@ mod tests {
         assert_eq!(MPXTaskField::get_mpx_field(TaskField::MAX_VALUE as i32), 0);
     }
 
-    /// 反向映射未覆盖的字段必须返回 `0`（Java 数组默认值）。
+    /// Fields not covered by the reverse mapping must return `0` (Java's array default).
     #[test]
     fn unmapped_fields_return_zero() {
-        // 自定义字段中未出现在 MPX 映射表里的项
+        // Custom fields that do not appear in the MPX mapping table
         for field in [
             TaskField::Text11,
             TaskField::Text30,
@@ -616,7 +616,7 @@ mod tests {
         }
     }
 
-    /// 两个方向互相往返：有映射的字段必须回到自身，无映射的字段落到 `None`。
+    /// Round trip in both directions: mapped fields must return to themselves, and unmapped fields fall to `None`.
     #[test]
     fn mappings_round_trip() {
         for field in TaskField::ALL {
@@ -634,12 +634,12 @@ mod tests {
             assert_eq!(
                 MPXTaskField::get_mpxj_field(MPXTaskField::get_mpx_field(field.value())),
                 Some(field),
-                "MPX 字段号 {number}"
+                "MPX field number {number}"
             );
         }
     }
 
-    /// 自定义字段列表与 Java 的过滤结果一致，且按 MPX 字段号升序。
+    /// The custom field list matches Java's filter result and is ordered by ascending MPX field number.
     #[test]
     fn custom_fields_match_java() {
         assert_eq!(MPXTaskField::CUSTOM_FIELDS, &JAVA_CUSTOM_FIELDS);

@@ -1,21 +1,22 @@
-//! 对应 Java: `org/mpxj/mpx/PriorityUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/PriorityUtility.java`
 //!
-//! # 区域设置名表
+//! # Locale name tables
 //!
-//! Java 用 `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)` 从 `ResourceBundle`
-//! 取本地化的优先级名表（非英语语言由 `LocaleData_de` 等资源包覆盖）；Rust 侧同一份数据
-//! 由 [`LocaleData`] 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的
-//! 方式**按区域设置取名表**。
+//! Java uses `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)` to obtain from
+//! `ResourceBundle` the localised priority name table (non-English languages are overridden by
+//! resource bundles such as `LocaleData_de`); on the Rust side the same data is held by
+//! [`LocaleData`] (localised overrides come from the `locale_data_XX` modules in the same package),
+//! so this module obtains the name table **per locale** the same way Java does.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::{equals_ignore_case, MpxLocale};
 use crate::priority::Priority;
 
-/// 英文（默认）优先级名表。
+/// English (default) priority name table.
 ///
-/// 对应 Java: `LocaleData.PRIORITY_TYPES_DATA`（下标 + 1 再乘 100 即 `Priority` 的值）。
+/// Corresponds to Java: `LocaleData.PRIORITY_TYPES_DATA` ((index + 1) * 100 is the `Priority` value).
 const PRIORITY_TYPES: [Option<&str>; 10] = [
     Some("Lowest"),
     Some("Very Low"),
@@ -29,23 +30,24 @@ const PRIORITY_TYPES: [Option<&str>; 10] = [
     Some("Do Not Level"),
 ];
 
-/// 管理 MPX 文件中 `Priority` 实例的工具方法。
+/// Utility methods for managing `Priority` instances in MPX files.
 ///
-/// 对应 Java: `final class PriorityUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class PriorityUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct PriorityUtility;
 
 impl PriorityUtility {
-    /// 把优先级的文本形式转换成对应的实例，无法识别的值按「中」优先级处理。
+    /// Convert the text form of a priority into the corresponding instance; unrecognised values are treated as the "medium" priority.
     ///
-    /// 对应 Java: `public static Priority getInstance(Locale locale, String priority)`
+    /// Corresponds to Java: `public static Priority getInstance(Locale locale, String priority)`
     ///
-    /// Java 对 `null` 入参显式跳过名表查找并保留默认下标，Rust 侧用 `Option<&str>` 承载。
+    /// Java explicitly skips the name table lookup for a `null` argument and keeps the default index;
+    /// the Rust side uses `Option<&str>`.
     pub fn get_instance(locale: MpxLocale, priority: Option<&str>) -> Priority {
         let mut index = DEFAULT_PRIORITY_INDEX;
 
         if priority.is_some() {
             for (loop_index, name) in priority_types(locale).iter().enumerate() {
-                // Java 的名表元素不会是 null；Rust 侧对 `None` 元素直接跳过。
+                // Java's name table elements are never null; the Rust side skips `None` elements directly.
                 if let Some(name) = name {
                     if equals_ignore_case(name, priority) {
                         index = loop_index;
@@ -60,16 +62,17 @@ impl PriorityUtility {
     }
 }
 
-/// 默认优先级在名表中的下标。
+/// Index of the default priority in the name table.
 ///
-/// 对应 Java: `private static final int DEFAULT_PRIORITY_INDEX = 4`
+/// Corresponds to Java: `private static final int DEFAULT_PRIORITY_INDEX = 4`
 const DEFAULT_PRIORITY_INDEX: usize = 4;
 
-/// 取对应区域设置的优先级名表。
+/// Obtain the priority name table for the given locale.
 ///
-/// 对应 Java: `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)`
+/// Corresponds to Java: `LocaleData.getStringArray(locale, LocaleData.PRIORITY_TYPES)`
 ///
-/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+/// When the key is missing it falls back to the English default name table (Java's `ResourceBundle`
+/// likewise falls back to the base class resource).
 fn priority_types(locale: MpxLocale) -> &'static [Option<&'static str>] {
     LocaleData::get_string_array(locale, LocaleData::PRIORITY_TYPES).unwrap_or(&PRIORITY_TYPES)
 }
@@ -81,7 +84,7 @@ mod tests {
     #[test]
     fn priority_round_trips_through_mpx_name() {
         for (index, name) in PRIORITY_TYPES.iter().enumerate() {
-            let name = name.expect("英文名表没有空元素");
+            let name = name.expect("English name table has no null elements");
             let value = PriorityUtility::get_instance(MpxLocale::En, Some(name));
             assert_eq!(value.get_value(), (index as i32 + 1) * 100);
             let name_index = (value.get_value() / 100 - 1) as usize;
@@ -124,7 +127,7 @@ mod tests {
             PriorityUtility::get_instance(MpxLocale::De, Some("Am höchsten")).get_value(),
             Priority::HIGHEST
         );
-        // 英文名表里的值在德语名表中不存在，回落「中」
+        // The values in the English name table do not exist in the German name table, so it falls back to "medium"
         assert_eq!(
             PriorityUtility::get_instance(MpxLocale::De, Some("Highest")).get_value(),
             Priority::MEDIUM

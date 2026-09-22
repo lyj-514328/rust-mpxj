@@ -1,69 +1,69 @@
-//! 对应 Java: `org/mpxj/mpp/RTFEmbeddedObject.java`
+//! Corresponds to Java: `org/mpxj/mpp/RTFEmbeddedObject.java`
 //!
-//! 表示 RTF 文档里嵌入对象的数据块。按 RTF 规范，这类数据由 OLESaveToStream 写出；
-//! 本类按 MPXJ 的实现解析 RTF 文本里的 `\objdata` 组：每组里是若干「十六进制文本块」，
-//! 每个块解码成一段字节；随后按「头块 + 数据块」成对地还原成
-//! [`RTFEmbeddedObject`] 序列（头块给出类型标志与数据长度，数据块给出实际内容）。
+//! Represents the data block of an embedded object in an RTF document. Per the RTF specification, such data is written by OLESaveToStream;
+//! this class follows the MPXJ implementation to parse the `\objdata` groups in the RTF text: each group holds several "hexadecimal text blocks",
+//! each block is decoded into a run of bytes; they are then restored in pairs of "header block + data block" into a
+//! sequence of [`RTFEmbeddedObject`] (the header block gives the type flags and data length, and the data block gives the actual content).
 //!
-//! 文本块与对象的对应关系（Java 注释）：每个嵌入项通常由两个 [`RTFEmbeddedObject`]
-//! 组成 —— 头（一般是字符串数据）与数据体（一般是二进制）；每个嵌入项又通常有两组
-//! 这样的对象：一组是链接位置或文档本身的二进制数据，另一组是
-//! METAFILEPICT（占位图标或文档内容缩略图）。
+//! Mapping between text blocks and objects (Java comment): each embedded item usually consists of two [`RTFEmbeddedObject`]
+//! parts — a header (usually string data) and a data body (usually binary); each embedded item also usually has two sets of
+//! such objects: one set is the binary data of the link location or the document itself, and the other is the
+//! METAFILEPICT (placeholder icon or a thumbnail of the document content).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `List<byte[]> blocks`（构造方法直接改写集合） | `&mut Vec<Vec<u8>>` | Java 用 `remove(0)` 从队首取块，Rust 用 `Vec::remove(0)` 保持同样顺序 |
-//! | `String` + `charAt(int)`（**UTF-16 码元**下标） | `&[char]` 下标 | 逐个 char 处理，保证与 Java 的下标语义一致（字节下标会因非 ASCII 字符错位）；下标越界时 Java 抛 `StringIndexOutOfBoundsException`，Rust 视为「文本结束」 |
-//! | `getData()` 返回可空的 `byte[]` | `Option<&[u8]>` | 无对应块时为 `None`（Java 为 `null`） |
-//! | `getEmbeddedObjects(RtfNotes)` 返回可空 `List` | `Option<Vec<Vec<RTFEmbeddedObject>>>` | 文档里没有 `\objdata` 时为 `None`（Java 为 `null`）；`notes.getRtf()` 为 `null` 时 Java 抛 NPE，Rust 返回 `None` |
-//! | `getDataString()` 的 `new String(byte[])` | UTF-8 容错解码 | 同 `fix_defer_fix.rs` 的处理 |
-//! | `getInt` / `getData` 里的 `remove(0)` / `System.arraycopy` | 越界时提前结束拼装 | Java 抛 `IndexOutOfBoundsException` / `ArrayIndexOutOfBoundsException`，Rust 不 panic |
-//! | `Integer.parseInt(..., 16)` | 逐字符 `to_digit(16)`，非法字符按 0 | Java 抛 `NumberFormatException` |
-//! | `toString()` | `Display` | `PrintWriter.println` 的平台换行统一为 `\n`；`m_data` 为 `null` 时 Java 的 `hexdump` 返回空串 |
+//! | `List<byte[]> blocks` (the constructor mutates the collection directly) | `&mut Vec<Vec<u8>>` | Java uses `remove(0)` to take blocks from the head, and Rust uses `Vec::remove(0)` to keep the same order |
+//! | `String` + `charAt(int)` (**UTF-16 code unit** index) | `&[char]` index | processes char by char to keep the same index semantics as Java (a byte index would be misaligned by non-ASCII characters); Java throws `StringIndexOutOfBoundsException` when the index is out of bounds, while Rust treats it as "end of text" |
+//! | `getData()` returns a nullable `byte[]` | `Option<&[u8]>` | `None` when there is no corresponding block (Java is `null`) |
+//! | `getEmbeddedObjects(RtfNotes)` returns a nullable `List` | `Option<Vec<Vec<RTFEmbeddedObject>>>` | `None` when the document has no `\objdata` (Java is `null`); Java throws an NPE when `notes.getRtf()` is `null`, while Rust returns `None` |
+//! | `new String(byte[])` in `getDataString()` | UTF-8 lossy decoding | same handling as `fix_defer_fix.rs` |
+//! | `remove(0)` / `System.arraycopy` in `getInt` / `getData` | ends assembly early when out of bounds | Java throws `IndexOutOfBoundsException` / `ArrayIndexOutOfBoundsException`, while Rust does not panic |
+//! | `Integer.parseInt(..., 16)` | char-by-char `to_digit(16)`, with invalid characters treated as 0 | Java throws `NumberFormatException` |
+//! | `toString()` | `Display` | `PrintWriter.println`'s platform newline is unified to `\n`; when `m_data` is `null` Java's `hexdump` returns an empty string |
 //!
-//! ## 一处 Java 死循环的规避
+//! ## Avoiding an infinite loop in Java
 //!
-//! `getEmbeddedObjects` 的循环体是
-//! `offset = readObjectData(...); offset = rtf.indexOf(OBJDATA, offset);`。
-//! 当 `readObjectData` 返回 `-1`（`\objdata` 之后紧接 `}`，一个块也没读到）时，
-//! Java 的 `String.indexOf(str, -1)` 会把 `fromIndex` 当作 0，于是又从文档开头找到同一个
-//! `\objdata`，形成死循环。Rust 侧把 `-1` 视为「解析结束」并直接退出循环（不会挂死）。
+//! The loop body of `getEmbeddedObjects` is
+//! `offset = readObjectData(...); offset = rtf.indexOf(OBJDATA, offset);`.
+//! When `readObjectData` returns `-1` (a `}` immediately follows `\objdata`, so no block was read),
+//! Java's `String.indexOf(str, -1)` treats `fromIndex` as 0, so it finds the same
+//! `\objdata` again from the start of the document, forming an infinite loop. The Rust side treats `-1` as "end of parsing" and exits the loop directly (it does not hang).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: not used by this class.
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java methods/members: none.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::common::byte_array_helper::ByteArrayHelper;
 use crate::rtf_notes::RtfNotes;
 
-/// 嵌入对象数据块的起始标记。
+/// Start marker of the embedded object data block.
 ///
-/// 对应 Java: `private static final String OBJDATA = "\\objdata"`
+/// Corresponds to Java: `private static final String OBJDATA = "\\objdata"`
 const OBJDATA: &str = "\\objdata";
 
-/// RTF 文档里嵌入对象的数据块。
+/// Data block of an embedded object in an RTF document.
 ///
-/// 对应 Java: `public final class RTFEmbeddedObject`
+/// Corresponds to Java: `public final class RTFEmbeddedObject`
 pub struct RTFEmbeddedObject {
-    /// 对应 Java: `private int m_typeFlag1`
+    /// Corresponds to Java: `private int m_typeFlag1`
     m_type_flag1: i32,
-    /// 对应 Java: `private int m_typeFlag2`
+    /// Corresponds to Java: `private int m_typeFlag2`
     m_type_flag2: i32,
-    /// 对应 Java: `private byte[] m_data`（Java 侧可为 null）
+/// Corresponds to Java: `private byte[] m_data` (may be null on the Java side)
     m_data: Option<Vec<u8>>,
 }
 
 impl RTFEmbeddedObject {
-    /// 构造方法（Java 侧为私有）。
+/// Constructor (private on the Java side).
     ///
-    /// 对应 Java: `private RTFEmbeddedObject(List<byte[]> blocks, int type)`
+    /// Corresponds to Java: `private RTFEmbeddedObject(List<byte[]> blocks, int type)`
     ///
-    /// `type` 为 2 / 5 时先读两个类型标志再读数据长度；为 1 时直接读数据长度；
-    /// 其余取值不读取任何内容（字段保持默认值，与 Java 的 `switch` 无 `default` 一致）。
+/// When `type` is 2 / 5 it first reads the two type flags and then the data length; when it is 1 it reads the data length directly;
+/// other values read nothing (the fields keep their default values, consistent with Java's `switch` having no `default`).
     fn new(blocks: &mut Vec<Vec<u8>>, type_: i32) -> Self {
         let mut result = Self {
             m_type_flag1: 0,
@@ -92,32 +92,32 @@ impl RTFEmbeddedObject {
         result
     }
 
-    /// 取类型标志 1。
+/// Get type flag 1.
     ///
-    /// 对应 Java: `public int getTypeFlag1()`
+    /// Corresponds to Java: `public int getTypeFlag1()`
     pub fn get_type_flag1(&self) -> i32 {
         self.m_type_flag1
     }
 
-    /// 取类型标志 2（同时决定后续数据块按哪种类型解析）。
+/// Get type flag 2 (which also determines which type the following data block is parsed as).
     ///
-    /// 对应 Java: `public int getTypeFlag2()`
+    /// Corresponds to Java: `public int getTypeFlag2()`
     pub fn get_type_flag2(&self) -> i32 {
         self.m_type_flag2
     }
 
-    /// 取本块的数据。
+/// Get this block's data.
     ///
-    /// 对应 Java: `public byte[] getData()`
+    /// Corresponds to Java: `public byte[] getData()`
     pub fn get_data(&self) -> Option<&[u8]> {
         self.m_data.as_deref()
     }
 
-    /// 取本块数据的字符串形式。
+/// Get the string form of this block's data.
     ///
-    /// 对应 Java: `public String getDataString()`
+    /// Corresponds to Java: `public String getDataString()`
     ///
-    /// Java: `m_data == null ? "" : new String(m_data)`。
+    /// Java: `m_data == null ? "" : new String(m_data)`.
     pub fn get_data_string(&self) -> String {
         match &self.m_data {
             Some(data) => String::from_utf8_lossy(data).into_owned(),
@@ -125,18 +125,18 @@ impl RTFEmbeddedObject {
         }
     }
 
-    /// 从 RTF 文档中提取全部嵌入对象。
+/// Extract all embedded objects from the RTF document.
     ///
-    /// 对应 Java: `public static List<List<RTFEmbeddedObject>> getEmbeddedObjects(RtfNotes notes)`
+    /// Corresponds to Java: `public static List<List<RTFEmbeddedObject>> getEmbeddedObjects(RtfNotes notes)`
     ///
-    /// 返回的每个元素对应文档里的一处 `\objdata`，其中是该处的
-    /// [`RTFEmbeddedObject`] 序列（通常「头 + 数据体」成对出现）。
+/// Each returned element corresponds to one `\objdata` occurrence in the document, containing that occurrence's
+/// [`RTFEmbeddedObject`] sequence (usually a "header + data body" pair).
     pub fn get_embedded_objects(notes: &RtfNotes) -> Option<Vec<Vec<RTFEmbeddedObject>>> {
         // Java: String rtf = notes.getRtf(); int offset = rtf.indexOf(OBJDATA);
-        // （Java 在 rtf 为 null 时抛 NullPointerException；Rust 返回 None）
+// (Java throws NullPointerException when rtf is null; Rust returns None)
         let rtf = notes.get_rtf()?;
 
-        // 按 Java 的 char（UTF-16 码元）下标语义处理
+// Processed with Java's char (UTF-16 code unit) index semantics
         let text: Vec<char> = rtf.chars().collect();
 
         let mut offset = index_of(&text, OBJDATA, 0)?;
@@ -150,8 +150,8 @@ impl RTFEmbeddedObject {
             let last_offset = read_object_data(&text, offset, &mut object_data);
             objects.push(object_data);
 
-            // Java 在 last_offset == -1 时会从文档开头重新搜索而陷入死循环，
-            // Rust 侧视为解析结束（见文件头说明）
+// When last_offset == -1 Java searches again from the start of the document and falls into an infinite loop,
+// while the Rust side treats it as end of parsing (see the file header)
             let Some(last_offset) = last_offset else {
                 break;
             };
@@ -168,16 +168,16 @@ impl RTFEmbeddedObject {
 }
 
 impl Display for RTFEmbeddedObject {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 用 `PrintWriter.println`（平台换行、每行末尾多一个换行）与
-    /// `ByteArrayHelper.hexdump(m_data, true, 16, "  ")`；Rust 侧统一用 `\n`。
+/// Java uses `PrintWriter.println` (platform newline, with an extra newline at the end of each line) and
+/// `ByteArrayHelper.hexdump(m_data, true, 16, "  ")`; the Rust side uniformly uses `\n`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "[RTFObject")?;
         writeln!(f, "   Flag1={}", self.m_type_flag1)?;
         writeln!(f, "   Flag2={}", self.m_type_flag2)?;
         writeln!(f, "   Data=")?;
-        // Java: ByteArrayHelper.hexdump(null, ...) 返回空串（此处用空切片等价实现）
+// Java: ByteArrayHelper.hexdump(null, ...) returns an empty string (equivalent to using an empty slice here)
         writeln!(
             f,
             "{}",
@@ -188,11 +188,11 @@ impl Display for RTFEmbeddedObject {
     }
 }
 
-/// 从块集合的**队首**取出一个块并解析成整数。
+/// Take a block from the **head** of the block collection and parse it into an integer.
 ///
-/// 对应 Java: `private int getInt(List<byte[]> blocks)`
+/// Corresponds to Java: `private int getInt(List<byte[]> blocks)`
 ///
-/// 集合为空时返回 0；块不足 4 字节时 Java 抛 `ArrayIndexOutOfBoundsException`，Rust 同样返回 0。
+/// Returns 0 when the collection is empty; when a block has fewer than 4 bytes Java throws `ArrayIndexOutOfBoundsException`, and Rust likewise returns 0.
 fn get_int(blocks: &mut Vec<Vec<u8>>) -> i32 {
     let Some(data) = pop_front(blocks) else {
         return 0;
@@ -205,12 +205,12 @@ fn get_int(blocks: &mut Vec<Vec<u8>>) -> i32 {
     ByteArrayHelper::get_int(&data, 0)
 }
 
-/// 从块集合的队首依次取出块，拼成 `length` 字节的数据。
+/// Take blocks in order from the head of the block collection and assemble `length` bytes of data.
 ///
-/// 对应 Java: `private byte[] getData(List<byte[]> blocks, int length)`
+/// Corresponds to Java: `private byte[] getData(List<byte[]> blocks, int length)`
 ///
-/// 集合为空时返回 `None`（Java 返回 `null`）；长度小于 4 时按 4 处理（与 Java 一致）。
-/// Java 在块提前用尽或 `System.arraycopy` 越界时抛异常，Rust 侧提前结束拼装。
+/// Returns `None` when the collection is empty (Java returns `null`); a length less than 4 is treated as 4 (consistent with Java).
+/// Java throws when the blocks run out early or `System.arraycopy` goes out of bounds, while the Rust side ends assembly early.
 fn get_data(blocks: &mut Vec<Vec<u8>>, length: i32) -> Option<Vec<u8>> {
     if blocks.is_empty() {
         return None;
@@ -225,12 +225,12 @@ fn get_data(blocks: &mut Vec<Vec<u8>>, length: i32) -> Option<Vec<u8>> {
     // Java: while (offset < length) { data = blocks.remove(0); System.arraycopy(data, 0, result, offset, data.length); offset += data.length; }
     while offset < length {
         let Some(data) = pop_front(blocks) else {
-            // Java: blocks 提前用尽时抛 IndexOutOfBoundsException
+// Java: throws IndexOutOfBoundsException when the blocks run out early
             break;
         };
 
         if data.len() > length - offset {
-            // Java: System.arraycopy 越界抛 ArrayIndexOutOfBoundsException
+// Java: System.arraycopy throws ArrayIndexOutOfBoundsException when out of bounds
             result[offset..].copy_from_slice(&data[..length - offset]);
             break;
         }
@@ -242,9 +242,9 @@ fn get_data(blocks: &mut Vec<Vec<u8>>, length: i32) -> Option<Vec<u8>> {
     Some(result)
 }
 
-/// 取出集合的第一个元素。
+/// Take the first element of the collection.
 ///
-/// 对应 Java: `List.remove(0)`（Java 在集合为空时抛异常，Rust 返回 `None`）。
+/// Corresponds to Java: `List.remove(0)` (Java throws when the collection is empty, while Rust returns `None`).
 fn pop_front(blocks: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
     if blocks.is_empty() {
         None
@@ -253,11 +253,11 @@ fn pop_front(blocks: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
     }
 }
 
-/// 从 `offset` 处解析一处 `\objdata`，并把得到的对象追加到 `objects`。
+/// Parse one `\objdata` occurrence starting at `offset` and append the resulting objects to `objects`.
 ///
-/// 对应 Java: `private static int readObjectData(int offset, String text, List<RTFEmbeddedObject> objects)`
+/// Corresponds to Java: `private static int readObjectData(int offset, String text, List<RTFEmbeddedObject> objects)`
 ///
-/// 返回「最后读取的数据块的末尾位置」；`None` 对应 Java 的 `-1`（遇到 `}` 或文本结束）。
+/// Returns "the end position of the last block read"; `None` corresponds to Java's `-1` (encountering `}` or end of text).
 fn read_object_data(
     text: &[char],
     offset: usize,
@@ -293,12 +293,12 @@ fn read_object_data(
     last_offset
 }
 
-/// 跳过空格与换行；遇到 `}` 表示嵌入对象结束。
+/// Skip spaces and newlines; encountering `}` means the embedded object ends.
 ///
-/// 对应 Java: `private static int skipEndOfLine(String text, int offset)`
+/// Corresponds to Java: `private static int skipEndOfLine(String text, int offset)`
 ///
-/// Java 用 `-1` 表示「遇到 `}`」；Rust 用 `None` 表达（文本越界同样返回 `None`，
-/// Java 此时抛 `StringIndexOutOfBoundsException`）。
+/// Java uses `-1` to mean "encountered `}`"; Rust expresses this with `None` (an out-of-bounds text position also returns `None`,
+/// where Java throws `StringIndexOutOfBoundsException`).
 fn skip_end_of_line(text: &[char], offset: usize) -> Option<usize> {
     let mut offset = offset;
 
@@ -306,7 +306,7 @@ fn skip_end_of_line(text: &[char], offset: usize) -> Option<usize> {
         let c = *text.get(offset)?;
 
         match c {
-            // Java 注释：OBJDATA 之后可能是「空格 + 行尾」
+// Java comment: OBJDATA may be followed by "a space + end of line"
             ' ' | '\r' | '\n' => offset += 1,
             '}' => return None,
             _ => return Some(offset),
@@ -314,15 +314,15 @@ fn skip_end_of_line(text: &[char], offset: usize) -> Option<usize> {
     }
 }
 
-/// 计算下一个数据块的长度（该行去除行尾的字符数）。
+/// Compute the length of the next data block (the number of characters on the line after removing the line ending).
 ///
-/// 对应 Java: `private static int getBlockLength(String text, int offset)`
+/// Corresponds to Java: `private static int getBlockLength(String text, int offset)`
 fn get_block_length(text: &[char], offset: usize) -> usize {
     let start = offset;
     let mut offset = offset;
 
     loop {
-        // Java: text.charAt(offset) —— 越界抛 StringIndexOutOfBoundsException；Rust 视为块结束
+// Java: text.charAt(offset) — throws StringIndexOutOfBoundsException when out of bounds; Rust treats it as the end of the block
         let Some(c) = text.get(offset) else {
             break;
         };
@@ -336,12 +336,12 @@ fn get_block_length(text: &[char], offset: usize) -> usize {
     offset - start
 }
 
-/// 读取一个十六进制数据块（每 2 个字符 1 个字节）并追加到 `blocks`。
+/// Read one hexadecimal data block (two characters per byte) and append it to `blocks`.
 ///
-/// 对应 Java: `private static int readDataBlock(String text, int offset, int length, List<byte[]> blocks)`
+/// Corresponds to Java: `private static int readDataBlock(String text, int offset, int length, List<byte[]> blocks)`
 ///
-/// 返回块之后的位置。Java 用 `Integer.parseInt(..., 16)`（非法字符抛
-/// `NumberFormatException`），Rust 侧非法字符按 0 处理。
+/// Returns the position after the block. Java uses `Integer.parseInt(..., 16)` (which throws on invalid characters
+/// `NumberFormatException`), while the Rust side treats invalid characters as 0.
 fn read_data_block(
     text: &[char],
     offset: usize,
@@ -372,13 +372,13 @@ fn read_data_block(
     offset
 }
 
-/// 在字符切片中查找子串（按 Java `String.indexOf(String, int)` 的语义）。
+/// Find a substring in a character slice (per the semantics of Java `String.indexOf(String, int)`).
 ///
-/// `from_index` 之前的字符不参与匹配；未找到返回 `None`（Java 返回 `-1`）。
+/// Characters before `from_index` do not participate in matching; returns `None` when not found (Java returns `-1`).
 fn index_of(text: &[char], needle: &str, from_index: usize) -> Option<usize> {
     let needle: Vec<char> = needle.chars().collect();
 
-    // Java: 空串返回 fromIndex（越界时返回文本长度）
+// Java: an empty string returns fromIndex (returns the text length when out of bounds)
     if needle.is_empty() {
         return Some(from_index.min(text.len()));
     }
@@ -398,9 +398,9 @@ fn index_of(text: &[char], needle: &str, from_index: usize) -> Option<usize> {
 mod tests {
     use super::*;
 
-    /// 构造一份「`\objdata` 头 + 数据体」的 RTF 片段。
+/// Build an RTF fragment with "`\objdata` header + data body".
     ///
-    /// 头对象的 typeFlag2 为 `type_flag2`，因此数据体按该类型解析。
+/// The header object's typeFlag2 is `type_flag2`, so the data body is parsed as that type.
     fn object_group(header: &[&str], payload: &[&str]) -> String {
         let mut text = String::from(OBJDATA);
         text.push_str("\r\n");
@@ -414,7 +414,7 @@ mod tests {
         text
     }
 
-    /// 十进制整数的小端十六进制文本（4 字节）。
+/// Little-endian hexadecimal text of a decimal integer (4 bytes).
     fn hex_int(value: u32) -> String {
         let mut text = String::new();
         for byte in value.to_le_bytes() {
@@ -423,7 +423,7 @@ mod tests {
         text
     }
 
-    /// 类型 2 的头（flag1 = 1、flag2 = 1）后跟类型 1 的数据体。
+/// A type 2 header (flag1 = 1, flag2 = 1) followed by a type 1 data body.
     fn single_group_with_data() -> String {
         object_group(
             &[&hex_int(1), &hex_int(1), &hex_int(4), "AABBCCDD"],
@@ -431,35 +431,35 @@ mod tests {
         )
     }
 
-    /// 从 RTF 文本构造 `RtfNotes`。
+/// Construct `RtfNotes` from RTF text.
     fn notes(rtf: String) -> RtfNotes {
         RtfNotes::new(Some(rtf))
     }
 
     #[test]
     fn no_objdata_yields_none() {
-        // Java: 文档里找不到 OBJDATA 时返回 null
+// Java: returns null when OBJDATA is not found in the document
         assert!(RTFEmbeddedObject::get_embedded_objects(&notes(String::from("plain text"))).is_none());
-        // Java: notes.getRtf() 为 null 时抛 NullPointerException，Rust 返回 None
+// Java: throws NullPointerException when notes.getRtf() is null, while Rust returns None
         assert!(RTFEmbeddedObject::get_embedded_objects(&RtfNotes::new(None)).is_none());
     }
 
     #[test]
     fn parses_header_and_data_objects() {
         let objects = RTFEmbeddedObject::get_embedded_objects(&notes(single_group_with_data()))
-            .expect("应能解析出嵌入对象");
+            .expect("should parse embedded objects");
 
         assert_eq!(objects.len(), 1);
         let group = &objects[0];
         assert_eq!(group.len(), 2);
 
-        // 头对象：type 2 => flag1 / flag2 / length / data
+// Header object: type 2 => flag1 / flag2 / length / data
         let header = &group[0];
         assert_eq!(header.get_type_flag1(), 1);
         assert_eq!(header.get_type_flag2(), 1);
         assert_eq!(header.get_data(), Some(&[0xAA, 0xBB, 0xCC, 0xDD][..]));
 
-        // 数据体：type 取自头对象的 typeFlag2（= 1）=> length / data
+// Data body: type taken from the header object's typeFlag2 (= 1) => length / data
         let data_object = &group[1];
         assert_eq!(data_object.get_type_flag1(), 0);
         assert_eq!(data_object.get_type_flag2(), 0);
@@ -471,7 +471,7 @@ mod tests {
         let mut rtf = single_group_with_data();
         rtf.push_str(&single_group_with_data());
 
-        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("应有嵌入对象");
+        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("should have embedded objects");
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].len(), 2);
         assert_eq!(objects[1].len(), 2);
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn objdata_followed_by_a_space_is_supported() {
-        // Java 注释：OBJDATA 之后可能是「空格 + 行尾」
+// Java comment: OBJDATA may be followed by "a space + end of line"
         let mut rtf = String::from(OBJDATA);
         rtf.push_str(" \r\n");
         rtf.push_str(&hex_int(1));
@@ -491,9 +491,9 @@ mod tests {
         rtf.push_str("0A0B0C0D\r\n");
         rtf.push('}');
 
-        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("应有嵌入对象");
+        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("should have embedded objects");
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].len(), 1, "只剩头对象（后续块为空）");
+        assert_eq!(objects[0].len(), 1, "only header object remains（subsequent blocks are empty）");
         assert_eq!(
             objects[0][0].get_data(),
             Some(&[0x0A, 0x0B, 0x0C, 0x0D][..])
@@ -502,51 +502,51 @@ mod tests {
 
     #[test]
     fn objdata_immediately_followed_by_a_brace_terminates() {
-        // Java 在这里会死循环（indexOf 从 -1 当作 0 重新搜索）；Rust 必须能结束
+// Java loops forever here (indexOf treats -1 as 0 and searches again); Rust must be able to finish
         let rtf = String::from("\\objdata }");
 
-        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("应有嵌入对象");
+        let objects = RTFEmbeddedObject::get_embedded_objects(&notes(rtf)).expect("should have embedded objects");
         assert_eq!(objects.len(), 1);
         assert!(objects[0].is_empty());
     }
 
     #[test]
     fn short_blocks_do_not_panic() {
-        // 块只有 2 字节：Java 的 ByteArrayHelper.getInt 抛 AIOOBE，Rust 返回 0
+// The block has only 2 bytes: Java's ByteArrayHelper.getInt throws AIOOBE, while Rust returns 0
         let mut blocks = vec![vec![0x01u8, 0x02]];
         assert_eq!(get_int(&mut blocks), 0);
         assert!(blocks.is_empty());
 
-        // 集合为空
+// The collection is empty
         let mut blocks: Vec<Vec<u8>> = Vec::new();
         assert_eq!(get_int(&mut blocks), 0);
-        // Java: getData 在集合为空时返回 null
+// Java: getData returns null when the collection is empty
         assert_eq!(get_data(&mut blocks, 4), None);
     }
 
     #[test]
     fn get_data_pads_short_lengths_to_four() {
-        // Java: length < 4 时按 4 处理
+// Java: a length < 4 is treated as 4
         let mut blocks = vec![vec![0x01u8, 0x02]];
-        let data = get_data(&mut blocks, 2).expect("应有数据");
+        let data = get_data(&mut blocks, 2).expect("should have data");
         assert_eq!(data, vec![0x01, 0x02, 0x00, 0x00]);
 
-        // 块用尽：Java 抛 IndexOutOfBoundsException，Rust 提前结束
+// Blocks run out: Java throws IndexOutOfBoundsException, while Rust ends early
         let mut blocks = vec![vec![0x01u8, 0x02]];
-        let data = get_data(&mut blocks, 8).expect("应有数据");
+        let data = get_data(&mut blocks, 8).expect("should have data");
         assert_eq!(data, vec![0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     }
 
     #[test]
     fn get_data_string_decodes_bytes() {
-        // type 1：先读长度块，再读数据块
+// type 1: reads the length block first, then the data block
         let mut blocks = vec![vec![0x04, 0x00, 0x00, 0x00], vec![b'a', b'b', b'c', b'd']];
         let object = RTFEmbeddedObject::new(&mut blocks, 1);
         assert_eq!(object.get_data(), Some(&b"abcd"[..]));
         assert_eq!(object.get_data_string(), "abcd");
         assert!(blocks.is_empty());
 
-        // m_data 为 null 时 Java 返回空串
+// Java returns an empty string when m_data is null
         let mut blocks: Vec<Vec<u8>> = Vec::new();
         let object = RTFEmbeddedObject::new(&mut blocks, 1);
         assert_eq!(object.get_data(), None);
@@ -555,14 +555,14 @@ mod tests {
 
     #[test]
     fn unknown_type_reads_nothing() {
-        // Java 的 switch 没有 default：type 为其它值时三个字段保持默认
+// Java's switch has no default: for other type values the three fields keep their defaults
         let mut blocks = vec![vec![0x01u8, 0x00, 0x00, 0x00]];
         let object = RTFEmbeddedObject::new(&mut blocks, 99);
 
         assert_eq!(object.get_type_flag1(), 0);
         assert_eq!(object.get_type_flag2(), 0);
         assert_eq!(object.get_data(), None);
-        assert_eq!(blocks.len(), 1, "未消费任何块");
+        assert_eq!(blocks.len(), 1, "no blocks consumed");
     }
 
     #[test]

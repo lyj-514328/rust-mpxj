@@ -1,99 +1,99 @@
-//! 对应 Java: `org/mpxj/ShiftPeriodContainer.java`
+//! Corresponds to Java: `org/mpxj/ShiftPeriodContainer.java`
 //!
-//! 跳过的 Java 方法与原因：无本类自定义方法，Java 侧全部行为来自基类
-//! `ProjectEntityContainer<ShiftPeriod>`（其上层为 `ProjectEntityWithIDContainer` /
-//! `ListWithCallbacks`）；本仓**未组合**这些基类（它们均已落地，属待接线项，见
-//! `TECH_DEBT.md` 六），取舍与
-//! [`crate::unit_of_measure_container::UnitOfMeasureContainer`] 一致：
+//! Skipped Java methods and reasons: no methods custom to this class; all Java behavior comes from the base class
+//! `ProjectEntityContainer<ShiftPeriod>` (whose parent is `ProjectEntityWithIDContainer` /
+//! `ListWithCallbacks`); this crate does **not compose** these base classes (they are all in place but pending wiring, see
+//! `TECH_DEBT.md` section six), following the same trade-off as
+//! [`crate::unit_of_measure_container::UnitOfMeasureContainer`]:
 //!
-//! | Java（继承自基类） | Rust |
+//! | Java (inherited from base class) | Rust |
 //! |---|---|
 //! | `add(E element)` | [`ShiftPeriodContainer::add`] |
 //! | `get(int index)` / `size()` / `isEmpty()` / `iterator()` | [`ShiftPeriodContainer::get`] / [`ShiftPeriodContainer::len`] / [`ShiftPeriodContainer::is_empty`] / [`ShiftPeriodContainer::iter`] |
 //! | `getByUniqueID(Integer id)` | [`ShiftPeriodContainer::get_by_unique_id`] |
-//! | `updateUniqueID(element, oldID, newID)`、`fixUniqueIdClashes()`、`getSequenceProvider()`、`ListWithCallbacks` 的回调 | 未接线（`ProjectEntityContainer` 与 `UniqueIdObjectSequenceProvider` 均已落地，见 `TECH_DEBT.md` 六） |
+//! | `updateUniqueID(element, oldID, newID)`, `fixUniqueIdClashes()`, `getSequenceProvider()`, the `ListWithCallbacks` callbacks | Not wired (both `ProjectEntityContainer` and `UniqueIdObjectSequenceProvider` are in place, see `TECH_DEBT.md` section six) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **构造方法**：Java 的 `ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
-//!   把序列提供者交给基类，仅用于基类方法（本仓未组合基类），Rust 侧构造方法无参数。
-//! - **元素形态**：Java 存的是 `ShiftPeriod` 引用；Rust 侧
-//!   [`crate::shift_period::ShiftPeriod`] 是值类型（内部以 `Weak<Shift>` 回指父班次），
-//!   故容器直接存 `ShiftPeriod`，与 [`crate::shift::Shift`] 内部的
-//!   `BTreeSet<ShiftPeriod>` 保持同一套值语义。
-//! - **查找**：Java 用 `Map<Integer, ShiftPeriod>` 索引 unique ID；Rust 侧按顺序线性查找。
-//! - `getByUniqueID(null)` 在 Java 中查不到值，Rust 侧同样返回 `None`。
+//! - **Constructor**: Java's `ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+//! passes the sequence provider to the base class and uses it only by base class methods (this crate does not compose the base class); the Rust constructor takes no parameters.
+//! - **Element form**: Java stores `ShiftPeriod` references; the Rust side
+//! [`crate::shift_period::ShiftPeriod`] is a value type (internally holding a `Weak<Shift>` back to the parent shift),
+//! so the container stores `ShiftPeriod` directly, keeping the same value semantics as the
+//! `BTreeSet<ShiftPeriod>` inside [`crate::shift::Shift`].
+//! - **Lookup**: Java indexes unique IDs with `Map<Integer, ShiftPeriod>`; the Rust side searches linearly in order.
+//! - `getByUniqueID(null)` finds no value in Java; the Rust side likewise returns `None`.
 
 use crate::shift_period::ShiftPeriod;
 
-/// 当前项目可用的班次时段集合。
+/// The collection of shift periods available in the current project.
 ///
-/// 对应 Java: `public class ShiftPeriodContainer extends ProjectEntityContainer<ShiftPeriod>`
+/// Corresponds to Java: `public class ShiftPeriodContainer extends ProjectEntityContainer<ShiftPeriod>`
 #[derive(Debug, Clone, Default)]
 pub struct ShiftPeriodContainer {
-    /// 容器内的班次时段。
+/// The shift periods in the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 内部的列表存储。
+/// Corresponds to Java: the internal list storage of `ProjectEntityContainer`.
     items: Vec<ShiftPeriod>,
 }
 
 impl ShiftPeriodContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public ShiftPeriodContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的 `sequenceProvider` 参数只用于基类方法（本仓未组合基类），Rust 侧构造方法无参数
-    /// （见文件头说明）。
+/// Java's `sequenceProvider` parameter is used only by base class methods (this crate does not compose the base class); the Rust constructor takes no parameters
+/// (see the file header).
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
 
-    /// 追加一个班次时段。
+/// Append a shift period.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ListWithCallbacks` / `ArrayList`
-    /// 的 `add(E element)`。
+/// Corresponds to Java: `ProjectEntityContainer` inherits from `ListWithCallbacks` / `ArrayList`
+/// the `add(E element)` method.
     pub fn add(&mut self, period: ShiftPeriod) {
         self.items.push(period);
     }
 
-    /// 按下标取班次时段；越界返回 `None`。
+/// Get a shift period by index; returns `None` if out of bounds.
     ///
-    /// 对应 Java: `ArrayList.get(int index)`。
+    /// Corresponds to Java: `ArrayList.get(int index)`.
     pub fn get(&self, index: usize) -> Option<&ShiftPeriod> {
         self.items.get(index)
     }
 
-    /// 班次时段个数。
+/// Number of shift periods.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `size()`。
+/// Corresponds to Java: `ProjectEntityContainer` inherits `size()` from `ArrayList`.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 容器是否为空。
+/// Whether the container is empty.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `isEmpty()`。
+/// Corresponds to Java: `ProjectEntityContainer` inherits `isEmpty()` from `ArrayList`.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代容器内的班次时段。
+/// Iterate over the shift periods in the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `iterator()`。
+/// Corresponds to Java: `ProjectEntityContainer` inherits `iterator()` from `ArrayList`.
     pub fn iter(&self) -> std::slice::Iter<'_, ShiftPeriod> {
         self.items.iter()
     }
 
-    /// 以切片形式访问容器内的班次时段。
+/// Access the shift periods in the container as a slice.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 的列表视图。
+/// Corresponds to Java: the list view of `ProjectEntityContainer`.
     pub fn as_slice(&self) -> &[ShiftPeriod] {
         self.items.as_slice()
     }
 
-    /// 按 unique ID 查找班次时段，找不到时返回 `None`。
+/// Find a shift period by unique ID; returns `None` if not found.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<&ShiftPeriod> {
         let id = id?;
         self.items
@@ -101,12 +101,12 @@ impl ShiftPeriodContainer {
             .find(|period| period.get_unique_id() == Some(id))
     }
 
-    /// 清空容器。
+/// Clear the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` 继承自 `ArrayList` 的 `clear()`。
+/// Corresponds to Java: `ProjectEntityContainer` inherits `clear()` from `ArrayList`.
     ///
-    /// 注：Java 的 `ListWithCallbacks` 会在逐个移除时触发回调，Rust 侧未组合该基类
-    /// （见文件头），此处只清空列表。
+/// Note: Java's `ListWithCallbacks` fires callbacks on each individual removal; the Rust side does not compose that base class
+/// (see the file header), so here we only clear the list.
     pub fn clear(&mut self) {
         self.items.clear();
     }
@@ -164,7 +164,7 @@ mod tests {
             chrono::NaiveTime::from_hms_opt(8, 0, 0)
         );
         assert!(container.get_by_unique_id(Some(8)).is_none());
-        // Java: getByUniqueID(null) 查不到值
+// Java: getByUniqueID(null) finds no value
         assert!(container.get_by_unique_id(None).is_none());
     }
 

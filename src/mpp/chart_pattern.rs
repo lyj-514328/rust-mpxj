@@ -1,58 +1,58 @@
-//! 对应 Java: `org/mpxj/mpp/ChartPattern.java`
+//! Corresponds to Java: `org/mpxj/mpp/ChartPattern.java`
 //!
-//! 甘特图条形中段（middle）的填充图案。
+//! Fill patterns for the middle section of Gantt chart bars.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum ChartPattern implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final ChartPattern[] TYPE_VALUES = EnumHelper.createTypeArray(ChartPattern.class)` | [`ChartPattern::get_instance`] 的 `match` + [`ChartPattern::ALL`] | 表长 12（偏移 0），取值 0..11 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getInstance(Number type)` | [`ChartPattern::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀 |
-//! | `getName()` / `toString()` | [`ChartPattern::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum ChartPattern implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final ChartPattern[] TYPE_VALUES = EnumHelper.createTypeArray(ChartPattern.class)` | the `match` in [`ChartPattern::get_instance`] + [`ChartPattern::ALL`] | The table length is 12 (offset 0); values 0..11 are all filled, so Java's `getInstance` never returns `null` |
+//! | `getInstance(Number type)` | [`ChartPattern::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added |
+//! | `getName()` / `toString()` | [`ChartPattern::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 甘特图条形填充图案。
+/// Gantt chart bar fill pattern.
 ///
-/// 对应 Java: `public enum ChartPattern`
+/// Corresponds to Java: `public enum ChartPattern`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChartPattern {
-    /// 对应 Java: `TRANSPARENT(0, "Transparent")`
+    /// Corresponds to Java: `TRANSPARENT(0, "Transparent")`
     Transparent = 0,
-    /// 对应 Java: `SOLID(1, "Solid")`
+    /// Corresponds to Java: `SOLID(1, "Solid")`
     Solid = 1,
-    /// 对应 Java: `LIGHTDOTTED(2, "Light Dotted")`
+    /// Corresponds to Java: `LIGHTDOTTED(2, "Light Dotted")`
     Lightdotted = 2,
-    /// 对应 Java: `DOTTED(3, "Dotted")`
+    /// Corresponds to Java: `DOTTED(3, "Dotted")`
     Dotted = 3,
-    /// 对应 Java: `HEAVYDOTTED(4, "Heavy Dotted")`
+    /// Corresponds to Java: `HEAVYDOTTED(4, "Heavy Dotted")`
     Heavydotted = 4,
-    /// 对应 Java: `BACKSLASH(5, "Back Slash")`
+    /// Corresponds to Java: `BACKSLASH(5, "Back Slash")`
     Backslash = 5,
-    /// 对应 Java: `FORWARDSLASH(6, "Forward Slash")`
+    /// Corresponds to Java: `FORWARDSLASH(6, "Forward Slash")`
     Forwardslash = 6,
-    /// 对应 Java: `CHECKERED(7, "Checkered")`
+    /// Corresponds to Java: `CHECKERED(7, "Checkered")`
     Checkered = 7,
-    /// 对应 Java: `VERTICALSTRIPE(8, "Vertical Stripe")`
+    /// Corresponds to Java: `VERTICALSTRIPE(8, "Vertical Stripe")`
     Verticalstripe = 8,
-    /// 对应 Java: `HORIZONTALSTRIPE(9, "Horizontal Stripe")`
+    /// Corresponds to Java: `HORIZONTALSTRIPE(9, "Horizontal Stripe")`
     Horizontalstripe = 9,
-    /// 对应 Java: `GRID(10, "Grid")`
+    /// Corresponds to Java: `GRID(10, "Grid")`
     Grid = 10,
-    /// 对应 Java: `SOLIDHAIRY(11, "Solid Hairy")`
+    /// Corresponds to Java: `SOLIDHAIRY(11, "Solid Hairy")`
     Solidhairy = 11,
 }
 
 impl ChartPattern {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final ChartPattern[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final ChartPattern[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [ChartPattern; 12] = [
         ChartPattern::Transparent,
         ChartPattern::Solid,
@@ -68,11 +68,11 @@ impl ChartPattern {
         ChartPattern::Solidhairy,
     ];
 
-    /// 按 int 值取枚举实例。
+/// Get the enum instance by int value.
     ///
-    /// 对应 Java: `public static ChartPattern getInstance(int type)`
+    /// Corresponds to Java: `public static ChartPattern getInstance(int type)`
     ///
-    /// 越界时 Java 先回落到 `TRANSPARENT.getValue()`（0）再取表，故不会返回 `null`。
+/// On out of bounds, Java first falls back to `TRANSPARENT.getValue()` (0) before indexing the table, so it never returns `null`.
     pub fn get_instance(value: i32) -> ChartPattern {
         match value {
             0 => ChartPattern::Transparent,
@@ -92,16 +92,16 @@ impl ChartPattern {
         }
     }
 
-    /// 对应 Java: `public static ChartPattern getInstance(Number type)`
+    /// Corresponds to Java: `public static ChartPattern getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `TRANSPARENT`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `TRANSPARENT`.
     pub fn get_instance_optional(value: Option<i32>) -> ChartPattern {
         ChartPattern::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取图案名称（未做本地化）。
+/// Get the pattern name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             ChartPattern::Transparent => "Transparent",
@@ -119,30 +119,30 @@ impl ChartPattern {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for ChartPattern {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for ChartPattern {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<ChartPattern> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`ChartPattern::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`ChartPattern::get_value`].
     fn from(value: ChartPattern) -> i32 {
         value.get_value()
     }
@@ -152,7 +152,7 @@ impl From<ChartPattern> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in ChartPattern::ALL.iter().enumerate() {
@@ -162,7 +162,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 TRANSPARENT（Java 不会返回 null）。
+/// Out of bounds falls back to TRANSPARENT (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_transparent() {
         for value in [-1, -100, 12, 13, 1000, i32::MAX, i32::MIN] {
@@ -178,7 +178,7 @@ mod tests {
         );
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(ChartPattern::Transparent.get_name(), "Transparent");

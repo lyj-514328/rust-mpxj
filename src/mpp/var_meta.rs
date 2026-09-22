@@ -1,107 +1,107 @@
-//! 对应 Java: `org/mpxj/mpp/VarMeta.java`
+//! Corresponds to Java: `org/mpxj/mpp/VarMeta.java`
 //!
-//! VarMeta 系列（`VarMeta9` / `VarMeta12`）的公共接口：描述 `Var2Data` 变长数据块的布局
-//! ——条目数、数据区大小、以及「唯一 ID → 数据类型 → 偏移」索引。
+//! Common interface for the VarMeta family (`VarMeta9` / `VarMeta12`): describes the layout of a `Var2Data` variable-length data block
+//! — the entry count, the data area size, and the "unique ID → data type → offset" index.
 //!
-//! # 接口的还原
+//! # Reproducing the interface
 //!
-//! Java: `interface VarMeta`，由 `abstract class AbstractVarMeta implements VarMeta` 实现，
-//! `VarMeta9` / `VarMeta12` 再继承 `AbstractVarMeta`。Rust 没有继承，按下列方式还原：
+//! Java: `interface VarMeta`, implemented by `abstract class AbstractVarMeta implements VarMeta`,
+//! with `VarMeta9` / `VarMeta12` further extending `AbstractVarMeta`. Rust has no inheritance, so it is reproduced as follows:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `interface VarMeta` | 本文件的 [`VarMeta`] trait |
-//! | `abstract class AbstractVarMeta implements VarMeta` | [`crate::mpp::abstract_var_meta::AbstractVarMeta`] 提供 `impl VarMeta` |
-//! | `VarMeta9 / VarMeta12 extends AbstractVarMeta` | 各自**组合**一个 `AbstractVarMeta`，并把全部方法**转发**给它 |
+//! | `interface VarMeta` | the [`VarMeta`] trait in this file |
+//! | `abstract class AbstractVarMeta implements VarMeta` | [`crate::mpp::abstract_var_meta::AbstractVarMeta`] provides `impl VarMeta` |
+//! | `VarMeta9 / VarMeta12 extends AbstractVarMeta` | each **composes** an `AbstractVarMeta` and **forwards** all methods to it |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `Integer` 参数（可空） | `Option<i32>` | 遵循「`null` → `Option<T>`」约定；Java 对 `null` 的越界行为（如 `TreeMap.get(null)` 抛 NPE）在 Rust 侧退化为 `None` / `false` |
-//! | `Integer[] getUniqueIdentifierArray()` | `Vec<i32>` | 元素顺序与 Java 的 `TreeMap.keySet()` 一致（升序） |
-//! | `Set<Integer> getUniqueIdentifierSet()` / `Set<Integer> getTypes(Integer)` | `BTreeSet<i32>` | Java 返回 `TreeMap.keySet()` 的升序**实时视图**，Rust 返回升序集合副本 |
-//! | `int[] getOffsets()` | `&[i32]` | Java 返回内部数组，Rust 返回内部切片的借用（避免复制；调用方无法改写） |
-//! | `String toString(FieldMap fieldMap)` | `to_string_with_field_map(Option<&dyn VarDataKeyResolver>)` | `FieldMap` 已落地（[`crate::mpp::field_map::FieldMap`] 且已 `impl VarDataKeyResolver`），但仍以只声明所需能力的 [`VarDataKeyResolver`] 取参：Java 的 `getFieldTypeFromVarDataKey` 返回 `FieldType` 接口，本 crate 的 `FieldType` trait 带 `Option<Self>` 返回值、非对象安全，无法以 trait 对象形式返回；`null` → `None` |
+//! | `Integer` parameter (nullable) | `Option<i32>` | follows the "`null` → `Option<T>`" convention; Java's out-of-bounds behavior for `null` (e.g. `TreeMap.get(null)` throwing an NPE) degrades to `None` / `false` on the Rust side |
+//! | `Integer[] getUniqueIdentifierArray()` | `Vec<i32>` | element order matches Java's `TreeMap.keySet()` (ascending) |
+//! | `Set<Integer> getUniqueIdentifierSet()` / `Set<Integer> getTypes(Integer)` | `BTreeSet<i32>` | Java returns an ascending **live view** of `TreeMap.keySet()`; Rust returns an ascending copy of the set |
+//! | `int[] getOffsets()` | `&[i32]` | Java returns the internal array; Rust returns a borrow of the internal slice (avoids copying; the caller cannot modify it) |
+//! | `String toString(FieldMap fieldMap)` | `to_string_with_field_map(Option<&dyn VarDataKeyResolver>)` | `FieldMap` is in place ([`crate::mpp::field_map::FieldMap`] and already `impl VarDataKeyResolver`), but the parameter is still taken as the [`VarDataKeyResolver`] that declares only the required capability: Java's `getFieldTypeFromVarDataKey` returns the `FieldType` interface, whereas this crate's `FieldType` trait has an `Option<Self>` return value and is not object safe, so it cannot be returned as a trait object; `null` → `None` |
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本接口未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this interface does not use these mechanisms.
 
 use std::collections::BTreeSet;
 
-/// 「变长数据键 → 字段类型名」的查询接口（Rust 特有）。
+/// Query interface for "variable-length data key → field type name" (Rust specific).
 ///
-/// 对应 Java: `org.mpxj.mpp.FieldMap#getFieldTypeFromVarDataKey(Integer key)`
+/// Corresponds to Java: `org.mpxj.mpp.FieldMap#getFieldTypeFromVarDataKey(Integer key)`
 ///
-/// Java 的 `AbstractVarMeta#toString(FieldMap)` 仅用它把 VarData 键翻译成字段名（调试输出）。
-/// Rust 侧 [`crate::mpp::field_map::FieldMap`] 已落地并已 `impl VarDataKeyResolver`，本 trait
-/// 仍只声明该方法所需的最小能力（使 `AbstractVarMeta` 不依赖 `FieldMap` 的具体类型）：
+/// Java's `AbstractVarMeta#toString(FieldMap)` uses it only to translate VarData keys into field names (debug output).
+/// On the Rust side [`crate::mpp::field_map::FieldMap`] is in place and already `impl VarDataKeyResolver`; this trait
+/// still declares only the minimal capability required by that method (so `AbstractVarMeta` does not depend on the concrete type of `FieldMap`):
 ///
-/// - Java 返回 `FieldType`（`org.mpxj.FieldType` 接口），但 Rust 的 `FieldType` trait
-///   带 `Option<Self>` 返回值、不是对象安全类型，无法以 trait 对象形式返回，故改返回**字段显示名**；
-/// - 返回 `None` 表示 Java 的 `null`（该键不是 VarData 字段）。
+/// - Java returns `FieldType` (the `org.mpxj.FieldType` interface), but Rust's `FieldType` trait
+/// has an `Option<Self>` return value and is not object safe, so it cannot be returned as a trait object; therefore it returns the **field display name** instead;
+/// - returning `None` represents Java's `null` (the key is not a VarData field).
 pub trait VarDataKeyResolver {
-    /// 把变长数据键翻译成字段显示名。
+/// Translate a variable-length data key into a field display name.
     ///
-    /// 对应 Java: `FieldType getFieldTypeFromVarDataKey(Integer key)`
+    /// Corresponds to Java: `FieldType getFieldTypeFromVarDataKey(Integer key)`
     fn get_field_type_from_var_data_key(&self, key: i32) -> Option<String>;
 }
 
-/// 变长数据块的元数据。
+/// Metadata for a variable-length data block.
 ///
-/// 对应 Java: `interface VarMeta`
+/// Corresponds to Java: `interface VarMeta`
 pub trait VarMeta {
-    /// 取 `Var2Data` 块中的条目数。
+/// Get the number of entries in the `Var2Data` block.
     ///
-    /// 对应 Java: `int getItemCount()`
+    /// Corresponds to Java: `int getItemCount()`
     fn get_item_count(&self) -> i32;
 
-    /// 取 `Var2Data` 块的数据区大小。
+/// Get the data area size of the `Var2Data` block.
     ///
-    /// 对应 Java: `int getDataSize()`
+    /// Corresponds to Java: `int getDataSize()`
     fn get_data_size(&self) -> i32;
 
-    /// 取全部出现过数据的唯一 ID（升序）。
+/// Get all unique IDs that have data (ascending).
     ///
-    /// 对应 Java: `Integer[] getUniqueIdentifierArray()`
+    /// Corresponds to Java: `Integer[] getUniqueIdentifierArray()`
     fn get_unique_identifier_array(&self) -> Vec<i32>;
 
-    /// 取全部出现过数据的唯一 ID 集合（升序）。
+/// Get the set of all unique IDs that have data (ascending).
     ///
-    /// 对应 Java: `Set<Integer> getUniqueIdentifierSet()`
+    /// Corresponds to Java: `Set<Integer> getUniqueIdentifierSet()`
     fn get_unique_identifier_set(&self) -> BTreeSet<i32>;
 
-    /// 按「唯一 ID + 数据类型」取该条目在 `Var2Data` 块中的偏移。
+/// Get the offset of the entry in the `Var2Data` block by "unique ID + data type".
     ///
-    /// 对应 Java: `Integer getOffset(Integer id, Integer type)`
+    /// Corresponds to Java: `Integer getOffset(Integer id, Integer type)`
     ///
-    /// `id` / `type` 为 `None`（Java 的 `null`）或索引中不存在时返回 `None`。
+/// Returns `None` when `id` / `type` is `None` (Java's `null`) or not present in the index.
     fn get_offset(&self, id: Option<i32>, type_: Option<i32>) -> Option<i32>;
 
-    /// 取排序后的偏移数组。
+/// Get the sorted offset array.
     ///
-    /// 对应 Java: `int[] getOffsets()`
+    /// Corresponds to Java: `int[] getOffsets()`
     fn get_offsets(&self) -> &[i32];
 
-    /// 取指定唯一 ID 下定义过的全部数据类型（升序）。
+/// Get all data types defined under the specified unique ID (ascending).
     ///
-    /// 对应 Java: `Set<Integer> getTypes(Integer id)`
+    /// Corresponds to Java: `Set<Integer> getTypes(Integer id)`
     ///
-    /// 该 ID 不存在时返回空集合（与 Java 一致）。
+/// Returns an empty set when the ID does not exist (matching Java).
     fn get_types(&self, id: Option<i32>) -> BTreeSet<i32>;
 
-    /// 判断索引中是否存在给定唯一 ID。
+/// Determine whether the given unique ID exists in the index.
     ///
-    /// 对应 Java: `boolean containsKey(Integer key)`
+    /// Corresponds to Java: `boolean containsKey(Integer key)`
     ///
-    /// Java 对 `null` 会抛 NPE（`TreeMap.containsKey(null)`），Rust 侧返回 `false`。
+/// Java throws an NPE for `null` (`TreeMap.containsKey(null)`); the Rust side returns `false`.
     fn contains_key(&self, key: Option<i32>) -> bool;
 
-    /// 以调试用文本导出本块内容。
+/// Export the contents of this block as debug text.
     ///
-    /// 对应 Java: `String toString(FieldMap fieldMap)`
+    /// Corresponds to Java: `String toString(FieldMap fieldMap)`
     ///
-    /// `field_map` 为 `None`（Java 的 `null`）时只输出数值型类型标识。
+/// When `field_map` is `None` (Java's `null`), only the numeric type identifiers are output.
     fn to_string_with_field_map(&self, field_map: Option<&dyn VarDataKeyResolver>) -> String;
 }

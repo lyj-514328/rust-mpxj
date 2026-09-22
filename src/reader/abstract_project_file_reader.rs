@@ -1,60 +1,70 @@
-//! 对应 Java: `org/mpxj/reader/AbstractProjectFileReader.java`
+//! Corresponds to Java: `org/mpxj/reader/AbstractProjectFileReader.java`
 //!
-//! 面向「以文件为单位读取」的 reader 的抽象实现：本层把「按流读取」转换为「按临时文件读取」，
-//! 并给出 `readAll` 的默认行为（只含单份 schedule）。
+//! Abstract implementation for readers that read "file by file": this layer converts
+//! "read by stream" into "read via a temporary file", and provides the default `readAll`
+//! behavior (containing only a single schedule).
 //!
-//! # Java 继承链 → Rust trait 默认方法
+//! # Java inheritance chain → Rust trait default methods
 //!
-//! Java: `public abstract class AbstractProjectFileReader extends AbstractProjectReader`。
-//! Rust 没有继承，故 [`AbstractProjectFileReader`] 以
-//! [`AbstractProjectReader`] 为 supertrait，把本类对 `ProjectReader` 接口方法的实现写成
-//! trait **默认方法**；默认方法名加以 `_default` 后缀，避免与 [`ProjectReader`] 的同名
-//! 方法产生方法解析歧义（该约定的完整说明与具体 reader 的接线模板见
-//! [`crate::reader::abstract_project_reader`] 文件头）。
+//! Java: `public abstract class AbstractProjectFileReader extends AbstractProjectReader`.
+//! Rust has no inheritance, so [`AbstractProjectFileReader`] uses
+//! [`AbstractProjectReader`] as a supertrait and writes this class's implementation of the
+//! `ProjectReader` interface methods as trait **default methods**; the default method names get
+//! a `_default` suffix to avoid method resolution ambiguity with the same-named methods of
+//! [`ProjectReader`] (the full explanation of the convention and the wiring template for a
+//! concrete reader are in the file header of [`crate::reader::abstract_project_reader`]).
 //!
-//! # Java → Rust 方法对照
+//! # Java → Rust method mapping
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile read(String fileName)` | （无独立代码） | 仅做 `new File(fileName)` 适配；Rust 侧与 `read(File)` 合并为 [`ProjectReader::read_file`]（`&Path` 可由 `&str`/`PathBuf` 直接得到） |
-//! | `List<ProjectFile> readAll(String fileName)` | （无独立代码） | 同上，合并为 [`ProjectReader::read_all_file`] |
-//! | `ProjectFile read(File file)` | （抽象，无默认实现） | 由具体 reader 实现 [`ProjectReader::read_file`]；本层不提供实现（与 Java 的 `abstract` 一致） |
-//! | `List<ProjectFile> readAll(File file)` | [`AbstractProjectFileReader::read_all_file_default`] | `read(file)` 的包装 |
-//! | `ProjectFile read(InputStream inputStream)` | [`AbstractProjectFileReader::read_reader_default`] | 先落盘为临时文件，再走 `read(File)` |
-//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`AbstractProjectFileReader::read_all_reader_default`] | 同上，再走 `readAll(File)` |
+//! | `ProjectFile read(String fileName)` | (no separate code) | Only adapts `new File(fileName)`; on the Rust side it is merged with `read(File)` into [`ProjectReader::read_file`] (`&Path` can be obtained directly from `&str`/`PathBuf`) |
+//! | `List<ProjectFile> readAll(String fileName)` | (no separate code) | Same as above; merged into [`ProjectReader::read_all_file`] |
+//! | `ProjectFile read(File file)` | (abstract, no default implementation) | Implemented by the concrete reader as [`ProjectReader::read_file`]; this layer provides no implementation (matching Java's `abstract`) |
+//! | `List<ProjectFile> readAll(File file)` | [`AbstractProjectFileReader::read_all_file_default`] | A wrapper around `read(file)` |
+//! | `ProjectFile read(InputStream inputStream)` | [`AbstractProjectFileReader::read_reader_default`] | Writes to a temporary file first, then goes through `read(File)` |
+//! | `List<ProjectFile> readAll(InputStream inputStream)` | [`AbstractProjectFileReader::read_all_reader_default`] | Same as above, then goes through `readAll(File)` |
 //!
-//! # `java.io.File` / `InputStream` 的处理
+//! # Handling `java.io.File` / `InputStream`
 //!
-//! - **`File` → [`std::path::Path`]**：Java 的 `new File(fileName)` 不做存在性校验
-//!   （校验推迟到实际打开文件时），Rust 侧 [`std::path::Path`] 同样只是路径值，
-//!   语义一致；真正打开文件由具体 reader 负责（例如走
-//!   [`crate::reader::abstract_project_stream_reader::AbstractProjectStreamReader::read_file_default`]，
-//!   其中 [`std::fs::File::open`] 的失败会经 `From<std::io::Error>` 转成
-//!   [`crate::MpxjError`]）。
-//! - **`file.toURI().toURL()` 之类**：本类没有这类用法（Java 源码确认），故无需对应实现。
-//! - **临时文件**：`InputStreamHelper.writeStreamToTempFile(inputStream, "tmp")` 对应本模块的
-//!   [`write_stream_to_temp_file`]（`Files.createTempFile("mpxj", "tmp")` →
-//!   `std::env::temp_dir()` 下以进程号 + 纳秒时间戳命名的文件）；
-//!   `FileHelper.deleteQuietly(tempFile)` 对应 [`delete_quietly`]。
-//! - **`finally` 中的关闭**：Java 用 `AutoCloseableHelper.closeQuietly` / `finally` 确保释放；
-//!   Rust 侧临时文件句柄随作用域 [`Drop`] 自动关闭（并显式 `flush` 以便把写入错误暴露出来）。
-//! - **`throws IOException` → `MpxjError`**：Java 把 `IOException` 包成
-//!   `new MPXJException("Failed to read file", ex)`，Rust 侧由 [`write_stream_to_temp_file`]
-//!   在发生 I/O 失败时给出同文本前缀的错误（[`crate::MpxjError::with_cause`] 会把底层
-//!   I/O 错误文本附加在消息后）。
+//! - **`File` → [`std::path::Path`]**: Java's `new File(fileName)` does no existence check
+//!   (validation is deferred to the actual file open), and on the Rust side [`std::path::Path`]
+//!   is likewise just a path value, so the semantics match; actually opening the file is the
+//!   concrete reader's responsibility (for example via
+//!   [`crate::reader::abstract_project_stream_reader::AbstractProjectStreamReader::read_file_default`],
+//!   where a failure of [`std::fs::File::open`] is converted into [`crate::MpxjError`] via
+//!   `From<std::io::Error>`).
+//! - **`file.toURI().toURL()` and the like**: this class has no such usage (confirmed from the
+//!   Java source), so no corresponding implementation is needed.
+//! - **Temporary file**: `InputStreamHelper.writeStreamToTempFile(inputStream, "tmp")`
+//!   corresponds to this module's [`write_stream_to_temp_file`]
+//!   (`Files.createTempFile("mpxj", "tmp")` → a file under `std::env::temp_dir()` named by
+//!   process ID + nanosecond timestamp); `FileHelper.deleteQuietly(tempFile)` corresponds to
+//!   [`delete_quietly`].
+//! - **Closing in `finally`**: Java uses `AutoCloseableHelper.closeQuietly` / `finally` to ensure
+//!   release; on the Rust side the temporary file handle is closed automatically by [`Drop`]
+//!   when it goes out of scope (and is explicitly `flush`ed so that write errors surface).
+//! - **`throws IOException` → `MpxjError`**: Java wraps `IOException` as
+//!   `new MPXJException("Failed to read file", ex)`; on the Rust side
+//!   [`write_stream_to_temp_file`] produces an error with the same text prefix when an I/O
+//!   failure occurs ([`crate::MpxjError::with_cause`] appends the underlying I/O error text to
+//!   the message).
 //!
-//! # `null` 返回值
+//! # `null` return values
 //!
-//! Java 的 `readAll(File)` 写 `projectFile == null ? emptyList() : singletonList(projectFile)`。
-//! Rust 侧 `read_file` 以 `Result` 表达失败（失败即 `Err`），成功时必然是某个
-//! `Rc<RefCell<ProjectFile>>`，故默认实现恒返回单元素列表，判空分支消失。
+//! Java's `readAll(File)` writes `projectFile == null ? emptyList() : singletonList(projectFile)`.
+//! On the Rust side `read_file` expresses failure with `Result` (failure means `Err`), and on
+//! success it is necessarily some `Rc<RefCell<ProjectFile>>`, so the default implementation
+//! always returns a single-element list and the null-check branch disappears.
 //!
-//! # 跳过的 Java 代码及原因
+//! # Skipped Java code and rationale
 //!
-//! - `read(String)` / `readAll(String)`：纯参数适配（`String` → `File`），Rust 侧已合并进
-//!   按路径的方法（见上表），无独立代码可译；
-//! - 本类未使用反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`，也未引用
-//!   依赖反射分发、本次不移植的 `UniversalProjectReader` / `ProjectReaderUtility`。
+//! - `read(String)` / `readAll(String)`: pure parameter adaptation (`String` → `File`), already
+//!   merged on the Rust side into the path-based methods (see the table above); there is no
+//!   separate code to translate;
+//! - this class does not use reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`,
+//!   nor does it reference `UniversalProjectReader` / `ProjectReaderUtility`, which rely on
+//!   reflection-based dispatch and are not being ported.
 
 use std::cell::RefCell;
 use std::fs::OpenOptions;
@@ -68,18 +78,19 @@ use crate::project_file::ProjectFile;
 use crate::reader::abstract_project_reader::AbstractProjectReader;
 use crate::reader::project_reader::ProjectReader;
 
-/// 面向「以文件为单位读取」的 reader 的抽象实现。
+/// Abstract implementation for readers that read "file by file".
 ///
-/// 对应 Java: `public abstract class AbstractProjectFileReader extends AbstractProjectReader`
+/// Corresponds to Java: `public abstract class AbstractProjectFileReader extends AbstractProjectReader`
 ///
-/// 本层仍为「抽象」的方法是 [`ProjectReader::read_file`]（Java `read(File)`），
-/// 由具体 reader 提供实现。
+/// The method that is still "abstract" in this layer is [`ProjectReader::read_file`]
+/// (Java `read(File)`), which the concrete reader implements.
 pub trait AbstractProjectFileReader: AbstractProjectReader {
-    /// 按路径读取全部 schedule（本层格式只含单份 schedule，故返回单元素列表）。
+    /// Read all schedules by path (this layer's format contains only a single schedule, so a
+    /// single-element list is returned).
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(File file)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(File file)`
     ///
-    /// （Java 的 `readAll(String fileName)` 仅做 `new File(fileName)` 适配，已合并进本方法。）
+    /// (Java's `readAll(String fileName)` only adapts `new File(fileName)` and is merged into this method.)
     fn read_all_file_default(&mut self, path: &Path) -> MpxjResult<Vec<Rc<RefCell<ProjectFile>>>> {
         // Java: ProjectFile projectFile = read(file);
         let project = ProjectReader::read_file(self, path)?;
@@ -88,9 +99,9 @@ pub trait AbstractProjectFileReader: AbstractProjectReader {
         Ok(vec![project])
     }
 
-    /// 从读取器读取一个 schedule：先落盘为临时文件，再按路径读取。
+    /// Read a single schedule from the reader: write to a temporary file first, then read by path.
     ///
-    /// 对应 Java: `@Override public ProjectFile read(InputStream inputStream)`
+    /// Corresponds to Java: `@Override public ProjectFile read(InputStream inputStream)`
     fn read_reader_default(
         &mut self,
         reader: &mut dyn Read,
@@ -107,9 +118,9 @@ pub trait AbstractProjectFileReader: AbstractProjectReader {
         result
     }
 
-    /// 从读取器读取全部 schedule：先落盘为临时文件，再按路径读取。
+    /// Read all schedules from the reader: write to a temporary file first, then read by path.
     ///
-    /// 对应 Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
+    /// Corresponds to Java: `@Override public List<ProjectFile> readAll(InputStream inputStream)`
     fn read_all_reader_default(
         &mut self,
         reader: &mut dyn Read,
@@ -127,12 +138,12 @@ pub trait AbstractProjectFileReader: AbstractProjectReader {
     }
 }
 
-/// 把读取器中的全部数据写入一个新临时文件，返回该文件路径。
+/// Write all data from the reader into a new temporary file and return the file path.
 ///
-/// 对应 Java: `InputStreamHelper.writeStreamToTempFile(InputStream inputStream, String tempFileSuffix)`
-/// （内部为 `Files.createTempFile("mpxj", suffix)` + `writeInputStreamToOutputStream`，
-/// 后者等价于 [`io::copy`]），I/O 失败时对应 Java 的
-/// `throw new MPXJException("Failed to read file", ex)`。
+/// Corresponds to Java: `InputStreamHelper.writeStreamToTempFile(InputStream inputStream, String tempFileSuffix)`
+/// (internally `Files.createTempFile("mpxj", suffix)` + `writeInputStreamToOutputStream`, the
+/// latter equivalent to [`io::copy`]); on I/O failure it corresponds to Java's
+/// `throw new MPXJException("Failed to read file", ex)`.
 fn write_stream_to_temp_file(reader: &mut dyn Read, suffix: &str) -> MpxjResult<PathBuf> {
     let path = temp_file_path(suffix);
 
@@ -145,31 +156,33 @@ fn write_stream_to_temp_file(reader: &mut dyn Read, suffix: &str) -> MpxjResult<
     match io::copy(reader, &mut file).and_then(|_| file.flush()) {
         Ok(_) => Ok(path),
         Err(error) => {
-            // Java: 写入失败时临时文件尚未赋给 tempFile，finally 中不会删除（Rust 侧顺手清理）
+            // Java: on write failure the temp file has not yet been assigned to tempFile, so finally does not delete it (the Rust side cleans it up here)
             delete_quietly(&path);
             Err(MpxjError::with_cause("Failed to read file", &error))
         }
     }
 }
 
-/// 生成临时文件路径（对应 `Files.createTempFile("mpxj", suffix)`）。
+/// Generate a temporary file path (corresponds to `Files.createTempFile("mpxj", suffix)`).
 ///
-/// Java 由 `Files.createTempFile` 保证新建文件唯一；Rust 侧用「进程号 + 纳秒时间戳」命名，
-/// 配合调用方的 `create_new` 保证不会覆盖既有文件。
+/// Java relies on `Files.createTempFile` to guarantee the new file is unique; the Rust side
+/// names it by "process ID + nanosecond timestamp", combined with the caller's `create_new` to
+/// ensure existing files are not overwritten.
 fn temp_file_path(suffix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or_default();
 
-    // Java: Files.createTempFile("mpxj", tempFileSuffix) —— 前缀 "mpxj"，后缀直接拼在唯一部分之后
+    // Java: Files.createTempFile("mpxj", tempFileSuffix) -- prefix "mpxj", suffix appended directly after the unique part
     std::env::temp_dir().join(format!("mpxj-{}-{}{}", std::process::id(), nanos, suffix))
 }
 
-/// 静默删除文件（失败时不报错）。
+/// Delete a file quietly (no error is reported on failure).
 ///
-/// 对应 Java: `FileHelper.deleteQuietly(File file)`
-/// （本处只处理普通文件；Java 版本还会递归删除目录，本类的调用点只涉及临时文件。）
+/// Corresponds to Java: `FileHelper.deleteQuietly(File file)`
+/// (this handles only regular files; the Java version also recursively deletes directories, but
+/// the call sites in this class only involve temporary files.)
 fn delete_quietly(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
@@ -180,13 +193,15 @@ mod tests {
     use crate::listener::project_listener::ProjectListener;
     use crate::reader::abstract_project_reader::SharedProjectListener;
 
-    /// 最小文件型 reader：`read_file` 记录收到的路径并按需返回项目或错误。
+    /// Minimal file-based reader: `read_file` records the received path and returns a project or
+    /// an error as needed.
     #[derive(Default)]
     struct StubFileReader {
         listeners: Vec<SharedProjectListener>,
-        /// 最近一次 `read_file` 收到的路径。
+        /// The path received by the most recent `read_file`.
         last_path: Option<PathBuf>,
-        /// 最近一次 `read_file` 时该路径的内容（用于验证临时文件已写满数据）。
+        /// The contents of that path at the most recent `read_file` (used to verify the temporary
+        /// file was fully written).
         last_contents: Option<Vec<u8>>,
     }
 
@@ -235,7 +250,7 @@ mod tests {
 
         let projects = reader
             .read_all_file_default(Path::new("plan.mpp"))
-            .expect("stub 总是成功");
+            .expect("stub always succeeds");
 
         assert_eq!(projects.len(), 1);
         assert_eq!(reader.last_path.as_deref(), Some(Path::new("plan.mpp")));
@@ -247,19 +262,19 @@ mod tests {
 
         let project = reader
             .read_reader_default(&mut &b"fake schedule"[..])
-            .expect("stub 总是成功");
+            .expect("stub always succeeds");
 
-        // 返回的确实是 stub 新建的项目文件（已登记到它自己的上下文）
+        // The returned project is indeed the one the stub created (registered in its own context)
         assert_eq!(
             project.borrow().get_project_context().borrow().get_projects().len(),
             1
         );
 
-        // 传入的读取器内容被完整写入临时文件
+        // The supplied reader contents are fully written to the temporary file
         assert_eq!(reader.last_contents.as_deref(), Some(&b"fake schedule"[..]));
 
-        // 临时文件位于系统临时目录、带 Java 侧同样的 "tmp" 后缀，且调用后被删除
-        let temp_path = reader.last_path.clone().expect("已收到路径");
+        // The temp file is in the system temp directory, has the same "tmp" suffix as the Java side, and is deleted after the call
+        let temp_path = reader.last_path.clone().expect("path received");
         assert!(temp_path.starts_with(std::env::temp_dir()));
         assert!(temp_path.to_string_lossy().ends_with("tmp"));
         assert!(!temp_path.exists());
@@ -271,17 +286,17 @@ mod tests {
 
         let projects = reader
             .read_all_reader_default(&mut &b"fake schedule"[..])
-            .expect("stub 总是成功");
+            .expect("stub always succeeds");
 
         assert_eq!(projects.len(), 1);
-        // 同样经临时文件中转
-        let temp_path = reader.last_path.clone().expect("已收到路径");
+        // Also goes through a temporary file
+        let temp_path = reader.last_path.clone().expect("path received");
         assert!(!temp_path.exists());
     }
 
     #[test]
     fn write_stream_to_temp_file_reports_read_failures() {
-        /// 读取时恒报错的读取器。
+        /// A reader that always fails on read.
         struct FailingReader;
 
         impl Read for FailingReader {
@@ -291,7 +306,7 @@ mod tests {
         }
 
         let error = write_stream_to_temp_file(&mut FailingReader, "tmp")
-            .expect_err("写入失败应报错");
+            .expect_err("write failure should error");
 
         // Java: throw new MPXJException("Failed to read file", ex)
         assert!(error.message().starts_with("Failed to read file"));

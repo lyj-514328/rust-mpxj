@@ -1,8 +1,8 @@
-//! 对应 Java: `org/mpxj/BaselineStrategy.java`
+//! Corresponds to Java: `org/mpxj/BaselineStrategy.java`
 //!
-//! # 依赖说明
+//! # Dependencies
 //!
-//! 本 trait 用到的 `ProjectFile`（`crate::project_file`）接口如下：
+//! The `ProjectFile` (`crate::project_file`) interface used by this trait is as follows:
 //!
 //! ```text
 //! ProjectFile::get_tasks(&self) -> Vec<Rc<RefCell<Task>>>      // Java: TaskContainer getTasks()
@@ -10,33 +10,33 @@
 //!                                                              // Java: void setBaselineTaskMap(int, Map<Task, Task>)
 //! ```
 //!
-//! # 跳过的 Java 机制
+//! # Skipped Java mechanisms
 //!
-//! 无（本接口只用 `ProjectFile` 与 `int`）。
+//! None (this interface only uses `ProjectFile` and `int`).
 
 use crate::project_file::ProjectFile;
 
-/// 通过比较两份 schedule 来填充 baseline 属性的策略接口。
+/// Strategy interface that populates baseline attributes by comparing two schedules.
 ///
-/// 对应 Java: `public interface BaselineStrategy`
+/// Corresponds to Java: `public interface BaselineStrategy`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 的 `ProjectFile` 是可变对象，`clearBaseline` / `populateBaseline` 会就地修改
-///   目标 project。Rust 侧把目标 project 参数写作 `&mut ProjectFile`，源 baseline
-///   只读，写作 `&ProjectFile`。
+/// - Java's `ProjectFile` is a mutable object, and `clearBaseline` / `populateBaseline` modify
+///   the target project in place. On the Rust side the target project parameter is written as
+///   `&mut ProjectFile`, while the source baseline is read-only and written as `&ProjectFile`.
 pub trait BaselineStrategy {
-    /// 清空指定 project 中指定序号的 baseline。
+    /// Clears the baseline with the given index in the specified project.
     ///
-    /// 对应 Java: `void clearBaseline(ProjectFile project, int index)`
+    /// Corresponds to Java: `void clearBaseline(ProjectFile project, int index)`
     ///
-    /// `index` 取 `0` 表示主 baseline，`1..=10` 表示 baseline 1 到 10。
+    /// An `index` of `0` means the main baseline, while `1..=10` means baselines 1 through 10.
     fn clear_baseline(&self, project: &mut ProjectFile, index: i32);
 
-    /// 用 `baseline` project 的值填充 `project` 中指定序号的 baseline
-    /// （成本、工期、完成时间、固定成本计提方式、固定成本、开始时间与工时）。
+    /// Populates the baseline with the given index in `project` using the values from the
+    /// `baseline` project (cost, duration, finish, fixed cost accrual, fixed cost, start, and work).
     ///
-    /// 对应 Java: `void populateBaseline(ProjectFile project, ProjectFile baseline, int index)`
+    /// Corresponds to Java: `void populateBaseline(ProjectFile project, ProjectFile baseline, int index)`
     fn populate_baseline(&self, project: &mut ProjectFile, baseline: &ProjectFile, index: i32);
 }
 
@@ -46,7 +46,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    /// 记录调用参数的 mock 实现，用于验证 trait 形状与默认调用路径。
+    /// Mock implementation that records the call arguments, used to verify the trait shape and the default call path.
     #[derive(Default)]
     struct Recorder {
         calls: Rc<RefCell<Vec<(String, i32)>>>,

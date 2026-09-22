@@ -1,34 +1,36 @@
-//! 对应 Java: `org/mpxj/common/MPPTaskField.java`
+//! Corresponds to Java: `org/mpxj/common/MPPTaskField.java`
 //!
-//! 把 MS Project 文件里的整数字段号映射为 MPXJ 的 `TaskField`，或映射为企业自定义字段
-//! （`UserDefinedField`）。
+//! Map the integer field IDs in a Microsoft Project file to MPXJ's `TaskField`, or to an
+//! enterprise custom field (`UserDefinedField`).
 //!
-//! # 与 Java 的差异（Rust 特有的接线）
+//! # Differences from Java (Rust-specific wiring)
 //!
-//! - **静态数组**：Java 用 `static final TaskField[] FIELD_ARRAY` + `static {}` 块逐项赋值，
-//!   未赋值的下标保持 `null`。Rust 侧 [`MPPTaskField::field_array`] 用 `match` 表达，
-//!   未赋值的下标即 `None`；`ID_ARRAY` 由 [`MPPTaskField::id_array`] 用 `OnceLock` 惰性构造，
-//!   逐项赋值顺序与 Java 的 `for` 循环完全一致，因此「同一个 `TaskField` 对应多个下标时
-//!   取最大下标」这一 Java 行为得以保留（例如 `NOTES` 在 15 与 94 都出现，
-//!   `get_id` 返回 94）。
-//! - **自定义字段**：Java 通过 `project.getUserDefinedFields().getOrCreateTaskField(...)`
-//!   创建 `UserDefinedField`，并把 `project` 自身（实现了 `UniqueIdObjectSequenceProvider`）
-//!   交给 `UserDefinedField.Builder`。Rust 的 `ProjectFile` 被 `Rc<RefCell<..>>` 包裹，
-//!   无法转成 `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`，因此改用
-//!   [`ProjectSequenceProvider`] 转发给 `ProjectContext`（同样实现了该接口，共享同一批
-//!   `ObjectSequence`，因此序号推进行为与 Java 一致）。
-//! - **`null` 返回**：Java 的 `getInstance` 返回 `null` 表示「无对应字段」，
-//!   Rust 侧返回 `None`；`getID` 越界读表时 Java 抛 `ArrayIndexOutOfBoundsException`，
-//!   Rust 侧返回 `-1`（不 `panic`）。
-//! - **借用失败**：Java 直接读 `project`，不存在「读不到」的情形；Rust 侧为避免 `panic!`
-//!   一律使用 `try_borrow`，文件已被借用时视为「非 MPP14 文件」，上下文已被借用时
-//!   自定义字段返回 `None`。
-//! - [`crate::common::mpp_field_type::MppFieldType`] 的三个访问器（`get_field_type_class`
-//!   / `get_data_type` / `get_name`）在 `Custom` 分支上的返回类型与 `UserDefinedField`
-//!   的同名方法不一致，本模块不调用它们，改为自行匹配枚举（见
-//!   [`MPPTaskField::get_id`] 的注释）。
+//! - **Static arrays**: Java uses `static final TaskField[] FIELD_ARRAY` + a `static {}` block
+//!   assigning item by item, with unassigned indexes staying `null`. The Rust side expresses
+//!   [`MPPTaskField::field_array`] with a `match`, where an unassigned index is `None`;
+//!   `ID_ARRAY` is built lazily by [`MPPTaskField::id_array`] using `OnceLock`, and the item-by-item
+//!   assignment order exactly matches Java's `for` loop, so the Java behavior of "taking the
+//!   largest index when the same `TaskField` maps to several indexes" is preserved (for example
+//!   `NOTES` appears at both 15 and 94, and `get_id` returns 94).
+//! - **Custom fields**: Java creates a `UserDefinedField` via
+//!   `project.getUserDefinedFields().getOrCreateTaskField(...)`, and hands `project` itself (which
+//!   implements `UniqueIdObjectSequenceProvider`) to `UserDefinedField.Builder`. Rust's
+//!   `ProjectFile` is wrapped in `Rc<RefCell<..>>` and cannot be converted to
+//!   `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`, so [`ProjectSequenceProvider`] is used to
+//!   forward to `ProjectContext` (which also implements that interface and shares the same batch of
+//!   `ObjectSequence`s, so the sequence advance behavior matches Java).
+//! - **`null` returns**: Java's `getInstance` returning `null` means "no corresponding field", and
+//!   the Rust side returns `None`; when `getID` reads the table out of bounds, Java throws
+//!   `ArrayIndexOutOfBoundsException` while the Rust side returns `-1` (without `panic`).
+//! - **Borrow failure**: Java reads `project` directly and has no "cannot read" case; the Rust side,
+//!   to avoid `panic!`, always uses `try_borrow`, treating an already-borrowed file as "not an MPP14
+//!   file" and returning `None` for a custom field when the context is already borrowed.
+//! - The three accessors of [`crate::common::mpp_field_type::MppFieldType`] (`get_field_type_class`
+//!   / `get_data_type` / `get_name`) have return types on the `Custom` branch that differ from the
+//!   same-named methods of `UserDefinedField`, so this module does not call them and instead matches
+//!   the enum itself (see the comment on [`MPPTaskField::get_id`]).
 //!
-//! 未移植的 Java 成员：无。
+//! Unported Java members: none.
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -47,33 +49,33 @@ use crate::task_field::TaskField;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 use crate::user_defined_field::Builder;
 
-/// 字段号 ↔ `TaskField` 的映射工具。
+/// A utility for mapping field IDs ↔ `TaskField`.
 ///
-/// 对应 Java: `public class MPPTaskField`
+/// Corresponds to Java: `public class MPPTaskField`
 pub struct MPPTaskField;
 
 impl MPPTaskField {
-    /// 企业自定义字段号的基准值。
+    /// The base value for enterprise custom field IDs.
     ///
-    /// 对应 Java: `public static final int TASK_FIELD_BASE`
+    /// Corresponds to Java: `public static final int TASK_FIELD_BASE`
     pub const TASK_FIELD_BASE: i32 = 0x0B400000;
 
-    /// `FIELD_ARRAY` 的长度。
+    /// The length of `FIELD_ARRAY`.
     ///
-    /// 对应 Java: `private static final int MAX_VALUE = 1414`（即 `FIELD_ARRAY.length`）
+    /// Corresponds to Java: `private static final int MAX_VALUE = 1414` (i.e. `FIELD_ARRAY.length`)
     const FIELD_ARRAY_LENGTH: i32 = 1414;
 
-    /// 根据 MS Project 文件中读到的字段号取字段类型。
+    /// Get the field type from the field ID read from a Microsoft Project file.
     ///
-    /// 对应 Java: `public static FieldType getInstance(ProjectFile project, int value)`
+    /// Corresponds to Java: `public static FieldType getInstance(ProjectFile project, int value)`
     pub fn get_instance(project: &Rc<RefCell<ProjectFile>>, value: i32) -> Option<MppFieldType> {
         // Java: return getInstance(project, value, DataType.CUSTOM);
         Self::get_instance_with_data_type(project, value, DataType::Custom)
     }
 
-    /// 根据 MS Project 文件中读到的字段号取字段类型（自定义字段可指定数据类型）。
+    /// Get the field type from the field ID read from a Microsoft Project file (custom fields may specify a data type).
     ///
-    /// 对应 Java: `public static FieldType getInstance(ProjectFile project, int value, DataType customFieldDataType)`
+    /// Corresponds to Java: `public static FieldType getInstance(ProjectFile project, int value, DataType customFieldDataType)`
     pub fn get_instance_with_data_type(
         project: &Rc<RefCell<ProjectFile>>,
         value: i32,
@@ -100,9 +102,10 @@ impl MPPTaskField {
         //    result = mapMpp14(value);
         // }
         //
-        // Java 用 `NumberHelper.getInt` 把 `null` 视为 0；Rust 的 `get_mpp_file_type()`
-        // 本身返回 `Option<i32>`，故与 `Some(14)` 比较等价。项目已被借用（Rust 特有情形）
-        // 时按「非 MPP14」处理，退化为下面的 `FIELD_ARRAY`。
+        // Java uses `NumberHelper.getInt` to treat `null` as 0; Rust's `get_mpp_file_type()`
+        // already returns `Option<i32>`, so comparing with `Some(14)` is equivalent. When the project
+        // is already borrowed (a Rust-specific case), it is treated as "not MPP14" and degrades to the
+        // `FIELD_ARRAY` below.
         if Self::mpp_file_type(project) == Some(14) {
             if let Some(field) = Self::map_mpp14(value) {
                 return Some(MppFieldType::Builtin(FieldKey::Task(field)));
@@ -115,21 +118,21 @@ impl MPPTaskField {
         Self::field_array(value).map(|field| MppFieldType::Builtin(FieldKey::Task(field)))
     }
 
-    /// 取字段类型在 MS Project 中使用的字段号。
+    /// Get the field ID used by the field type in Microsoft Project.
     ///
-    /// 对应 Java: `public static int getID(FieldType value)`
+    /// Corresponds to Java: `public static int getID(FieldType value)`
     pub fn get_id(value: &MppFieldType) -> i32 {
         match value {
             // Java: if (value instanceof UserDefinedField) { result = value.getValue(); }
-            // 自定义字段的「ID」即其 unique ID（`UserDefinedField::get_value`）。
+            // A custom field's "ID" is its unique ID (`UserDefinedField::get_value`).
             MppFieldType::Custom(field) => field
                 .try_borrow()
                 .map(|field| field.get_value())
                 .unwrap_or(-1),
 
             // Java: result = ID_ARRAY[value.getValue()];
-            // Java 的实参始终是 `TaskField`（`FieldTypeHelper` 先按 `FieldTypeClass` 分支）；
-            // 越界时 Java 抛 `ArrayIndexOutOfBoundsException`，Rust 侧返回 -1。
+            // Java's argument is always a `TaskField` (`FieldTypeHelper` branches on `FieldTypeClass` first);
+            // Java throws `ArrayIndexOutOfBoundsException` when out of bounds, the Rust side returns -1.
             MppFieldType::Builtin(key) => {
                 let index = key.value();
                 Self::id_array()
@@ -140,7 +143,7 @@ impl MPPTaskField {
         }
     }
 
-    /// 取当前项目已读取的 MPP 文件类型（读不到时为 `None`）。
+    /// Get the MPP file type already read for the current project (`None` when unreadable).
     fn mpp_file_type(project: &Rc<RefCell<ProjectFile>>) -> Option<i32> {
         // Java: project.getProjectProperties().getMppFileType()
         project
@@ -149,26 +152,28 @@ impl MPPTaskField {
             .and_then(|file| file.get_project_properties().get_mpp_file_type())
     }
 
-    /// 取（必要时创建）企业自定义任务字段。
+    /// Get (creating if necessary) an enterprise custom task field.
     ///
-    /// 对应 Java: `getInstance(ProjectFile, int, DataType)` 中 `(value & 0x8000) != 0` 的分支，
-    /// 即
-    /// `project.getUserDefinedFields().getOrCreateTaskField(Integer.valueOf(value), k -> new UserDefinedField.Builder(project)...build())`。
+    /// Corresponds to Java: the `(value & 0x8000) != 0` branch of `getInstance(ProjectFile, int, DataType)`,
+    /// i.e.
+    /// `project.getUserDefinedFields().getOrCreateTaskField(Integer.valueOf(value), k -> new UserDefinedField.Builder(project)...build())`.
     fn get_or_create_task_field(
         project: &Rc<RefCell<ProjectFile>>,
         value: i32,
         custom_field_data_type: DataType,
     ) -> Option<MppFieldType> {
-        // Java: project.getUserDefinedFields()（Rust 侧经由 ProjectContext）
+        // Java: project.getUserDefinedFields() (on the Rust side via ProjectContext)
         let context = project.try_borrow().ok()?.get_project_context();
 
-        // Rust 特有：`new UserDefinedField.Builder(project)` 里的 `project`（序号生成器
-        // 提供者）改为转发到上下文的适配器。先构造字段（此刻未借用上下文，序号生成器会
-        // 照常推进项目的 `UserDefinedField` 序列，与 Java 一致），再写入容器。
+        // Rust-specific: the `project` (sequence generator provider) in
+        // `new UserDefinedField.Builder(project)` is replaced with an adapter that forwards to the
+        // context. The field is built first (the context is not borrowed at this point, so the sequence
+        // generator advances the project's `UserDefinedField` sequence as usual, matching Java), and
+        // then written to the container.
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(ProjectSequenceProvider::new(Rc::clone(&context))));
 
-        // Java: int id = (k.intValue() & 0xFFF) + 1;（lambda 的 k 即容器键 value）
+        // Java: int id = (k.intValue() & 0xFFF) + 1; (the lambda's k is the container key value)
         let id = (value & 0xFFF) + 1;
         let field = Builder::new(provider)
             // Java: .uniqueID(Integer.valueOf(TASK_FIELD_BASE + k.intValue()))
@@ -179,7 +184,7 @@ impl MPPTaskField {
             .data_type(custom_field_data_type)
             .build();
 
-        // Java: getOrCreateTaskField 已存在时直接返回既有实例（此时上面构造的实例被丢弃）。
+        // Java: getOrCreateTaskField returns the existing instance directly when it already exists (the instance built above is then discarded).
         let mut context_ref = context.try_borrow_mut().ok()?;
         let field = context_ref
             .get_user_defined_fields_mut()
@@ -188,11 +193,11 @@ impl MPPTaskField {
         Some(MppFieldType::Custom(field))
     }
 
-    /// 处理 MPP14 文件与其它 MPP 变体之间字段号不同的情形。
+    /// Handle the case where field IDs differ between MPP14 files and other MPP variants.
     ///
-    /// 对应 Java: `private static FieldType mapMpp14(int value)`（第 124-354 行）
+    /// Corresponds to Java: `private static FieldType mapMpp14(int value)` (lines 124-354)
     ///
-    /// 无对应项时返回 `None`（Java 返回 `null`）。
+    /// Returns `None` when there is no corresponding entry (Java returns `null`).
     fn map_mpp14(value: i32) -> Option<TaskField> {
         match value {
             27 => Some(TaskField::BaselineEstimatedDuration),
@@ -235,12 +240,12 @@ impl MPPTaskField {
         }
     }
 
-    /// MPP 字段号 → `TaskField` 的映射表。
+    /// The mapping table MPP field ID → `TaskField`.
     ///
-    /// 对应 Java: `static final TaskField[] FIELD_ARRAY = new TaskField[MAX_VALUE];`
-    /// 与随后的 `static {}` 块（第 358-1297 行，逐项赋值共 934 条）。
+    /// Corresponds to Java: `static final TaskField[] FIELD_ARRAY = new TaskField[MAX_VALUE];`
+    /// and the following `static {}` block (lines 358-1297, 934 item-by-item assignments).
     ///
-    /// Java 中未赋值的下标为 `null`，Rust 侧对应 `None`。
+    /// An unassigned index is `null` in Java and corresponds to `None` on the Rust side.
     fn field_array(value: i32) -> Option<TaskField> {
         match value {
             0 => Some(TaskField::Work),
@@ -1181,14 +1186,15 @@ impl MPPTaskField {
         }
     }
 
-    /// `TaskField` 取值 → MPP 字段号的映射表。
+    /// The mapping table `TaskField` value → MPP field ID.
     ///
-    /// 对应 Java: `private static final int[] ID_ARRAY = new int[TaskField.MAX_VALUE];`
-    /// 与随后的 `static {}` 块（第 1299-1312 行）。
+    /// Corresponds to Java: `private static final int[] ID_ARRAY = new int[TaskField.MAX_VALUE];`
+    /// and the following `static {}` block (lines 1299-1312).
     ///
-    /// Java 的构造过程：先 `Arrays.fill(ID_ARRAY, -1)`，再按 `FIELD_ARRAY` 的下标升序遍历、
-    /// 用 `ID_ARRAY[taskField.getValue()] = loop` 反向填表 —— 因此同一个 `TaskField`
-    /// 在 `FIELD_ARRAY` 中出现多次时，**最后一个（最大）下标**生效。
+    /// Java's construction: first `Arrays.fill(ID_ARRAY, -1)`, then traverse `FIELD_ARRAY` in
+    /// ascending index order and fill the reverse table with `ID_ARRAY[taskField.getValue()] = loop`
+    /// — so when the same `TaskField` appears several times in `FIELD_ARRAY`, the **last (largest)
+    /// index** takes effect.
     fn id_array() -> &'static [i32] {
         static ID_ARRAY: OnceLock<Vec<i32>> = OnceLock::new();
 
@@ -1205,8 +1211,8 @@ impl MPPTaskField {
                 // }
                 for loop_index in 0..Self::FIELD_ARRAY_LENGTH {
                     if let Some(task_field) = Self::field_array(loop_index) {
-                        // `getValue()` 恒落在 `ID_ARRAY` 范围内；`get_mut` 只是防御性写法
-                        // （Java 越界会抛 ArrayIndexOutOfBoundsException）。
+                        // `getValue()` always falls within the range of `ID_ARRAY`; `get_mut` is only a defensive form
+                        // (Java would throw ArrayIndexOutOfBoundsException when out of bounds).
                         if let Some(slot) = result.get_mut(task_field.value() as usize) {
                             *slot = loop_index;
                         }
@@ -1219,19 +1225,21 @@ impl MPPTaskField {
     }
 }
 
-/// 交给 `UserDefinedField::Builder` 的序号生成器提供者（Rust 特有接线）。
+/// The sequence generator provider handed to `UserDefinedField::Builder` (Rust-specific wiring).
 ///
-/// Java 的 `new UserDefinedField.Builder(project)` 直接把 `ProjectFile` 自身
-/// （实现 `UniqueIdObjectSequenceProvider`）交给构建器；Rust 的 `ProjectFile` 被
-/// `Rc<RefCell<..>>` 包裹，无法转成 `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`，
-/// 因此这里持有所属 `ProjectContext`（同样实现该接口，序号生成器与项目共享同一批）并转发。
+/// Java's `new UserDefinedField.Builder(project)` hands the `ProjectFile` itself (which implements
+/// `UniqueIdObjectSequenceProvider`) to the builder; Rust's `ProjectFile` is wrapped in
+/// `Rc<RefCell<..>>` and cannot be converted to `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`,
+/// so this holds the owning `ProjectContext` (which also implements that interface, sharing the
+/// same batch of sequence generators as the project) and forwards.
 ///
-/// 上下文已被借用时（Java 无此情形）退化为一个独立序号生成器：`Builder::build()` 调用的
-/// `syncOrGetNext(Some(id))` 恒返回传入的 `id`（见
-/// [`crate::common::object_sequence::ObjectSequence::sync_or_get_next`]），故退化只影响
-/// 序号推进，不影响字段的 unique ID。
+/// When the context is already borrowed (no such case in Java) it degrades to a standalone
+/// sequence generator: the `syncOrGetNext(Some(id))` called by `Builder::build()` always returns
+/// the passed-in `id` (see
+/// [`crate::common::object_sequence::ObjectSequence::sync_or_get_next`]), so the degradation only
+/// affects sequence advancement, not the field's unique ID.
 struct ProjectSequenceProvider {
-    /// 目标上下文。
+    /// The target context.
     context: Rc<RefCell<ProjectContext>>,
 }
 
@@ -1242,9 +1250,9 @@ impl ProjectSequenceProvider {
 }
 
 impl UniqueIdObjectSequenceProvider for ProjectSequenceProvider {
-    /// 取（必要时创建）指定类型的序号生成器。
+    /// Get (creating if necessary) the sequence generator of the specified type.
     ///
-    /// 对应 Java: 构造器收到的 `ProjectFile.getUniqueIdObjectSequence(Class<?>)`
+    /// Corresponds to Java: the `ProjectFile.getUniqueIdObjectSequence(Class<?>)` received by the constructor
     fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence> {
         match self.context.try_borrow_mut() {
             Ok(mut context) => context.get_unique_id_object_sequence(type_id),
@@ -1258,7 +1266,7 @@ mod tests {
     use super::*;
     use crate::field_type::FieldType;
 
-    /// 构造一个 MPP 文件类型已知的项目。
+    /// Construct a project with a known MPP file type.
     fn project(mpp_file_type: Option<i32>) -> Rc<RefCell<ProjectFile>> {
         let project = ProjectFile::new();
         project
@@ -1268,19 +1276,19 @@ mod tests {
         project
     }
 
-    /// 断言字段号映射到 Java 中的同名常量。
+    /// Assert that a field ID maps to the same-named constant in Java.
     fn assert_builtin(project: &Rc<RefCell<ProjectFile>>, value: i32, java_name: &str) {
         let field = MPPTaskField::get_instance(project, value)
-            .unwrap_or_else(|| panic!("字段号 {value} 应有映射"));
+            .unwrap_or_else(|| panic!("field number {value} should have a mapping"));
         let key = field
             .as_builtin()
-            .unwrap_or_else(|| panic!("字段号 {value} 应映射到内置字段"));
-        assert_eq!(key.name(), java_name, "字段号 {value}");
+            .unwrap_or_else(|| panic!("field number {value} should map to a built-in field"));
+        assert_eq!(key.name(), java_name, "field number {value}");
     }
 
     #[test]
     fn field_array_matches_java() {
-        // 代表性字段号与 `MPPTaskField.FIELD_ARRAY` 中的 Java 常量名逐条对应。
+        // Representative field IDs correspond one by one to the Java constant names in `MPPTaskField.FIELD_ARRAY`.
         let project = project(Some(9));
 
         let expected: &[(i32, &str)] = &[
@@ -1343,17 +1351,17 @@ mod tests {
     fn field_array_gaps_and_out_of_range_are_none() {
         let project = project(Some(9));
 
-        // Java: FIELD_ARRAY 未赋值的下标为 null（全表 1414 个下标中有 480 个未赋值）
+        // Java: unassigned indexes in FIELD_ARRAY are null (480 of the 1414 indexes in the whole table are unassigned)
         for value in [114, 121, 1160, 1399, 1406] {
             assert!(MPPTaskField::get_instance(&project, value).is_none());
         }
 
-        // Java: value >= 0 && value < FIELD_ARRAY.length 之外同样为 null
+        // Java: outside `value >= 0 && value < FIELD_ARRAY.length` it is null too
         assert!(MPPTaskField::get_instance(&project, 1414).is_none());
 
-        // Java: 负数只要最高位（0x8000）为 1 仍走企业自定义字段分支：
+        // Java: a negative number still takes the enterprise custom field branch as long as the highest bit (0x8000) is 1:
         // (-1 & 0x8000) != 0 → id = (-1 & 0xFFF) + 1 = 4096
-        let negative = MPPTaskField::get_instance(&project, -1).expect("应走自定义字段分支");
+        let negative = MPPTaskField::get_instance(&project, -1).expect("should take the custom field branch");
         assert_eq!(
             negative
                 .as_custom()
@@ -1368,7 +1376,7 @@ mod tests {
         let mpp9 = project(Some(9));
         let unknown = project(None);
 
-        // Java: mapMpp14 的 36 条映射
+        // Java: the 36 mappings of mapMpp14
         assert_builtin(&mpp14, 27, "BASELINE_ESTIMATED_DURATION");
         assert_builtin(&mpp14, 29, "SCHEDULED_DURATION");
         assert_builtin(&mpp14, 35, "SCHEDULED_START");
@@ -1378,12 +1386,12 @@ mod tests {
         assert_builtin(&mpp14, 482, "BASELINE1_ESTIMATED_START");
         assert_builtin(&mpp14, 593, "BASELINE10_ESTIMATED_DURATION");
 
-        // mapMpp14 未覆盖的字段号仍走 FIELD_ARRAY
+        // Field IDs not covered by mapMpp14 still go through FIELD_ARRAY
         assert_builtin(&mpp14, 0, "WORK");
         assert_builtin(&mpp14, 1283, "START");
         assert_builtin(&mpp14, 1413, "SPRINT_ID");
 
-        // 非 MPP14 文件不套用该映射
+        // Non-MPP14 files do not use that mapping
         assert_builtin(&mpp9, 27, "BASELINE_DURATION");
         assert_builtin(&mpp9, 35, "START");
         assert_builtin(&unknown, 27, "BASELINE_DURATION");
@@ -1395,8 +1403,8 @@ mod tests {
 
         // Java: (value & 0x8000) != 0 → getUserDefinedFields().getOrCreateTaskField(...)
         let value = 0x8000;
-        let field = MPPTaskField::get_instance(&project, value).expect("应创建自定义字段");
-        let custom = field.as_custom().expect("应为自定义字段").clone();
+        let field = MPPTaskField::get_instance(&project, value).expect("should create a custom field");
+        let custom = field.as_custom().expect("should be a custom field").clone();
 
         {
             let custom = custom.borrow();
@@ -1411,22 +1419,22 @@ mod tests {
             );
         }
 
-        // 再次读取应命中同一个实例，且不新增字段
-        let again = MPPTaskField::get_instance(&project, value).expect("应命中已创建的字段");
-        assert!(Rc::ptr_eq(&custom, again.as_custom().expect("应为自定义字段")));
+        // Reading it again should hit the same instance and not add a new field
+        let again = MPPTaskField::get_instance(&project, value).expect("should hit the already-created field");
+        assert!(Rc::ptr_eq(&custom, again.as_custom().expect("should be a custom field")));
         assert_eq!(project.borrow().get_user_defined_fields().size(), 1);
 
-        // 另一个自定义字段号 → 新的字段（id = (k & 0xFFF) + 1）
+        // Another custom field ID → a new field (id = (k & 0xFFF) + 1)
         let other = MPPTaskField::get_instance(&project, 0x8001)
             .and_then(|field| field.as_custom().cloned())
-            .expect("应创建第二个自定义字段");
+            .expect("should create a second custom field");
         assert_eq!(other.borrow().name(), "ENTERPRISE_CUSTOM_FIELD2");
         assert_eq!(project.borrow().get_user_defined_fields().size(), 2);
 
-        // 自定义字段的数据类型可显式指定
+        // A custom field's data type can be specified explicitly
         let typed = MPPTaskField::get_instance_with_data_type(&project, 0x8002, DataType::Integer)
             .and_then(|field| field.as_custom().cloned())
-            .expect("应创建第三个自定义字段");
+            .expect("should create a third custom field");
         assert_eq!(typed.borrow().get_data_type(), Some(DataType::Integer));
     }
 
@@ -1434,19 +1442,19 @@ mod tests {
     fn field_array_is_fully_transcribed() {
         let project = project(Some(9));
 
-        // Java: FIELD_ARRAY 共 1414 个下标，其中 934 个被赋值
+        // Java: FIELD_ARRAY has 1414 indexes in total, of which 934 are assigned
         let assigned = (0..1414)
             .filter(|value| MPPTaskField::get_instance(&project, *value).is_some())
             .count();
         assert_eq!(assigned, 934);
 
-        // Java 的 ID_ARRAY 由 FIELD_ARRAY 反向填表、同一字段取最大下标，
-        // 因此对任一已赋值下标 v 都有 get_id(get_instance(v)) >= v
+        // Java's ID_ARRAY is filled in reverse from FIELD_ARRAY and takes the largest index for the same field,
+        // so for any assigned index v we have get_id(get_instance(v)) >= v
         for value in 0..1414 {
             if let Some(field) = MPPTaskField::get_instance(&project, value) {
                 assert!(
                     MPPTaskField::get_id(&field) >= value,
-                    "字段号 {value} 的 ID 应不小于自身"
+                    "field number {value} ID should not be less than itself"
                 );
             }
         }
@@ -1456,37 +1464,37 @@ mod tests {
     fn get_id_round_trips_and_matches_java() {
         let project = project(Some(9));
 
-        // Java 的 ID_ARRAY 由 FIELD_ARRAY 反向填表，重复出现的字段取最大下标
+        // Java's ID_ARRAY is filled in reverse from FIELD_ARRAY, and a field that appears repeatedly takes the largest index
         let expected: &[(i32, i32)] = &[
             (0, 0),
             (1143, 1143),
             (1169, 1169),
             (1413, 1413),
-            // NOTES：下标 15 与 94 都映射到 NOTES，取后者
+            // NOTES: indexes 15 and 94 both map to NOTES, take the latter
             (15, 94),
-            // START：下标 35 与 1283 都映射到 START，取后者
+            // START: indexes 35 and 1283 both map to START, take the latter
             (35, 1283),
-            // RECURRING：下标 129 与 202，取后者
+            // RECURRING: indexes 129 and 202, take the latter
             (129, 202),
-            // OUTLINE_LEVEL：下标 85 与 249，取后者
+            // OUTLINE_LEVEL: indexes 85 and 249, take the latter
             (85, 249),
-            // BASELINE_START：下标 43 与 1299，取后者
+            // BASELINE_START: indexes 43 and 1299, take the latter
             (43, 1299),
         ];
 
         for (value, expected_id) in expected {
-            let field = MPPTaskField::get_instance(&project, *value).expect("应有映射");
-            assert_eq!(MPPTaskField::get_id(&field), *expected_id, "字段号 {value}");
+            let field = MPPTaskField::get_instance(&project, *value).expect("should have a mapping");
+            assert_eq!(MPPTaskField::get_id(&field), *expected_id, "field number {value}");
         }
 
-        // 往返一致：`get_id(get_instance(v))` 对下列字段号恒等于 v
+        // Round-trips consistently: `get_id(get_instance(v))` equals v for the following field IDs
         for value in [0, 1143, 1169, 1279, 1295, 1329, 1413] {
-            let field = MPPTaskField::get_instance(&project, value).expect("应有映射");
+            let field = MPPTaskField::get_instance(&project, value).expect("should have a mapping");
             assert_eq!(MPPTaskField::get_id(&field), value);
         }
 
-        // 自定义字段的 ID 即其 unique ID
-        let custom = MPPTaskField::get_instance(&project, 0x8000).expect("应创建自定义字段");
+        // A custom field's ID is its unique ID
+        let custom = MPPTaskField::get_instance(&project, 0x8000).expect("should create a custom field");
         assert_eq!(
             MPPTaskField::get_id(&custom),
             MPPTaskField::TASK_FIELD_BASE + 0x8000

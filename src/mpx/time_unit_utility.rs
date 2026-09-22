@@ -1,23 +1,25 @@
-//! 对应 Java: `org/mpxj/mpx/TimeUnitUtility.java`
+//! Corresponds to Java: `org/mpxj/mpx/TimeUnitUtility.java`
 //!
-//! # 区域设置名表
+//! # Locale name tables
 //!
-//! Java 用 `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)` 从 `ResourceBundle` 取
-//! 「小写名 → `TimeUnit` 的 int 值」映射，该映射由各语言的 `TIME_UNITS_ARRAY_DATA`
-//! （每个单位可有多个别名，如 `"d"` / `"days"`）展开而来。Rust 侧同一份数据由 [`LocaleData`]
-//! 承载（本地化覆盖来自同包的 `locale_data_XX` 模块），故本模块按 Java 的方式**按区域设置取
-//! 名表** —— 德语文件里的 `1t`（Tage）只有走德语名表才能识别。
+//! Java uses `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)` to obtain from `ResourceBundle`
+//! the "lower-case name -> `TimeUnit` int value" mapping, which is expanded from each language's
+//! `TIME_UNITS_ARRAY_DATA` (each unit may have multiple aliases, such as `"d"` / `"days"`). On the
+//! Rust side the same data is held by [`LocaleData`] (localised overrides come from the
+//! `locale_data_XX` modules in the same package), so this module obtains the name table **per
+//! locale** the same way Java does -- the `1t` (Tage) in the German file can only be recognised
+//! through the German name table.
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::mpx::locale_data::LocaleData;
 use crate::mpx::locale_utility::MpxLocale;
 use crate::time_unit::TimeUnit;
 
-/// 英文（默认）时间单位名表。
+/// English (default) time unit name table.
 ///
-/// 对应 Java: `LocaleData.TIME_UNITS_ARRAY_DATA`（下标即 `TimeUnit` 的 int 值，
-/// 内层数组为该单位的所有别名）。
+/// Corresponds to Java: `LocaleData.TIME_UNITS_ARRAY_DATA` (the index is the `TimeUnit` int value,
+/// and the inner array holds all aliases of that unit).
 const TIME_UNITS_ARRAY: [&[&str]; 14] = [
     &["m", "mins"],         // TimeUnit.MINUTES
     &["h", "hours"],        // TimeUnit.HOURS
@@ -35,20 +37,20 @@ const TIME_UNITS_ARRAY: [&[&str]; 14] = [
     &["e%"],                // TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 管理 MPX 文件中 `TimeUnit` 实例的工具方法。
+/// Utility methods for managing `TimeUnit` instances in MPX files.
 ///
-/// 对应 Java: `final class TimeUnitUtility`（私有构造方法禁止实例化，Rust 侧用无字段类型表达）。
+/// Corresponds to Java: `final class TimeUnitUtility` (the private constructor prevents instantiation; the Rust side expresses this as a fieldless type).
 pub struct TimeUnitUtility;
 
 impl TimeUnitUtility {
-    /// 把时间单位的字符串形式转换成对应的枚举实例。
+    /// Convert the string form of a time unit into the corresponding enum instance.
     ///
-    /// 对应 Java: `public static TimeUnit getInstance(String units, Locale locale) throws MPXJException`
+    /// Corresponds to Java: `public static TimeUnit getInstance(String units, Locale locale) throws MPXJException`
     ///
-    /// Java 查找时先对入参调用 `toLowerCase()`；无法识别时抛
-    /// `MPXJException(INVALID_TIME_UNIT + " " + units)`，Rust 侧改为返回 `None`。
-    /// Java 的 `units` 为 `String`（`null` 会触发 `NullPointerException`），
-    /// Rust 侧用 `Option<&str>` 承载，`None` 同样返回 `None`。
+    /// Java calls `toLowerCase()` on the argument before looking it up; when it cannot be
+    /// recognised it throws `MPXJException(INVALID_TIME_UNIT + " " + units)`, whereas the Rust side
+    /// returns `None`. Java's `units` is a `String` (`null` triggers a `NullPointerException`), while
+    /// the Rust side uses `Option<&str>`, and `None` likewise returns `None`.
     pub fn get_instance(units: Option<&str>, locale: MpxLocale) -> Option<TimeUnit> {
         let units = units?.to_lowercase();
 
@@ -62,12 +64,13 @@ impl TimeUnitUtility {
     }
 }
 
-/// 取对应区域设置的时间单位名表。
+/// Obtain the time unit name table for the given locale.
 ///
-/// 对应 Java: `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)`（其数据源为
-/// `TIME_UNITS_ARRAY_DATA`）
+/// Corresponds to Java: `LocaleData.getMap(locale, LocaleData.TIME_UNITS_MAP)` (whose data source is
+/// `TIME_UNITS_ARRAY_DATA`)
 ///
-/// 键缺失时回落英文默认名表（Java 的 `ResourceBundle` 同样会回落到基类资源）。
+/// When the key is missing it falls back to the English default name table (Java's `ResourceBundle`
+/// likewise falls back to the base class resource).
 fn time_units_array(locale: MpxLocale) -> &'static [&'static [&'static str]] {
     LocaleData::get_string_arrays(locale, LocaleData::TIME_UNITS_ARRAY).unwrap_or(&TIME_UNITS_ARRAY)
 }
@@ -81,12 +84,12 @@ mod tests {
         for (value, names) in TIME_UNITS_ARRAY.iter().enumerate() {
             let unit = TimeUnit::get_instance(value as i32);
             for name in names.iter() {
-                // MPX 名 → 模型值
+                // MPX name -> model value
                 assert_eq!(
                     TimeUnitUtility::get_instance(Some(name), MpxLocale::En),
                     Some(unit)
                 );
-                // 模型值 → MPX 名（名表中的首选名）→ 再解析回模型值
+                // Model value -> MPX name (the preferred name in the name table) -> parsed back to the model value
                 assert_eq!(
                     TimeUnitUtility::get_instance(Some(names[0]), MpxLocale::En),
                     Some(unit)
@@ -97,8 +100,8 @@ mod tests {
 
     #[test]
     fn time_unit_name_is_not_always_an_mpx_name() {
-        // Java 的 `TimeUnit.getName()` 对 MONTHS / ELAPSED_MONTHS 返回 "mo" / "emo"，
-        // 而 MPX 英文名表用的是 "mon" / "emon"，二者并不一致。
+        // Java's `TimeUnit.getName()` returns "mo" / "emo" for MONTHS / ELAPSED_MONTHS,
+        // whereas the MPX English name table uses "mon" / "emon", so the two do not agree.
         assert_eq!(TimeUnit::Months.get_name(), "mo");
         assert_eq!(TimeUnitUtility::get_instance(Some("mon"), MpxLocale::En), Some(TimeUnit::Months));
         assert_eq!(TimeUnitUtility::get_instance(Some("mo"), MpxLocale::En), None);
@@ -125,7 +128,7 @@ mod tests {
 
     #[test]
     fn time_unit_rejects_unrecognised_values() {
-        // Java: 抛 MPXJException(INVALID_TIME_UNIT)
+        // Java: throws MPXJException(INVALID_TIME_UNIT)
         assert_eq!(TimeUnitUtility::get_instance(Some("x"), MpxLocale::En), None);
         assert_eq!(TimeUnitUtility::get_instance(Some("d "), MpxLocale::En), None);
         assert_eq!(TimeUnitUtility::get_instance(Some(""), MpxLocale::En), None);
@@ -134,7 +137,7 @@ mod tests {
 
     #[test]
     fn time_unit_uses_the_locale_table() {
-        // Java: LocaleData_de.TIME_UNITS_ARRAY_DATA 用 "t" 表示天（Tage）
+        // Java: LocaleData_de.TIME_UNITS_ARRAY_DATA uses "t" for days (Tage)
         assert_eq!(
             TimeUnitUtility::get_instance(Some("t"), MpxLocale::De),
             Some(TimeUnit::Days)
@@ -143,9 +146,9 @@ mod tests {
             TimeUnitUtility::get_instance(Some("h"), MpxLocale::De),
             Some(TimeUnit::Hours)
         );
-        // 英文名表里的 "d"/"days" 在德语名表中不存在
+        // The "d"/"days" entries in the English name table do not exist in the German name table
         assert_eq!(TimeUnitUtility::get_instance(Some("d"), MpxLocale::De), None);
-        // 英文名表里的 "t" 也不是任何单位
+        // The "t" in the English name table is not any unit either
         assert_eq!(TimeUnitUtility::get_instance(Some("t"), MpxLocale::En), None);
     }
 }

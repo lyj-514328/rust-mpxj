@@ -1,36 +1,36 @@
-//! 对应 Java: `org/mpxj/Duration.java`
+//! Corresponds to Java: `org/mpxj/Duration.java`
 
 use crate::time_unit::TimeUnit;
 use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
 
-/// MPX 文件中表示的一段工期（数量 + 时间单位）。
+/// A duration (amount + time unit) as represented in MPX files.
 ///
-/// 对应 Java: `public final class Duration implements Comparable<Duration>`
+/// Corresponds to Java: `public final class Duration implements Comparable<Duration>`
 ///
-/// Java 侧用 `ZERO_DURATIONS` 共享对象表示 0 值以节省内存；Rust 侧 `Duration`
-/// 是小而可 `Copy` 的值类型（两个字段、不可变），不需要这层缓存，行为等价。
+/// The Java side uses a shared `ZERO_DURATIONS` object to represent the zero value and save memory; the Rust `Duration`
+/// is a small, `Copy` value type (two fields, immutable), so it does not need this cache and behaves equivalently.
 ///
-/// 另注：Java 的两个私有构造方法（`double` / `int` 重载）在 Rust 中合并为
-/// [`Duration::new`]。
+/// Also note: Java's two private constructors (`double` / `int` overloads) are merged in Rust into
+/// [`Duration::new`].
 #[derive(Debug, Clone, Copy)]
 pub struct Duration {
-    /// 工期数量。
+/// Duration amount.
     ///
-    /// 对应 Java: `private final double m_duration;`
+    /// Corresponds to Java: `private final double m_duration;`
     m_duration: f64,
-    /// 工期单位。
+/// Duration unit.
     ///
-    /// 对应 Java: `private final TimeUnit m_units;`
+    /// Corresponds to Java: `private final TimeUnit m_units;`
     m_units: TimeUnit,
 }
 
 impl Duration {
-    /// 私有构造方法。
+/// Private constructor.
     ///
-    /// 对应 Java: `private Duration(double duration, TimeUnit type)`
-    /// 及 `private Duration(int duration, TimeUnit type)`（Rust 无法重载，由本方法统一承担）。
+    /// Corresponds to Java: `private Duration(double duration, TimeUnit type)`
+/// and `private Duration(int duration, TimeUnit type)` (Rust cannot overload, so this method handles both).
     fn new(duration: f64, units: TimeUnit) -> Duration {
         Duration {
             m_duration: duration,
@@ -38,23 +38,23 @@ impl Duration {
         }
     }
 
-    /// 返回工期数量。
+/// Return the duration amount.
     ///
-    /// 对应 Java: `public double getDuration()`
+    /// Corresponds to Java: `public double getDuration()`
     pub fn get_duration(&self) -> f64 {
         self.m_duration
     }
 
-    /// 返回工期单位。
+/// Return the duration unit.
     ///
-    /// 对应 Java: `public TimeUnit getUnits()`
+    /// Corresponds to Java: `public TimeUnit getUnits()`
     pub fn get_units(&self) -> TimeUnit {
         self.m_units
     }
 
-    /// 把本工期换算成目标单位（近似换算，参考项目默认值，不考虑日历细节）。
+/// Convert this duration into the target unit (approximate conversion using project defaults, ignoring calendar details).
     ///
-    /// 对应 Java: `public Duration convertUnits(TimeUnit type, TimeUnitDefaultsContainer defaults)`
+    /// Corresponds to Java: `public Duration convertUnits(TimeUnit type, TimeUnitDefaultsContainer defaults)`
     pub fn convert_units(
         &self,
         units: TimeUnit,
@@ -67,12 +67,12 @@ impl Duration {
         Duration::convert_units_with_defaults(self.m_duration, self.m_units, units, defaults)
     }
 
-    /// 把工期值从 `from_units` 换算到 `to_units`，默认值由一个容器提供。
+/// Convert a duration value from `from_units` to `to_units`, with defaults provided by a container.
     ///
-    /// 对应 Java: `public static Duration convertUnits(double duration, TimeUnit fromUnits, TimeUnit toUnits, TimeUnitDefaultsContainer defaults)`
+    /// Corresponds to Java: `public static Duration convertUnits(double duration, TimeUnit fromUnits, TimeUnit toUnits, TimeUnitDefaultsContainer defaults)`
     ///
-    /// Java 侧对 `null` 的默认值会抛 `NullPointerException`；Rust 侧不 panic，
-    /// 缺省值按 `0.0` 处理。
+/// The Java side throws `NullPointerException` for a `null` default value; the Rust side does not panic and
+/// treats a missing value as `0.0`.
     pub fn convert_units_with_defaults(
         duration: f64,
         from_units: TimeUnit,
@@ -92,9 +92,9 @@ impl Duration {
         )
     }
 
-    /// 把工期值从 `from_units` 换算到 `to_units`，默认值直接以数值给出。
+/// Convert a duration value from `from_units` to `to_units`, with the default given directly as a number.
     ///
-    /// 对应 Java: `public static Duration convertUnits(double duration, TimeUnit fromUnits, TimeUnit toUnits, double minutesPerDay, double minutesPerWeek, double daysPerMonth)`
+    /// Corresponds to Java: `public static Duration convertUnits(double duration, TimeUnit fromUnits, TimeUnit toUnits, double minutesPerDay, double minutesPerWeek, double daysPerMonth)`
     pub fn convert_units_with_values(
         duration: f64,
         from_units: TimeUnit,
@@ -109,7 +109,7 @@ impl Duration {
             return Duration::get_instance(duration, from_units);
         }
 
-        // 第一步：把源单位换算为分钟。
+// Step one: convert the source unit to minutes.
         match from_units {
             TimeUnit::Years => duration *= minutes_per_week * 52.0,
             TimeUnit::ElapsedYears => duration *= 60.0 * 24.0 * 7.0 * 52.0,
@@ -120,11 +120,11 @@ impl Duration {
             TimeUnit::Days => duration *= minutes_per_day,
             TimeUnit::ElapsedDays => duration *= 60.0 * 24.0,
             TimeUnit::Hours | TimeUnit::ElapsedHours => duration *= 60.0,
-            // Java: default -> break（MINUTES / ELAPSED_MINUTES / PERCENT / ELAPSED_PERCENT）
+            // Java: default -> break(MINUTES / ELAPSED_MINUTES / PERCENT / ELAPSED_PERCENT)
             _ => {}
         }
 
-        // 第二步：把分钟换算为目标单位。
+// Step two: convert minutes to the target unit.
         if to_units != TimeUnit::Minutes && to_units != TimeUnit::ElapsedMinutes {
             match to_units {
                 TimeUnit::Hours | TimeUnit::ElapsedHours => duration /= 60.0,
@@ -168,42 +168,42 @@ impl Duration {
         Duration::get_instance(duration, to_units)
     }
 
-    /// 创建 `Duration` 实例（`double` 版本）。
+/// Create a `Duration` instance (`double` version).
     ///
-    /// 对应 Java: `public static Duration getInstance(double duration, TimeUnit type)`
+    /// Corresponds to Java: `public static Duration getInstance(double duration, TimeUnit type)`
     pub fn get_instance(duration: f64, units: TimeUnit) -> Duration {
         Duration::new(duration, units)
     }
 
-    /// 创建 `Duration` 实例（`int` 版本）。
+/// Create a `Duration` instance (`int` version).
     ///
-    /// 对应 Java: `public static Duration getInstance(int duration, TimeUnit type)`
+    /// Corresponds to Java: `public static Duration getInstance(int duration, TimeUnit type)`
     ///
-    /// Java 的 `int` 重载在 Rust 中与 `get_instance` 冲突，故加 `_int` 后缀。
+/// Java's `int` overload conflicts with `get_instance` in Rust, so the `_int` suffix is added.
     pub fn get_instance_int(duration: i32, units: TimeUnit) -> Duration {
         Duration::new(f64::from(duration), units)
     }
 
-    /// 只比较工期数量（不考虑单位）。
+/// Compare only the duration amounts (ignoring the unit).
     ///
-    /// 对应 Java: `public boolean durationComponentEquals(Duration rhs)`
+    /// Corresponds to Java: `public boolean durationComponentEquals(Duration rhs)`
     pub fn duration_component_equals(&self, rhs: &Duration) -> bool {
         Duration::duration_value_equals(self.m_duration, rhs.m_duration)
     }
 
-    /// 在允许误差（`0.00001`）内比较两个工期值。
+/// Compare two duration values within the allowed tolerance (`0.00001`).
     ///
-    /// 对应 Java: `public static boolean durationValueEquals(double lhs, double rhs)`
+    /// Corresponds to Java: `public static boolean durationValueEquals(double lhs, double rhs)`
     pub fn duration_value_equals(lhs: f64, rhs: f64) -> bool {
         // Java: NumberHelper.equals(lhs, rhs, 0.00001) -> Math.abs(lhs - rhs) < delta
         (lhs - rhs).abs() < 0.00001
     }
 
-    /// 两个工期相加，任一为 `None` 时按 Java 的 `null` 语义返回另一方。
+/// Add two durations; when either is `None`, return the other following Java's `null` semantics.
     ///
-    /// 对应 Java: `public static Duration add(Duration a, Duration b, TimeUnitDefaultsContainer defaults)`
+    /// Corresponds to Java: `public static Duration add(Duration a, Duration b, TimeUnitDefaultsContainer defaults)`
     ///
-    /// 需要时会把 `b` 换算成 `a` 的单位。
+/// Converts `b` to the unit of `a` when needed.
     pub fn add(
         a: Option<Duration>,
         b: Option<Duration>,
@@ -226,9 +226,9 @@ impl Duration {
         }
     }
 
-    /// 取反。
+/// Negate.
     ///
-    /// 对应 Java: `public Duration negate()`
+    /// Corresponds to Java: `public Duration negate()`
     pub fn negate(&self) -> Duration {
         if self.m_duration == 0.0 {
             *self
@@ -239,24 +239,24 @@ impl Duration {
 }
 
 impl PartialEq for Duration {
-    /// 数量（在误差范围内）与单位都相等时返回 `true`。
+/// Returns `true` when both the amount (within tolerance) and the unit are equal.
     ///
-    /// 对应 Java: `@Override public boolean equals(Object o)`
+    /// Corresponds to Java: `@Override public boolean equals(Object o)`
     fn eq(&self, other: &Self) -> bool {
         self.duration_component_equals(other) && self.m_units == other.m_units
     }
 }
 
-/// 说明：`Duration` 含 `f64` 字段，无法自动派生 `Eq`；但 Java 侧实现了
-/// `Comparable`，Rust 的 `Ord` 要求 `Eq` 作为父 trait，故这里手工实现 `Eq`
-/// （相等性基于上面的误差比较，`Duration` 本身不可变）。
+/// Note: `Duration` contains an `f64` field and cannot automatically derive `Eq`; but the Java side implements
+/// `Comparable`, and Rust's `Ord` requires `Eq` as a supertrait, so `Eq` is implemented manually here
+/// (equality is based on the tolerance comparison above, and `Duration` itself is immutable).
 impl Eq for Duration {}
 
 impl Ord for Duration {
-    /// 对应 Java: `@Override public int compareTo(Duration rhs)`
+    /// Corresponds to Java: `@Override public int compareTo(Duration rhs)`
     ///
-    /// 单位不同时，先用固定的默认值（每天 480 分钟、每周 2400 分钟、每月 20 天）
-    /// 把 `rhs` 换算成本实例的单位再比较。
+/// When the units differ, first use fixed defaults (480 minutes per day, 2400 minutes per week, 20 days per month)
+/// to convert `rhs` into this instance's unit, then compare.
     fn cmp(&self, other: &Self) -> Ordering {
         let mut rhs = *other;
         if self.m_units != rhs.m_units {
@@ -287,10 +287,10 @@ impl PartialOrd for Duration {
 }
 
 impl Display for Duration {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 注意：Java 的 `double` 字符串化会保留 `.0`（如 `8.0`），Rust 的 `f64`
-    /// `Display` 会输出 `8`，二者在本方法上存在细微差异。
+/// Note: Java's `double` string conversion keeps `.0` (e.g. `8.0`), while Rust's `f64`
+/// `Display` outputs `8`; the two differ slightly in this method.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.m_duration, self.m_units)
     }

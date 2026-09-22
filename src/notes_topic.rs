@@ -1,97 +1,97 @@
-//! 对应 Java: `org/mpxj/NotesTopic.java`
+//! Corresponds to Java: `org/mpxj/NotesTopic.java`
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **接口**：Java 的 `NotesTopic implements ProjectEntityWithUniqueID`，Rust 侧由
+//! - **Interface**: Java's `NotesTopic implements ProjectEntityWithUniqueID`; on the Rust side it is
 //!   `impl crate::project_entity_with_unique_id::ProjectEntityWithUniqueID for NotesTopic`
-//!   表达（该 trait 的 `get_unique_id()` 返回 `Option<i32>`）。
-//! - **唯一 ID 分配**：Java 构造方法通过
+//! expressed by (that trait's `get_unique_id()` returns `Option<i32>`).
+//! - **Unique ID assignment**: the Java constructor
 //!   `UniqueIdObjectSequenceProvider#getUniqueIdObjectSequence(NotesTopic.class).syncOrGetNext(...)`
-//!   分配/同步唯一 ID。Rust 侧 [`Builder`] 暂不接收序列提供者（与
-//!   `crate::shift::Builder`、`crate::unit_of_measure::Builder` 的处理方式一致），
-//!   直接使用调用方通过 [`Builder::unique_id`] 传入的值。
-//! - **常量 `DEFAULT`**：Java 的 `public static final NotesTopic DEFAULT` 无法在 Rust 中
-//!   作为 `const` 构造（含 `String`），改为函数 [`NotesTopic::default_topic`]，
-//!   并同时实现 [`Default`] 以便惯用法使用。
+//! assigns/synchronizes the unique ID. The Rust [`Builder`] does not yet accept a sequence provider (consistent with
+//! the handling of `crate::shift::Builder` and `crate::unit_of_measure::Builder`),
+//! and directly uses the value passed by the caller via [`Builder::unique_id`].
+//! - **Constant `DEFAULT`**: Java's `public static final NotesTopic DEFAULT` cannot, in Rust,
+//! be constructed as a `const` (it contains a `String`), so it becomes the function [`NotesTopic::default_topic`],
+//! and [`Default`] is also implemented for idiomatic use.
 
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 
-/// 用于组织 P6 笔记的主题。
+/// A topic used to organize P6 notes.
 ///
-/// 对应 Java: `public final class NotesTopic implements ProjectEntityWithUniqueID`
+/// Corresponds to Java: `public final class NotesTopic implements ProjectEntityWithUniqueID`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotesTopic {
-    /// 对应 Java 字段 `private final Integer m_uniqueID`
+    /// Corresponds to Java field `private final Integer m_uniqueID`
     unique_id: Option<i32>,
-    /// 对应 Java 字段 `private final Integer m_sequenceNumber`
+    /// Corresponds to Java field `private final Integer m_sequenceNumber`
     sequence_number: Option<i32>,
-    /// 对应 Java 字段 `private final String m_name`
+    /// Corresponds to Java field `private final String m_name`
     name: Option<String>,
-    /// 对应 Java 字段 `private final boolean m_availableForEPS`
+    /// Corresponds to Java field `private final boolean m_availableForEPS`
     available_for_eps: bool,
-    /// 对应 Java 字段 `private final boolean m_availableForProject`
+    /// Corresponds to Java field `private final boolean m_availableForProject`
     available_for_project: bool,
-    /// 对应 Java 字段 `private final boolean m_availableForWBS`
+    /// Corresponds to Java field `private final boolean m_availableForWBS`
     available_for_wbs: bool,
-    /// 对应 Java 字段 `private final boolean m_availableForActivity`
+    /// Corresponds to Java field `private final boolean m_availableForActivity`
     available_for_activity: bool,
 }
 
 impl NotesTopic {
-    /// 取唯一 ID。
+/// Get the unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.unique_id
     }
 
-    /// 取序号。
+/// Get the sequence number.
     ///
-    /// 对应 Java: `public Integer getSequenceNumber()`
+    /// Corresponds to Java: `public Integer getSequenceNumber()`
     pub fn get_sequence_number(&self) -> Option<i32> {
         self.sequence_number
     }
 
-    /// 取名称。
+/// Get the name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    /// 取「可用于 EPS」标志。
+/// Get the "available for EPS" flag.
     ///
-    /// 对应 Java: `public boolean getAvailableForEPS()`
+    /// Corresponds to Java: `public boolean getAvailableForEPS()`
     pub fn get_available_for_eps(&self) -> bool {
         self.available_for_eps
     }
 
-    /// 取「可用于 project」标志。
+/// Get the "available for project" flag.
     ///
-    /// 对应 Java: `public boolean getAvailableForProject()`
+    /// Corresponds to Java: `public boolean getAvailableForProject()`
     pub fn get_available_for_project(&self) -> bool {
         self.available_for_project
     }
 
-    /// 取「可用于 WBS」标志。
+/// Get the "available for WBS" flag.
     ///
-    /// 对应 Java: `public boolean getAvailableForWBS()`
+    /// Corresponds to Java: `public boolean getAvailableForWBS()`
     pub fn get_available_for_wbs(&self) -> bool {
         self.available_for_wbs
     }
 
-    /// 取「可用于 activity」标志。
+/// Get the "available for activity" flag.
     ///
-    /// 对应 Java: `public boolean getAvailableForActivity()`
+    /// Corresponds to Java: `public boolean getAvailableForActivity()`
     pub fn get_available_for_activity(&self) -> bool {
         self.available_for_activity
     }
 
-    /// 构造 Java 常量 `NotesTopic.DEFAULT` 对应的实例。
+/// Construct the instance corresponding to the Java constant `NotesTopic.DEFAULT`.
     ///
-    /// 对应 Java: `public static final NotesTopic DEFAULT`
+    /// Corresponds to Java: `public static final NotesTopic DEFAULT`
     ///
-    /// Java 用同一实例共享；Rust 侧每次返回新建的值（`NotesTopic` 是值类型）。
+/// Java shares the same instance; the Rust side returns a newly created value each time (`NotesTopic` is a value type).
     pub fn default_topic() -> NotesTopic {
         Builder::new()
             .unique_id(Some(1))
@@ -106,60 +106,60 @@ impl NotesTopic {
 }
 
 impl Default for NotesTopic {
-    /// 对应 Java: `public static final NotesTopic DEFAULT`
+    /// Corresponds to Java: `public static final NotesTopic DEFAULT`
     fn default() -> Self {
         NotesTopic::default_topic()
     }
 }
 
 impl ProjectEntityWithUniqueID for NotesTopic {
-    /// 取唯一 ID。
+/// Get the unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32> {
         self.unique_id
     }
 }
 
-/// `NotesTopic` 构造器。
+/// `NotesTopic` builder.
 ///
-/// 对应 Java: `public static class NotesTopic.Builder`
+/// Corresponds to Java: `public static class NotesTopic.Builder`
 ///
-/// Java 的 `Builder` 方法原地修改并返回 `this`；Rust 侧采用与
-/// `crate::shift::Builder`、`crate::unit_of_measure::Builder` 一致的
-/// 「消耗自身并返回 `Self`」写法。
+/// Java's `Builder` methods modify in place and return `this`; the Rust side uses the same style as
+/// `crate::shift::Builder` and `crate::unit_of_measure::Builder`:
+/// "consume self and return `Self`".
 #[derive(Debug, Clone, Default)]
 pub struct Builder {
-    /// 对应 Java 字段 `private Integer m_uniqueID`
+    /// Corresponds to Java field `private Integer m_uniqueID`
     unique_id: Option<i32>,
-    /// 对应 Java 字段 `private Integer m_sequenceNumber`
+    /// Corresponds to Java field `private Integer m_sequenceNumber`
     sequence_number: Option<i32>,
-    /// 对应 Java 字段 `private String m_name`
+    /// Corresponds to Java field `private String m_name`
     name: Option<String>,
-    /// 对应 Java 字段 `private boolean m_availableForEPS`
+    /// Corresponds to Java field `private boolean m_availableForEPS`
     available_for_eps: bool,
-    /// 对应 Java 字段 `private boolean m_availableForProject`
+    /// Corresponds to Java field `private boolean m_availableForProject`
     available_for_project: bool,
-    /// 对应 Java 字段 `private boolean m_availableForWBS`
+    /// Corresponds to Java field `private boolean m_availableForWBS`
     available_for_wbs: bool,
-    /// 对应 Java 字段 `private boolean m_availableForActivity`
+    /// Corresponds to Java field `private boolean m_availableForActivity`
     available_for_activity: bool,
 }
 
 impl Builder {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// Java 的序列提供者用于经 `ObjectSequence` 分配 unique ID；本仓尚未接线
-    /// （`UniqueIdObjectSequenceProvider` 已落地），故不接收该参数（见文件头说明）。
+/// Java's sequence provider is used to assign unique IDs via `ObjectSequence`; this repository has not yet wired it up
+/// (`UniqueIdObjectSequenceProvider` is already in place), so this parameter is not accepted (see the file header).
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 从已有 `NotesTopic` 初始化各字段。
+/// Initialize all fields from an existing `NotesTopic`.
     ///
-    /// 对应 Java: `public Builder from(NotesTopic value)`
+    /// Corresponds to Java: `public Builder from(NotesTopic value)`
     pub fn from(mut self, value: &NotesTopic) -> Self {
         self.unique_id = value.unique_id;
         self.sequence_number = value.sequence_number;
@@ -171,65 +171,65 @@ impl Builder {
         self
     }
 
-    /// 设置唯一 ID。
+/// Set the unique ID.
     ///
-    /// 对应 Java: `public Builder uniqueID(Integer value)`
+    /// Corresponds to Java: `public Builder uniqueID(Integer value)`
     pub fn unique_id(mut self, value: Option<i32>) -> Self {
         self.unique_id = value;
         self
     }
 
-    /// 设置序号。
+/// Set the sequence number.
     ///
-    /// 对应 Java: `public Builder sequenceNumber(Integer value)`
+    /// Corresponds to Java: `public Builder sequenceNumber(Integer value)`
     pub fn sequence_number(mut self, value: Option<i32>) -> Self {
         self.sequence_number = value;
         self
     }
 
-    /// 设置名称。
+/// Set the name.
     ///
-    /// 对应 Java: `public Builder name(String value)`
+    /// Corresponds to Java: `public Builder name(String value)`
     pub fn name(mut self, value: Option<String>) -> Self {
         self.name = value;
         self
     }
 
-    /// 设置「可用于 EPS」标志。
+/// Set the "available for EPS" flag.
     ///
-    /// 对应 Java: `public Builder availableForEPS(boolean value)`
+    /// Corresponds to Java: `public Builder availableForEPS(boolean value)`
     pub fn available_for_eps(mut self, value: bool) -> Self {
         self.available_for_eps = value;
         self
     }
 
-    /// 设置「可用于 project」标志。
+/// Set the "available for project" flag.
     ///
-    /// 对应 Java: `public Builder availableForProject(boolean value)`
+    /// Corresponds to Java: `public Builder availableForProject(boolean value)`
     pub fn available_for_project(mut self, value: bool) -> Self {
         self.available_for_project = value;
         self
     }
 
-    /// 设置「可用于 WBS」标志。
+/// Set the "available for WBS" flag.
     ///
-    /// 对应 Java: `public Builder availableForWBS(boolean value)`
+    /// Corresponds to Java: `public Builder availableForWBS(boolean value)`
     pub fn available_for_wbs(mut self, value: bool) -> Self {
         self.available_for_wbs = value;
         self
     }
 
-    /// 设置「可用于 activity」标志。
+/// Set the "available for activity" flag.
     ///
-    /// 对应 Java: `public Builder availableForActivity(boolean value)`
+    /// Corresponds to Java: `public Builder availableForActivity(boolean value)`
     pub fn available_for_activity(mut self, value: bool) -> Self {
         self.available_for_activity = value;
         self
     }
 
-    /// 构造 [`NotesTopic`] 实例。
+/// Construct a [`NotesTopic`] instance.
     ///
-    /// 对应 Java: `public NotesTopic build()`
+    /// Corresponds to Java: `public NotesTopic build()`
     pub fn build(self) -> NotesTopic {
         NotesTopic {
             unique_id: self.unique_id,
@@ -252,7 +252,7 @@ mod tests {
         let topic = Builder::new()
             .unique_id(Some(7))
             .sequence_number(Some(3))
-            .name(Some("主题".to_owned()))
+            .name(Some("Topic".to_owned()))
             .available_for_eps(true)
             .available_for_project(false)
             .available_for_wbs(true)
@@ -261,7 +261,7 @@ mod tests {
 
         assert_eq!(topic.get_unique_id(), Some(7));
         assert_eq!(topic.get_sequence_number(), Some(3));
-        assert_eq!(topic.get_name(), Some("主题"));
+        assert_eq!(topic.get_name(), Some("Topic"));
         assert!(topic.get_available_for_eps());
         assert!(!topic.get_available_for_project());
         assert!(topic.get_available_for_wbs());
@@ -292,7 +292,7 @@ mod tests {
         let copy = Builder::new().from(&source).build();
         assert_eq!(copy, source);
 
-        // Java 的 `from` 只复制字段，不改写原实例
+// Java's `from` only copies fields and does not modify the original instance
         assert_eq!(source.get_name(), Some("source"));
     }
 

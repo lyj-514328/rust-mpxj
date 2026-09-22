@@ -1,56 +1,56 @@
-//! 对应 Java: `org/mpxj/mpp/GridLines.java`
+//! Corresponds to Java: `org/mpxj/mpp/GridLines.java`
 //!
-//! 一组网格线的位置与外观属性（常规线 + 间隔线）。
+//! The position and appearance attributes of a set of grid lines (normal line + interval line).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public class GridLines` | 结构体 [`GridLines`] | 1:1 移植；字段顺序与 Java 一致 |
-//! | 构造参数 `Color normalLineColor` / `Color intervalLineColor`（`java.awt.Color`） | `Option<Color>`，`Color` = [`crate::mpp::mpp_utility::Color`] | `java.awt.*` 属跳过项；Rust 侧复用 [`crate::mpp::mpp_utility::Color`]。Java 侧由 `MPPUtility.getColor(...)` / `ColorType.getColor()` 取值，两者都可能返回 `null`（自动颜色），故用 `Option` |
-//! | 构造参数 `LineStyle normalLineStyle` / `LineStyle intervalLineStyle` | `Option<LineStyle>` | Java 侧由 `LineStyle.getInstance(...)` 取值，该方法的查找表下标 5 为 `null`（见 `crate::mpp::line_style::LineStyle`），故用 `Option` |
-//! | 构造参数 `int intervalNumber` | `i32` | Java 侧该值直接来自文件中的**有符号** `byte`（如 `GanttChartView9#getGridLines` 的 `data[offset + 4]`），因此可能出现负数；Rust 侧同样是 `i32`，符号扩展由调用方负责 |
-//! | `toString()` | `Display` | 输出格式与 Java 一致；`java.awt.Color` 部分按 `java.awt.Color[r=..,g=..,b=..]` 形式输出，`null` 输出 `null` |
-//! | 未覆写 `equals` / `hashCode` | 派生 `PartialEq` / `Eq` | Rust 侧为便于比较与测试而派生（逐字段比较）；因 [`crate::mpp::mpp_utility::Color`] 未实现 `Hash`，故**不**派生 `Hash` |
+//! | `public class GridLines` | Struct [`GridLines`] | 1:1 port; field order matches Java |
+//! | Constructor parameters `Color normalLineColor` / `Color intervalLineColor` (`java.awt.Color`) | `Option<Color>`, `Color` = [`crate::mpp::mpp_utility::Color`] | `java.awt.*` is a skipped item; the Rust side reuses [`crate::mpp::mpp_utility::Color`]. Java obtains the values from `MPPUtility.getColor(...)` / `ColorType.getColor()`, both of which may return `null` (automatic color), hence `Option` |
+//! | Constructor parameters `LineStyle normalLineStyle` / `LineStyle intervalLineStyle` | `Option<LineStyle>` | Java obtains the values from `LineStyle.getInstance(...)`, whose lookup table index 5 is `null` (see `crate::mpp::line_style::LineStyle`), hence `Option` |
+//! | Constructor parameter `int intervalNumber` | `i32` | In Java this value comes directly from a **signed** `byte` in the file (e.g. `data[offset + 4]` in `GanttChartView9#getGridLines`), so it may be negative; the Rust side is likewise `i32`, with sign extension handled by the caller |
+//! | `toString()` | `Display` | Output format matches Java; the `java.awt.Color` part is output in the form `java.awt.Color[r=..,g=..,b=..]`, and `null` is output as `null` |
+//! | `equals` / `hashCode` not overridden | Derive `PartialEq` / `Eq` | Derived on the Rust side for easier comparison and testing (field-by-field comparison); since [`crate::mpp::mpp_utility::Color`] does not implement `Hash`, `Hash` is **not** derived |
 //!
-//! 未移植 / 跳过：无（JDBC / XML-JAXB / GUI / `javax.*` / `Serializable` 等机制本类未使用）。
+//! Unported / skipped: none (this class does not use mechanisms such as JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`).
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpp::line_style::LineStyle;
 use crate::mpp::mpp_utility::{format_optional_display, Color};
 
-/// 一组网格线的属性。
+/// The attributes of a set of grid lines.
 ///
-/// 对应 Java: `public class GridLines`
+/// Corresponds to Java: `public class GridLines`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GridLines {
-    /// 常规线颜色。
+/// Normal line color.
     ///
-    /// 对应 Java: `private final Color m_normalLineColor`
+    /// Corresponds to Java: `private final Color m_normalLineColor`
     normal_line_color: Option<Color>,
-    /// 常规线线型。
+/// Normal line style.
     ///
-    /// 对应 Java: `private final LineStyle m_normalLineStyle`
+    /// Corresponds to Java: `private final LineStyle m_normalLineStyle`
     normal_line_style: Option<LineStyle>,
-    /// 间隔线间隔数。
+/// Interval line interval number.
     ///
-    /// 对应 Java: `private final int m_intervalNumber`
+    /// Corresponds to Java: `private final int m_intervalNumber`
     interval_number: i32,
-    /// 间隔线线型。
+/// Interval line style.
     ///
-    /// 对应 Java: `private final LineStyle m_intervalLineStyle`
+    /// Corresponds to Java: `private final LineStyle m_intervalLineStyle`
     interval_line_style: Option<LineStyle>,
-    /// 间隔线颜色。
+/// Interval line color.
     ///
-    /// 对应 Java: `private final Color m_intervalLineColor`
+    /// Corresponds to Java: `private final Color m_intervalLineColor`
     interval_line_color: Option<Color>,
 }
 
 impl GridLines {
-    /// 构造函数。
+/// Constructor.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `public GridLines(Color normalLineColor, LineStyle normalLineStyle, int intervalNumber, LineStyle intervalLineStyle, Color intervalLineColor)`
     pub fn new(
         normal_line_color: Option<Color>,
@@ -68,46 +68,46 @@ impl GridLines {
         }
     }
 
-    /// 取间隔线颜色。
+/// Get the interval line color.
     ///
-    /// 对应 Java: `public Color getIntervalLineColor()`
+    /// Corresponds to Java: `public Color getIntervalLineColor()`
     pub fn get_interval_line_color(&self) -> Option<Color> {
         self.interval_line_color
     }
 
-    /// 取间隔线线型。
+/// Get the interval line style.
     ///
-    /// 对应 Java: `public LineStyle getIntervalLineStyle()`
+    /// Corresponds to Java: `public LineStyle getIntervalLineStyle()`
     pub fn get_interval_line_style(&self) -> Option<LineStyle> {
         self.interval_line_style
     }
 
-    /// 取间隔线间隔数。
+/// Get the interval line interval number.
     ///
-    /// 对应 Java: `public int getIntervalNumber()`
+    /// Corresponds to Java: `public int getIntervalNumber()`
     pub fn get_interval_number(&self) -> i32 {
         self.interval_number
     }
 
-    /// 取常规线颜色。
+/// Get the normal line color.
     ///
-    /// 对应 Java: `public Color getNormalLineColor()`
+    /// Corresponds to Java: `public Color getNormalLineColor()`
     pub fn get_normal_line_color(&self) -> Option<Color> {
         self.normal_line_color
     }
 
-    /// 取常规线线型。
+/// Get the normal line style.
     ///
-    /// 对应 Java: `public LineStyle getNormalLineStyle()`
+    /// Corresponds to Java: `public LineStyle getNormalLineStyle()`
     pub fn get_normal_line_style(&self) -> Option<LineStyle> {
         self.normal_line_style
     }
 }
 
 impl Display for GridLines {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// 逐字段拼接，顺序与 Java 完全一致。
+/// Concatenate field by field, with an order fully consistent with Java.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -125,7 +125,7 @@ impl Display for GridLines {
 mod tests {
     use super::*;
 
-    /// getter 与 Java 一致。
+/// The getters are consistent with Java.
     #[test]
     fn accessors_match_java() {
         let grid_lines = GridLines::new(
@@ -146,10 +146,10 @@ mod tests {
         assert_eq!(grid_lines.get_interval_line_color(), Some(Color::new(4, 5, 6)));
     }
 
-    /// Java 中可能为 null 的成员在 Rust 侧是 `Option`；间隔数可为负（有符号 byte）。
+/// Members that may be null in Java are `Option` on the Rust side; the interval number may be negative (signed byte).
     #[test]
     fn nullable_members_are_options() {
-        // Java: LineStyle.getInstance(5) 返回 null，MPPUtility.getColor 也可能返回 null
+// Java: LineStyle.getInstance(5) returns null, and MPPUtility.getColor may also return null
         let grid_lines = GridLines::new(None, None, -1, None, None);
         assert_eq!(grid_lines.get_normal_line_color(), None);
         assert_eq!(grid_lines.get_normal_line_style(), None);
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(grid_lines.get_interval_number(), -1);
     }
 
-    /// toString 格式与 Java 一致。
+/// The toString format is consistent with Java.
     #[test]
     fn to_string_matches_java() {
         let grid_lines = GridLines::new(

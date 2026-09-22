@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/AbstractFieldContainer.java`
+//! Corresponds to Java: `org/mpxj/AbstractFieldContainer.java`
 
 use std::collections::HashMap;
 
@@ -6,30 +6,30 @@ use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 use crate::listener::field_listener::FieldListener;
 
-/// `FieldContainer` 的公共字段存储实现。
+/// Common field storage implementation for `FieldContainer`.
 ///
-/// 对应 Java: `public abstract class AbstractFieldContainer<T> implements FieldContainer`
+/// Corresponds to Java: `public abstract class AbstractFieldContainer<T> implements FieldContainer`
 ///
-/// # 与 Java 的差异：用组合替代继承
+/// # Differences from Java: composition instead of inheritance
 ///
-/// Java 侧 `Task` / `Resource` / `ResourceAssignment` 通过**继承**本类获得
-/// `set` / `get`。Rust 没有继承，改为**组合**：这三个实体各持有一个
-/// [`AbstractFieldContainer`] 作为字段存储，并把 `set` / `get` 委托给它。
+/// In Java, `Task` / `Resource` / `ResourceAssignment` obtain
+/// `set` / `get` by **inheriting** this class. Rust has no inheritance, so it uses **composition** instead: these three entities each hold an
+/// [`AbstractFieldContainer`] as field storage and forward `set` / `get` to it.
 ///
-/// Java 侧的三个抽象方法在 Rust 中的落位：
+/// Where the three abstract Java methods land in Rust:
 ///
 /// | Java | Rust |
 /// |---|---|
-/// | `handleFieldChange(field, old, new)` | 各实体在调用 [`AbstractFieldContainer::update`] 时传入处理闭包 |
-/// | `getAlwaysCalculatedField(field)` | 各实体自己的 `get` 实现 |
-/// | `getCalculationMethod(field)`（返回 `Function<T, Object>`） | 各实体自己的 `get` 实现（用 `match` 分派） |
+/// | `handleFieldChange(field, old, new)` | each entity passes a handler closure when calling [`AbstractFieldContainer::update`] |
+/// | `getAlwaysCalculatedField(field)` | each entity's own `get` implementation |
+/// | `getCalculationMethod(field)` (returns `Function<T, Object>`) | each entity's own `get` implementation (dispatched with `match`) |
 ///
-/// 因此本类型只负责「原始字段的存与取」，不含计算字段逻辑。
+/// Therefore this type only handles "storing and retrieving raw fields" and contains no calculated-field logic.
 ///
-/// # 其它差异
+/// # Other differences
 ///
-/// Java 的 `set` 用 `oldValue == value` 做**引用**比较；Rust 侧改为
-/// **值**比较（`PartialEq`），语义更严格且不会漏掉变更事件。
+/// Java's `set` uses `oldValue == value` for a **reference** comparison; Rust switches to
+/// a **value** comparison (`PartialEq`), whose semantics are stricter and which does not miss change events.
 pub struct AbstractFieldContainer {
     fields: HashMap<FieldKey, FieldValue>,
     listeners: Vec<Box<dyn FieldListener>>,
@@ -43,7 +43,7 @@ impl Default for AbstractFieldContainer {
 }
 
 impl AbstractFieldContainer {
-    /// 对应 Java 字段初始值 `m_clearDependentFieldsEnabled = true`。
+/// Corresponds to Java field initial value `m_clearDependentFieldsEnabled = true`.
     pub fn new() -> Self {
         Self {
             fields: HashMap::new(),
@@ -52,20 +52,20 @@ impl AbstractFieldContainer {
         }
     }
 
-    /// 设置字段值，并在值真正发生变化时触发字段变更事件。
+/// Sets a field value and fires a field change event when the value actually changes.
     ///
-    /// 对应 Java: `public void set(FieldType field, Object value)`
+    /// Corresponds to Java: `public void set(FieldType field, Object value)`
     ///
-    /// 传 `None` 等价于 Java 传 `null`，会把该字段从字段表中移除。
+/// Passing `None` is equivalent to passing `null` in Java and removes the field from the field map.
     pub fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         self.update(field, value, |_, _, _| {});
     }
 
-    /// 设置字段值，并在触发字段变更事件**之前**先执行调用方的处理逻辑。
+/// Sets a field value and runs the caller's handler logic **before** firing the field change event.
     ///
-    /// 对应 Java: `AbstractFieldContainer.set` 中先调 `handleFieldChange`
-    /// 再调 `fireFieldChangeEvent` 的顺序。各实体用它实现自己的
-    /// `handleFieldChange`。
+/// Corresponds to Java: the order in `AbstractFieldContainer.set` of calling `handleFieldChange`
+/// first and then `fireFieldChangeEvent`. Each entity uses this to implement its own
+    /// `handleFieldChange`.
     pub fn update<H>(&mut self, field: FieldKey, value: Option<FieldValue>, handle: H)
     where
         H: FnOnce(FieldKey, Option<&FieldValue>, Option<&FieldValue>),
@@ -83,43 +83,43 @@ impl AbstractFieldContainer {
         self.fire_field_change_event(field, old_value, value);
     }
 
-    /// 只读取已保存的字段值，不触发计算。
+/// Only reads stored field values and does not trigger calculations.
     ///
-    /// 对应 Java: `public Object getCachedValue(FieldType field)`
+    /// Corresponds to Java: `public Object getCachedValue(FieldType field)`
     pub fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get(&field)
     }
 
-    /// 返回字段表中已保存的字段数量（测试与诊断用）。
+/// Returns the number of fields stored in the field map (for tests and diagnostics).
     pub fn len(&self) -> usize {
         self.fields.len()
     }
 
-    /// 字段表是否为空。
+/// Whether the field map is empty.
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
 
-    /// 关闭字段更新时的依赖字段清理与事件触发。
+/// Disables dependent-field cleanup and event firing on field updates.
     ///
-    /// 对应 Java: `public void disableEvents()`
+    /// Corresponds to Java: `public void disableEvents()`
     pub fn disable_events(&mut self) {
         self.clear_dependent_fields_enabled = false;
     }
 
-    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+/// Enables dependent-field cleanup and event firing on field updates (the default state).
     ///
-    /// 对应 Java: `public void enableEvents()`
+    /// Corresponds to Java: `public void enableEvents()`
     pub fn enable_events(&mut self) {
         self.clear_dependent_fields_enabled = true;
     }
 
-    /// 依据依赖表清理需要重算的字段。
+/// Clears fields that need recalculation according to the dependency map.
     ///
-    /// 对应 Java: `void clearDependentFields(Map<FieldType, List<FieldType>> dependencyMap, FieldType field)`
+    /// Corresponds to Java: `void clearDependentFields(Map<FieldType, List<FieldType>> dependencyMap, FieldType field)`
     ///
-    /// Java 侧依赖表类型是 `Map<FieldType, List<FieldType>>`，Rust 侧用
-    /// `HashMap<FieldKey, Vec<FieldKey>>` 表达。
+/// The Java dependency map type is `Map<FieldType, List<FieldType>>`; Rust uses
+/// `HashMap<FieldKey, Vec<FieldKey>>` instead.
     pub fn clear_dependent_fields(
         &mut self,
         dependency_map: &HashMap<FieldKey, Vec<FieldKey>>,
@@ -133,30 +133,30 @@ impl AbstractFieldContainer {
             return;
         };
 
-        // 先克隆再遍历：`self.set` 需要 `&mut self`，不能与 `dependency_map` 的借用共存。
+// Clone first, then iterate: `self.set` needs `&mut self` and cannot coexist with the borrow of `dependency_map`.
         let dependencies = dependencies.clone();
         for dependency in dependencies {
             self.set(dependency, None);
         }
     }
 
-    /// 注册字段变更监听器。
+/// Registers a field change listener.
     ///
-    /// 对应 Java: `public void addFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `public void addFieldListener(FieldListener listener)`
     pub fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         self.listeners.push(listener);
     }
 
-    /// 清空字段变更监听器。
+/// Clears the field change listeners.
     ///
-    /// 对应 Java: `public void removeFieldListener(FieldListener listener)`
+    /// Corresponds to Java: `public void removeFieldListener(FieldListener listener)`
     pub fn clear_field_listeners(&mut self) {
         self.listeners.clear();
     }
 
-    /// 向监听器广播字段变更事件。
+/// Broadcasts a field change event to the listeners.
     ///
-    /// 对应 Java: `private void fireFieldChangeEvent(FieldType field, Object oldValue, Object newValue)`
+    /// Corresponds to Java: `private void fireFieldChangeEvent(FieldType field, Object oldValue, Object newValue)`
     fn fire_field_change_event(
         &mut self,
         field: FieldKey,
@@ -235,7 +235,7 @@ mod tests {
             |_, _, _| log.borrow_mut().clear(),
         );
 
-        // handler 先执行并清空了日志，随后监听器才写入，因此只应剩 1 条。
+// The handler runs first and clears the log, then the listener writes, so only 1 entry should remain.
         assert_eq!(log.borrow().len(), 1);
     }
 

@@ -1,33 +1,33 @@
-//! 对应 Java: `org/mpxj/BookingType.java`
+//! Corresponds to Java: `org/mpxj/BookingType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 资源预订类型。
+/// Resource booking type.
 ///
-/// 对应 Java: `public enum BookingType implements MpxjEnum`
+/// Corresponds to Java: `public enum BookingType implements MpxjEnum`
 ///
-/// Java 侧用 `EnumHelper.createTypeArray(BookingType.class)` 生成查找表：数组长度为
-/// 常量个数 2，索引 0/1 分别被 `COMMITTED`/`PROPOSED` 填满，因此 `getInstance`
-/// 不会返回 `null`。
+/// In Java, `EnumHelper.createTypeArray(BookingType.class)` builds the lookup table: the array length is
+/// the constant count 2, and indices 0/1 are filled by `COMMITTED`/`PROPOSED` respectively, so `getInstance`
+/// never returns `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BookingType {
-    /// 对应 Java: `COMMITTED(0)`
+    /// Corresponds to Java: `COMMITTED(0)`
     Committed = 0,
-    /// 对应 Java: `PROPOSED(1)`
+    /// Corresponds to Java: `PROPOSED(1)`
     Proposed = 1,
 }
 
 impl BookingType {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+    /// All values, in the same order as the Java declaration order.
     ///
-    /// 对应 Java: `private static final BookingType[] TYPE_VALUES`（去掉反射建表后）。
+    /// Corresponds to Java: `private static final BookingType[] TYPE_VALUES` (after removing the reflection table construction).
     pub const ALL: [BookingType; 2] = [BookingType::Committed, BookingType::Proposed];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `PROPOSED`。
+    /// Returns the enum instance for the given int value, falling back to `PROPOSED` when out of bounds.
     ///
-    /// 对应 Java: `public static BookingType getInstance(int type)`
+    /// Corresponds to Java: `public static BookingType getInstance(int type)`
     ///
-    /// Java 侧没有 `getInstance(Number)` 重载，故不提供 `get_instance_optional`。
+    /// Java has no `getInstance(Number)` overload, so `get_instance_optional` is not provided.
     pub fn get_instance(value: i32) -> BookingType {
         match value {
             0 => BookingType::Committed,
@@ -39,7 +39,7 @@ impl BookingType {
 }
 
 impl MpxjEnum for BookingType {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }

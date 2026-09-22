@@ -1,32 +1,35 @@
-//! 对应 Java: `org/mpxj/common/ByteArrayHelper.java`
+//! Corresponds to Java: `org/mpxj/common/ByteArrayHelper.java`
 
-/// 处理字节数组的工具方法。
+/// Utility methods for handling byte arrays.
 ///
-/// 对应 Java: `public final class ByteArrayHelper`
+/// Corresponds to Java: `public final class ByteArrayHelper`
 ///
-/// 移植说明：
-/// - Java 的 `byte[]` 参数在 Rust 侧为 `&[u8]`；Java 针对 `buffer == null` 返回空串的分支，
-///   在 Rust 侧由空切片天然覆盖（循环不执行，结果同样为空串）。
-/// - 越界访问与 Java 抛 `ArrayIndexOutOfBoundsException` 的行为一致（Rust 侧 panic）。
-/// - Java 的 `DecimalFormat("00000")` 用 `format!("{:05}", ...)` 等价实现。
-/// - `hexdump(byte[], int, int, int...)` 的 Java 实现中 `blockIndex` 从不自增，只要 `blockStarts`
-///   非空且首元素大于 0 就会死循环（该方法在 Java 源码中也没有调用方）。Rust 侧按意图补上
-///   `block_index` 自增，使 `blockStarts` 依次生效，其余逻辑保持一致。
+/// Porting notes:
+/// - The Java `byte[]` parameter is `&[u8]` on the Rust side; the Java branch that returns an
+///   empty string for `buffer == null` is naturally covered by an empty slice on the Rust side
+///   (the loop does not run and the result is likewise an empty string).
+/// - Out-of-bounds access matches Java throwing `ArrayIndexOutOfBoundsException` (Rust panics).
+/// - Java's `DecimalFormat("00000")` is implemented equivalently with `format!("{:05}", ...)`.
+/// - In the Java implementation of `hexdump(byte[], int, int, int...)` `blockIndex` is never
+///   incremented, so as long as `blockStarts` is non-empty and its first element is greater than
+///   0 it loops forever (that method has no callers in the Java source either). The Rust side
+///   increments `block_index` as intended so that `blockStarts` take effect in turn, keeping the
+///   rest of the logic identical.
 ///
-/// 未移植的方法：无。
+/// Skipped Java methods: none.
 pub struct ByteArrayHelper;
 
-/// 字节到十六进制字符的转换表。
+/// Lookup table converting a byte to a hexadecimal character.
 ///
-/// 对应 Java: `private static final char[] HEX_DIGITS`
+/// Corresponds to Java: `private static final char[] HEX_DIGITS`
 const HEX_DIGITS: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
 ];
 
 impl ByteArrayHelper {
-    /// 对应 Java: `public static final int getShort(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final int getShort(byte[] data, int offset)`
     ///
-    /// 从 `offset` 开始按小端读取两个字节，结果为 0..65535 的正整数。
+    /// Reads two bytes little-endian starting at `offset`; the result is a positive integer in 0..65535.
     pub fn get_short(data: &[u8], offset: usize) -> i32 {
         let mut result = 0i32;
         let mut index = offset;
@@ -41,9 +44,9 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final int getInt(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final int getInt(byte[] data, int offset)`
     ///
-    /// 从 `offset` 开始按小端读取四个字节，最高字节会构成符号位（与 Java 一致可为负）。
+    /// Reads four bytes little-endian starting at `offset`; the highest byte forms the sign bit (can be negative, as in Java).
     pub fn get_int(data: &[u8], offset: usize) -> i32 {
         let mut result = 0i32;
         let mut index = offset;
@@ -58,9 +61,9 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final long getLong(byte[] data, int offset)`
+    /// Corresponds to Java: `public static final long getLong(byte[] data, int offset)`
     ///
-    /// 从 `offset` 开始按小端读取八个字节。
+    /// Reads eight bytes little-endian starting at `offset`.
     pub fn get_long(data: &[u8], offset: usize) -> i64 {
         let mut result = 0i64;
         let mut index = offset;
@@ -75,9 +78,9 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final String hexdump(byte[] buffer, int offset, int length, boolean ascii)`
+    /// Corresponds to Java: `public static final String hexdump(byte[] buffer, int offset, int length, boolean ascii)`
     ///
-    /// 输出 `offset` 起 `length` 个字节的十六进制表示；`ascii` 为真时追加 ASCII 字符视图。
+    /// Outputs the hexadecimal representation of `length` bytes starting at `offset`; when `ascii` is true, appends an ASCII character view.
     pub fn hexdump(buffer: &[u8], offset: usize, length: usize, ascii: bool) -> String {
         let mut result = String::new();
         let count = (offset + length).min(buffer.len());
@@ -94,13 +97,13 @@ impl ByteArrayHelper {
             result.push_str("   ");
 
             for index in offset..count {
-                // Java: char c = (char) buffer[loop]，byte 为负时符号扩展成 0xFFxx（必然 > 200）
+                // Java: char c = (char) buffer[loop]; a negative byte sign-extends to 0xFFxx (always > 200)
                 let raw = i32::from(buffer[index] as i8);
                 let value = if raw < 0 { raw + 0x10000 } else { raw };
                 result.push(if value > 200 || value < 27 {
                     ' '
                 } else {
-                    // 取值 27..=200 一定落在 u8 范围内，转换无损
+                    // Values 27..=200 always fall within u8 range, so the conversion is lossless
                     value as u8 as char
                 });
             }
@@ -109,16 +112,16 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final String hexdump(byte[] buffer, boolean ascii)`
+    /// Corresponds to Java: `public static final String hexdump(byte[] buffer, boolean ascii)`
     ///
-    /// 输出整个数组。
+    /// Outputs the entire array.
     pub fn hexdump_all(buffer: &[u8], ascii: bool) -> String {
         Self::hexdump(buffer, 0, buffer.len(), ascii)
     }
 
-    /// 对应 Java: `public static final String hexdump(byte[] buffer, boolean ascii, int columns, String prefix)`
+    /// Corresponds to Java: `public static final String hexdump(byte[] buffer, boolean ascii, int columns, String prefix)`
     ///
-    /// 按固定宽度分列输出，每行前缀为 `prefix` 加五位十进制偏移量。
+    /// Outputs in fixed-width columns; each line is prefixed with `prefix` plus a five-digit decimal offset.
     pub fn hexdump_columns(buffer: &[u8], ascii: bool, columns: usize, prefix: &str) -> String {
         let mut result = String::new();
         let mut index = 0;
@@ -141,9 +144,9 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final String hexdump(byte[] buffer, int offset, int length, boolean ascii, int columns, String prefix)`
+    /// Corresponds to Java: `public static final String hexdump(byte[] buffer, int offset, int length, boolean ascii, int columns, String prefix)`
     ///
-    /// 按固定宽度分列输出指定区间，每行的五位偏移量相对于 `offset`。
+    /// Outputs the given range in fixed-width columns; the five-digit offset on each line is relative to `offset`.
     pub fn hexdump_columns_at(
         buffer: &[u8],
         offset: usize,
@@ -173,9 +176,9 @@ impl ByteArrayHelper {
         result
     }
 
-    /// 对应 Java: `public static final String hexdump(byte[] buffer, int offset, int length, int... blockStarts)`
+    /// Corresponds to Java: `public static final String hexdump(byte[] buffer, int offset, int length, int... blockStarts)`
     ///
-    /// 把数据按 `blockStarts` 指定的块结束位置切块，逐块用 `[...]` 包裹后拼接。
+    /// Splits the data into blocks at the end positions given by `blockStarts`, wraps each block in `[...]`, and concatenates them.
     pub fn hexdump_blocks(
         buffer: &[u8],
         offset: usize,

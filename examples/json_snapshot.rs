@@ -1,12 +1,12 @@
-//! 对拍用的 ProjectFile JSON 快照（只读；字段范围见 `tools/compare_json.md`）。
+//! ProjectFile JSON snapshot used for cross-checking (read-only; see `tools/compare_json.md` for the field scope).
 //!
-//! # 与 Java 的差异
-//! | Java | Rust | 说明 |
+//! # Differences from Java
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `tools/JsonSnapshot.java` | 本示例 | Rust 不增加 JSON crate，使用本地的最小 JSON 编码器；字段和值类型一致 |
+//! | `tools/JsonSnapshot.java` | This example | Rust adds no JSON crate and uses a local minimal JSON encoder; fields and value types match |
 //!
-//! # 跳过的 Java 成员及原因
-//! 本示例不是 Java 类的移植；未列入快照的字段统一在对拍说明中登记。
+//! # Skipped Java members and reasons
+//! This example is not a port of a Java class; fields not included in the snapshot are registered in the cross-check notes.
 
 use std::cell::RefCell;
 use std::env;
@@ -58,7 +58,7 @@ enum Json {
 }
 
 impl Json {
-    /// 将快照值编码成标准 JSON；非有限浮点数使用 JSON 的 `null`。
+    /// Encode a snapshot value as standard JSON; non-finite floats use JSON `null`.
     fn write(&self, out: &mut String) {
         match self {
             Self::Null => out.push_str("null"),
@@ -107,17 +107,17 @@ impl Json {
     }
 }
 
-/// 将 Java 的 nullable Integer 映射为 JSON number/null。
+/// Map a Java nullable Integer to a JSON number/null.
 fn integer(value: Option<i32>) -> Json {
     value.map(Json::Int).unwrap_or(Json::Null)
 }
 
-/// 将 Java 的 nullable Number 映射为 JSON number/null。
+/// Map a Java nullable Number to a JSON number/null.
 fn number(value: Option<f64>) -> Json {
     value.map(Json::Number).unwrap_or(Json::Null)
 }
 
-/// 日期与一天内时间采用 Java 快照相同的 ISO 表示。
+/// Dates and times of day use the same ISO representation as the Java snapshot.
 fn calendar_date(value: Option<NaiveDate>) -> Json {
     string(value.as_ref().map(|date| date.format("%Y-%m-%d").to_string()).as_deref())
 }
@@ -310,14 +310,14 @@ fn group(value: &Group) -> Result<Json, String> {
     ]))
 }
 
-/// 将 Java 的 nullable String 映射为 JSON string/null。
+/// Map a Java nullable String to a JSON string/null.
 fn string(value: Option<&str>) -> Json {
     value
         .map(|s| Json::Text(s.to_owned()))
         .unwrap_or(Json::Null)
 }
 
-/// 将 Java 的 LocalDateTime 映射为固定九位小数的 ISO 本地时间。
+/// Map a Java LocalDateTime to an ISO local time with a fixed nine-digit fraction.
 fn date(value: Option<NaiveDateTime>) -> Json {
     string(
         value
@@ -327,7 +327,7 @@ fn date(value: Option<NaiveDateTime>) -> Json {
     )
 }
 
-/// 将 Java 的 Duration 映射为数量与枚举值，保留原始单位。
+/// Map a Java Duration to an amount and enum value, preserving the original units.
 fn duration(value: Option<Duration>) -> Json {
     match value {
         Some(v) => Json::Object(vec![
@@ -338,7 +338,7 @@ fn duration(value: Option<Duration>) -> Json {
     }
 }
 
-/// 将字段表中的具体值转换为两侧共有的类型表示；未实现的类型必须报错。
+/// Convert a concrete value from a field table to a type representation shared by both sides; unimplemented types must return an error.
 fn field_value(value: FieldValue) -> Result<Json, String> {
     Ok(match value {
         FieldValue::Integer(v) => Json::Int(v),
@@ -364,7 +364,7 @@ fn field_value(value: FieldValue) -> Result<Json, String> {
             ("name", string(v.get_name())),
         ]),
         FieldValue::Notes(v) => Json::Text(v.to_string()),
-        FieldValue::Steps(v) => Json::Array(v.try_borrow().map_err(|_| "步骤列表借用冲突")?.iter().map(|step| {
+        FieldValue::Steps(v) => Json::Array(v.try_borrow().map_err(|_| "step list borrow conflict")?.iter().map(|step| {
             Json::Object(vec![
                 ("unique_id", integer(step.get_unique_id())),
                 ("name", string(step.get_name())),
@@ -375,7 +375,7 @@ fn field_value(value: FieldValue) -> Result<Json, String> {
             ])
         }).collect()),
         FieldValue::Relations(v) => Json::Array(v.iter().map(|relation| {
-            let relation = relation.try_borrow().map_err(|_| "关系借用冲突")?;
+            let relation = relation.try_borrow().map_err(|_| "relation borrow conflict")?;
             Ok(Json::Object(vec![
                 ("unique_id", integer(relation.get_unique_id())),
                 ("predecessor_unique_id", integer(relation.get_predecessor_task().and_then(|t| t.try_borrow().ok().and_then(|t| t.get_unique_id())))),
@@ -384,7 +384,7 @@ fn field_value(value: FieldValue) -> Result<Json, String> {
                 ("lag", duration(relation.get_lag())),
             ]))
         }).collect::<Result<Vec<_>, String>>()?),
-        FieldValue::Resource(v) => Json::Object(vec![("unique_id", integer(v.try_borrow().map_err(|_| "资源借用冲突")?.get_unique_id()))]),
+        FieldValue::Resource(v) => Json::Object(vec![("unique_id", integer(v.try_borrow().map_err(|_| "resource borrow conflict")?.get_unique_id()))]),
         FieldValue::TimeRanges(v) => Json::Array(v.iter().map(|range| Json::Object(vec![
             ("start", date(range.get_start())),
             ("end", date(range.get_end())),
@@ -404,7 +404,7 @@ fn field_value(value: FieldValue) -> Result<Json, String> {
     })
 }
 
-/// 枚举清单独立于实际值输出，避免两边都漏掉同一个空字段时误判一致。
+/// Output the enum catalog independently of the actual values so that both sides missing the same empty field is not mistaken for agreement.
 fn field_catalog<F: FieldType>(fields: &[F], custom: &[(String, FieldKey)]) -> Json {
     let mut names: Vec<_> = fields.iter().map(FieldType::name).collect();
     names.extend(custom.iter().map(|(name, _)| name.as_str()));
@@ -412,21 +412,21 @@ fn field_catalog<F: FieldType>(fields: &[F], custom: &[(String, FieldKey)]) -> J
     Json::Array(names.into_iter().map(|name| Json::Text(name.to_owned())).collect())
 }
 
-/// P6 专用的 Code/Expense 字段不在本仓库的 MPX/MPP reader 范围内。
+/// P6-specific Code/Expense fields are outside the scope of this repository's MPX/MPP readers.
 fn excluded_field(name: &str) -> bool {
     matches!(name,
         "PROJECT_CODE_VALUES" | "RESOURCE_CODE_VALUES" | "ROLE_CODE_VALUES" |
         "RESOURCE_ASSIGNMENT_CODE_VALUES" | "ACTIVITY_CODE_VALUES" | "EXPENSE_ITEMS")
 }
 
-/// 将明确排除的字段写入快照，防止只靠缺失值误报一致。
+/// Write explicitly excluded fields into the snapshot to prevent missing values alone from being mistaken for agreement.
 fn field_exclusions<F: FieldType>(fields: &[F]) -> Json {
     let mut names: Vec<_> = fields.iter().map(FieldType::name).filter(|name| excluded_field(name)).collect();
     names.sort_unstable();
     Json::Array(names.into_iter().map(|name| Json::Text(name.to_owned())).collect())
 }
 
-/// 只输出非空字段，空字段由双方相同的枚举清单约束。
+/// Output only non-empty fields; empty fields are constrained by the enum catalog shared by both sides.
 fn field_values<T: FieldContainer, F: FieldType + Copy + Into<FieldKey>>(
     container: &T,
     fields: &[F],
@@ -457,7 +457,7 @@ fn field_values<T: FieldContainer, F: FieldType + Copy + Into<FieldKey>>(
     }).collect()))
 }
 
-/// 自定义字段以 unique ID 命名，避免本地化名称及重名影响对齐。
+/// Name custom fields by unique ID so that localized names and duplicate names do not affect alignment.
 fn user_fields(fields: Vec<Rc<RefCell<UserDefinedField>>>) -> Vec<(String, FieldKey)> {
     fields.into_iter().filter_map(|field| {
         let id = field.try_borrow().ok()?.get_unique_id();
@@ -465,9 +465,9 @@ fn user_fields(fields: Vec<Rc<RefCell<UserDefinedField>>>) -> Vec<(String, Field
     }).collect()
 }
 
-/// 给现有 ProjectFile 快照附加完整的内置字段清单及非空字段值。
+/// Append the complete built-in field catalog and non-empty field values to an existing ProjectFile snapshot.
 fn append_all_fields(file: &Rc<RefCell<ProjectFile>>, snapshot: &mut Json) -> Result<(), String> {
-    let Json::Object(root) = snapshot else { return Err("快照根节点不是对象".to_owned()); };
+    let Json::Object(root) = snapshot else { return Err("snapshot root node is not an object".to_owned()); };
     let (project_custom, task_custom, resource_custom, assignment_custom) = {
         let file_ref = file.borrow();
         let custom = file_ref.get_user_defined_fields();
@@ -585,17 +585,17 @@ fn append_all_fields(file: &Rc<RefCell<ProjectFile>>, snapshot: &mut Json) -> Re
         match (*key, data) {
             ("properties", Json::Object(entry)) => entry.push((
                 "field_values",
-                properties.take().ok_or("项目字段已写入")?,
+                properties.take().ok_or("project field already written")?,
             )),
             ("tasks", Json::Array(entries)) => {
                 for (entry, task) in entries.iter_mut().zip(tasks.iter()) {
-                    let Json::Object(entry) = entry else { return Err("任务快照不是对象".to_owned()); };
+                    let Json::Object(entry) = entry else { return Err("task snapshot is not an object".to_owned()); };
                     entry.push(("field_values", field_values(&*task.borrow(), &TaskField::ALL, &task_custom)?));
                 }
             }
             ("resources", Json::Array(entries)) => {
                 for (entry, resource) in entries.iter_mut().zip(resources.iter()) {
-                    let Json::Object(entry) = entry else { return Err("资源快照不是对象".to_owned()); };
+                    let Json::Object(entry) = entry else { return Err("resource snapshot is not an object".to_owned()); };
                     let resource = resource.borrow();
                     entry.push(("field_values", field_values(&*resource, &ResourceField::ALL, &resource_custom)?));
                     entry.push(("details", resource_details(&resource)));
@@ -603,13 +603,13 @@ fn append_all_fields(file: &Rc<RefCell<ProjectFile>>, snapshot: &mut Json) -> Re
             }
             ("assignments", Json::Array(entries)) => {
                 for (entry, assignment) in entries.iter_mut().zip(assignments.iter()) {
-                    let Json::Object(entry) = entry else { return Err("分配快照不是对象".to_owned()); };
+                    let Json::Object(entry) = entry else { return Err("assignment snapshot is not an object".to_owned()); };
                     entry.push(("field_values", field_values(&*assignment.borrow(), &AssignmentField::ALL, &assignment_custom)?));
                 }
             }
             ("calendars", Json::Array(entries)) => {
                 for (entry, calendar) in entries.iter_mut().zip(calendars.iter()) {
-                    let Json::Object(entry) = entry else { return Err("日历快照不是对象".to_owned()); };
+                    let Json::Object(entry) = entry else { return Err("calendar snapshot is not an object".to_owned()); };
                     entry.push(("details", calendar_details(&mut calendar.borrow_mut())));
                 }
             }
@@ -619,7 +619,7 @@ fn append_all_fields(file: &Rc<RefCell<ProjectFile>>, snapshot: &mut Json) -> Re
     Ok(())
 }
 
-/// 与 Java 示例按同一命名规则选择 MPX 区域设置。
+/// Select the MPX locale using the same naming rule as the Java example.
 fn locale(path: &Path) -> MpxLocale {
     path.file_stem()
         .and_then(|s| s.to_str())
@@ -630,7 +630,7 @@ fn locale(path: &Path) -> MpxLocale {
         .unwrap_or(MpxLocale::En)
 }
 
-/// 从文件扩展名选择已有的 MPX/MPP reader。
+/// Select the existing MPX/MPP reader from the file extension.
 fn read(path: &Path) -> Result<Rc<RefCell<ProjectFile>>, String> {
     match path
         .extension()
@@ -646,11 +646,11 @@ fn read(path: &Path) -> Result<Rc<RefCell<ProjectFile>>, String> {
             reader.set_locale(locale(path));
             reader.read_file(path).map_err(|e| e.message().to_owned())
         }
-        _ => Err("仅支持 .mpp 和 .mpx".to_owned()),
+        _ => Err("only .mpp and .mpx are supported".to_owned()),
     }
 }
 
-/// 生成与 Java 示例同结构的完整容器快照。
+/// Build a complete container snapshot with the same structure as the Java example.
 fn snapshot(file: &Rc<RefCell<ProjectFile>>) -> Json {
     let file = file.borrow();
     let p = file.get_project_properties();
@@ -791,7 +791,7 @@ fn snapshot(file: &Rc<RefCell<ProjectFile>>) -> Json {
     ])
 }
 
-/// 为单个样本生成快照，成功与失败都包进 `{"path": ..., "result"|"error": ...}`。
+/// Build a snapshot for a single sample, wrapping both success and failure in `{"path": ..., "result"|"error": ...}`.
 fn snapshot_entry(path: &Path, all_fields: bool) -> Json {
     match read(path) {
         Ok(file) => {
@@ -800,7 +800,7 @@ fn snapshot_entry(path: &Path, all_fields: bool) -> Json {
                 if let Err(error) = append_all_fields(&file, &mut value) {
                     return Json::Object(vec![
                         ("path", Json::Text(path.display().to_string())),
-                        ("error", Json::Text(format!("字段快照失败: {error}"))),
+                        ("error", Json::Text(format!("field snapshot failed: {error}"))),
                     ]);
                 }
             }
@@ -811,12 +811,12 @@ fn snapshot_entry(path: &Path, all_fields: bool) -> Json {
         }
         Err(error) => Json::Object(vec![
             ("path", Json::Text(path.display().to_string())),
-            ("error", Json::Text(format!("读取失败: {error}"))),
+            ("error", Json::Text(format!("read failed: {error}"))),
         ]),
     }
 }
 
-/// 常驻模式：stdin 每行 `<stem>\t<sample-path>`，结果写入 `<output-dir>/<stem>.json`。
+/// Server mode: each stdin line is `<stem>\t<sample-path>`, and the result is written to `<output-dir>/<stem>.json`.
 fn run_server(args: &[std::ffi::OsString]) -> Result<(), String> {
     let mut output_dir: Option<PathBuf> = None;
     let mut all_fields = false;
@@ -828,25 +828,25 @@ fn run_server(args: &[std::ffi::OsString]) -> Result<(), String> {
             "--all-fields" => all_fields = true,
             "--threads" => {
                 index += 1;
-                let raw = args.get(index).ok_or("--threads 缺少参数")?;
+                let raw = args.get(index).ok_or("--threads is missing an argument")?;
                 threads = raw
                     .to_string_lossy()
                     .parse::<usize>()
-                    .map_err(|_| "--threads 必须是整数".to_owned())?;
+                    .map_err(|_| "--threads must be an integer".to_owned())?;
             }
-            other if other.starts_with("--") => return Err(format!("未知参数: {other}")),
+            other if other.starts_with("--") => return Err(format!("unknown argument: {other}")),
             other => {
                 if output_dir.is_some() {
-                    return Err(format!("多余的参数: {other}"));
+                    return Err(format!("unexpected argument: {other}"));
                 }
                 output_dir = Some(PathBuf::from(other));
             }
         }
         index += 1;
     }
-    let output_dir = output_dir.ok_or("--server 需要输出目录")?;
+    let output_dir = output_dir.ok_or("--server requires an output directory")?;
     if threads < 1 {
-        return Err("--threads 必须为正整数".to_owned());
+        return Err("--threads must be a positive integer".to_owned());
     }
     std::fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
 
@@ -869,12 +869,12 @@ fn run_server(args: &[std::ffi::OsString]) -> Result<(), String> {
                     {
                         Some(Some((stem, PathBuf::from(sample.trim()))))
                     } else {
-                        eprintln!("跳过非法输出名: {stem}");
+                        eprintln!("skipping invalid output name: {stem}");
                         None
                     }
                 }
                 None => {
-                    eprintln!("跳过缺少制表符的输入行: {entry}");
+                    eprintln!("skipping input line without tab: {entry}");
                     None
                 }
             }
@@ -899,43 +899,43 @@ fn run_server(args: &[std::ffi::OsString]) -> Result<(), String> {
                 let target = output_dir.join(format!("{stem}.json"));
                 if let Err(error) = std::fs::write(&target, encoded) {
                     failures.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("写入快照失败 {}: {error}", target.display());
+                    eprintln!("failed to write snapshot {}: {error}", target.display());
                 }
             });
         }
     });
     eprintln!(
-        "server 完成: {submitted} 个样本，线程数 {}，写入失败 {}",
+        "server done: {submitted} samples, {} threads, {} write failures",
         threads,
         failures.load(Ordering::Relaxed)
     );
     Ok(())
 }
 
-/// 命令行入口：单文件模式仅向 stdout 输出 JSON，错误写到 stderr；`--server` 走常驻模式。
+/// Command-line entry point: single-file mode writes JSON to stdout only and errors to stderr; `--server` uses server mode.
 fn main() {
     let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
     if args.first().map(|value| value == "--server").unwrap_or(false) {
         if let Err(error) = run_server(&args[1..]) {
-            eprintln!("server 启动失败: {error}");
+            eprintln!("server failed to start: {error}");
             std::process::exit(2);
         }
         return;
     }
     let Some(path) = args.first() else {
-        eprintln!("用法: json_snapshot <file.mpx|file.mpp> [--all-fields]");
+        eprintln!("usage: json_snapshot <file.mpx|file.mpp> [--all-fields]");
         eprintln!("      json_snapshot --server <output-dir> [--all-fields] [--threads N]");
         std::process::exit(2);
     };
     let all_fields = match args.get(1).map(|value| value.to_str()) {
         Some(None) => {
-            eprintln!("参数不是有效的 UTF-8");
+            eprintln!("argument is not valid UTF-8");
             std::process::exit(2);
         }
         None => false,
         Some(Some("--all-fields")) => true,
         Some(Some(_)) => {
-            eprintln!("用法: json_snapshot <file.mpx|file.mpp> [--all-fields]");
+            eprintln!("usage: json_snapshot <file.mpx|file.mpp> [--all-fields]");
             std::process::exit(2);
         }
     };
@@ -945,7 +945,7 @@ fn main() {
             let mut value = snapshot(&file);
             if all_fields {
                 if let Err(error) = append_all_fields(&file, &mut value) {
-                    eprintln!("字段快照失败: {error}");
+                    eprintln!("field snapshot failed: {error}");
                     std::process::exit(2);
                 }
             }
@@ -953,7 +953,7 @@ fn main() {
             println!("{output}");
         }
         Err(error) => {
-            eprintln!("读取失败: {error}");
+            eprintln!("read failed: {error}");
             std::process::exit(2);
         }
     }
@@ -963,7 +963,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    /// 断言转义、空值、布尔及非有限浮点符合 JSON 语义。
+    /// Assert that escapes, nulls, booleans, and non-finite floats follow JSON semantics.
     #[test]
     fn json_encoder_preserves_values() {
         let mut out = String::new();

@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/WorkContourContainer.java`
+//! Corresponds to Java: `org/mpxj/WorkContourContainer.java`
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -7,83 +7,83 @@ use crate::project_entity_container::ProjectEntityContainer;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 use crate::work_contour::WorkContour;
 
-/// 当前项目可用的工时分布（resource curve）集合。
+/// The collection of work contours (resource curves) available to the current project.
 ///
-/// 对应 Java: `public class WorkContourContainer extends ProjectEntityContainer<WorkContour>`
+/// Corresponds to Java: `public class WorkContourContainer extends ProjectEntityContainer<WorkContour>`
 ///
-/// # 继承体系的还原方式：组合 + 转发
+/// # How the inheritance hierarchy is reproduced: composition + forwarding
 ///
-/// Rust 没有继承，无法让本类「是」[`ProjectEntityContainer`]，因此改为组合一个
-/// `ProjectEntityContainer<WorkContour>` 并转发其公开行为（`add` / `get` /
-/// `get_by_unique_id` / `iter` 等）。Java 中本类只声明了构造方法，其余方法都继承自
-/// `ProjectEntityContainer`，因此这些转发方法即「继承而来的方法」。
+/// Rust has no inheritance, so this class cannot "be" a [`ProjectEntityContainer`]; instead it composes one
+/// `ProjectEntityContainer<WorkContour>` and forwards its public behavior (`add` / `get` /
+/// `get_by_unique_id` / `iter`, etc.). In Java this class declares only a constructor, and all other methods are inherited from
+/// `ProjectEntityContainer`, so these forwarding methods are the "inherited methods".
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - `fixUniqueIdClashes()` **未**转发：Java 中只有 unique ID 可变的实体才会进入冲突列表，
-///   而 `WorkContour` 的 unique ID 是 `final`（其 `ProjectEntityWithUniqueID` 实现只有读取
-///   方法），冲突列表恒为空，转发该方法没有意义。
-/// - Java 的 `WorkContour implements ProjectEntityWithUniqueID`：Rust 侧的实现已归位到
-///   [`crate::work_contour`]，本文件只保留容器逻辑。
+/// - `fixUniqueIdClashes()` is **not** forwarded: in Java only entities with a mutable unique ID enter the clash list,
+/// whereas the unique ID of `WorkContour` is `final` (its `ProjectEntityWithUniqueID` implementation only has read
+/// methods), so the clash list is always empty and forwarding that method is pointless.
+/// - Java's `WorkContour implements ProjectEntityWithUniqueID`: the Rust implementation has been moved to
+/// [`crate::work_contour`]; this file only keeps the container logic.
 ///
-/// 被跳过的 Java 代码：`fixUniqueIdClashes()`（见上）。
+/// Skipped Java code: `fixUniqueIdClashes()` (see above).
 ///
-/// 未移植的 Java 方法：无。
+/// Skipped Java methods: none.
 pub struct WorkContourContainer {
-    /// 基类容器。
+/// Base class container.
     ///
-    /// 对应 Java 的 `extends ProjectEntityContainer<WorkContour>`。
+/// Corresponds to Java's `extends ProjectEntityContainer<WorkContour>`.
     container: ProjectEntityContainer<WorkContour>,
 }
 
 impl WorkContourContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public WorkContourContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public WorkContourContainer(UniqueIdObjectSequenceProvider sequenceProvider)`
     pub fn new(sequence_provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>) -> Self {
         Self {
             container: ProjectEntityContainer::new(sequence_provider),
         }
     }
 
-    /// 取序号生成器提供者。
+/// Get the sequence generator provider.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getSequenceProvider()`
+    /// Corresponds to Java: `ProjectEntityContainer.getSequenceProvider()`
     pub fn get_sequence_provider(&self) -> Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> {
         self.container.get_sequence_provider()
     }
 
-    /// 重排 unique ID 时使用的第一个值。
+/// The first value used when renumbering unique IDs.
     ///
-    /// 对应 Java: `ProjectEntityContainer.firstUniqueID()`
+    /// Corresponds to Java: `ProjectEntityContainer.firstUniqueID()`
     pub fn first_unique_id(&self) -> i32 {
         self.container.first_unique_id()
     }
 
-    /// 追加一个工时分布。
+/// Append a work contour.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(T element)`
     pub fn add(&mut self, element: Rc<RefCell<WorkContour>>) {
         self.container.add(element);
     }
 
-    /// 按下标取工时分布。
+/// Get the work contour at the given index.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<WorkContour>>> {
         self.container.get(index)
     }
 
-    /// 在指定下标插入工时分布（越界返回 `false`）。
+/// Insert a work contour at the specified index (returns `false` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.add(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.add(int index, T element)`
     pub fn add_at(&mut self, index: usize, element: Rc<RefCell<WorkContour>>) -> bool {
         self.container.add_at(index, element)
     }
 
-    /// 替换指定下标的工时分布（越界返回 `None`）。
+/// Replace the work contour at the specified index (returns `None` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.set(int index, T element)`
+    /// Corresponds to Java: `ListWithCallbacks.set(int index, T element)`
     pub fn set(
         &mut self,
         index: usize,
@@ -92,23 +92,23 @@ impl WorkContourContainer {
         self.container.set(index, element)
     }
 
-    /// 移除指定下标的工时分布（越界返回 `None`）。
+/// Remove the work contour at the specified index (returns `None` when out of bounds).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.remove(int index)`
     pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<WorkContour>>> {
         self.container.remove(index)
     }
 
-    /// 按 unique ID 取工时分布。
+/// Get the work contour by unique ID.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<WorkContour>>> {
         self.container.get_by_unique_id(id)
     }
 
-    /// 更新 unique ID 索引。
+/// Update the unique ID index.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
     pub fn update_unique_id(
         &mut self,
         element: &Rc<RefCell<WorkContour>>,
@@ -119,44 +119,44 @@ impl WorkContourContainer {
             .update_unique_id(element, old_unique_id, new_unique_id);
     }
 
-    /// 工时分布个数。
+/// Number of work contours.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.container.len()
     }
 
-    /// 容器是否为空。
+/// Whether the container is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.container.is_empty()
     }
 
-    /// 迭代容器内的工时分布。
+/// Iterate over the work contours in the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<WorkContour>>> {
         self.container.iter()
     }
 
-    /// 以切片形式访问容器内容。
+/// Access the container contents as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the `ListWithCallbacks` list view.
     pub fn as_slice(&self) -> &[Rc<RefCell<WorkContour>>] {
         self.container.as_slice()
     }
 
-    /// 清空容器（不触发 `removed` 回调，与 Java 一致）。
+/// Clear the container (does not trigger the `removed` callback, matching Java).
     ///
-    /// 对应 Java: `ListWithCallbacks.clear()`
+    /// Corresponds to Java: `ListWithCallbacks.clear()`
     pub fn clear(&mut self) {
         self.container.clear();
     }
 }
 
 impl std::fmt::Debug for WorkContourContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出内部容器。
+/// Java does not override `toString()`; the Rust side outputs the inner container.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkContourContainer")
             .field("container", &self.container)
@@ -173,7 +173,7 @@ mod tests {
     use std::any::TypeId;
     use std::collections::HashMap;
 
-    /// 测试用序号生成器提供者。
+/// Sequence generator provider for tests.
     #[derive(Default)]
     struct TestProvider {
         sequences: HashMap<TypeId, Rc<ObjectSequence>>,
@@ -189,7 +189,7 @@ mod tests {
         }
     }
 
-    /// 构造一个容器。
+/// Construct a container.
     fn container() -> WorkContourContainer {
         let provider: Rc<RefCell<dyn UniqueIdObjectSequenceProvider>> =
             Rc::new(RefCell::new(TestProvider::default()));
@@ -225,7 +225,7 @@ mod tests {
         );
 
         assert!(Rc::ptr_eq(
-            &container.get_by_unique_id(Some(7)).expect("BELL 已索引"),
+            &container.get_by_unique_id(Some(7)).expect("BELL indexed"),
             &bell
         ));
         assert!(container.get_by_unique_id(Some(1)).is_some());
@@ -239,18 +239,18 @@ mod tests {
         let flat = Rc::new(RefCell::new(WorkContour::flat()));
         container.add(Rc::clone(&flat));
 
-        // add_at 越界
+// add_at out of bounds
         assert!(!container.add_at(5, Rc::new(RefCell::new(WorkContour::bell()))));
         assert_eq!(container.len(), 1);
 
-        // remove 后索引同步清理
-        let removed = container.remove(0).expect("下标存在");
+// the index is cleaned up in sync after remove
+        let removed = container.remove(0).expect("index exists");
         assert_eq!(removed.borrow().get_name(), Some("FLAT"));
         assert!(container.is_empty());
         assert!(container.get_by_unique_id(Some(1)).is_none());
         assert!(container.remove(0).is_none());
 
-        // clear 不触发 removed 回调
+// clear does not trigger the removed callback
         let bell = Rc::new(RefCell::new(WorkContour::bell()));
         container.add(Rc::clone(&bell));
         container.clear();

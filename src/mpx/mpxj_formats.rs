@@ -1,70 +1,81 @@
-//! 对应 Java: `org/mpxj/mpx/MPXJFormats.java`
+//! Corresponds to Java: `org/mpxj/mpx/MPXJFormats.java`
 //!
-//! # 移植取舍（`DateTimeFormatter` / `DateTimeFormatterBuilder` / `NumberFormat`）
+//! # Porting trade-offs (`DateTimeFormatter` / `DateTimeFormatterBuilder` / `NumberFormat`)
 //!
-//! Java 侧本类把 MPX 文件中的日期 / 时间格式配置编译成
-//! `java.time.format.DateTimeFormatter`（借助 `DateTimeFormatterBuilder` 的
-//! `appendPattern` / `appendValueReduced` / `appendText` / `optionalStart` 等），
-//! 并用 `NumberFormat` 解析与格式化数值。Rust 的 chrono 没有等价的「模式串 → 解析器」
-//! 设施（`StrftimeItems` 只覆盖另一套模式字母，且不支持可选段），因此本模块自建了一个
-//! **轻量模式引擎**：
+//! Java's class compiles the date / time format configuration from the MPX file into a
+//! `java.time.format.DateTimeFormatter` (using `DateTimeFormatterBuilder`'s `appendPattern` /
+//! `appendValueReduced` / `appendText` / `optionalStart`, etc.) and uses `NumberFormat` to parse
+//! and format numbers. Rust's chrono has no equivalent "pattern string → parser" facility
+//! (`StrftimeItems` covers a different set of pattern letters and does not support optional
+//! sections), so this module builds its own **lightweight pattern engine**:
 //!
-//! - [`compile_pattern`] 把 Java 用到的模式串子集编译成 [`PatternNode`] 列表：字面量、
-//!   数字字段（`d` / `M` / `y` / `h` / `H` / `m`）、文本字段（`MMM` / `MMMM` / `EEE`）、
-//!   上午下午文本、周字段（`F` / `w`）以及可选段 `[...]`（支持嵌套）。
-//! - 解析侧对应 Java 的 SMART / LENIENT 解析：数字字段允许 `1..N` 位（`dd` 同样接受 `5`，
-//!   相当于 Java 非严格模式下的 `effMinWidth = 1`），可选段「整体匹配成功才前进，否则
-//!   回退到段起点」，字面量按大小写不敏感匹配（对应 `parseCaseInsensitive`），
-//!   解析结束后允许尾随字符（Java 同样不要求消费完整个字符串）。
-//! - 打印侧对应 `format`：`dd` / `MM` 等按模式位数补前导零，`yy` 打印两位年份，
-//!   `MMM` / `MMMM` / `EEE` 打印文本，`F` / `w` 打印月内第几个星期几 / 一年中的第几周。
-//! - 解析结果的字段还原：需要「年 + 月 + 日」才能得到日期（Java 缺少其中任一字段时同样
-//!   无法还原 `LocalDate`，会抛 `DateTimeParseException` → Rust 侧返回 `None`）。
+//! - [`compile_pattern`] compiles the subset of pattern strings Java uses into a [`PatternNode`]
+//!   list: literals, numeric fields (`d` / `M` / `y` / `h` / `H` / `m`), text fields
+//!   (`MMM` / `MMMM` / `EEE`), AM/PM text, week fields (`F` / `w`), and optional sections
+//!   `[...]` (which may be nested).
+//! - The parse side corresponds to Java's SMART / LENIENT parsing: numeric fields accept `1..N`
+//!   digits (`dd` also accepts `5`, equivalent to `effMinWidth = 1` in Java's non-strict mode),
+//!   an optional section "advances only if it matches as a whole, otherwise rewinds to the section
+//!   start", literals are matched case-insensitively (corresponding to `parseCaseInsensitive`), and
+//!   trailing characters are allowed after parsing (Java likewise does not require consuming the
+//!   whole string).
+//! - The print side corresponds to `format`: `dd` / `MM` etc. zero-pad to the pattern width, `yy`
+//!   prints a two-digit year, `MMM` / `MMMM` / `EEE` print text, and `F` / `w` print the day-of-week
+//!   within the month / week of the year.
+//! - Field reconstruction from the parse result: "year + month + day" are needed to obtain a date
+//!   (Java likewise cannot reconstruct a `LocalDate` when any of these is missing, and throws
+//!   `DateTimeParseException` → Rust returns `None`).
 //!
-//! ## `YYYY` 等易错语义
+//! ## Error-prone semantics such as `YYYY`
 //!
-//! - 本类模式串中的 `yyyy` 是**日历年**（chrono 的 `Date::year()`），`yy` 是两位年份：
-//!   打印取 `year % 100`；解析按 Java 的 `appendValueReduced(YEAR, 2, 2, baseDate)` 归约，
-//!   基期取 [`LocalDateHelper::two_digit_year_base_date`]（`now - 80 年`），结果落在
-//!   `[baseYear, baseYear + 99]` 窗口内（因此两位 `98` 在 2026 年解析为 1998）。
-//!   **不存在** Java 模式中「周年」`YYYY`（`WeekFields`）的语义。
-//! - `ww` 对应 Java 的 `w`（`WeekFields.ISO` 的 year-of-week-based-year 周序号），
-//!   Rust 侧用 chrono 的 `NaiveDate::iso_week().week()`。
-//! - 12 / 24 小时制：`hh` 为 1-12 的时钟小时（解析时配合 AM / PM 文本还原 24 小时值，
-//!   无 AM / PM 时按上午处理，与 Java 对 `CLOCK_HOUR_OF_AMPM` 的默认处理一致）。
+//! - In this class's pattern strings, `yyyy` is the **calendar year** (chrono's `Date::year()`), and
+//!   `yy` is a two-digit year: printing uses `year % 100`; parsing reduces per Java's
+//!   `appendValueReduced(YEAR, 2, 2, baseDate)`, with the base taken from
+//!   [`LocalDateHelper::two_digit_year_base_date`] (`now - 80 years`), so the result falls in the
+//!   window `[baseYear, baseYear + 99]` (hence the two-digit `98` parses as 1998 in 2026).
+//!   The semantics of Java's "week-based year" `YYYY` (`WeekFields`) **do not exist** here.
+//! - `ww` corresponds to Java's `w` (`WeekFields.ISO`'s week-of-week-based-year), and Rust uses
+//!   chrono's `NaiveDate::iso_week().week()`.
+//! - 12 / 24-hour clock: `hh` is the clock hour 1-12 (combined with AM / PM text to reconstruct the
+//!   24-hour value when parsing; treated as AM when there is no AM / PM, consistent with Java's
+//!   default handling of `CLOCK_HOUR_OF_AMPM`).
 //!
-//! ## 本地化月份 / 星期名
+//! ## Localized month / weekday names
 //!
-//! Java 通过 `DateTimeFormatter.withLocale(m_locale)` 从 JDK `java.time` 取本地化的月份 /
-//! 星期名。Rust 侧以 [`localized_names`] 自建 9 个受支持语种的表（数据取自 JDK 25 在对应
-//! `Locale` 下 `MMM` / `MMMM` / `EEE` / `EEEE` 的输出），由 [`names_for_locale`] 按
-//! [`MpxLocale`] 分派，结果与 Java 一致。注意 `crate::mpx::locale_data` 并不含这些名字
-//! （Java 的 `org.mpxj.mpx.LocaleData` 里也没有），因此数据只能自建。
-//! 上午 / 下午文本与 Java 一样取自项目属性的 `getAmText` / `getPmText`（Java 侧编入
-//! `appendText` 的映射表），英文 `am` / `pm` 仅作兜底。
+//! Java takes localized month / weekday names from the JDK's `java.time` via
+//! `DateTimeFormatter.withLocale(m_locale)`. Rust builds its own tables for the 9 supported languages
+//! with [`localized_names`] (data taken from JDK 25's `MMM` / `MMMM` / `EEE` / `EEEE` output under the
+//! corresponding `Locale`), dispatched by [`names_for_locale`] on [`MpxLocale`], matching Java. Note
+//! that `crate::mpx::locale_data` does not contain these names (neither does Java's
+//! `org.mpxj.mpx.LocaleData`), so the data can only be built here.
+//! AM / PM text comes, as in Java, from the project properties' `getAmText` / `getPmText` (compiled in
+//! Java into the `appendText` mapping), with English `am` / `pm` only as a fallback.
 //!
-//! ## 降级与未实现（MPX 用不到）
+//! ## Degradations and unimplemented parts (unused by MPX)
 //!
-//! - Java LENIENT 模式下的字段溢出归一化（如 `31/02` 被归一化）不实现：非法日期
-//!   直接返回 `None`。
-//! - `F` / `w` 只参与解析 / 打印，不参与日期还原（仅凭这两个字段 Java 也无法还原日期）。
+//! - Java's LENIENT-mode field overflow normalization (e.g. `31/02` being normalized) is not
+//!   implemented: an invalid date directly returns `None`.
+//! - `F` / `w` only participate in parsing / printing, not in date reconstruction (Java cannot
+//!   reconstruct a date from just these two fields either).
 //!
-//! ## 其他结构性取舍
+//! ## Other structural trade-offs
 //!
-//! - `getPrintDateBuilder` / `getParseDateBuilder` 在 Java 中返回 `DateTimeFormatterBuilder`，
-//!   这里返回编译好的 [`PatternNode`] 列表；`[yyyy]` 与紧随其后的
-//!   `appendValueReduced(YEAR, 2, 2, base)` 两段被合并为一个 `Year` 字段（解析时 1-2 位按
-//!   窗口归约、3-4 位按日历年），以复现 Java 两段式解析的意图。
-//! - `Locale` → [`MpxLocale`]；`ProjectFile` → `Weak<RefCell<ProjectFile>>`（本 crate 约定）；
-//!   `NumberFormat` → [`MPXJNumberFormat`]。
-//! - 空值：Java 在格式化器为 `null` 时抛 NPE，Rust 侧返回 `None`；`ParseException` /
-//!   `DateTimeParseException` 同样返回 `None`（不 panic）。三个 `parse*` 方法按 Java 的
-//!   `String` 入参取 `&str`（`null` 交由调用方用 `Option` 处理），`print*` 方法按 Java 的
-//!   null 检查取 `Option`。
-//! - 照搬的上游行为：`DD_MMM_HH_MM` 分支中 Java 调用 `createPrintFormatterWithTime` 但
-//!   **丢弃返回值**，因此打印格式化器不会被更新（疑似上游 bug），这里照搬并注明。
+//! - `getPrintDateBuilder` / `getParseDateBuilder` return a `DateTimeFormatterBuilder` in Java; here
+//!   they return a compiled [`PatternNode`] list; the two parts `[yyyy]` and the immediately
+//!   following `appendValueReduced(YEAR, 2, 2, base)` are merged into a single `Year` field (1-2
+//!   digits reduce via the window, 3-4 digits use the calendar year when parsing) to reproduce the
+//!   intent of Java's two-part parsing.
+//! - `Locale` → [`MpxLocale`]; `ProjectFile` → `Weak<RefCell<ProjectFile>>` (this crate's convention);
+//!   `NumberFormat` → [`MPXJNumberFormat`].
+//! - Null values: Java throws NPE when the formatter is `null`, while Rust returns `None`;
+//!   `ParseException` / `DateTimeParseException` likewise return `None` (no panic). The three `parse*`
+//!   methods take `&str` for Java's `String` argument (`null` is left to the caller via `Option`), and
+//!   the `print*` methods take `Option` for Java's null checks.
+//! - Copied upstream behavior: in the `DD_MMM_HH_MM` branch Java calls `createPrintFormatterWithTime`
+//!   but **discards the return value**, so the print formatter is not updated (a suspected upstream
+//!   bug); this is copied and noted here.
 //!
-//! 未移植的成员：无。
+//! Skipped Java members: none.
 
 use std::cell::RefCell;
 use std::rc::Weak;
@@ -82,75 +93,75 @@ use crate::project_properties::ProjectProperties;
 use crate::project_time_format::ProjectTimeFormat;
 
 // ---------------------------------------------------------------------------
-// 模式引擎：编译
+// Pattern engine: compilation
 // ---------------------------------------------------------------------------
 
-/// 模式串中的数字字段。
+/// Numeric fields in a pattern string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NumberField {
-    /// 月内日（`d` / `dd`）
+    /// Day of month (`d` / `dd`)
     Day,
-    /// 月（`M` / `MM`）
+    /// Month (`M` / `MM`)
     Month,
-    /// 日历年（`yyyy`，以及 `[yyyy]` + `appendValueReduced` 的组合）
+    /// Calendar year (`yyyy`, and the `[yyyy]` + `appendValueReduced` combination)
     Year,
-    /// 两位年份（`yy`，对应 Java 的 `appendValueReduced(YEAR, 2, 2, base)`）
+    /// Two-digit year (`yy`, corresponding to Java's `appendValueReduced(YEAR, 2, 2, base)`)
     ReducedYear,
-    /// 24 小时制小时（`H` / `HH`）
+    /// 24-hour clock hour (`H` / `HH`)
     Hour24,
-    /// 12 小时制小时（`h` / `hh`）
+    /// 12-hour clock hour (`h` / `hh`)
     Hour12,
-    /// 分钟（`m` / `mm`）
+    /// Minute (`m` / `mm`)
     Minute,
 }
 
-/// 编译后的模式串元素。
+/// A compiled pattern string element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PatternNode {
-    /// 字面量文本（解析时大小写不敏感）
+    /// Literal text (matched case-insensitively when parsing)
     Literal(String),
-    /// 数字字段
+    /// Numeric field
     Number {
-        /// 字段
+        /// Field
         field: NumberField,
-        /// 打印时的最小位数
+        /// Minimum width when printing
         min_width: usize,
     },
-    /// 月份名（`MMM` 缩写 / `MMMM` 全称）
+    /// Month name (`MMM` abbreviated / `MMMM` full)
     MonthText {
-        /// 是否使用全称
+        /// Whether to use the full name
         full: bool,
     },
-    /// 星期名（`EEE`）
+    /// Weekday name (`EEE`)
     DayName,
-    /// 上午 / 下午文本（对应 Java `appendText(ChronoField.AMPM_OF_DAY, ...)`）
+    /// AM / PM text (corresponding to Java `appendText(ChronoField.AMPM_OF_DAY, ...)`)
     AmPmText,
-    /// 一年中的第几周（`w`，ISO 周）
+    /// Week of the year (`w`, ISO week)
     WeekOfYear {
-        /// 打印时的最小位数
+        /// Minimum width when printing
         min_width: usize,
     },
-    /// 月内第几个星期几（`F`）
+    /// Day of the week within the month (`F`)
     DayOfWeekInMonth {
-        /// 打印时的最小位数
+        /// Minimum width when printing
         min_width: usize,
     },
-    /// 可选段 `[...]`
+    /// Optional section `[...]`
     Optional(Vec<PatternNode>),
 }
 
-/// 把模式串编译为节点列表。
+/// Compile a pattern string into a node list.
 ///
-/// 对应 Java: `DateTimeFormatterBuilder.appendPattern(String)`
+/// Corresponds to Java: `DateTimeFormatterBuilder.appendPattern(String)`
 ///
-/// Java 对无法识别的模式字母抛 `IllegalArgumentException`；Rust 侧不 panic，未知字母按
-/// 字面量处理，未闭合的 `[` / `'` 视为直到串尾。
+/// Java throws `IllegalArgumentException` for an unrecognized pattern letter; Rust does not panic,
+/// treating unknown letters as literals and an unclosed `[` / `'` as extending to the end of the string.
 fn compile_pattern(pattern: &str) -> Vec<PatternNode> {
     let chars: Vec<char> = pattern.chars().collect();
     compile_pattern_at(&chars, 0, false).0
 }
 
-/// 从 `start` 开始编译模式串，返回（节点列表, 结束位置）。
+/// Compile the pattern string starting at `start`, returning (node list, end position).
 fn compile_pattern_at(chars: &[char], start: usize, in_optional: bool) -> (Vec<PatternNode>, usize) {
     let mut nodes = Vec::new();
     let mut literal = String::new();
@@ -160,7 +171,7 @@ fn compile_pattern_at(chars: &[char], start: usize, in_optional: bool) -> (Vec<P
         let current = chars[index];
         match current {
             '\'' => {
-                // `''` 表示一个字面单引号，`'...'` 之间的内容原样作为字面量
+                // `''` represents a literal single quote; the content between `'...'` is taken as a literal verbatim
                 if chars.get(index + 1) == Some(&'\'') {
                     literal.push('\'');
                     index += 2;
@@ -206,16 +217,16 @@ fn compile_pattern_at(chars: &[char], start: usize, in_optional: bool) -> (Vec<P
     (nodes, index)
 }
 
-/// 把待处理的字面量推入节点列表。
+/// Push the pending literal into the node list.
 fn push_literal(nodes: &mut Vec<PatternNode>, literal: &mut String) {
     if !literal.is_empty() {
         nodes.push(PatternNode::Literal(std::mem::take(literal)));
     }
 }
 
-/// 把「模式字母 + 重复次数」转换为节点。
+/// Convert a "pattern letter + repeat count" into a node.
 ///
-/// 对应 Java: `DateTimeFormatterBuilder.appendPattern` 中单个模式字母的处理。
+/// Corresponds to Java: the handling of a single pattern letter in `DateTimeFormatterBuilder.appendPattern`.
 fn pattern_letter(letter: char, count: usize) -> Option<PatternNode> {
     match letter {
         'd' => Some(PatternNode::Number {
@@ -227,7 +238,7 @@ fn pattern_letter(letter: char, count: usize) -> Option<PatternNode> {
             min_width: count,
         }),
         'M' => Some(PatternNode::MonthText { full: count >= 4 }),
-        // Java: `yy` 由 appendValueReduced 处理（两位年份归约）
+        // Java: `yy` is handled by appendValueReduced (two-digit year reduction)
         'y' if count == 2 => Some(PatternNode::Number {
             field: NumberField::ReducedYear,
             min_width: 2,
@@ -256,29 +267,29 @@ fn pattern_letter(letter: char, count: usize) -> Option<PatternNode> {
 }
 
 // ---------------------------------------------------------------------------
-// 模式引擎：解析
+// Pattern engine: parsing
 // ---------------------------------------------------------------------------
 
-/// 解析过程中累积的字段值（对应 Java 解析时写入 `DateTimeParseContext` 的字段）。
+/// Field values accumulated during parsing (corresponding to the fields written to Java's `DateTimeParseContext` when parsing).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ParsedFields {
-    /// 日历年
+    /// Calendar year
     year: Option<i32>,
-    /// 月
+    /// Month
     month: Option<u32>,
-    /// 月内日
+    /// Day of month
     day: Option<u32>,
-    /// 24 小时制小时
+    /// 24-hour clock hour
     hour24: Option<u32>,
-    /// 12 小时制小时
+    /// 12-hour clock hour
     hour12: Option<u32>,
-    /// 分钟
+    /// Minute
     minute: Option<u32>,
-    /// 上午 / 下午（0 = AM，1 = PM）
+    /// AM / PM (0 = AM, 1 = PM)
     ampm: Option<u32>,
 }
 
-/// 逐个节点解析文本，返回结束位置；任一节点失败返回 `None`。
+/// Parse the text node by node, returning the end position; returns `None` if any node fails.
 fn parse_nodes(
     nodes: &[PatternNode],
     chars: &[char],
@@ -310,7 +321,7 @@ fn parse_nodes(
                 pos = parse_bounded_number(chars, pos, 2, 1, 5)?;
             }
             PatternNode::Optional(inner) => {
-                // 可选段：整体匹配成功则前进，否则回退到段起点（与 Java 的可选段语义一致）
+                // Optional section: advance if it matches as a whole, otherwise rewind to the section start (consistent with Java's optional-section semantics)
                 let saved = fields.clone();
                 match parse_nodes(inner, chars, pos, fields, context) {
                     Some(end) => pos = end,
@@ -323,9 +334,9 @@ fn parse_nodes(
     Some(pos)
 }
 
-/// 解析数字字段。
+/// Parse a numeric field.
 ///
-/// 对应 Java: `DateTimeFormatterBuilder.appendValue*` 的非严格解析（`effMinWidth = 1`）。
+/// Corresponds to Java: non-strict parsing of `DateTimeFormatterBuilder.appendValue*` (`effMinWidth = 1`).
 fn parse_number(
     field: NumberField,
     chars: &[char],
@@ -386,7 +397,7 @@ fn parse_number(
     Some(index)
 }
 
-/// 读取（并校验范围）一个不带字段语义的数字，用于 `F` / `w` 等只参与匹配的字段。
+/// Read (and range-check) a number without field semantics, used for fields such as `F` / `w` that only participate in matching.
 fn parse_bounded_number(
     chars: &[char],
     pos: usize,
@@ -401,7 +412,7 @@ fn parse_bounded_number(
     Some(index)
 }
 
-/// 读取最多 `max_digits` 位十进制数字，返回（结束位置, 数值）。
+/// Read up to `max_digits` decimal digits, returning (end position, value).
 fn read_digits(chars: &[char], pos: usize, max_digits: usize) -> Option<(usize, i32)> {
     let mut index = pos;
     let mut value = 0;
@@ -425,9 +436,9 @@ fn read_digits(chars: &[char], pos: usize, max_digits: usize) -> Option<(usize, 
     Some((index, value))
 }
 
-/// 解析月份名。
+/// Parse a month name.
 ///
-/// 对应 Java: `DateTimeFormatter` 对 `MMM` / `MMMM` 的文本解析（大小写不敏感）。
+/// Corresponds to Java: `DateTimeFormatter`'s text parsing of `MMM` / `MMMM` (case-insensitive).
 fn parse_month_name(
     chars: &[char],
     pos: usize,
@@ -435,7 +446,7 @@ fn parse_month_name(
     fields: &mut ParsedFields,
     context: &NameContext<'_>,
 ) -> Option<usize> {
-    // 全称优先，缩写次之（`May` 等两者相同的月份不受影响）
+    // Full names first, then abbreviations (`May` and other months where the two are the same are unaffected)
     let tables: [&[&str; 12]; 2] = if full {
         [
             &context.tables.months_full,
@@ -460,7 +471,7 @@ fn parse_month_name(
     None
 }
 
-/// 解析星期名（解析结果不参与日期还原，与 Java 丢弃星期名一致）。
+/// Parse a weekday name (the result does not participate in date reconstruction, consistent with Java discarding weekday names).
 fn parse_day_name(chars: &[char], pos: usize, context: &NameContext<'_>) -> Option<usize> {
     for table in [
         &context.tables.weekdays_abbreviated,
@@ -476,10 +487,10 @@ fn parse_day_name(chars: &[char], pos: usize, context: &NameContext<'_>) -> Opti
     None
 }
 
-/// 解析上午 / 下午文本。
+/// Parse AM / PM text.
 ///
-/// 对应 Java: `DateTimeFormatterBuilder.appendText(ChronoField.AMPM_OF_DAY, ampmMap)`，
-/// 映射表来自项目属性的 AM / PM 文本；此处额外接受英文 `am` / `pm`。
+/// Corresponds to Java: `DateTimeFormatterBuilder.appendText(ChronoField.AMPM_OF_DAY, ampmMap)`; the
+/// mapping comes from the project properties' AM / PM text; English `am` / `pm` are additionally accepted here.
 fn parse_am_pm(
     chars: &[char],
     pos: usize,
@@ -491,7 +502,7 @@ fn parse_am_pm(
         index += 1;
     }
 
-    // PM 在前：避免 "pm" 的前缀与自定义文本互相干扰
+    // PM first: avoids the "pm" prefix interfering with custom text
     for (text, value) in [
         (context.pm, 1),
         (context.am, 0),
@@ -511,7 +522,7 @@ fn parse_am_pm(
     None
 }
 
-/// 从 `pos` 起按大小写不敏感匹配文本，成功返回新的位置。
+/// Match text case-insensitively starting at `pos`, returning the new position on success.
 fn match_text_ignore_case(chars: &[char], pos: usize, text: &str) -> Option<usize> {
     let mut index = pos;
     for expected in text.chars() {
@@ -524,9 +535,9 @@ fn match_text_ignore_case(chars: &[char], pos: usize, text: &str) -> Option<usiz
     Some(index)
 }
 
-/// 复现 Java `appendValueReduced(YEAR, 2, 2, baseDate)` 的两位年份归约。
+/// Reproduce the two-digit year reduction of Java's `appendValueReduced(YEAR, 2, 2, baseDate)`.
 ///
-/// Java 的基期是 `LocalDate.now().minusYears(80)`，结果落在 `[baseYear, baseYear + 99]`。
+/// Java's base is `LocalDate.now().minusYears(80)`, and the result falls in `[baseYear, baseYear + 99]`.
 fn reduce_two_digit_year(value: i32) -> i32 {
     let base_year = LocalDateHelper::two_digit_year_base_date().year();
     let range = 100;
@@ -535,7 +546,7 @@ fn reduce_two_digit_year(value: i32) -> i32 {
     value - last_part + base_year
 }
 
-/// 由解析出的字段还原日期。
+/// Reconstruct a date from the parsed fields.
 fn resolve_date(fields: &ParsedFields) -> Option<NaiveDate> {
     let year = fields.year?;
     let month = fields.month?;
@@ -543,14 +554,14 @@ fn resolve_date(fields: &ParsedFields) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
-/// 由解析出的字段还原时间（缺少小时则返回 `None`）。
+/// Reconstruct a time from the parsed fields (returns `None` if the hour is missing).
 fn resolve_time(fields: &ParsedFields) -> Option<NaiveTime> {
     let minute = fields.minute.unwrap_or(0);
     let hour = match fields.hour24 {
         Some(hour) => hour,
         None => {
             let hour12 = fields.hour12?;
-            // Java：缺少 AMPM 字段时按上午处理，12 点归零
+            // Java: when the AMPM field is missing, treat as AM and map 12 o'clock to zero
             let afternoon = fields.ampm == Some(1);
             (hour12 % 12) + if afternoon { 12 } else { 0 }
         }
@@ -559,7 +570,7 @@ fn resolve_time(fields: &ParsedFields) -> Option<NaiveTime> {
     NaiveTime::from_hms_opt(hour, minute, 0)
 }
 
-/// 由解析出的字段还原日期时间（缺时间部分时取当日零点，对应 Java 的 `parseBest` 回落）。
+/// Reconstruct a date-time from the parsed fields (uses midnight of that day when the time part is missing, corresponding to Java's `parseBest` fallback).
 fn resolve_date_time(fields: &ParsedFields) -> Option<NaiveDateTime> {
     let date = resolve_date(fields)?;
     let time = resolve_time(fields).unwrap_or(NaiveTime::MIN);
@@ -567,10 +578,10 @@ fn resolve_date_time(fields: &ParsedFields) -> Option<NaiveDateTime> {
 }
 
 // ---------------------------------------------------------------------------
-// 模式引擎：打印
+// Pattern engine: printing
 // ---------------------------------------------------------------------------
 
-/// 按节点列表格式化日期时间。
+/// Format a date-time according to the node list.
 fn format_date_time(
     nodes: &[PatternNode],
     value: &NaiveDateTime,
@@ -601,7 +612,7 @@ fn format_date_time(
             PatternNode::DayOfWeekInMonth { min_width } => {
                 result.push_str(&pad(day_of_week_in_month(value.day()), *min_width));
             }
-            // Java 打印时可选段的内容照常输出
+            // Java outputs the contents of optional sections normally when printing
             PatternNode::Optional(inner) => {
                 result.push_str(&format_date_time(inner, value, context));
             }
@@ -611,13 +622,13 @@ fn format_date_time(
     result
 }
 
-/// 格式化数字字段。
+/// Format a numeric field.
 fn format_number(field: NumberField, min_width: usize, value: &NaiveDateTime) -> String {
     match field {
         NumberField::Day => pad(value.day(), min_width),
         NumberField::Month => pad(value.month(), min_width),
         NumberField::Year => pad(value.year().max(0) as u32, min_width),
-        // Java: `yy` 打印年份的后两位
+        // Java: `yy` prints the last two digits of the year
         NumberField::ReducedYear => pad((value.year().rem_euclid(100)) as u32, 2),
         NumberField::Hour24 => pad(value.hour(), min_width),
         NumberField::Hour12 => pad(clock_hour(value.hour()), min_width),
@@ -625,12 +636,12 @@ fn format_number(field: NumberField, min_width: usize, value: &NaiveDateTime) ->
     }
 }
 
-/// 左侧补零到 `width` 位。
+/// Zero-pad on the left to `width` digits.
 fn pad(value: u32, width: usize) -> String {
     format!("{value:0>width$}")
 }
 
-/// 12 小时制的时钟小时（0 点 / 12 点均为 12）。
+/// 12-hour clock hour (both 0 o'clock and 12 o'clock are 12).
 fn clock_hour(hour: u32) -> u32 {
     match hour % 12 {
         0 => 12,
@@ -638,17 +649,17 @@ fn clock_hour(hour: u32) -> u32 {
     }
 }
 
-/// 是否为下午（对应 Java `ChronoField.AMPM_OF_DAY`）。
+/// Whether it is afternoon (corresponding to Java `ChronoField.AMPM_OF_DAY`).
 fn is_afternoon(hour: u32) -> bool {
     hour >= 12
 }
 
-/// 月内第几个星期几（对应 Java 模式字母 `F`）。
+/// Day of the week within the month (corresponding to Java pattern letter `F`).
 fn day_of_week_in_month(day: u32) -> u32 {
     ((day - 1) / 7) + 1
 }
 
-/// 月份名文本。
+/// Month name text.
 fn month_name(tables: &TextTable, month: u32, full: bool) -> &'static str {
     let index = month.saturating_sub(1) as usize;
     let table = if full {
@@ -659,7 +670,7 @@ fn month_name(tables: &TextTable, month: u32, full: bool) -> &'static str {
     table.get(index).copied().unwrap_or("")
 }
 
-/// 星期名文本。
+/// Weekday name text.
 fn weekday_name(tables: &TextTable, weekday: chrono::Weekday) -> &'static str {
     let index = weekday.num_days_from_monday() as usize;
     tables
@@ -669,25 +680,25 @@ fn weekday_name(tables: &TextTable, weekday: chrono::Weekday) -> &'static str {
         .unwrap_or("")
 }
 
-/// 取区域设置对应的文本常量表。
+/// Get the text constant table for a locale.
 ///
-/// 对应 Java: `DateTimeFormatter.withLocale(m_locale)`（月份 / 星期名文本）。
-/// 数据由 [`crate::mpx::localized_names`] 按语种提供。
+/// Corresponds to Java: `DateTimeFormatter.withLocale(m_locale)` (month / weekday name text).
+/// The data is provided per language by [`crate::mpx::localized_names`].
 fn names_for_locale(locale: MpxLocale) -> &'static TextTable {
     crate::mpx::localized_names::names_for_locale(locale)
 }
 
-/// 文本字段（上午 / 下午）的查找表。
+/// Lookup table for text fields (AM / PM).
 ///
-/// 对应 Java 在构造格式化器时捕获的 `appendText(AMPM_OF_DAY, ampmMap)` 映射与
-/// `withLocale(m_locale)` 的文本来源。
+/// Corresponds to the `appendText(AMPM_OF_DAY, ampmMap)` mapping Java captures when building the
+/// formatter, and the text source of `withLocale(m_locale)`.
 #[derive(Debug, Clone, Copy)]
 struct NameContext<'a> {
-    /// 上午文本（来自 `ProjectProperties.getAmText()`）
+    /// AM text (from `ProjectProperties.getAmText()`)
     am: &'a str,
-    /// 下午文本（来自 `ProjectProperties.getPmText()`）
+    /// PM text (from `ProjectProperties.getPmText()`)
     pm: &'a str,
-    /// 月份名 / 星期名表（见 [`names_for_locale`]）
+    /// Month / weekday name table (see [`names_for_locale`])
     tables: &'static TextTable,
 }
 
@@ -695,53 +706,53 @@ struct NameContext<'a> {
 // MPXJFormats
 // ---------------------------------------------------------------------------
 
-/// MPX 文件解析 / 格式化所需的各类格式对象。
+/// The various format objects needed to parse / format an MPX file.
 ///
-/// 对应 Java: `public final class MPXJFormats`
+/// Corresponds to Java: `public final class MPXJFormats`
 pub struct MPXJFormats {
-    /// 目标区域设置（对应 Java `m_locale`）
+    /// Target locale (corresponds to Java `m_locale`)
     locale: MpxLocale,
-    /// 表示「未设置」的文本，通常为 `NA`（对应 Java `m_nullText`）
+    /// Text meaning "not set", usually `NA` (corresponds to Java `m_nullText`)
     null_text: String,
-    /// 父文件（对应 Java `m_projectFile`；Rust 侧按本 crate 约定使用弱引用）
+    /// Parent file (corresponds to Java `m_projectFile`; Rust uses a weak reference per this crate's convention)
     project_file: Weak<RefCell<ProjectFile>>,
-    /// 单位小数格式（对应 Java `m_unitsDecimalFormat`）
+    /// Units decimal format (corresponds to Java `m_unitsDecimalFormat`)
     units_decimal_format: MPXJNumberFormat,
-    /// 小数格式（对应 Java `m_decimalFormat`）
+    /// Decimal format (corresponds to Java `m_decimalFormat`)
     decimal_format: MPXJNumberFormat,
-    /// 货币格式（对应 Java `m_currencyFormat`）
+    /// Currency format (corresponds to Java `m_currencyFormat`)
     currency_format: MPXJNumberFormat,
-    /// 工期小数格式（对应 Java `m_durationDecimalFormat`）
+    /// Duration decimal format (corresponds to Java `m_durationDecimalFormat`)
     duration_decimal_format: MPXJNumberFormat,
-    /// 百分比小数格式（对应 Java `m_percentageDecimalFormat`）
+    /// Percentage decimal format (corresponds to Java `m_percentageDecimalFormat`)
     percentage_decimal_format: MPXJNumberFormat,
-    /// 解析时间戳时是否先丢弃开头的星期名（对应 Java `m_parseDateTimeSkipDayName`）
+    /// Whether to discard a leading weekday name when parsing a timestamp (corresponds to Java `m_parseDateTimeSkipDayName`)
     parse_date_time_skip_day_name: bool,
-    /// 时间戳解析格式（对应 Java `m_parseDateTimeFormat`）
+    /// Timestamp parse format (corresponds to Java `m_parseDateTimeFormat`)
     parse_date_time_format: Vec<PatternNode>,
-    /// 时间戳打印格式（对应 Java `m_printDateTimeFormat`）
+    /// Timestamp print format (corresponds to Java `m_printDateTimeFormat`)
     print_date_time_format: Vec<PatternNode>,
-    /// 日期解析格式（对应 Java `m_parseDateFormat`）
+    /// Date parse format (corresponds to Java `m_parseDateFormat`)
     parse_date_format: Vec<PatternNode>,
-    /// 日期打印格式（对应 Java `m_printDateFormat`）
+    /// Date print format (corresponds to Java `m_printDateFormat`)
     print_date_format: Vec<PatternNode>,
-    /// 时间解析格式（对应 Java `m_parseTimeFormat`）
+    /// Time parse format (corresponds to Java `m_parseTimeFormat`)
     parse_time_format: Vec<PatternNode>,
-    /// 时间打印格式（对应 Java `m_printTimeFormat`）
+    /// Time print format (corresponds to Java `m_printTimeFormat`)
     print_time_format: Vec<PatternNode>,
-    /// 上午文本（对应 Java 编入格式化器的 AM 映射项，这里在 `update` 时缓存）
+    /// AM text (corresponds to the AM mapping entry Java compiles into the formatter; cached here during `update`)
     am_text: String,
-    /// 下午文本（对应 Java 编入格式化器的 PM 映射项，这里在 `update` 时缓存）
+    /// PM text (corresponds to the PM mapping entry Java compiles into the formatter; cached here during `update`)
     pm_text: String,
 }
 
 impl MPXJFormats {
-    /// 构造格式对象并立即初始化各格式。
+    /// Construct the format object and initialize all formats immediately.
     ///
-    /// 对应 Java: `public MPXJFormats(Locale locale, String nullText, ProjectFile file)`
+    /// Corresponds to Java: `public MPXJFormats(Locale locale, String nullText, ProjectFile file)`
     ///
-    /// 取舍：Java 直接持有 `ProjectFile`；Rust 侧按本 crate 约定接收
-    /// `Weak<RefCell<ProjectFile>>`（调用方需自行持有文件句柄）。
+    /// Trade-off: Java holds the `ProjectFile` directly; Rust accepts a `Weak<RefCell<ProjectFile>>`
+    /// per this crate's convention (the caller must hold the file handle itself).
     pub fn new(
         locale: MpxLocale,
         null_text: &str,
@@ -770,13 +781,13 @@ impl MPXJFormats {
         result
     }
 
-    /// 在配置变化后更新缓存的格式。
+    /// Update the cached formats after a configuration change.
     ///
-    /// 对应 Java: `public void update()`
+    /// Corresponds to Java: `public void update()`
     ///
-    /// 取舍：Java 直接读取 `m_projectFile.getProjectProperties()`（父文件缺失时抛 NPE）；
-    /// Rust 侧在父文件已释放或被可变借用时**跳过更新**（不 panic，保留上一次的格式，
-    /// 首次调用时则保持未初始化状态）。
+    /// Trade-off: Java reads `m_projectFile.getProjectProperties()` directly (throwing NPE when the parent
+    /// file is missing); Rust **skips the update** when the parent file has been dropped or is mutably
+    /// borrowed (no panic, keeping the previous formats; on the first call it stays uninitialized).
     pub fn update(&mut self) {
         let Some(file) = self.project_file.upgrade() else {
             return;
@@ -789,7 +800,7 @@ impl MPXJFormats {
         let decimal_separator = properties.get_decimal_separator();
         let thousands_separator = properties.get_thousands_separator();
 
-        // Java 在 applyTime*Pattern 中把 AM / PM 文本编入格式化器，这里随配置一起缓存
+        // Java compiles the AM / PM text into the formatter in applyTime*Pattern; here it is cached along with the configuration
         self.am_text = properties.get_am_text();
         self.pm_text = properties.get_pm_text();
 
@@ -798,9 +809,9 @@ impl MPXJFormats {
         self.update_date_time_formats(properties);
     }
 
-    /// 更新数值格式。
+    /// Update the numeric formats.
     ///
-    /// 对应 Java: `private void updateNumericFormats(char decimalSeparator, char thousandsSeparator)`
+    /// Corresponds to Java: `private void updateNumericFormats(char decimalSeparator, char thousandsSeparator)`
     fn update_numeric_formats(&mut self, decimal_separator: char, thousands_separator: char) {
         self.units_decimal_format
             .apply_pattern("#.##", None, decimal_separator, thousands_separator);
@@ -812,9 +823,9 @@ impl MPXJFormats {
             .apply_pattern("##0.##", None, decimal_separator, thousands_separator);
     }
 
-    /// 更新货币格式。
+    /// Update the currency formats.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `private void updateCurrencyFormats(ProjectProperties properties, char decimalSeparator, char thousandsSeparator)`
     fn update_currency_formats(
         &mut self,
@@ -891,21 +902,21 @@ impl MPXJFormats {
         );
     }
 
-    /// 更新日期与时间格式。
+    /// Update the date and time formats.
     ///
-    /// 对应 Java: `private void updateDateTimeFormats(ProjectProperties properties)`
+    /// Corresponds to Java: `private void updateDateTimeFormats(ProjectProperties properties)`
     fn update_date_time_formats(&mut self, properties: &ProjectProperties) {
         self.populate_time_patterns(properties);
         self.populate_date_patterns(properties);
         self.populate_date_time_patterns(properties);
     }
 
-    /// 构造「日期 + 时间」的打印格式。
+    /// Build the "date + time" print format.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `private DateTimeFormatter createPrintFormatterWithTime(ProjectProperties properties, String pattern)`
     ///
-    /// 取舍：Java 返回 `DateTimeFormatter`；这里返回编译后的节点列表（见文件头）。
+    /// Trade-off: Java returns a `DateTimeFormatter`; this returns a compiled node list (see the file header).
     fn create_print_formatter_with_time(
         properties: &ProjectProperties,
         pattern: &str,
@@ -916,21 +927,21 @@ impl MPXJFormats {
         nodes
     }
 
-    /// 构造「纯日期」的打印格式。
+    /// Build the "date only" print format.
     ///
-    /// 对应 Java: `private void createPrintFormatter(String pattern)`
+    /// Corresponds to Java: `private void createPrintFormatter(String pattern)`
     fn create_print_formatter(&mut self, pattern: &str) {
         self.print_date_time_format = compile_pattern(pattern);
     }
 
-    /// 生成时间部分的解析模式。
+    /// Generate the parse pattern for the time part.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `private void applyTimeParsePattern(ProjectProperties properties, DateTimeFormatterBuilder builder)`
     ///
-    /// 12 小时制对应 Java 的 `optionalStart(); appendPattern("[hh][h]" + timesep + "mm[ ]");
-    /// appendText(AMPM_OF_DAY, map); optionalEnd(); appendPattern("[[HH][H]" + timesep + "mm]")`；
-    /// 24 小时制对应 `appendPattern("[HH][H][" + timesep + "mm]")`。
+    /// The 12-hour form corresponds to Java's `optionalStart(); appendPattern("[hh][h]" + timesep + "mm[ ]");`
+    /// appendText(AMPM_OF_DAY, map); optionalEnd(); appendPattern("[[HH][H]" + timesep + "mm]")`;
+    /// the 24-hour form corresponds to `appendPattern("[HH][H][" + timesep + "mm]")`.
     fn apply_time_parse_pattern(properties: &ProjectProperties, builder: &mut Vec<PatternNode>) {
         let timesep = properties.get_time_separator();
         let format = properties.get_time_format();
@@ -950,7 +961,7 @@ impl MPXJFormats {
             group.push(PatternNode::AmPmText);
             builder.push(PatternNode::Optional(group));
 
-            // "[[HH][H]" + timesep + "mm]"：外层可选段内再含两个可选小时字段
+            // "[[HH][H]" + timesep + "mm]": the outer optional section contains two more optional hour fields
             let mut alternative = Vec::new();
             alternative.push(optional_hour(NumberField::Hour24, 2));
             alternative.push(optional_hour(NumberField::Hour24, 1));
@@ -973,9 +984,9 @@ impl MPXJFormats {
         }
     }
 
-    /// 生成时间部分的打印模式。
+    /// Generate the print pattern for the time part.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `private void applyTimePrintPattern(ProjectProperties properties, DateTimeFormatterBuilder printBuilder)`
     fn apply_time_print_pattern(properties: &ProjectProperties, builder: &mut Vec<PatternNode>) {
         let timesep = properties.get_time_separator();
@@ -1006,12 +1017,13 @@ impl MPXJFormats {
         }
     }
 
-    /// 生成日期解析格式。
+    /// Generate the date parse format.
     ///
-    /// 对应 Java: `private DateTimeFormatterBuilder getParseDateBuilder(ProjectProperties properties)`
+    /// Corresponds to Java: `private DateTimeFormatterBuilder getParseDateBuilder(ProjectProperties properties)`
     ///
-    /// 取舍：Java 先 `[yyyy]` 再追加可选的 `appendValueReduced(YEAR, 2, 2, base)`，
-    /// 这里合并成单个 `Year` 字段（1-2 位按两位年份归约、3-4 位按日历年，见文件头）。
+    /// Trade-off: Java first does `[yyyy]` and then appends the optional `appendValueReduced(YEAR, 2, 2, base)`;
+    /// this merges them into a single `Year` field (1-2 digits reduce as a two-digit year, 3-4 as the calendar
+    /// year; see the file header).
     fn get_parse_date_builder(properties: &ProjectProperties) -> Vec<PatternNode> {
         let datesep = properties.get_date_separator();
         let year = PatternNode::Optional(vec![PatternNode::Number {
@@ -1040,9 +1052,9 @@ impl MPXJFormats {
         }
     }
 
-    /// 生成日期打印格式。
+    /// Generate the date print format.
     ///
-    /// 对应 Java: `private DateTimeFormatterBuilder getPrintDateBuilder(ProjectProperties properties)`
+    /// Corresponds to Java: `private DateTimeFormatterBuilder getPrintDateBuilder(ProjectProperties properties)`
     fn get_print_date_builder(properties: &ProjectProperties) -> Vec<PatternNode> {
         let datesep = properties.get_date_separator();
 
@@ -1053,12 +1065,12 @@ impl MPXJFormats {
         }
     }
 
-    /// 根据项目配置生成时间戳格式。
+    /// Generate the timestamp formats from the project configuration.
     ///
-    /// 对应 Java: `private void populateDateTimePatterns(ProjectProperties properties)`
+    /// Corresponds to Java: `private void populateDateTimePatterns(ProjectProperties properties)`
     ///
-    /// 说明：Java 在 `DD_MMM_HH_MM` 分支丢弃了 `createPrintFormatterWithTime` 的返回值，
-    /// 打印格式化器不会被更新（疑似上游 bug），此处照搬。
+    /// Note: in the `DD_MMM_HH_MM` branch Java discards the return value of `createPrintFormatterWithTime`,
+    /// so the print formatter is not updated (a suspected upstream bug); copied here.
     fn populate_date_time_patterns(&mut self, properties: &ProjectProperties) {
         let datesep = properties.get_date_separator();
         let date_order = properties.get_date_order();
@@ -1153,12 +1165,12 @@ impl MPXJFormats {
             ProjectDateFormat::DdMmmHhMm => match date_order {
                 DateOrder::Dmy => {
                     self.create_parse_formatter_with_time(properties, &["dd MMM"]);
-                    // Java: `createPrintFormatterWithTime(properties, "dd MMM");` 返回值被丢弃
+                    // Java: the return value of `createPrintFormatterWithTime(properties, "dd MMM");` is discarded
                     let _ = Self::create_print_formatter_with_time(properties, "dd MMM");
                 }
                 DateOrder::Ymd | DateOrder::Mdy => {
                     self.create_parse_formatter_with_time(properties, &["MMM dd"]);
-                    // Java: `createPrintFormatterWithTime(properties, "MMM dd");` 返回值被丢弃
+                    // Java: the return value of `createPrintFormatterWithTime(properties, "MMM dd");` is discarded
                     let _ = Self::create_print_formatter_with_time(properties, "MMM dd");
                 }
             },
@@ -1375,14 +1387,14 @@ impl MPXJFormats {
         }
     }
 
-    /// 构造时间戳解析格式。
+    /// Build the timestamp parse format.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `private void createParseFormatterWithTime(ProjectProperties properties, String... patterns)`
     ///
-    /// Java 的 `String...` 变长参数在 Rust 侧用切片表达；模式中等于 `yy` 的片段对应
-    /// Java 的 `appendValueReduced(ChronoField.YEAR, 2, 2, base)`，其余片段按模式串编译；
-    /// 最后追加「空格 + 时间解析模式」的可选段。
+    /// Java's `String...` varargs are expressed as a slice on the Rust side; a fragment equal to `yy`
+    /// corresponds to Java's `appendValueReduced(ChronoField.YEAR, 2, 2, base)`, other fragments are compiled
+    /// as pattern strings, and finally an optional section of "space + time parse pattern" is appended.
     fn create_parse_formatter_with_time(
         &mut self,
         properties: &ProjectProperties,
@@ -1407,15 +1419,15 @@ impl MPXJFormats {
 
         self.parse_date_time_format = nodes;
 
-        // Java: 模式以 "[EEE ]" 开头时需要先丢弃文本中的星期名
+        // Java: when the pattern starts with "[EEE ]", the weekday name at the start of the text must be discarded first
         if patterns.first().is_some_and(|pattern| pattern.starts_with("[EEE ]")) {
             self.parse_date_time_skip_day_name = true;
         }
     }
 
-    /// 生成时间格式。
+    /// Generate the time formats.
     ///
-    /// 对应 Java: `private void populateTimePatterns(ProjectProperties properties)`
+    /// Corresponds to Java: `private void populateTimePatterns(ProjectProperties properties)`
     fn populate_time_patterns(&mut self, properties: &ProjectProperties) {
         let mut parse_nodes = Vec::new();
         Self::apply_time_parse_pattern(properties, &mut parse_nodes);
@@ -1426,62 +1438,62 @@ impl MPXJFormats {
         self.print_time_format = print_nodes;
     }
 
-    /// 生成日期格式。
+    /// Generate the date formats.
     ///
-    /// 对应 Java: `private void populateDatePatterns(ProjectProperties properties)`
+    /// Corresponds to Java: `private void populateDatePatterns(ProjectProperties properties)`
     fn populate_date_patterns(&mut self, properties: &ProjectProperties) {
         self.parse_date_format = Self::get_parse_date_builder(properties);
         self.print_date_format = Self::get_print_date_builder(properties);
     }
 
-    /// 取单位小数格式。
+    /// Get the units decimal format.
     ///
-    /// 对应 Java: `public NumberFormat getUnitsDecimalFormat()`
+    /// Corresponds to Java: `public NumberFormat getUnitsDecimalFormat()`
     pub fn get_units_decimal_format(&self) -> &MPXJNumberFormat {
         &self.units_decimal_format
     }
 
-    /// 取小数格式。
+    /// Get the decimal format.
     ///
-    /// 对应 Java: `public NumberFormat getDecimalFormat()`
+    /// Corresponds to Java: `public NumberFormat getDecimalFormat()`
     pub fn get_decimal_format(&self) -> &MPXJNumberFormat {
         &self.decimal_format
     }
 
-    /// 取货币格式。
+    /// Get the currency format.
     ///
-    /// 对应 Java: `public NumberFormat getCurrencyFormat()`
+    /// Corresponds to Java: `public NumberFormat getCurrencyFormat()`
     pub fn get_currency_format(&self) -> &MPXJNumberFormat {
         &self.currency_format
     }
 
-    /// 取工期小数格式。
+    /// Get the duration decimal format.
     ///
-    /// 对应 Java: `public NumberFormat getDurationDecimalFormat()`
+    /// Corresponds to Java: `public NumberFormat getDurationDecimalFormat()`
     pub fn get_duration_decimal_format(&self) -> &MPXJNumberFormat {
         &self.duration_decimal_format
     }
 
-    /// 取百分比小数格式。
+    /// Get the percentage decimal format.
     ///
-    /// 对应 Java: `public NumberFormat getPercentageDecimalFormat()`
+    /// Corresponds to Java: `public NumberFormat getPercentageDecimalFormat()`
     pub fn get_percentage_decimal_format(&self) -> &MPXJNumberFormat {
         &self.percentage_decimal_format
     }
 
-    /// 按配置的格式解析时间。
+    /// Parse a time using the configured format.
     ///
-    /// 对应 Java: `public LocalTime parseTime(String value)`
+    /// Corresponds to Java: `public LocalTime parseTime(String value)`
     ///
-    /// 解析失败返回 `None`（Java 抛 `DateTimeParseException`）。
+    /// Returns `None` on parse failure (Java throws `DateTimeParseException`).
     pub fn parse_time(&self, value: &str) -> Option<NaiveTime> {
         let fields = self.parse_fields(&self.parse_time_format, value)?;
         resolve_time(&fields)
     }
 
-    /// 按配置的格式打印时间。
+    /// Print a time using the configured format.
     ///
-    /// 对应 Java: `public String printTime(LocalTime value)`
+    /// Corresponds to Java: `public String printTime(LocalTime value)`
     pub fn print_time(&self, value: Option<NaiveTime>) -> Option<String> {
         let value = value?;
         if self.print_time_format.is_empty() {
@@ -1496,12 +1508,12 @@ impl MPXJFormats {
         ))
     }
 
-    /// 按配置的格式解析日期。
+    /// Parse a date using the configured format.
     ///
-    /// 对应 Java: `public LocalDateTime parseDate(String value)`
+    /// Corresponds to Java: `public LocalDateTime parseDate(String value)`
     ///
-    /// 文本等于 `getNullText()`（通常为 `NA`）或解析失败都返回 `None`；
-    /// 解析结果取当日零点（对应 Java 的 `atStartOfDay()`）。
+    /// Returns `None` when the text equals `getNullText()` (usually `NA`) or parsing fails;
+    /// the result is taken at midnight of that day (corresponding to Java's `atStartOfDay()`).
     pub fn parse_date(&self, value: &str) -> Option<NaiveDateTime> {
         if value == self.null_text {
             return None;
@@ -1512,9 +1524,9 @@ impl MPXJFormats {
         Some(NaiveDateTime::new(date, NaiveTime::MIN))
     }
 
-    /// 按配置的格式打印日期。
+    /// Print a date using the configured format.
     ///
-    /// 对应 Java: `public String printDate(LocalDate value)`
+    /// Corresponds to Java: `public String printDate(LocalDate value)`
     pub fn print_date(&self, value: Option<NaiveDate>) -> Option<String> {
         let value = value?;
         if self.print_date_format.is_empty() {
@@ -1529,13 +1541,14 @@ impl MPXJFormats {
         ))
     }
 
-    /// 按配置的格式解析时间戳。
+    /// Parse a timestamp using the configured format.
     ///
-    /// 对应 Java: `public LocalDateTime parseDateTime(String value)`
+    /// Corresponds to Java: `public LocalDateTime parseDateTime(String value)`
     ///
-    /// 与 Java 一致：文本等于 `getNullText()` 时返回 `None`；解析格式带星期的
-    /// （`[EEE ]` 开头）会先丢弃第一个空格之前的内容；缺少年 / 月 / 日时无法还原
-    /// 日期（Java 抛 `DateTimeParseException`），返回 `None`。
+    /// As in Java: returns `None` when the text equals `getNullText()`; when the parse format includes a
+    /// weekday (starts with `[EEE ]`), the content before the first space is discarded first; when
+    /// year / month / day are missing the date cannot be reconstructed (Java throws
+    /// `DateTimeParseException`), so `None` is returned.
     pub fn parse_date_time(&self, value: &str) -> Option<NaiveDateTime> {
         if value == self.null_text {
             return None;
@@ -1555,9 +1568,9 @@ impl MPXJFormats {
         resolve_date_time(&fields)
     }
 
-    /// 按配置的格式打印时间戳。
+    /// Print a timestamp using the configured format.
     ///
-    /// 对应 Java: `public String printDateTime(TemporalAccessor value)`（`LocalDateTime` 分支）
+    /// Corresponds to Java: `public String printDateTime(TemporalAccessor value)` (`LocalDateTime` branch)
     pub fn print_date_time(&self, value: Option<&NaiveDateTime>) -> Option<String> {
         let value = value?;
         if self.print_date_time_format.is_empty() {
@@ -1571,30 +1584,30 @@ impl MPXJFormats {
         ))
     }
 
-    /// 按配置的格式打印日期（对应 Java 中把 `LocalDate` 传给 `printDateTime` 的分支）。
+    /// Print a date using the configured format (corresponding to Java's branch that passes a `LocalDate` to `printDateTime`).
     ///
-    /// 对应 Java: `public String printDateTime(TemporalAccessor value)`（`LocalDate` 分支）
+    /// Corresponds to Java: `public String printDateTime(TemporalAccessor value)` (`LocalDate` branch)
     ///
-    /// 取舍：Java 对含时间字段的模式传入 `LocalDate` 会抛
-    /// `UnsupportedTemporalTypeException`；这里按当日零点处理。
+    /// Trade-off: Java throws `UnsupportedTemporalTypeException` when passing a `LocalDate` to a pattern with
+    /// time fields; this treats it as midnight of that day.
     pub fn print_date_time_for_date(&self, value: Option<&NaiveDate>) -> Option<String> {
         let value = value?;
         self.print_date_time(Some(&NaiveDateTime::new(*value, NaiveTime::MIN)))
     }
 
-    /// 取表示「未设置」的文本。
+    /// Get the text meaning "not set".
     ///
-    /// 对应 Java: `public String getNullText()`
+    /// Corresponds to Java: `public String getNullText()`
     pub fn get_null_text(&self) -> &str {
         &self.null_text
     }
 
-    /// 解析文本为字段集合。
+    /// Parse text into a set of fields.
     ///
-    /// 对应 Java: `DateTimeFormatter.parse(CharSequence)`
+    /// Corresponds to Java: `DateTimeFormatter.parse(CharSequence)`
     fn parse_fields(&self, nodes: &[PatternNode], value: &str) -> Option<ParsedFields> {
         if nodes.is_empty() {
-            // Java: 格式化器为 null（未初始化）时会抛 NPE
+            // Java: throws NPE when the formatter is null (uninitialized)
             return None;
         }
 
@@ -1604,7 +1617,7 @@ impl MPXJFormats {
         Some(fields)
     }
 
-    /// 构造文本字段查找表。
+    /// Build the text field lookup table.
     fn name_context(&self) -> NameContext<'_> {
         NameContext {
             am: &self.am_text,
@@ -1614,14 +1627,14 @@ impl MPXJFormats {
     }
 }
 
-/// 生成「可选的小时字段」节点，对应 Java 模式中的 `[hh]` / `[H]` 之类。
+/// Generate an "optional hour field" node, corresponding to Java patterns such as `[hh]` / `[H]`.
 fn optional_hour(field: NumberField, min_width: usize) -> PatternNode {
     PatternNode::Optional(vec![PatternNode::Number { field, min_width }])
 }
 
-/// 转义货币符号中的特殊字符。
+/// Escape special characters in the currency symbol.
 ///
-/// 对应 Java: `private String quoteFormatCharacters(String literal)`
+/// Corresponds to Java: `private String quoteFormatCharacters(String literal)`
 fn quote_format_characters(literal: &str) -> String {
     let mut result = String::new();
 
@@ -1646,7 +1659,7 @@ mod tests {
 
     use super::*;
 
-    /// 构造格式对象。调用方必须持有返回的文件句柄（`MPXJFormats` 内部是弱引用）。
+    /// Construct a format object. The caller must hold the returned file handle (`MPXJFormats` holds a weak reference internally).
     fn formats(config: impl FnOnce(&mut ProjectProperties)) -> (Rc<RefCell<ProjectFile>>, MPXJFormats) {
         let file = ProjectFile::new();
         {
@@ -1658,7 +1671,7 @@ mod tests {
         (file, formats)
     }
 
-    /// 日期 1998-08-25 14:35:00。
+    /// Date 1998-08-25 14:35:00.
     fn sample() -> NaiveDateTime {
         NaiveDate::from_ymd_opt(1998, 8, 25)
             .unwrap()
@@ -1674,7 +1687,7 @@ mod tests {
             properties.set_pm_text(Some("pm".to_owned()));
         });
 
-        // 12 小时制打印补前导零 + AM/PM 文本
+        // 12-hour printing zero-pads and appends AM/PM text
         assert_eq!(
             formats.print_time(NaiveTime::from_hms_opt(9, 5, 0)),
             Some("09:05 am".to_owned())
@@ -1692,7 +1705,7 @@ mod tests {
             Some("12:00 pm".to_owned())
         );
 
-        // 解析：带 AM/PM、缺前导零、全无前导零、以及 24 小时写法都能接受
+        // Parsing: AM/PM, missing leading zeros, no leading zeros at all, and the 24-hour form are all accepted
         for (text, expected) in [
             ("09:05 am", NaiveTime::from_hms_opt(9, 5, 0)),
             ("9:05 am", NaiveTime::from_hms_opt(9, 5, 0)),
@@ -1706,18 +1719,18 @@ mod tests {
             assert_eq!(
                 formats.parse_time(text),
                 expected,
-                "解析 {text} 失败或结果不符"
+                "failed to parse {text} or result mismatch"
             );
         }
 
-        // 往返：打印 → 解析
+        // Round trip: print → parse
         for time in [
             NaiveTime::from_hms_opt(0, 0, 0),
             NaiveTime::from_hms_opt(9, 5, 0),
             NaiveTime::from_hms_opt(12, 0, 0),
             NaiveTime::from_hms_opt(23, 59, 0),
         ] {
-            let printed = formats.print_time(time).expect("应可打印");
+            let printed = formats.print_time(time).expect("should be printable");
             assert_eq!(formats.parse_time(&printed), time);
         }
     }
@@ -1737,7 +1750,7 @@ mod tests {
             Some("17:30".to_owned())
         );
 
-        // 解析时小时 / 分钟都可缺省，且允许无前导零
+        // Both hour / minute may be omitted when parsing, and no leading zeros are allowed
         assert_eq!(
             formats.parse_time("17:30"),
             NaiveTime::from_hms_opt(17, 30, 0)
@@ -1753,7 +1766,7 @@ mod tests {
             NaiveTime::from_hms_opt(9, 5, 0),
             NaiveTime::from_hms_opt(23, 59, 0),
         ] {
-            let printed = formats.print_time(time).expect("应可打印");
+            let printed = formats.print_time(time).expect("should be printable");
             assert_eq!(formats.parse_time(&printed), time);
         }
     }
@@ -1766,21 +1779,21 @@ mod tests {
 
         assert_eq!(formats.parse_time(""), None);
         assert_eq!(formats.parse_time("abc"), None);
-        // Java 同样无法解析没有时间的文本
+        // Java likewise cannot parse text with no time
         assert_eq!(formats.parse_time("25/08/98"), None);
     }
 
     #[test]
     fn date_formats_follow_date_order() {
-        // 日月年
+        // Day-month-year
         let (_file, dmy) = formats(|properties| {
             properties.set_date_order(Some(DateOrder::Dmy));
         });
-        // 月日年
+        // Month-day-year
         let (_file2, mdy) = formats(|properties| {
             properties.set_date_order(Some(DateOrder::Mdy));
         });
-        // 年月日
+        // Year-month-day
         let (_file3, ymd) = formats(|properties| {
             properties.set_date_order(Some(DateOrder::Ymd));
         });
@@ -1790,7 +1803,7 @@ mod tests {
             .and_hms_opt(0, 0, 0)
             .unwrap();
 
-        // 同一条文本在 DMY / MDY 下含义不同（3 月 4 日 vs 4 月 3 日）
+        // The same text means different things under DMY / MDY (March 4 vs April 3)
         assert_eq!(dmy.parse_date("04/03/1998"), Some(expected));
         assert_eq!(
             mdy.parse_date("04/03/1998"),
@@ -1800,7 +1813,7 @@ mod tests {
         );
         assert_eq!(ymd.parse_date("1998/03/04"), Some(expected));
 
-        // 打印格式与日期顺序一致
+        // The print format matches the date order
         assert_eq!(
             dmy.print_date(NaiveDate::from_ymd_opt(1998, 3, 4)),
             Some("04/03/98".to_owned())
@@ -1826,7 +1839,7 @@ mod tests {
             ("25/8/1998", (1998, 8, 25)),
             ("5/8/1998", (1998, 8, 5)),
             ("05/08/1998", (1998, 8, 5)),
-            // 两位年份按 window 归约（基期为当前年份 - 80）
+            // Two-digit years reduce via the window (base is the current year - 80)
             ("25/08/98", (1998, 8, 25)),
             ("1/1/99", (1999, 1, 1)),
         ];
@@ -1837,7 +1850,7 @@ mod tests {
                 NaiveDate::from_ymd_opt(year, month, day)
                     .unwrap()
                     .and_hms_opt(0, 0, 0),
-                "解析 {text} 失败或结果不符"
+                "failed to parse {text} or result mismatch"
             );
         }
     }
@@ -1848,7 +1861,7 @@ mod tests {
             properties.set_date_order(Some(DateOrder::Dmy));
         });
 
-        // 跨月 / 跨年边界
+        // Month / year boundaries
         for (year, month, day) in [
             (1998, 12, 31),
             (1999, 1, 1),
@@ -1857,7 +1870,7 @@ mod tests {
             (1996, 12, 1),
         ] {
             let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
-            let printed = formats.print_date(Some(date)).expect("应可打印");
+            let printed = formats.print_date(Some(date)).expect("should be printable");
             assert_eq!(
                 formats.parse_date(&printed),
                 Some(NaiveDateTime::new(date, NaiveTime::MIN)),
@@ -1873,29 +1886,30 @@ mod tests {
         });
 
         assert_eq!(formats.parse_date(""), None);
-        // 空值文本
+        // Null text
         assert_eq!(formats.parse_date("NA"), None);
-        // 月 / 日越界
+        // Month / day out of range
         assert_eq!(formats.parse_date("25/13/1998"), None);
         assert_eq!(formats.parse_date("32/12/1998"), None);
-        // 日期本身非法（Java LENIENT 会归一化，这里判为非法）
+        // The date itself is invalid (Java LENIENT normalizes it; treated as invalid here)
         assert_eq!(formats.parse_date("31/02/1998"), None);
-        // 无法解析的文本
+        // Unparsable text
         assert_eq!(formats.parse_date("hello"), None);
     }
 
     #[test]
     fn date_time_formats_round_trip_or_report_unresolvable() {
-        // (格式, 是否可打印, 是否可解析, 是否含时间部分)
+        // (format, printable, parseable, has time part)
         //
-        // 「不可解析」与 Java 一致：解析格式化器凑不齐年 / 月 / 日（Java 抛
-        // DateTimeParseException），或打印格式化器因上游丢弃返回值而未初始化。
+        // "Not parseable" is consistent with Java: the parse formatter cannot gather year / month / day
+        // (Java throws DateTimeParseException), or the print formatter was not initialized because upstream
+        // discarded the return value.
         let cases: [(ProjectDateFormat, bool, bool, bool); 21] = [
             (ProjectDateFormat::DdMmYyHhMm, true, true, true),
             (ProjectDateFormat::DdMmYy, true, true, false),
             (ProjectDateFormat::DdMmmmmYyyyHhMm, true, true, true),
             (ProjectDateFormat::DdMmmmmYyyy, true, true, false),
-            // 上游丢弃了 createPrintFormatterWithTime 的返回值
+            // Upstream discards the return value of createPrintFormatterWithTime
             (ProjectDateFormat::DdMmmHhMm, false, false, true),
             (ProjectDateFormat::DdMmmYy, true, true, false),
             (ProjectDateFormat::DdMmmmm, true, false, false),
@@ -1925,22 +1939,22 @@ mod tests {
 
             let printed = formats.print_date_time(Some(&value));
             if !printable {
-                assert_eq!(printed, None, "{format:?} 不应有打印结果");
+                assert_eq!(printed, None, "{format:?} should not have a printed result");
                 continue;
             }
 
-            let printed = printed.unwrap_or_else(|| panic!("{format:?} 应可打印"));
+            let printed = printed.unwrap_or_else(|| panic!("{format:?} should be printable"));
             let parsed = formats.parse_date_time(&printed);
             if !parseable {
-                assert_eq!(parsed, None, "{format:?} 打印 {printed} 后不应能解析回日期");
+                assert_eq!(parsed, None, "{format:?} should not parse back to a date after printing {printed}");
                 continue;
             }
 
-            let parsed = parsed.unwrap_or_else(|| panic!("{format:?} 的 {printed} 应可解析"));
+            let parsed = parsed.unwrap_or_else(|| panic!("{format:?} {printed} should be parseable"));
             if has_time {
-                assert_eq!(parsed, value, "{format:?} 往返不一致（打印 {printed}）");
+                assert_eq!(parsed, value, "{format:?} round-trip mismatch (printed {printed})");
             } else {
-                assert_eq!(parsed.date(), value.date(), "{format:?}（打印 {printed}）");
+                assert_eq!(parsed.date(), value.date(), "{format:?} (printed {printed})");
                 assert_eq!(parsed.time(), NaiveTime::MIN);
             }
         }
@@ -1953,12 +1967,12 @@ mod tests {
             properties.set_date_format(Some(ProjectDateFormat::EeeDdMmmYy));
         });
 
-        // 1998-08-25 是星期二
+        // 1998-08-25 is a Tuesday
         assert_eq!(
             formats.print_date_time(Some(&sample())),
             Some("Tue 25 Aug '98".to_owned())
         );
-        // 解析时会先丢弃开头的星期名
+        // The leading weekday name is discarded first when parsing
         assert_eq!(
             formats.parse_date_time("Tue 25 Aug '98"),
             Some(NaiveDateTime::new(
@@ -1968,7 +1982,7 @@ mod tests {
         );
     }
 
-    /// 构造指定区域设置的格式对象。
+    /// Construct a format object for the given locale.
     fn formats_for_locale(
         locale: MpxLocale,
         config: impl FnOnce(&mut ProjectProperties),
@@ -1983,12 +1997,12 @@ mod tests {
         (file, formats)
     }
 
-    /// 打印使用各语种自己的月份 / 星期名（回归 A19：此前所有语种都回落英文）。
+    /// Printing uses each language's own month / weekday names (regression A19: previously all languages fell back to English).
     ///
-    /// 期望值与 JDK 在对应 `Locale` 下的输出一致（见 `localized_names`）。
+    /// The expected values match the JDK's output under the corresponding `Locale` (see `localized_names`).
     #[test]
     fn date_time_printing_uses_locale_specific_names() {
-        // 1998-08-25 是星期二
+        // 1998-08-25 is a Tuesday
         let cases = [
             (MpxLocale::En, "Tue 25 Aug '98"),
             (MpxLocale::De, "Di. 25 Aug. '98"),
@@ -2010,12 +2024,12 @@ mod tests {
             assert_eq!(
                 formats.print_date_time(Some(&sample())),
                 Some(expected.to_owned()),
-                "{locale} 的打印结果不符"
+                "{locale} print result mismatch"
             );
         }
     }
 
-    /// 德语默认日期格式 `EEE_DD_MM_YY` 打印本地化星期名（对齐 `sample.de.mpx`）。
+    /// The German default date format `EEE_DD_MM_YY` prints a localized weekday name (aligned with `sample.de.mpx`).
     #[test]
     fn german_default_date_format_prints_localised_weekday() {
         let (_file, formats) = formats_for_locale(MpxLocale::De, |properties| {
@@ -2028,7 +2042,7 @@ mod tests {
             formats.print_date_time(Some(&sample())),
             Some("Di. 25.08.98".to_owned())
         );
-        // 解析会先丢弃开头的星期名，故带本地化星期名的文本同样可解析
+        // Parsing discards the leading weekday name first, so text with a localized weekday name is likewise parseable
         assert_eq!(
             formats.parse_date_time("Di. 25.08.98"),
             Some(NaiveDateTime::new(
@@ -2038,7 +2052,7 @@ mod tests {
         );
     }
 
-    /// 俄语月份名解析（非 ASCII 文本，验证本地化名表在解析路径上可用）。
+    /// Russian month name parsing (non-ASCII text, verifying the localized name table is usable on the parse path).
     #[test]
     fn localized_month_names_are_parsed() {
         let (_file, formats) = formats_for_locale(MpxLocale::Ru, |properties| {
@@ -2046,7 +2060,7 @@ mod tests {
             properties.set_date_format(Some(ProjectDateFormat::EeeDdMmmYy));
         });
 
-        // 「25 авг. '98」：星期名先被丢弃，月份名「авг.」需能识别
+        // "25 авг. '98": the weekday name is discarded first, and the month name "авг." must be recognized
         assert_eq!(
             formats.parse_date_time("вт 25 авг. '98"),
             Some(NaiveDateTime::new(
@@ -2102,7 +2116,7 @@ mod tests {
             properties.set_currency_digits(Some(2));
         });
 
-        // 工期 / 单位 / 小数格式
+        // Duration / units / decimal formats
         assert_eq!(
             formats.get_duration_decimal_format().parse(Some("2,5")),
             Some(2.5)
@@ -2113,7 +2127,7 @@ mod tests {
             Some(2.5)
         );
 
-        // 货币格式：符号在后且带空格
+        // Currency format: symbol after, with a space
         assert_eq!(formats.get_currency_format().format(1234.5), "1234,50 EUR");
         assert_eq!(
             formats.get_currency_format().parse(Some("1.234,50 EUR")),
@@ -2139,11 +2153,11 @@ mod tests {
                 properties.set_currency_digits(Some(2));
             });
 
-            // 打印时主模式不含分组分隔符
+            // The primary pattern has no grouping separator when printing
             let text = formats.get_currency_format().format(1234.5);
             assert_eq!(text, expected.replace(",", ""), "{position:?}");
 
-            // 解析时分组分隔符可有可无
+            // The grouping separator is optional when parsing
             assert_eq!(
                 formats.get_currency_format().parse(Some(expected)),
                 Some(1234.5),
@@ -2177,7 +2191,7 @@ mod tests {
 
     #[test]
     fn formats_without_parent_file_do_not_panic() {
-        // 父文件缺失时（Java 会 NPE）不 panic，格式保持未初始化
+        // With no parent file (Java would NPE), no panic occurs and the formats stay uninitialized
         let formats = MPXJFormats::new(MpxLocale::En, "NA", Weak::new());
         assert_eq!(formats.print_date(Some(NaiveDate::MIN)), None);
         assert_eq!(formats.parse_date("25/08/1998"), None);
@@ -2188,7 +2202,7 @@ mod tests {
     fn number_and_date_formats_keep_english_defaults() {
         let (_file, formats) = formats(|_properties| {});
 
-        // 默认属性：小数分隔符 '.'、千分位 ','、货币符号 '$'、货币位数 2
+        // Default properties: decimal separator '.', thousands separator ',', currency symbol '$', 2 currency digits
         assert_eq!(formats.get_units_decimal_format().format(0.5), ".5");
         assert_eq!(formats.get_percentage_decimal_format().format(50.0), "50");
         assert_eq!(formats.get_currency_format().format(1234.5), "$1234.50");

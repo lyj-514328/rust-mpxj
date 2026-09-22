@@ -1,125 +1,125 @@
-//! 对应 Java: `org/mpxj/ProjectFile.java`
+//! Corresponds to Java: `org/mpxj/ProjectFile.java`
 //!
-//! 表示一份项目计划（schedule）。它是模型层的收口：对外提供任务、资源、分配、
-//! 关系、日历、自定义字段等全部容器，并委托 [`ProjectContext`] 提供跨项目共享的数据。
+//! Represents a project schedule. It is the aggregation point of the model layer: it exposes all containers for tasks, resources, assignments,
+//! relations, calendars, custom fields and so on, and delegates to [`ProjectContext`] to provide data shared across projects.
 //!
-//! # 继承与接口的还原（组合 + 转发）
+//! # Restoring inheritance and interfaces (composition + forwarding)
 //!
 //! Java: `public final class ProjectFile implements ChildTaskContainer, ChildResourceContainer,
-//! UniqueIdObjectSequenceProvider`。Rust 没有继承，接口按下列方式还原：
+//! UniqueIdObjectSequenceProvider`. Rust has no inheritance, so the interfaces are restored as follows:
 //!
-//! | Java 接口 | Rust |
+//! | Java interface | Rust |
 //! |---|---|
-//! | `ChildTaskContainer`（`getChildTasks` / `addTask`） | 固有方法 [`ProjectFile::get_child_tasks`] / [`ProjectFile::add_task`]（`child_task_container` 模块未在 `src/lib.rs` 声明，故不新建 trait，见下） |
-//! | `ChildResourceContainer`（`getChildResources` / `addResource`） | 固有方法 [`ProjectFile::get_child_resources`] / [`ProjectFile::add_resource`]（`child_resource_container` 模块未声明） |
-//! | `UniqueIdObjectSequenceProvider`（`getUniqueIdObjectSequence`） | `impl UniqueIdObjectSequenceProvider for ProjectFile`，同时保留同名的固有方法（`crate::task` 未导入该 trait，见下） |
+//! | `ChildTaskContainer` (`getChildTasks` / `addTask`) | inherent methods [`ProjectFile::get_child_tasks`] / [`ProjectFile::add_task`] (the `child_task_container` module is not declared in `src/lib.rs`, so no new trait is added, see below) |
+//! | `ChildResourceContainer` (`getChildResources` / `addResource`) | inherent methods [`ProjectFile::get_child_resources`] / [`ProjectFile::add_resource`] (the `child_resource_container` module is not declared) |
+//! | `UniqueIdObjectSequenceProvider` (`getUniqueIdObjectSequence`) | `impl UniqueIdObjectSequenceProvider for ProjectFile`, while keeping an inherent method of the same name (`crate::task` does not import the trait, see below) |
 //!
-//! # 循环引用与接线（核心设计）
+//! # Cyclic references and wiring (core design)
 //!
-//! Java 里 `ProjectFile` 构造时 `new ProjectContext(this)`（`ProjectContext` 的字段逐个
-//! 把自己的 `this` 交给子容器；`ProjectFile` 再把自身登记进 `m_context.getProjects()`）。
-//! 这种双向强引用在 Rust 里必须拆开，否则 `Rc` 循环会导致内存泄漏：
+//! In Java, `ProjectFile`'s constructor calls `new ProjectContext(this)` (`ProjectContext`'s fields each
+//! hand their own `this` to the child containers; `ProjectFile` then registers itself in `m_context.getProjects()`).
+//! This kind of bidirectional strong reference must be broken apart in Rust, otherwise the `Rc` cycle would leak memory:
 //!
 //! ```text
 //! ProjectFile --(strong Rc)--> ProjectContext
-//! ProjectContext --(Weak)--> ProjectFile           // m_projects 存弱引用
-//! ProjectFile --(Weak)--> 实体（Task/Resource/…）   // 各实体经弱引用回指文件
-//! 子容器（TaskContainer/RelationContainer/…） --(Weak)--> ProjectFile
-//! 子容器（ResourceContainer/…） --(Weak)--> ProjectContext
-//! ProjectFile --(Weak)--> 自身（self_ref，仅供 find_project 等取回 Rc 句柄）
+//! ProjectContext --(Weak)--> ProjectFile           // m_projects stores a weak reference
+//! ProjectFile --(Weak)--> entities (Task/Resource/...)   // each entity points back to the file via a weak reference
+//! child containers (TaskContainer/RelationContainer/...) --(Weak)--> ProjectFile
+//! child containers (ResourceContainer/...) --(Weak)--> ProjectContext
+//! ProjectFile --(Weak)--> itself (self_ref, used only by find_project and the like to retrieve the Rc handle)
 //! ```
 //!
-//! 因此 [`ProjectFile::new`] **返回 `Rc<RefCell<ProjectFile>>`**（而不是值），
-//! 以便先构造出 `Rc`、再完成所有反向引用接线。接线顺序（[`ProjectFile::new_with_context`]）：
+//! Therefore [`ProjectFile::new`] **returns `Rc<RefCell<ProjectFile>>`** (rather than a value),
+//! so that the `Rc` is constructed first and all back-reference wiring is completed afterwards. Wiring order ([`ProjectFile::new_with_context`]):
 //!
-//! 1. 取得 `Rc<RefCell<ProjectContext>>`（[`ProjectFile::new`] 用
-//!    [`ProjectContext::shared`]，它会接线日历容器与序号生成器适配器）；
-//! 2. 以「空弱引用」构造全部字段：`ProjectProperties`（父文件弱引用）、`TaskContainer`、
-//!    `ResourceAssignmentContainer`、`RelationContainer`、展示层容器、`DataLinkContainer`、
-//!    `ExternalProjectContainer`，并直接持有 `Rc<RefCell<ProjectContext>>`；
-//! 3. 包一层 `Rc::new(RefCell::new(..))` 得到文件句柄 `file`；
-//! 4. 回填与接线（**必须**在 `Rc` 已存在之后）：
-//!    `self_ref`（自身弱引用）、`properties`（`ProjectProperties::new` 需要父文件弱引用）、
-//!    `tasks.set_context(&file)`、`tasks.set_project_context(&context)`、`relations.set_context(&file)`、
-//!    `external_projects.set_context(&file)`、`assignments.set_context(&context)`；
-//! 5. 向上下文登记本项目：`context.borrow_mut().add_project(&file)`；
-//! 6. **补齐上下文中资源的接线**：`context.get_resources_mut().set_context(&context)`
-//!    （`ProjectContext::shared` 目前只接线日历容器与序号提供者；`ResourceContainer`
-//!    的负责人在其文件头明确要求由 `ProjectFile::new()` 补这一步）。同时补
-//!    `calendars.set_context(&context)`，使调用方即使传入未经 `shared()` 的上下文
-//!    （[`ProjectContext::new`]）也能正常工作（该调用幂等）。
+//! 1. Obtain the `Rc<RefCell<ProjectContext>>` ([`ProjectFile::new`] uses
+//!    [`ProjectContext::shared`], which wires the calendar container and the sequence generator adapter);
+//! 2. Construct all fields with "empty weak references": `ProjectProperties` (weak reference to the parent file), `TaskContainer`,
+//!    `ResourceAssignmentContainer`, `RelationContainer`, presentation-layer containers, `DataLinkContainer`,
+//!    `ExternalProjectContainer`, and holds `Rc<RefCell<ProjectContext>>` directly;
+//! 3. Wrap in `Rc::new(RefCell::new(..))` to obtain the file handle `file`;
+//! 4. Backfill and wire (**must** happen after the `Rc` already exists):
+//!    `self_ref` (weak self-reference), `properties` (`ProjectProperties::new` needs a weak reference to the parent file),
+//!    `tasks.set_context(&file)`,`tasks.set_project_context(&context)`,`relations.set_context(&file)`,
+//!    `external_projects.set_context(&file)`,`assignments.set_context(&context)`;
+//! 5. Register this project with the context: `context.borrow_mut().add_project(&file)`;
+//! 6. **Complete the wiring of resources in the context**: `context.get_resources_mut().set_context(&context)`
+//!    (`ProjectContext::shared` currently wires only the calendar container and the sequence provider; `ResourceContainer`'s
+//!    owner explicitly requires this step to be done by `ProjectFile::new()` in its file header). Also complete
+//!    `calendars.set_context(&context)` so that callers passing a context that has not gone through `shared()`
+//!    ([`ProjectContext::new`]) still work correctly (this call is idempotent).
 //!
-//! 注意：`ProjectContext` 内部的序号提供者适配器是私有字段，只有
-//! [`ProjectContext::shared`] 能接线；因此 [`ProjectFile::new`] 一律使用 `shared()` 构造
-//! 上下文，而 [`ProjectFile::new_with_context`] 接受调用方提供的上下文（若该上下文
-//! 未经 `shared()`，序号提供者会退化为其自带的计数器，不 panic）。
+//! Note: the sequence provider adapter inside `ProjectContext` is a private field, so only
+//! [`ProjectContext::shared`] can wire it; therefore [`ProjectFile::new`] always constructs the context with `shared()`,
+//! while [`ProjectFile::new_with_context`] accepts a caller-provided context (if that context
+//! has not gone through `shared()`, the sequence provider degrades to its own built-in counter, without panicking).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `m_baselines: Map<Integer, ProjectFile>` | `HashMap<i32, Rc<RefCell<ProjectFile>>>` | 元素为共享句柄；Java 用 `TreeMap`，Rust 用 `HashMap`（键集合相同，仅迭代顺序不同） |
-//! | `m_baselineTaskMap: Map<Integer, Map<Task, Task>>` | `HashMap<i32, HashMap<i32, Rc<RefCell<Task>>>>` | `Rc<RefCell<Task>>` 无法作 `HashMap` 键，改用**任务的 unique ID** 作内层键（同一 schedule 内 unique ID 唯一，语义等价，且 `DefaultBaselineStrategy` 已按此约定填充） |
-//! | `m_ignoredErrors: List<Exception>` | `Vec<MpxjError>` | 与 `ProjectContext` 的既有取舍一致（统一错误类型） |
-//! | `getViews/getTables/getFilters/getGroups` 返回可变容器 | 返回 `&T`（另有 `*_mut`） | Java 的 getter 返回可变集合对象，Rust 的 `&self` getter 无法提供该语义 |
-//! | `getCalendars/getResources/getShifts/...`（委托上下文） | 返回 `Ref<'_, T>` | 上下文存放在 `RefCell` 中，无法返回 `&T`；`Ref` 通过 `Deref` 提供同样的字段访问。**若调用方正持有上下文的可变借用**（Java 无此情形），`RefCell::borrow` 会 panic |
-//! | `getProjectConfig()` 返回 `ProjectConfig` | 返回 `Ref<'_, ProjectConfig>` | 同上（`ProjectConfig` 由上下文持有） |
-//! | `getDefaultCalendar()/setDefaultCalendar()` | 同名 + `Option` | 委托 [`ProjectProperties`]（Java 里也是委托 `m_properties`） |
-//! | `setBaseline(ProjectFile)` / `getBaseline()` / `clearBaseline()` | [`ProjectFile::set_default_baseline`] / [`ProjectFile::get_default_baseline`] / [`ProjectFile::clear_default_baseline`] | Rust 无重载，带 `int` 参数的版本分别命名为 `set_baseline` / `get_baseline` / `clear_baseline` |
-//! | `getStartDate(Task)` / `getFinishDate(Task)`（私有） | 私有方法 `start_date` / `finish_date` | Rust 命名风格 |
-//! | `getPopulatedFields` 使用四类容器无参方法 | 各容器接受父文件传入的默认值及自定义字段 | `ProjectFile` 持有父文件借用时避免通过容器再次借用父文件 |
-//! | `toString()` | 未提供 | Java 未覆写 `toString()`（`Debug` 也未派生：依赖的 `ProjectContext` 等未实现 `Debug`） |
+//! | `m_baselines: Map<Integer, ProjectFile>` | `HashMap<i32, Rc<RefCell<ProjectFile>>>` | elements are shared handles; Java uses `TreeMap`, Rust uses `HashMap` (same key set, only iteration order differs) |
+//! | `m_baselineTaskMap: Map<Integer, Map<Task, Task>>` | `HashMap<i32, HashMap<i32, Rc<RefCell<Task>>>>` | `Rc<RefCell<Task>>` cannot be used as a `HashMap` key, so the **task's unique ID** is used as the inner key (unique IDs are unique within a schedule, so the semantics are equivalent, and `DefaultBaselineStrategy` already fills it according to this convention) |
+//! | `m_ignoredErrors: List<Exception>` | `Vec<MpxjError>` | consistent with the existing trade-off in `ProjectContext` (a unified error type) |
+//! | `getViews/getTables/getFilters/getGroups` return mutable containers | return `&T` (with separate `*_mut`) | Java's getters return mutable collection objects, which Rust's `&self` getters cannot provide |
+//! | `getCalendars/getResources/getShifts/...` (delegating to the context) | return `Ref<'_, T>` | the context is stored in a `RefCell`, so `&T` cannot be returned; `Ref` provides the same field access through `Deref`. **If the caller is currently holding a mutable borrow of the context** (which cannot happen in Java), `RefCell::borrow` will panic |
+//! | `getProjectConfig()` returns `ProjectConfig` | returns `Ref<'_, ProjectConfig>` | same as above (`ProjectConfig` is held by the context) |
+//! | `getDefaultCalendar()/setDefaultCalendar()` | same name + `Option` | delegates to [`ProjectProperties`] (in Java it also delegates to `m_properties`) |
+//! | `setBaseline(ProjectFile)` / `getBaseline()` / `clearBaseline()` | [`ProjectFile::set_default_baseline`] / [`ProjectFile::get_default_baseline`] / [`ProjectFile::clear_default_baseline`] | Rust has no overloading, so the versions taking an `int` argument are named `set_baseline` / `get_baseline` / `clear_baseline` respectively |
+//! | `getStartDate(Task)` / `getFinishDate(Task)` (private) | private methods `start_date` / `finish_date` | Rust naming style |
+//! | `getPopulatedFields` uses the no-argument methods of the four container types | each container accepts the defaults and custom fields passed in by the parent file | avoids borrowing the parent file again through the containers while `ProjectFile` holds a borrow of the parent file |
+//! | `toString()` | not provided | Java does not override `toString()` (`Debug` is not derived either: the dependent `ProjectContext` and others do not implement `Debug`) |
 //!
-//! # 跳过的 Java 方法及原因
+//! # Skipped Java Methods and reasons
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `getActivityCodes()` / `getProjectCodes()` / `getResourceCodes()` / `getRoleCodes()` / `getResourceAssignmentCodes()` | 对应容器模块未在 `src/lib.rs` 声明（Primavera 等格式使用），`ProjectContext` 亦未提供 |
-//! | `getExpenseCategories()` / `getCostAccounts()` / `getLocations()` / `getCurrencies()` | 同上（模块未声明） |
-//! | `fixUniqueIdClashes()` 中对**资源分配**容器的调用 | `ResourceAssignmentContainer` 尚未提供 `fix_unique_id_clashes`；日历容器已接入基类索引与冲突修复 |
+//! | `getActivityCodes()` / `getProjectCodes()` / `getResourceCodes()` / `getRoleCodes()` / `getResourceAssignmentCodes()` | the corresponding container modules are not declared in `src/lib.rs` (used by Primavera and other formats), and `ProjectContext` does not provide them either |
+//! | `getExpenseCategories()` / `getCostAccounts()` / `getLocations()` / `getCurrencies()` | same as above (modules not declared) |
+//! | the call to the **resource assignment** container in `fixUniqueIdClashes()` | `ResourceAssignmentContainer` does not yet provide `fix_unique_id_clashes`; the calendar container has been wired into the base-class index and clash repair |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 //!
-//! # 已知的重入借用限制（务必阅读）
+//! # Known re-entrant borrow restrictions (must read)
 //!
-//! `Task` / `ResourceAssignment` 等实体以 `Weak<RefCell<ProjectFile>>` 回指父文件，
-//! 并在需要时调用 `file.borrow()` / `file.borrow_mut()`（见 `crate::task`）。
-//! 因此凡是「在 `&mut self`（或 `&self`）上直接触达这些实体的 ProjectFile 方法」，
-//! 调用方一旦通过 `file.borrow_mut()` 进入，实体的再次借用就会 panic：
+//! Entities such as `Task` / `ResourceAssignment` point back to the parent file via `Weak<RefCell<ProjectFile>>`,
+//! and call `file.borrow()` / `file.borrow_mut()` when needed (see `crate::task`).
+//! Therefore, for any "ProjectFile method that directly reaches these entities from `&mut self` (or `&self`)",
+//! as soon as the caller enters through `file.borrow_mut()`, the entity's second borrow will panic:
 //!
-//! - [`ProjectFile::add_task`]：`TaskContainer::add` 会在内部 `Task::new_in_file(&file, ..)`，
-//!   而后者需要 `file.borrow()`。Rust 侧提供了等价的**免借用**入口
-//!   [`ProjectFile::add_task_shared`]（关联函数，接收文件句柄），请优先使用它。
-//! - [`ProjectFile::update_structure`]：`Task::generate_wbs` / `generate_outline_number`
-//!   会读取 `file.get_child_tasks()`（即再次借用父文件），从 `&mut self` 进入时必然冲突。
-//!   该问题需要 `Task` 侧改用 `try_borrow` 退化（或由调用方在不持有文件借用时驱动容器）
-//!   才能真正解决，此处仅作记录。
-//! - [`ProjectFile::expand_subprojects`] / `replace_external_tasks` / `replace_relations`：
-//!   `Task::expand_subproject` / `Task::add_predecessor` 会再次借用父文件。
-//!   外部项目读取回调（[`ExternalProjectContainer::set_project_reader`]）目前尚无调用方：
-//!   Java 的 `readFile` 用 `UniversalProjectReader`，而本 crate 没有该类 —— 它靠
-//!   `Class.forName` 反射遍历候选 reader 并按 `getFileFormat()` 试读分发，属类别性跳过项。
-//!   已落地的 [`crate::mpp::mpp_reader::MPPReader`] /
-//!   [`crate::mpx::mpx_reader::MPXReader`] 可由调用方按扩展名分派后接进该回调；
-//!   未接线时 `read_file` 恒返回 `None`（见其文件头），外部项目分支因此不会被执行，
-//!   接线后需要统一对齐借用策略。
-//! - [`ProjectFile::fix_unique_id_clashes`]：容器需要经 `ProjectContext`（关系容器已接线）
-//!   或父文件取序号生成器，两者都不可用时退化为「跳过」（容器内部使用 `try_borrow*`，不会 panic）。
+//! - [`ProjectFile::add_task`]: `TaskContainer::add` internally calls `Task::new_in_file(&file, ..)`,
+//!   but the latter needs `file.borrow()`. The Rust side provides an equivalent **borrow-free** entry point
+//!   [`ProjectFile::add_task_shared`] (an associated function that takes the file handle); prefer using it.
+//! - [`ProjectFile::update_structure`]:`Task::generate_wbs` / `generate_outline_number`
+//!   reads `file.get_child_tasks()` (that is, borrows the parent file again), which necessarily conflicts when entered from `&mut self`.
+//!   this problem requires the `Task` side to switch to `try_borrow` degradation (or the caller to drive the container while not holding a file borrow)
+//!   to be truly resolved; this is recorded here for reference only.
+//! - [`ProjectFile::expand_subprojects`] / `replace_external_tasks` / `replace_relations`:
+//!   `Task::expand_subproject` / `Task::add_predecessor` borrow the parent file again.
+//!   the external project read callback ([`ExternalProjectContainer::set_project_reader`]) currently has no caller:
+//!   Java's `readFile` uses `UniversalProjectReader`, but this crate does not have that class -- it relies on
+//!   `Class.forName` reflection to iterate over candidate readers and dispatch by trial-reading with `getFileFormat()`; this is a categorical skip.
+//!   the implemented [`crate::mpp::mpp_reader::MPPReader`] /
+//!   [`crate::mpx::mpx_reader::MPXReader`] can be dispatched by extension and wired into that callback by the caller;
+//!   when not wired, `read_file` always returns `None` (see its file header), so the external project branch is never executed,
+//!   and after wiring, the borrow strategy needs to be aligned consistently.
+//! - [`ProjectFile::fix_unique_id_clashes`]: containers need to obtain the sequence generator via `ProjectContext` (the relation container is already wired)
+//!   or via the parent file; when neither is available, it degrades to "skip" (containers use `try_borrow*` internally and will not panic).
 //!
-//! 这些限制与 `crate::task_container` / `crate::relation_container` 文件头记录的
-//! 「重入借用」说明一致，集成阶段需统一处理。
+//! These restrictions match the file-header notes of `crate::task_container` / `crate::relation_container`
+//! regarding "re-entrant borrow", and must be handled uniformly during integration.
 //!
-//! # 使用的模型层接口（均已落地，此处仅作索引）
+//! # Model-layer interfaces used (all implemented; listed here only as an index)
 //!
 //! ```text
 //! TableContainer::new() / FilterContainer::new() / GroupContainer::new() / ViewContainer::new()
 //! ```
-//! （对应 Java 的无参构造；展示层容器均已落地。）
+//! (Corresponds to Java's no-argument constructors; the presentation-layer containers are all implemented.)
 //!
-//! 另：[`ProjectFile::get_tasks`] 返回 `&TaskContainer`，而
-//! `crate::default_baseline_strategy` 用 `for task in project.get_tasks()` 迭代，
-//! 故本文件为 `&TaskContainer` 补了一个 `IntoIterator` 实现（见文件末尾），
-//! 语义等价于 Java 端 `TaskContainer` 本身即可迭代。
+//! Also: [`ProjectFile::get_tasks`] returns `&TaskContainer`, while
+//! `crate::default_baseline_strategy` iterates with `for task in project.get_tasks()`,
+//! so this file adds an `IntoIterator` implementation for `&TaskContainer` (see the end of the file),
+//! semantically equivalent to the Java-side `TaskContainer` being iterable itself.
 
 use std::any::TypeId;
 use std::cell::{Ref, RefCell};
@@ -162,105 +162,105 @@ use crate::user_defined_field_container::UserDefinedFieldContainer;
 use crate::view_container::ViewContainer;
 use crate::work_contour_container::WorkContourContainer;
 
-/// 一份项目计划。
+/// A project schedule.
 ///
-/// 对应 Java: `public final class ProjectFile implements ChildTaskContainer,
+/// Corresponds to Java: `public final class ProjectFile implements ChildTaskContainer,
 /// ChildResourceContainer, UniqueIdObjectSequenceProvider`
 pub struct ProjectFile {
-    /// 项目属性。
+    /// Project properties.
     ///
-    /// 对应 Java 字段: `private final ProjectProperties m_properties = new ProjectProperties(this);`
+    /// Corresponds to Java field: `private final ProjectProperties m_properties = new ProjectProperties(this);`
     properties: ProjectProperties,
 
-    /// 任务容器。
+    /// Task container.
     ///
-    /// 对应 Java 字段: `private final TaskContainer m_tasks = new TaskContainer(this);`
+    /// Corresponds to Java field: `private final TaskContainer m_tasks = new TaskContainer(this);`
     tasks: TaskContainer,
 
-    /// 资源分配容器。
+    /// Resource assignment container.
     ///
-    /// 对应 Java 字段: `private final ResourceAssignmentContainer m_assignments = new ResourceAssignmentContainer(this);`
+    /// Corresponds to Java field: `private final ResourceAssignmentContainer m_assignments = new ResourceAssignmentContainer(this);`
     assignments: ResourceAssignmentContainer,
 
-    /// 关系容器。
+    /// Relation container.
     ///
-    /// 对应 Java 字段: `private final RelationContainer m_relations = new RelationContainer(this);`
+    /// Corresponds to Java field: `private final RelationContainer m_relations = new RelationContainer(this);`
     relations: RelationContainer,
 
-    /// 表格容器。
+    /// Table container.
     ///
-    /// 对应 Java 字段: `private final TableContainer m_tables = new TableContainer();`
+    /// Corresponds to Java field: `private final TableContainer m_tables = new TableContainer();`
     tables: TableContainer,
 
-    /// 过滤器容器。
+    /// Filter container.
     ///
-    /// 对应 Java 字段: `private final FilterContainer m_filters = new FilterContainer();`
+    /// Corresponds to Java field: `private final FilterContainer m_filters = new FilterContainer();`
     filters: FilterContainer,
 
-    /// 分组容器。
+    /// Group container.
     ///
-    /// 对应 Java 字段: `private final GroupContainer m_groups = new GroupContainer();`
+    /// Corresponds to Java field: `private final GroupContainer m_groups = new GroupContainer();`
     groups: GroupContainer,
 
-    /// 视图容器。
+    /// View container.
     ///
-    /// 对应 Java 字段: `private final ViewContainer m_views = new ViewContainer();`
+    /// Corresponds to Java field: `private final ViewContainer m_views = new ViewContainer();`
     views: ViewContainer,
 
-    /// 数据链接容器。
+    /// Data link container.
     ///
-    /// 对应 Java 字段: `private final DataLinkContainer m_dataLinks = new DataLinkContainer();`
+    /// Corresponds to Java field: `private final DataLinkContainer m_dataLinks = new DataLinkContainer();`
     data_links: DataLinkContainer,
 
-    /// 外部（子）项目容器。
+    /// External (sub)project container.
     ///
-    /// 对应 Java 字段: `private final ExternalProjectContainer m_externalProjects = new ExternalProjectContainer(this);`
+    /// Corresponds to Java field: `private final ExternalProjectContainer m_externalProjects = new ExternalProjectContainer(this);`
     external_projects: ExternalProjectContainer,
 
-    /// 基线项目，按序号索引（0 为主基线，1..=10 为 Baseline1..Baseline10）。
+    /// Baseline projects, indexed by sequence number (0 is the primary baseline, 1..=10 are Baseline1..Baseline10).
     ///
-    /// 对应 Java 字段: `private final Map<Integer, ProjectFile> m_baselines = new TreeMap<>();`
+    /// Corresponds to Java field: `private final Map<Integer, ProjectFile> m_baselines = new TreeMap<>();`
     baselines: HashMap<i32, Rc<RefCell<ProjectFile>>>,
 
-    /// 当前项目的任务 unique ID → 基线项目任务（用于 `Task.getBaselineTask()`）。
+    /// Current project's task unique ID -> baseline project task (used by `Task.getBaselineTask()`).
     ///
-    /// 对应 Java 字段: `private final Map<Integer, Map<Task, Task>> m_baselineTaskMap = new HashMap<>();`
-    /// （内层键改用任务 unique ID，见文件头说明）
+    /// Corresponds to Java field: `private final Map<Integer, Map<Task, Task>> m_baselineTaskMap = new HashMap<>();`
+    /// (the inner key uses the task unique ID instead, see the file header)
     baseline_task_map: HashMap<i32, HashMap<i32, Rc<RefCell<Task>>>>,
 
-    /// 读取本项目时被忽略的错误。
+    /// Errors ignored while reading this project.
     ///
-    /// 对应 Java 字段: `private final List<Exception> m_ignoredErrors = new ArrayList<>();`
+    /// Corresponds to Java field: `private final List<Exception> m_ignoredErrors = new ArrayList<>();`
     ignored_errors: Vec<MpxjError>,
 
-    /// 项目上下文（强引用；上下文对本文件只存弱引用，故不成环）。
+    /// Project context (strong reference; the context stores only a weak reference to this file, so there is no cycle).
     ///
-    /// 对应 Java 字段: `private final ProjectContext m_context;`
+    /// Corresponds to Java field: `private final ProjectContext m_context;`
     context: Rc<RefCell<ProjectContext>>,
 
-    /// 自身句柄（弱引用，Rust 特有）：供 [`ProjectFile::get_self`] /
-    /// [`ProjectFile::find_project`] 在 `&self` 下取回 `Rc` 句柄。
+    /// Self handle (weak reference, Rust-specific): used by [`ProjectFile::get_self`] /
+    /// [`ProjectFile::find_project`] to retrieve the `Rc` handle from `&self`.
     self_ref: Weak<RefCell<ProjectFile>>,
 }
 
 impl ProjectFile {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `public ProjectFile()`
+    /// Corresponds to Java: `public ProjectFile()`
     ///
-    /// Rust 侧返回 `Rc<RefCell<ProjectFile>>`（循环引用与接线见文件头）。
+    /// The Rust side returns `Rc<RefCell<ProjectFile>>` (see the file header for cyclic references and wiring).
     pub fn new() -> Rc<RefCell<ProjectFile>> {
         // Java: this(new ProjectContext());
         ProjectFile::new_with_context(ProjectContext::shared())
     }
 
-    /// 构造方法（接受一个项目上下文）。
+    /// Constructor (accepts a project context).
     ///
-    /// 对应 Java: `public ProjectFile(ProjectContext context)`
+    /// Corresponds to Java: `public ProjectFile(ProjectContext context)`
     ///
-    /// 完整接线顺序见文件头。
+    /// See the file header for the full wiring order.
     pub fn new_with_context(context: Rc<RefCell<ProjectContext>>) -> Rc<RefCell<ProjectFile>> {
-        // 步骤 2：以空弱引用构造全部字段（此时 `Rc` 尚不存在）。
+        // Step 2: construct all fields with empty weak references (the `Rc` does not exist yet).
         let project = ProjectFile {
             properties: ProjectProperties::new(Weak::new()),
             tasks: TaskContainer::new(),
@@ -279,10 +279,10 @@ impl ProjectFile {
             self_ref: Weak::new(),
         };
 
-        // 步骤 3：得到文件句柄。
+        // Step 3: obtain the file handle.
         let file = Rc::new(RefCell::new(project));
 
-        // 步骤 4：回填与接线（必须在 `Rc` 存在之后）。
+        // Step 4: backfill and wire (must be after the `Rc` exists).
         {
             let mut file_ref = file.borrow_mut();
             file_ref.self_ref = Rc::downgrade(&file);
@@ -290,15 +290,15 @@ impl ProjectFile {
             file_ref.tasks.set_context(&file);
             file_ref.tasks.set_project_context(&context);
             file_ref.relations.set_context(&file);
-            // Rust 特有：`RelationContainer::set_context` 内部经 `try_borrow` 读上下文，
-            // 而此刻 `file` 正被可变借用（上面的 `file_ref`），必然读不到；关系容器的
-            // 自动 unique ID 需要 `ProjectContext`，故在此显式补接线。
+            // Rust-specific: `RelationContainer::set_context` reads the context internally via `try_borrow`,
+            // but at this moment `file` is mutably borrowed (the `file_ref` above), so the read necessarily fails; the relation container's
+            // automatic unique ID needs `ProjectContext`, so the wiring is completed explicitly here.
             file_ref.relations.set_project_context(&context);
             file_ref.external_projects.set_context(&file);
             file_ref.assignments.set_context(&context);
         }
 
-        // 步骤 5/6：登记到上下文，并补齐上下文各容器的反向接线（幂等）。
+        // Step 5/6: register with the context and complete the back-reference wiring of the context's containers (idempotent).
         {
             let mut context_ref = context.borrow_mut();
             context_ref.add_project(&file);
@@ -309,52 +309,52 @@ impl ProjectFile {
         file
     }
 
-    /// 取自身句柄（Rust 特有：Java 用隐含的 `this`）。
+    /// Get the self handle (Rust-specific: Java uses the implicit `this`).
     ///
-    /// 文件已释放（正常调用路径下不会发生）时返回 `None`。
+    /// Returns `None` when the file has been dropped (which does not happen on normal call paths).
     pub fn get_self(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.self_ref.upgrade()
     }
 
-    /// 取父项目上下文。
+    /// Get the parent project context.
     ///
-    /// 对应 Java: `public ProjectContext getProjectContext()`
+    /// Corresponds to Java: `public ProjectContext getProjectContext()`
     pub fn get_project_context(&self) -> Rc<RefCell<ProjectContext>> {
         Rc::clone(&self.context)
     }
 
-    /// 取项目配置。
+    /// Get the project configuration.
     ///
-    /// 对应 Java: `public ProjectConfig getProjectConfig()`
+    /// Corresponds to Java: `public ProjectConfig getProjectConfig()`
     ///
-    /// Rust 侧返回 `Ref`（配置由 [`ProjectContext`] 持有，见文件头差异表）。
+    /// The Rust side returns `Ref` (the configuration is held by [`ProjectContext`], see the differences table in the file header).
     pub fn get_project_config(&self) -> Ref<'_, ProjectConfig> {
         // Java: return m_context.getProjectConfig();
         Ref::map(self.context.borrow(), |context| context.get_project_config())
     }
 
-    /// 新建一个任务并加入文件（同时登记为项目顶层任务）。
+    /// Create a task and add it to the file (also registering it as a top-level project task).
     ///
-    /// 对应 Java: `@Override public Task addTask()`
+    /// Corresponds to Java: `@Override public Task addTask()`
     ///
-    /// 与 Java 一致，可在持有 `ProjectFile` 借用时调用 —— 容器侧建任务所需的配置与序号
-    /// 取自 `ProjectContext`，不会回调父文件（见 [`crate::TaskContainer::add`]）。
+    /// Consistent with Java, it can be called while holding a `ProjectFile` borrow -- the configuration and sequence number needed by the container to create the task
+    /// come from `ProjectContext`, so the parent file is not called back (see [`crate::TaskContainer::add`]).
     pub fn add_task(&mut self) -> Rc<RefCell<Task>> {
         // Java: return m_tasks.add();
         self.tasks.add()
     }
 
-    /// 新建一个任务并加入文件（Rust 特有：只持有文件句柄时的入口）。
+    /// Create a task and add it to the file (Rust-specific: the entry point when only the file handle is held).
     ///
-    /// 对应 Java: `@Override public Task addTask()`
+    /// Corresponds to Java: `@Override public Task addTask()`
     ///
-    /// 与 [`ProjectFile::add_task`] 行为一致，区别只是接收 `Rc<RefCell<ProjectFile>>`
-    /// 而非 `&mut ProjectFile`，便于在只有共享句柄的场景下使用。
+    /// Behaves the same as [`ProjectFile::add_task`]; the only difference is that it takes `Rc<RefCell<ProjectFile>>`
+    /// instead of `&mut ProjectFile`, making it convenient in scenarios where only a shared handle is available.
     pub fn add_task_shared(file: &Rc<RefCell<ProjectFile>>) -> Rc<RefCell<Task>> {
         // Java: Task task = new Task(m_projectFile, null);
         let task = Rc::new(RefCell::new(Task::new_in_file(file, None)));
 
-        // Java: TaskContainer.add() 的两步：加入容器 + 登记为项目顶层任务
+        // Java: the two steps of TaskContainer.add(): add to the container + register as a top-level project task
         {
             let mut file_ref = file.borrow_mut();
             file_ref.tasks.add_task(Rc::clone(&task));
@@ -367,91 +367,91 @@ impl ProjectFile {
         task
     }
 
-    /// 从项目中移除一个任务。
+    /// Remove a task from the project.
     ///
-    /// 对应 Java: `public void removeTask(Task task)`
+    /// Corresponds to Java: `public void removeTask(Task task)`
     pub fn remove_task(&mut self, task: &Rc<RefCell<Task>>) {
         // Java: m_tasks.remove(task);
         self.tasks.remove_task(task);
     }
 
-    /// 取全部顶层任务（快照）。
+    /// Get all top-level tasks (a snapshot).
     ///
-    /// 对应 Java: `@Override public List<Task> getChildTasks()`
+    /// Corresponds to Java: `@Override public List<Task> getChildTasks()`
     pub fn get_child_tasks(&self) -> Vec<Rc<RefCell<Task>>> {
         // Java: return m_tasks.getChildTasks();
         self.tasks.get_child_tasks().to_vec()
     }
 
-    /// 取全部顶层资源（快照）。
+    /// Get all top-level resources (a snapshot).
     ///
-    /// 对应 Java: `@Override public List<Resource> getChildResources()`
+    /// Corresponds to Java: `@Override public List<Resource> getChildResources()`
     pub fn get_child_resources(&self) -> Vec<Rc<RefCell<Resource>>> {
         // Java: return m_context.getResources().getChildResources();
         self.context.borrow().get_resources().get_child_resources()
     }
 
-    /// 取任务容器。
+    /// Get the task container.
     ///
-    /// 对应 Java: `public TaskContainer getTasks()`
+    /// Corresponds to Java: `public TaskContainer getTasks()`
     pub fn get_tasks(&self) -> &TaskContainer {
         &self.tasks
     }
 
-    /// 取任务容器的可变引用（Rust 特有：Java 的 getter 返回可变容器）。
+    /// Get a mutable reference to the task container (Rust-specific: Java's getter returns a mutable container).
     pub fn get_tasks_mut(&mut self) -> &mut TaskContainer {
         &mut self.tasks
     }
 
-    /// 新建一个日历。
+    /// Create a calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar addCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar addCalendar()`
     pub fn add_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().add();
         self.context.borrow_mut().add_calendar()
     }
 
-    /// 移除一个日历（返回是否命中；Java 返回 `void`）。
+    /// Remove a calendar (returns whether it was found; Java returns `void`).
     ///
-    /// 对应 Java: `public void removeCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void removeCalendar(ProjectCalendar calendar)`
     pub fn remove_calendar(&mut self, calendar: &Rc<RefCell<ProjectCalendar>>) -> bool {
         // Java: m_context.getCalendars().remove(calendar);
         let context = Rc::clone(&self.context);
         let mut context_ref = context.borrow_mut();
         let Ok(calendar_ref) = calendar.try_borrow() else {
-            // Java 无此分支；Rust 侧日历正被可变借用时无法做指针同一性比较
+            // Java has no such branch; on the Rust side, pointer identity comparison is impossible while the calendar is mutably borrowed
             return false;
         };
         context_ref.get_calendars_mut().remove(&calendar_ref)
     }
 
-    /// 新建名为 “Standard” 的基准日历，并填入默认工作周与默认工作时段。
+    /// Create a base calendar named "Standard" and fill in the default working week and default working hours.
     ///
-    /// 对应 Java: `public ProjectCalendar addDefaultBaseCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar addDefaultBaseCalendar()`
     pub fn add_default_base_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().addDefaultBaseCalendar();
         self.context.borrow_mut().add_default_base_calendar()
     }
 
-    /// 新建一个默认派生日历。
+    /// Create a default derived calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar addDefaultDerivedCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar addDefaultDerivedCalendar()`
     pub fn add_default_derived_calendar(&mut self) -> Rc<RefCell<ProjectCalendar>> {
         // Java: return m_context.getCalendars().addDefaultDerivedCalendar();
         self.context.borrow_mut().add_default_derived_calendar()
     }
 
-    /// 取日历容器。
+    /// Get the calendar container.
     ///
-    /// 对应 Java: `public ProjectCalendarContainer getCalendars()`
+    /// Corresponds to Java: `public ProjectCalendarContainer getCalendars()`
     pub fn get_calendars(&self) -> Ref<'_, ProjectCalendarContainer> {
         // Java: return m_context.getCalendars();
         Ref::map(self.context.borrow(), |context| context.get_calendars())
     }
 
-    /// 取全部全局日历，以及与本项目相关的项目级日历。
+    /// Get all global calendars, together with the project-level calendars related to this project.
     ///
-    /// 对应 Java: `public List<ProjectCalendar> getCalendarsForProject()`
+    /// Corresponds to Java: `public List<ProjectCalendar> getCalendarsForProject()`
     pub fn get_calendars_for_project(&self) -> Vec<Rc<RefCell<ProjectCalendar>>> {
         // Java:
         // m_context.getCalendars().stream()
@@ -468,36 +468,36 @@ impl ProjectFile {
                     calendar.get_type() != CalendarType::Project
                         || calendar.get_project_unique_id() == unique_id
                 }
-                // Java 无此分支（元素必然可读）；Rust 侧避免借用冲突
+                // Java has no such branch (the element is necessarily readable); the Rust side avoids a borrow conflict
                 Err(_) => false,
             })
             .cloned()
             .collect()
     }
 
-    /// 取项目属性。
+    /// Get the project properties.
     ///
-    /// 对应 Java: `public ProjectProperties getProjectProperties()`
+    /// Corresponds to Java: `public ProjectProperties getProjectProperties()`
     pub fn get_project_properties(&self) -> &ProjectProperties {
         &self.properties
     }
 
-    /// 取项目属性的可变引用（Rust 特有：Java 的 getter 返回可变对象）。
+    /// Get a mutable reference to the project properties (Rust-specific: Java's getter returns a mutable object).
     pub fn get_project_properties_mut(&mut self) -> &mut ProjectProperties {
         &mut self.properties
     }
 
-    /// 新建一个资源。
+    /// Create a resource.
     ///
-    /// 对应 Java: `@Override public Resource addResource()`
+    /// Corresponds to Java: `@Override public Resource addResource()`
     pub fn add_resource(&mut self) -> Rc<RefCell<Resource>> {
         // Java: return m_context.getResources().add();
         self.context.borrow_mut().get_resources_mut().add()
     }
 
-    /// 移除一个资源（返回是否命中；Java 返回 `void`）。
+    /// Remove a resource (returns whether it was found; Java returns `void`).
     ///
-    /// 对应 Java: `public void removeResource(Resource resource)`
+    /// Corresponds to Java: `public void removeResource(Resource resource)`
     pub fn remove_resource(&mut self, resource: &Rc<RefCell<Resource>>) -> bool {
         // Java: m_context.getResources().remove(resource);
         self.context
@@ -506,41 +506,41 @@ impl ProjectFile {
             .remove_resource(resource)
     }
 
-    /// 取资源容器。
+    /// Get the resource container.
     ///
-    /// 对应 Java: `public ResourceContainer getResources()`
+    /// Corresponds to Java: `public ResourceContainer getResources()`
     pub fn get_resources(&self) -> Ref<'_, ResourceContainer> {
         // Java: return m_context.getResources();
         Ref::map(self.context.borrow(), |context| context.get_resources())
     }
 
-    /// 取资源分配容器。
+    /// Get the resource assignment container.
     ///
-    /// 对应 Java: `public ResourceAssignmentContainer getResourceAssignments()`
+    /// Corresponds to Java: `public ResourceAssignmentContainer getResourceAssignments()`
     pub fn get_resource_assignments(&self) -> &ResourceAssignmentContainer {
         &self.assignments
     }
 
-    /// 取资源分配容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the resource assignment container (Rust-specific).
     pub fn get_resource_assignments_mut(&mut self) -> &mut ResourceAssignmentContainer {
         &mut self.assignments
     }
 
-    /// 取关系容器。
+    /// Get the relation container.
     ///
-    /// 对应 Java: `public RelationContainer getRelations()`
+    /// Corresponds to Java: `public RelationContainer getRelations()`
     pub fn get_relations(&self) -> &RelationContainer {
         &self.relations
     }
 
-    /// 取关系容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the relation container (Rust-specific).
     pub fn get_relations_mut(&mut self) -> &mut RelationContainer {
         &mut self.relations
     }
 
-    /// 按名称取日历；找不到时返回 `None`。
+    /// Get a calendar by name; returns `None` when not found.
     ///
-    /// 对应 Java: `public ProjectCalendar getCalendarByName(String calendarName)`
+    /// Corresponds to Java: `public ProjectCalendar getCalendarByName(String calendarName)`
     pub fn get_calendar_by_name(&self, calendar_name: Option<&str>) -> Option<Rc<RefCell<ProjectCalendar>>> {
         // Java: return m_context.getCalendars().getByName(calendarName);
         self.context
@@ -549,9 +549,9 @@ impl ProjectFile {
             .get_by_name(calendar_name)
     }
 
-    /// 按唯一 ID 取日历；找不到时返回 `None`。
+    /// Get a calendar by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public ProjectCalendar getCalendarByUniqueID(Integer calendarID)`
+    /// Corresponds to Java: `public ProjectCalendar getCalendarByUniqueID(Integer calendarID)`
     pub fn get_calendar_by_unique_id(
         &self,
         calendar_id: Option<i32>,
@@ -563,49 +563,49 @@ impl ProjectFile {
             .get_by_unique_id(calendar_id)
     }
 
-    /// 按 ID 取任务；找不到时返回 `None`。
+    /// Get a task by ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public Task getTaskByID(Integer id)`
+    /// Corresponds to Java: `public Task getTaskByID(Integer id)`
     pub fn get_task_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Task>>> {
         // Java: return m_tasks.getByID(id);
         self.tasks.get_by_id(id)
     }
 
-    /// 按唯一 ID 取任务；找不到时返回 `None`。
+    /// Get a task by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public Task getTaskByUniqueID(Integer id)`
+    /// Corresponds to Java: `public Task getTaskByUniqueID(Integer id)`
     pub fn get_task_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Task>>> {
         // Java: return m_tasks.getByUniqueID(id);
         self.tasks.get_by_unique_id(id)
     }
 
-    /// 按 ID 取资源；找不到时返回 `None`。
+    /// Get a resource by ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public Resource getResourceByID(Integer id)`
+    /// Corresponds to Java: `public Resource getResourceByID(Integer id)`
     pub fn get_resource_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Resource>>> {
         // Java: return m_context.getResources().getByID(id);
         self.context.borrow().get_resources().get_by_id(id)
     }
 
-    /// 按唯一 ID 取资源；找不到时返回 `None`。
+    /// Get a resource by unique ID; returns `None` when not found.
     ///
-    /// 对应 Java: `public Resource getResourceByUniqueID(Integer id)`
+    /// Corresponds to Java: `public Resource getResourceByUniqueID(Integer id)`
     pub fn get_resource_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Resource>>> {
         // Java: return m_context.getResources().getByUniqueID(id);
         self.context.borrow().get_resources().get_by_unique_id(id)
     }
 
-    /// 从头重建项目文件的任务 / 资源层级结构。
+    /// Rebuild the task / resource hierarchy of the project file from scratch.
     ///
-    /// 对应 Java: `public void updateStructure()`
+    /// Corresponds to Java: `public void updateStructure()`
     pub fn update_structure(&mut self) {
         // Java: m_tasks.updateStructure(); m_context.getResources().updateStructure();
         //
-        // Rust 侧的重入借用限制：Java 的 `TaskContainer.updateStructure()` 内部会回调
-        // `m_projectFile` 读取 `ProjectConfig` 的自动编号开关。`ProjectConfig` 存放在
-        // `ProjectContext` 的 `RefCell` 中（与调用方持有的 `ProjectFile` 借用互不冲突），
-        // 故先把三个开关读出来、再以参数形式传给容器；容器侧因此不再回调父文件，
-        // 无需把任务容器临时移出 `ProjectFile`。
+        // Rust-side re-entrant borrow restriction: Java's `TaskContainer.updateStructure()` internally calls back into
+        // `m_projectFile` to read `ProjectConfig`'s automatic numbering flags. `ProjectConfig` is stored in
+        // `ProjectContext`'s `RefCell` (which does not conflict with the `ProjectFile` borrow held by the caller),
+        // so the three flags are read out first and passed to the container as arguments; the container thus no longer calls back into the parent file,
+        // and there is no need to temporarily move the task container out of `ProjectFile`.
         let (auto_wbs, auto_outline_number, auto_outline_level) = {
             let config = self.get_project_config();
             (
@@ -624,9 +624,9 @@ impl ProjectFile {
             .update_structure();
     }
 
-    /// 取最早的任务开始日期。
+    /// Get the earliest task start date.
     ///
-    /// 对应 Java: `public LocalDateTime getEarliestStartDate()`
+    /// Corresponds to Java: `public LocalDateTime getEarliestStartDate()`
     pub fn get_earliest_start_date(&self) -> Option<NaiveDateTime> {
         // Java: m_tasks.stream().map(this::getStartDate).filter(Objects::nonNull)
         //       .min(Comparator.naturalOrder()).orElse(null);
@@ -636,9 +636,9 @@ impl ProjectFile {
             .min()
     }
 
-    /// 计算项目的实际开始日期。
+    /// Calculate the project's actual start date.
     ///
-    /// 对应 Java: `LocalDateTime getActualStart()`
+    /// Corresponds to Java: `LocalDateTime getActualStart()`
     pub(crate) fn get_actual_start(&self) -> Option<NaiveDateTime> {
         // Java: m_tasks.stream().map(Task::getActualStart).filter(Objects::nonNull)
         //       .min(Comparator.naturalOrder()).orElse(null);
@@ -648,9 +648,9 @@ impl ProjectFile {
             .min()
     }
 
-    /// 计算项目的实际完成日期（任一任务缺少实际完成时间时返回 `None`）。
+    /// Calculate the project's actual finish date (returns `None` when any task is missing an actual finish time).
     ///
-    /// 对应 Java: `LocalDateTime getActualFinish()`
+    /// Corresponds to Java: `LocalDateTime getActualFinish()`
     pub(crate) fn get_actual_finish(&self) -> Option<NaiveDateTime> {
         // Java:
         // if (m_tasks.stream().map(Task::getActualFinish).anyMatch(Objects::isNull)) { return null; }
@@ -669,9 +669,9 @@ impl ProjectFile {
         result
     }
 
-    /// 取最晚的任务完成日期。
+    /// Get the latest task finish date.
     ///
-    /// 对应 Java: `public LocalDateTime getLatestFinishDate()`
+    /// Corresponds to Java: `public LocalDateTime getLatestFinishDate()`
     pub fn get_latest_finish_date(&self) -> Option<NaiveDateTime> {
         // Java: m_tasks.stream().map(this::getFinishDate).filter(Objects::nonNull)
         //       .max(Comparator.naturalOrder()).orElse(null);
@@ -681,9 +681,9 @@ impl ProjectFile {
             .max()
     }
 
-    /// 取某个任务用于「项目开始日期」的日期。
+    /// Get the date a task uses for the "project start date".
     ///
-    /// 对应 Java: `private LocalDateTime getStartDate(Task task)`
+    /// Corresponds to Java: `private LocalDateTime getStartDate(Task task)`
     fn start_date(&self, task: &Rc<RefCell<Task>>) -> Option<NaiveDateTime> {
         // Java: if (NumberHelper.getInt(task.getUniqueID()) == 0) { return null; }
         if NumberHelper::get_int(
@@ -693,8 +693,8 @@ impl ProjectFile {
             return None;
         }
 
-        // Java: 里程碑取「实际完成时间，缺失时取计划完成时间」；非里程碑取
-        //       「实际开始时间，缺失时取计划开始时间」。
+        // Java: for a milestone, use the actual finish time, falling back to the planned finish time; for a non-milestone, use
+        //       the actual start time, falling back to the planned start time.
         let milestone = read_task(task, |task| task.get_milestone()).unwrap_or(false);
         if milestone {
             read_task(task, |task| task.get_actual_finish())
@@ -707,9 +707,9 @@ impl ProjectFile {
         }
     }
 
-    /// 取某个任务用于「项目完成日期」的日期。
+    /// Get the date a task uses for the "project finish date".
     ///
-    /// 对应 Java: `private LocalDateTime getFinishDate(Task task)`
+    /// Corresponds to Java: `private LocalDateTime getFinishDate(Task task)`
     fn finish_date(&self, task: &Rc<RefCell<Task>>) -> Option<NaiveDateTime> {
         // Java: if (NumberHelper.getInt(task.getUniqueID()) == 0) { return null; }
         if NumberHelper::get_int(
@@ -726,103 +726,103 @@ impl ProjectFile {
             .or_else(|| read_task(task, |task| task.get_finish()).flatten())
     }
 
-    /// 取视图容器。
+    /// Get the view container.
     ///
-    /// 对应 Java: `public ViewContainer getViews()`
+    /// Corresponds to Java: `public ViewContainer getViews()`
     pub fn get_views(&self) -> &ViewContainer {
         &self.views
     }
 
-    /// 取视图容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the view container (Rust-specific).
     pub fn get_views_mut(&mut self) -> &mut ViewContainer {
         &mut self.views
     }
 
-    /// 取表格容器。
+    /// Get the table container.
     ///
-    /// 对应 Java: `public TableContainer getTables()`
+    /// Corresponds to Java: `public TableContainer getTables()`
     pub fn get_tables(&self) -> &TableContainer {
         &self.tables
     }
 
-    /// 取表格容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the table container (Rust-specific).
     pub fn get_tables_mut(&mut self) -> &mut TableContainer {
         &mut self.tables
     }
 
-    /// 取过滤器容器。
+    /// Get the filter container.
     ///
-    /// 对应 Java: `public FilterContainer getFilters()`
+    /// Corresponds to Java: `public FilterContainer getFilters()`
     pub fn get_filters(&self) -> &FilterContainer {
         &self.filters
     }
 
-    /// 取过滤器容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the filter container (Rust-specific).
     pub fn get_filters_mut(&mut self) -> &mut FilterContainer {
         &mut self.filters
     }
 
-    /// 取分组容器。
+    /// Get the group container.
     ///
-    /// 对应 Java: `public GroupContainer getGroups()`
+    /// Corresponds to Java: `public GroupContainer getGroups()`
     pub fn get_groups(&self) -> &GroupContainer {
         &self.groups
     }
 
-    /// 取分组容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the group container (Rust-specific).
     pub fn get_groups_mut(&mut self) -> &mut GroupContainer {
         &mut self.groups
     }
 
-    /// 取事件管理器。
+    /// Get the event manager.
     ///
-    /// 对应 Java: `public EventManager getEventManager()`
+    /// Corresponds to Java: `public EventManager getEventManager()`
     pub fn get_event_manager(&self) -> Ref<'_, EventManager> {
         // Java: return m_context.getEventManager();
         Ref::map(self.context.borrow(), |context| context.get_event_manager())
     }
 
-    /// 取自定义字段容器。
+    /// Get the custom field container.
     ///
-    /// 对应 Java: `public CustomFieldContainer getCustomFields()`
+    /// Corresponds to Java: `public CustomFieldContainer getCustomFields()`
     ///
-    /// [`CustomFieldContainer`] 由上下文以 `Rc<RefCell<..>>` 持有，故直接返回共享句柄。
+    /// [`CustomFieldContainer`] is held by the context as `Rc<RefCell<..>>`, so the shared handle is returned directly.
     pub fn get_custom_fields(&self) -> Rc<RefCell<CustomFieldContainer>> {
         // Java: return m_context.getCustomFields();
         self.context.borrow().get_custom_fields()
     }
 
-    /// 取班次容器。
+    /// Get the shift container.
     ///
-    /// 对应 Java: `public ShiftContainer getShifts()`
+    /// Corresponds to Java: `public ShiftContainer getShifts()`
     pub fn get_shifts(&self) -> Ref<'_, ShiftContainer> {
         // Java: return m_context.getShifts();
         Ref::map(self.context.borrow(), |context| context.get_shifts())
     }
 
-    /// 取班次时段容器。
+    /// Get the shift period container.
     ///
-    /// 对应 Java: `public ShiftPeriodContainer getShiftPeriods()`
+    /// Corresponds to Java: `public ShiftPeriodContainer getShiftPeriods()`
     pub fn get_shift_periods(&self) -> Ref<'_, ShiftPeriodContainer> {
         // Java: return m_context.getShiftPeriods();
         Ref::map(self.context.borrow(), |context| context.get_shift_periods())
     }
 
-    /// 取数据链接容器。
+    /// Get the data link container.
     ///
-    /// 对应 Java: `public DataLinkContainer getDataLinks()`
+    /// Corresponds to Java: `public DataLinkContainer getDataLinks()`
     pub fn get_data_links(&self) -> &DataLinkContainer {
         &self.data_links
     }
 
-    /// 取数据链接容器的可变引用（Rust 特有）。
+    /// Get a mutable reference to the data link container (Rust-specific).
     pub fn get_data_links_mut(&mut self) -> &mut DataLinkContainer {
         &mut self.data_links
     }
 
-    /// 取用户自定义字段容器。
+    /// Get the user-defined field container.
     ///
-    /// 对应 Java: `public UserDefinedFieldContainer getUserDefinedFields()`
+    /// Corresponds to Java: `public UserDefinedFieldContainer getUserDefinedFields()`
     pub fn get_user_defined_fields(&self) -> Ref<'_, UserDefinedFieldContainer> {
         // Java: return m_context.getUserDefinedFields();
         Ref::map(self.context.borrow(), |context| {
@@ -830,10 +830,10 @@ impl ProjectFile {
         })
     }
 
-    /// 返回任务、资源与分配中至少有一个非默认缓存值的字段。
+    /// Return the fields that have at least one non-default cached value among tasks, resources and assignments.
     ///
-    /// 对应 Java: `UserDefinedFieldMap` 构造函数依次合并三个容器的
-    /// `getPopulatedFields()`；本方法在持有父文件借用时收集句柄并统一扫描。
+    /// Corresponds to Java: the `UserDefinedFieldMap` constructor merges the
+    /// `getPopulatedFields()` of the three containers in turn; this method collects the handles while holding the parent file borrow and scans them uniformly.
     pub fn get_populated_entity_fields(&self) -> std::collections::HashSet<FieldKey> {
         let defaults = Defaults::from_project_properties(&self.properties);
         let (custom_tasks, custom_resources, custom_assignments) = {
@@ -855,9 +855,9 @@ impl ProjectFile {
         result
     }
 
-    /// 返回项目四类实体中至少有一个非默认缓存值的字段。
+    /// Return the fields that have at least one non-default cached value among the project's four entity types.
     ///
-    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`。
+    /// Corresponds to Java: `public Set<FieldType> getPopulatedFields()`.
     pub fn get_populated_fields(&self) -> std::collections::HashSet<FieldKey> {
         let mut result = self.get_populated_entity_fields();
         let custom = self.context.try_borrow().map(|context| {
@@ -868,42 +868,42 @@ impl ProjectFile {
         result
     }
 
-    /// 取工时分布容器。
+    /// Get the work contour container.
     ///
-    /// 对应 Java: `public WorkContourContainer getWorkContours()`
+    /// Corresponds to Java: `public WorkContourContainer getWorkContours()`
     pub fn get_work_contours(&self) -> Ref<'_, WorkContourContainer> {
         // Java: return m_context.getWorkContours();
         Ref::map(self.context.borrow(), |context| context.get_work_contours())
     }
 
-    /// 取笔记主题容器。
+    /// Get the notes topic container.
     ///
-    /// 对应 Java: `public NotesTopicContainer getNotesTopics()`
+    /// Corresponds to Java: `public NotesTopicContainer getNotesTopics()`
     pub fn get_notes_topics(&self) -> Ref<'_, NotesTopicContainer> {
         // Java: return m_context.getNotesTopics();
         Ref::map(self.context.borrow(), |context| context.get_notes_topics())
     }
 
-    /// 取计量单位容器。
+    /// Get the unit of measure container.
     ///
-    /// 对应 Java: `public UnitOfMeasureContainer getUnitsOfMeasure()`
+    /// Corresponds to Java: `public UnitOfMeasureContainer getUnitsOfMeasure()`
     pub fn get_units_of_measure(&self) -> Ref<'_, UnitOfMeasureContainer> {
         // Java: return m_context.getUnitsOfMeasure();
         Ref::map(self.context.borrow(), |context| context.get_units_of_measure())
     }
 
-    /// 取默认日历：按项目属性中的日历名查找，找不到时取项目的第一个日历，
-    /// 项目没有日历时新建一个默认基准日历。
+    /// Get the default calendar: look it up by the calendar name in the project properties; if not found, take the project's first calendar,
+    /// and if the project has no calendars, create a new default base calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar getDefaultCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getDefaultCalendar()`
     pub fn get_default_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         // Java: return getProjectProperties().getDefaultCalendar();
         self.properties.get_default_calendar()
     }
 
-    /// 设置默认日历（传入 `None` 时不修改，等价 Java 的 `null` 判断）。
+    /// Set the default calendar (passing `None` does not modify it, equivalent to Java's `null` check).
     ///
-    /// 对应 Java: `public void setDefaultCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void setDefaultCalendar(ProjectCalendar calendar)`
     pub fn set_default_calendar(&mut self, calendar: Option<Rc<RefCell<ProjectCalendar>>>) {
         // Java: if (calendar != null) { m_properties.setDefaultCalendar(calendar); }
         if let Some(calendar) = calendar {
@@ -915,9 +915,9 @@ impl ProjectFile {
         }
     }
 
-    /// 取用于时相基线计算的内部日历：先找基线日历名对应的日历，找不到时退回默认日历。
+    /// Get the internal calendar used for timephased baseline calculation: first find the calendar matching the baseline calendar name, falling back to the default calendar when not found.
     ///
-    /// 对应 Java: `public ProjectCalendar getBaselineCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getBaselineCalendar()`
     pub fn get_baseline_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         // Java:
         // ProjectCalendar result = getCalendarByName(m_properties.getBaselineCalendarName());
@@ -928,35 +928,35 @@ impl ProjectFile {
             .or_else(|| self.get_default_calendar())
     }
 
-    /// 取本项目的基线项目（键为基线序号）。
+    /// Get this project's baseline projects (keyed by baseline sequence number).
     ///
-    /// 对应 Java: `public Map<Integer, ProjectFile> getBaselines()`
+    /// Corresponds to Java: `public Map<Integer, ProjectFile> getBaselines()`
     pub fn get_baselines(&self) -> &HashMap<i32, Rc<RefCell<ProjectFile>>> {
         &self.baselines
     }
 
-    /// 把给定项目存为**默认**基线，并用它填充本项目任务的 baseline 属性。
+    /// Store the given project as the **default** baseline and use it to populate the baseline properties of this project's tasks.
     ///
-    /// 对应 Java: `public void setBaseline(ProjectFile baseline)`
+    /// Corresponds to Java: `public void setBaseline(ProjectFile baseline)`
     pub fn set_default_baseline(&mut self, baseline: &Rc<RefCell<ProjectFile>>) {
         // Java: setBaseline(baseline, 0);
         self.set_baseline(baseline, 0);
     }
 
-    /// 取默认基线项目。
+    /// Get the default baseline project.
     ///
-    /// 对应 Java: `public ProjectFile getBaseline()`
+    /// Corresponds to Java: `public ProjectFile getBaseline()`
     pub fn get_default_baseline(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         // Java: return getBaseline(0);
         self.get_baseline(0)
     }
 
-    /// 把给定项目存为 baselineN，并用它填充本项目任务的 baseline 属性。
+    /// Store the given project as baselineN and use it to populate the baseline properties of this project's tasks.
     ///
-    /// 对应 Java: `public void setBaseline(ProjectFile baseline, int index)`
+    /// Corresponds to Java: `public void setBaseline(ProjectFile baseline, int index)`
     ///
-    /// `index` 为 `0` 时填充默认基线，`1..=10` 填充 Baseline1..Baseline10；
-    /// 其余下标只保存、不解释（与 Java 一致）。
+    /// When `index` is `0`, populate the default baseline; `1..=10` populate Baseline1..Baseline10;
+    /// other indices are only stored and not interpreted (consistent with Java).
     pub fn set_baseline(&mut self, baseline: &Rc<RefCell<ProjectFile>>, index: i32) {
         // Java: m_baselines.put(Integer.valueOf(index), baseline);
         self.baselines.insert(index, Rc::clone(baseline));
@@ -978,8 +978,8 @@ impl ProjectFile {
 
             // Java: getProjectConfig().getBaselineStrategy().populateBaseline(this, baseline, index);
             //
-            // Rust 侧先克隆上下文句柄，使策略引用不借用 `self`，从而可以在下面
-            // 把 `self` 作为 `&mut ProjectFile` 传给策略（见文件头「重入借用」说明）。
+            // The Rust side first clones the context handle so that the strategy reference does not borrow `self`, allowing `self` to be passed below
+            // as `&mut ProjectFile` to the strategy (see the "re-entrant borrow" notes in the file header).
             let context = Rc::clone(&self.context);
             let context_ref = context.borrow();
             let config = context_ref.get_project_config();
@@ -991,25 +991,25 @@ impl ProjectFile {
         }
     }
 
-    /// 取 baselineN（`0` 表示主基线，`1..=10` 表示 Baseline1..Baseline10）。
+    /// Get baselineN (`0` means the primary baseline, `1..=10` mean Baseline1..Baseline10).
     ///
-    /// 对应 Java: `public ProjectFile getBaseline(int index)`
+    /// Corresponds to Java: `public ProjectFile getBaseline(int index)`
     pub fn get_baseline(&self, index: i32) -> Option<Rc<RefCell<ProjectFile>>> {
         // Java: return m_baselines.get(Integer.valueOf(index));
         self.baselines.get(&index).cloned()
     }
 
-    /// 清除默认基线。
+    /// Clear the default baseline.
     ///
-    /// 对应 Java: `public void clearBaseline()`
+    /// Corresponds to Java: `public void clearBaseline()`
     pub fn clear_default_baseline(&mut self) {
         // Java: clearBaseline(0);
         self.clear_baseline(0);
     }
 
-    /// 清除 baselineN 的属性（不把它从 `m_baselines` 中移除，与 Java 一致）。
+    /// Clear the baselineN properties (does not remove it from `m_baselines`, consistent with Java).
     ///
-    /// 对应 Java: `public void clearBaseline(int index)`
+    /// Corresponds to Java: `public void clearBaseline(int index)`
     pub fn clear_baseline(&mut self, index: i32) {
         // Java: getProjectConfig().getBaselineStrategy().clearBaseline(this, index);
         let context = Rc::clone(&self.context);
@@ -1021,11 +1021,11 @@ impl ProjectFile {
         strategy.clear_baseline(self, index);
     }
 
-    /// 设置「本项目任务 → 基线任务」的映射（新增基线时由策略填充）。
+    /// Set the mapping from "this project's tasks -> baseline tasks" (populated by the strategy when a baseline is added).
     ///
-    /// 对应 Java: `void setBaselineTaskMap(int index, Map<Task, Task> map)`
+    /// Corresponds to Java: `void setBaselineTaskMap(int index, Map<Task, Task> map)`
     ///
-    /// 内层键为当前项目任务的 unique ID（见文件头说明）。
+    /// The inner key is the current project task's unique ID (see the file header).
     pub fn set_baseline_task_map(
         &mut self,
         index: i32,
@@ -1035,22 +1035,22 @@ impl ProjectFile {
         self.baseline_task_map.insert(index, map);
     }
 
-    /// 取「本项目任务 unique ID → 基线任务」的映射；未设置时返回空映射。
+    /// Get the mapping "this project's task unique ID -> baseline task"; returns an empty map when not set.
     ///
-    /// 对应 Java: `Map<Task, Task> getBaselineTaskMap(int index)`
+    /// Corresponds to Java: `Map<Task, Task> getBaselineTaskMap(int index)`
     pub fn get_baseline_task_map(&self, index: i32) -> HashMap<i32, Rc<RefCell<Task>>> {
         // Java: return m_baselineTaskMap.getOrDefault(Integer.valueOf(index), Collections.emptyMap());
         self.baseline_task_map.get(&index).cloned().unwrap_or_default()
     }
 
-    /// 递归展开当前文件及其子项目中的全部子项目（把子项目任务挂到原「子项目任务」下）。
+    /// Recursively expand all subprojects in this file and its subprojects (attaching the subproject tasks under the original "subproject task").
     ///
-    /// 对应 Java: `public void expandSubprojects(boolean replaceExternalTasks)`
+    /// Corresponds to Java: `public void expandSubprojects(boolean replaceExternalTasks)`
     ///
-    /// `replace_external_tasks` 为 `true` 时，还会把指向外部任务的
-    /// 前驱 / 后继关系改写为指向原始任务，并移除不再需要的外部任务占位符。
+    /// When `replace_external_tasks` is `true`, it also rewrites the
+    /// predecessor / successor relations pointing to external tasks so that they point to the original tasks, and removes external task placeholders that are no longer needed.
     ///
-    /// 注意重入借用限制（见文件头）。
+    /// Note the re-entrant borrow restriction (see the file header).
     pub fn expand_subprojects(&mut self, replace_external_tasks: bool) {
         // Java: getTasks().stream().map(Task::expandSubproject).filter(Objects::nonNull)
         //       .forEach(p -> p.expandSubprojects(replaceExternalTasks));
@@ -1058,7 +1058,7 @@ impl ProjectFile {
         let mut expanded_projects: Vec<Rc<RefCell<ProjectFile>>> = Vec::new();
 
         for task in tasks {
-            // Java 的 Task.expandSubproject() 对非外部任务返回 null，这里等价地跳过。
+            // Java's Task.expandSubproject() returns null for a non-external task; here it is equivalently skipped.
             let subproject_file = match task.try_borrow() {
                 Ok(task_ref) => {
                     if !task_ref.get_external_task() && !task_ref.get_external_project() {
@@ -1066,12 +1066,12 @@ impl ProjectFile {
                     }
                     task_ref.get_subproject_file()
                 }
-                // Java 无此分支；Rust 侧避免借用冲突
+                // Java has no such branch; the Rust side avoids a borrow conflict
                 Err(_) => continue,
             };
 
-            // Java: Task.expandSubproject() 内部经 getSubprojectObject() 读取外部项目
-            //（结果会被 ExternalProjectContainer 缓存）。读取不到时等价于 Java 返回 null。
+            // Java: Task.expandSubproject() reads the external project internally via getSubprojectObject()
+            // (the result is cached by ExternalProjectContainer). When it cannot be read, it is equivalent to Java returning null.
             let Some(project) = self.external_projects.read(subproject_file.as_deref()) else {
                 continue;
             };
@@ -1097,10 +1097,10 @@ impl ProjectFile {
         }
     }
 
-    /// 把指向外部任务的（前驱 / 后继）关系改写为指向跨项目的正确任务，并删除不再需要的
-    /// 外部任务占位符。
+    /// Rewrite the (predecessor / successor) relations pointing to external tasks so that they point to the correct cross-project tasks, and delete the
+    /// external task placeholders that are no longer needed.
     ///
-    /// 对应 Java: `private void replaceExternalTasks()`
+    /// Corresponds to Java: `private void replaceExternalTasks()`
     fn replace_external_tasks(&mut self) {
         // Java:
         // List<Task> externalTasks = new ArrayList<>();
@@ -1124,9 +1124,9 @@ impl ProjectFile {
         self.remove_external_tasks(self.get_child_tasks(), &replaced_tasks);
     }
 
-    /// 改写某个外部任务的前驱 / 后继关系；成功时返回该外部任务，否则返回 `None`。
+    /// Rewrite the predecessor / successor relations of an external task; returns that external task on success, otherwise `None`.
     ///
-    /// 对应 Java: `private Task replaceRelations(Task externalTask)`
+    /// Corresponds to Java: `private Task replaceRelations(Task externalTask)`
     fn replace_external_task_relations(
         &mut self,
         external_task: &Rc<RefCell<Task>>,
@@ -1145,9 +1145,9 @@ impl ProjectFile {
         Some(Rc::clone(external_task))
     }
 
-    /// 按项目文件名查找相关的 [`ProjectFile`]；找不到时返回 `None`。
+    /// Find the related [`ProjectFile`] by project file name; returns `None` when not found.
     ///
-    /// 对应 Java: `private ProjectFile findProject(String name)`
+    /// Corresponds to Java: `private ProjectFile findProject(String name)`
     fn find_project(&mut self, name: Option<&str>) -> Option<Rc<RefCell<ProjectFile>>> {
         // Java:
         // if (name.equals(m_properties.getProjectFilePath())) { return this; }
@@ -1161,9 +1161,9 @@ impl ProjectFile {
         self.external_projects.read(name)
     }
 
-    /// 在指定项目中查找某个外部任务所代表的原始任务。
+    /// Find the original task represented by an external task in the specified project.
     ///
-    /// 对应 Java: `private Task findTask(ProjectFile file, Task externalTask)`
+    /// Corresponds to Java: `private Task findTask(ProjectFile file, Task externalTask)`
     fn find_task(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -1193,18 +1193,18 @@ impl ProjectFile {
         None
     }
 
-    /// 把指向外部任务的前驱 / 后继关系改写为指向原始任务。
+    /// Rewrite the predecessor / successor relations pointing to external tasks so that they point to the original tasks.
     ///
-    /// 对应 Java: `private void replaceRelations(Task externalTask, Task originalTask)`
+    /// Corresponds to Java: `private void replaceRelations(Task externalTask, Task originalTask)`
     ///
-    /// Java 用 `externalTask.getParentFile().getRelations()`；Rust 侧直接使用本文件的
-    /// 关系容器（外部任务必然是本文件的子任务，见文件头），结果等价。
+    /// Java uses `externalTask.getParentFile().getRelations()`; the Rust side uses this file's
+    /// relation container directly (an external task is necessarily a child task of this file, see the file header); the result is equivalent.
     fn replace_relations(
         &mut self,
         external_task: &Rc<RefCell<Task>>,
         original_task: &Rc<RefCell<Task>>,
     ) {
-        // Java: 为避免并发修改，先各复制一份关系列表
+        // Java: to avoid concurrent modification, copy the relation list first
         let successors = match external_task.try_borrow() {
             Ok(task_ref) => self.relations.get_successors(&task_ref),
             Err(_) => return,
@@ -1263,9 +1263,9 @@ impl ProjectFile {
         }
     }
 
-    /// 递归收集任务层级中的全部外部任务。
+    /// Recursively collect all external tasks in the task hierarchy.
     ///
-    /// 对应 Java: `private void findExternalTasks(List<Task> tasks, List<Task> externalTasks)`
+    /// Corresponds to Java: `private void findExternalTasks(List<Task> tasks, List<Task> externalTasks)`
     fn find_external_tasks(
         &self,
         tasks: &[Rc<RefCell<Task>>],
@@ -1285,13 +1285,13 @@ impl ProjectFile {
         }
     }
 
-    /// 递归删除不再需要的外部任务。
+    /// Recursively delete external tasks that are no longer needed.
     ///
-    /// 对应 Java: `private void removeExternalTasks(List<Task> tasks, Set<Task> replacedTasks)`
+    /// Corresponds to Java: `private void removeExternalTasks(List<Task> tasks, Set<Task> replacedTasks)`
     ///
-    /// Java 用 `tasks.removeIf(replacedTasks::contains)` 直接改动**实时列表**；
-    /// Rust 侧没有「实时列表」句柄，故按任务所属父列表移除：顶层任务从
-    /// `TaskContainer` 的顶层任务列表移除，子任务用 [`Task::remove_child_task`] 移除。
+    /// Java uses `tasks.removeIf(replacedTasks::contains)` to modify the **live list** directly;
+    /// the Rust side has no "live list" handle, so removal is done according to the task's parent list: top-level tasks are removed from
+    /// the `TaskContainer`'s top-level task list, and child tasks are removed with [`Task::remove_child_task`].
     fn remove_external_tasks(
         &mut self,
         tasks: Vec<Rc<RefCell<Task>>>,
@@ -1316,19 +1316,19 @@ impl ProjectFile {
         }
     }
 
-    /// 读取器在读完一份 schedule 后调用。
+    /// Called by the reader after finishing reading a schedule.
     ///
-    /// 对应 Java: `public void readComplete()`
+    /// Corresponds to Java: `public void readComplete()`
     pub fn read_complete(&mut self) {
         // Java: fixUniqueIdClashes();
         self.fix_unique_id_clashes();
     }
 
-    /// 为出现重复 unique ID 的实体重新编号。
+    /// Renumber entities that have duplicate unique IDs.
     ///
-    /// 对应 Java: `public void fixUniqueIdClashes()`
+    /// Corresponds to Java: `public void fixUniqueIdClashes()`
     ///
-    /// Java 还会处理资源分配容器；该 Rust 容器尚未提供冲突修复。
+    /// Java also processes the resource assignment container; that Rust container does not yet provide clash repair.
     pub fn fix_unique_id_clashes(&mut self) {
         // Java: getTasks().fixUniqueIdClashes();
         self.tasks.fix_unique_id_clashes();
@@ -1346,18 +1346,18 @@ impl ProjectFile {
             .fix_unique_id_clashes(calendar_sequence);
 
         // Java: getResourceAssignments().fixUniqueIdClashes();
-        // ResourceAssignmentContainer 未提供该方法（同上）。
+        // ResourceAssignmentContainer does not provide this method (same as above).
 
         // Java: getRelations().fixUniqueIdClashes();
         self.relations.fix_unique_id_clashes();
     }
 
-    /// 取用于为指定类型生成 unique ID 的序号生成器。
+    /// Get the sequence generator used to generate unique IDs for the specified type.
     ///
-    /// 对应 Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
+    /// Corresponds to Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
     ///
-    /// （同时提供了 `UniqueIdObjectSequenceProvider` 的 trait 实现，见
-    /// `impl UniqueIdObjectSequenceProvider for ProjectFile`。）
+    /// (a trait implementation of `UniqueIdObjectSequenceProvider` is also provided, see
+    /// `impl UniqueIdObjectSequenceProvider for ProjectFile`.)
     pub fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence> {
         // Java: return m_context.getUniqueIdObjectSequence(c);
         self.context
@@ -1365,28 +1365,28 @@ impl ProjectFile {
             .get_unique_id_object_sequence(type_id)
     }
 
-    /// 记录一个读取本项目时被忽略的错误。
+    /// Record an error ignored while reading this project.
     ///
-    /// 对应 Java: `public void addIgnoredError(Exception ex)`
+    /// Corresponds to Java: `public void addIgnoredError(Exception ex)`
     pub fn add_ignored_error(&mut self, error: MpxjError) {
         // Java: m_ignoredErrors.add(ex);
         self.ignored_errors.push(error);
     }
 
-    /// 取读取本项目时被忽略的错误列表。
+    /// Get the list of errors ignored while reading this project.
     ///
-    /// 对应 Java: `public List<Exception> getIgnoredErrors()`
+    /// Corresponds to Java: `public List<Exception> getIgnoredErrors()`
     pub fn get_ignored_errors(&self) -> &[MpxjError] {
         // Java: return m_ignoredErrors;
         &self.ignored_errors
     }
 
-    /// 登记一个已存在的外部（子）项目文件。
+    /// Register an existing external (sub)project file.
     ///
-    /// 对应 Java: `void addExternalProject(String fileName, ProjectFile projectFile)`
+    /// Corresponds to Java: `void addExternalProject(String fileName, ProjectFile projectFile)`
     ///
-    /// Rust 侧两个参数均可为 `None`（`None` 文件名或 `None` 项目不登记），
-    /// 与调用方（`crate::task`）的可空语义一致。
+    /// On the Rust side both parameters may be `None` (a `None` file name or a `None` project is not registered),
+    /// consistent with the nullable semantics of the caller (`crate::task`).
     pub(crate) fn add_external_project(
         &mut self,
         file_name: Option<&str>,
@@ -1399,9 +1399,9 @@ impl ProjectFile {
         self.external_projects.add(file_name, project_file);
     }
 
-    /// 读取指定的外部（子）项目文件（结果会被缓存）。
+    /// Read the specified external (sub)project file (the result is cached).
     ///
-    /// 对应 Java: `ProjectFile readExternalProject(String fileName)`
+    /// Corresponds to Java: `ProjectFile readExternalProject(String fileName)`
     pub(crate) fn read_external_project(
         &mut self,
         file_name: Option<&str>,
@@ -1412,31 +1412,31 @@ impl ProjectFile {
 }
 
 impl UniqueIdObjectSequenceProvider for ProjectFile {
-    /// 取（必要时创建）指定类型的序号生成器（转发给 [`ProjectContext`]）。
+    /// Get (creating if necessary) the sequence generator for the specified type (forwarded to [`ProjectContext`]).
     ///
-    /// 对应 Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
+    /// Corresponds to Java: `@Override public ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
     fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence> {
         ProjectFile::get_unique_id_object_sequence(self, type_id)
     }
 }
 
-/// 以 `try_borrow` 读取任务字段，已被借用时返回 `None`（不 panic）。
+/// Read a task field with `try_borrow`; returns `None` when already borrowed (without panicking).
 fn read_task<T>(task: &Rc<RefCell<Task>>, read: impl FnOnce(&Task) -> T) -> Option<T> {
     task.try_borrow().ok().map(|task| read(&task))
 }
 
-/// 判断任务列表中是否包含指定任务（`Rc` 指针同一性，等价 Java 的引用相等）。
+/// Determine whether the task list contains the specified task (`Rc` pointer identity, equivalent to Java's reference equality).
 fn contains_task(tasks: &[Rc<RefCell<Task>>], task: &Rc<RefCell<Task>>) -> bool {
     tasks.iter().any(|candidate| Rc::ptr_eq(candidate, task))
 }
 
 impl<'a> IntoIterator for &'a TaskContainer {
-    /// 迭代任务容器中的任务。
+    /// Iterate over the tasks in the task container.
     ///
-    /// Rust 特有（见文件头）：`crate::default_baseline_strategy` 按
-    /// `for task in project.get_tasks()` 书写，而 [`ProjectFile::get_tasks`] 返回
-    /// `&TaskContainer`，故在此为引用补上 `IntoIterator`（Java 侧 `TaskContainer`
-    /// 本身即可迭代）。
+    /// Rust-specific (see the file header): `crate::default_baseline_strategy` is written as
+    /// `for task in project.get_tasks()`, while [`ProjectFile::get_tasks`] returns
+    /// `&TaskContainer`, so an `IntoIterator` is added here for the reference (on the Java side `TaskContainer`
+    /// is itself iterable).
     type Item = &'a Rc<RefCell<Task>>;
     type IntoIter = std::slice::Iter<'a, Rc<RefCell<Task>>>;
 
@@ -1445,10 +1445,10 @@ impl<'a> IntoIterator for &'a TaskContainer {
     }
 }
 
-// 注：Java 的 `m_context.getXxx()` 返回可变容器对象；Rust 侧上下文中的容器处于
-// `RefCell` 之后，无法返回 `&mut T`。需要访问上下文中**可变**容器时，请经
-// `ProjectFile::get_project_context` 取得上下文句柄，例如：
-// `file.borrow().get_project_context().borrow_mut().get_calendars_mut()`。
+// Note: Java's `m_context.getXxx()` returns mutable container objects; on the Rust side the containers in the context live behind
+// a `RefCell`, so `&mut T` cannot be returned. To access a **mutable** container in the context, go through
+// `ProjectFile::get_project_context` to obtain the context handle, for example:
+// `file.borrow().get_project_context().borrow_mut().get_calendars_mut()`.
 
 #[cfg(test)]
 mod tests {
@@ -1464,18 +1464,18 @@ mod tests {
     use crate::resource_field::ResourceField;
     use crate::task_field::TaskField;
 
-    /// 新建一份项目文件。
+    /// Create a project file.
     fn project() -> Rc<RefCell<ProjectFile>> {
         ProjectFile::new()
     }
 
-    /// 在指定文件中新建一个任务（走免借用入口）。
+    /// Create a task in the specified file (using the borrow-free entry point).
     fn add_task(file: &Rc<RefCell<ProjectFile>>) -> Rc<RefCell<Task>> {
         ProjectFile::add_task_shared(file)
     }
 
     // -----------------------------------------------------------------------
-    // 根容器装配
+    // Root container assembly
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1483,15 +1483,15 @@ mod tests {
         let file = project();
         let context = file.borrow().get_project_context();
 
-        // Java: 构造方法中的 m_context.getProjects().add(this)
+        // Java: m_context.getProjects().add(this) in the constructor
         let projects = context.borrow().get_projects();
         assert_eq!(projects.len(), 1);
         assert!(Rc::ptr_eq(&projects[0], &file));
 
-        // ProjectContext::shared 只接线日历容器；资源容器由 ProjectFile::new 补齐
+        // ProjectContext::shared wires only the calendar container; the resource container is completed by ProjectFile::new
         assert!(context.borrow().get_resources().get_context().is_some());
 
-        // 资源分配容器持有上下文弱引用（构造时接线）
+        // The resource assignment container holds a weak reference to the context (wired during construction)
         assert!(file
             .borrow()
             .get_resource_assignments()
@@ -1499,7 +1499,7 @@ mod tests {
             .is_some());
     }
 
-    /// 创建任务时读取真实项目配置并使用上下文共享序号。
+    /// When creating a task, read the real project configuration and use the context's shared sequence numbers.
     #[test]
     fn new_tasks_share_the_context_unique_id_sequence() {
         let file = project();
@@ -1512,7 +1512,7 @@ mod tests {
         assert_eq!(sequence.get_next(), 3);
     }
 
-    /// 字段扫描只收集非默认缓存值，并涵盖四类字段容器。
+    /// Field scanning collects only non-default cached values and covers the four field containers.
     #[test]
     fn populated_fields_distinguish_defaults_across_containers() {
         let file = project();
@@ -1545,13 +1545,13 @@ mod tests {
 
         assert_eq!(context.borrow().get_projects().len(), 2);
 
-        // 两个项目共享同一上下文（与 Java 一致）
+        // The two projects share the same context (consistent with Java)
         assert!(Rc::ptr_eq(
             &first.borrow().get_project_context(),
             &second.borrow().get_project_context()
         ));
 
-        // 共享的序号生成器
+        // Shared sequence generator
         let next = first
             .borrow_mut()
             .get_unique_id_object_sequence(TypeId::of::<Task>())
@@ -1577,7 +1577,7 @@ mod tests {
         assert!(file_ref.get_calendars().is_empty());
         assert!(file_ref.get_resources().is_empty());
         assert!(file_ref.get_tables().is_empty());
-        // FilterContainer 未提供 `len` / `is_empty`（其作者按名称 / ID 查找提供访问）
+        // FilterContainer does not provide `len` / `is_empty` (its author provides access by name / ID lookup)
         let _ = file_ref.get_filters();
         assert!(file_ref.get_groups().is_empty());
         assert!(file_ref.get_views().is_empty());
@@ -1591,10 +1591,10 @@ mod tests {
         assert!(file_ref.get_baselines().is_empty());
         assert!(file_ref.get_ignored_errors().is_empty());
 
-        // 项目配置来自上下文（`Ref` 经 `Deref` 提供同样的访问方式）
+        // The project configuration comes from the context (`Ref` provides the same access through `Deref`)
         assert!(file_ref.get_project_config().get_auto_task_id());
 
-        // 事件管理器可用（`Ref<EventManager>`，来自上下文）
+        // The event manager is available (`Ref<EventManager>`, from the context)
         let _ = file_ref.get_event_manager();
     }
 
@@ -1636,7 +1636,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 任务 / 资源 / 分配 增删
+    // Add / remove tasks / resources / assignments
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1647,24 +1647,24 @@ mod tests {
         assert_eq!(file.borrow().get_tasks().len(), 1);
         assert_eq!(file.borrow().get_child_tasks().len(), 1);
 
-        // Java: 自动分配 unique ID 与 ID（ProjectConfig 默认开启）
+        // Java: automatically assign unique ID and ID (enabled by default in ProjectConfig)
         let unique_id = task.borrow().get_unique_id();
         let id = task.borrow().get_id();
         assert!(unique_id.is_some());
         assert!(id.is_some());
 
-        // 按 ID / unique ID 查找
+        // Lookup by ID / unique ID
         assert!(Rc::ptr_eq(
-            &file.borrow().get_task_by_unique_id(unique_id).expect("已登记"),
+            &file.borrow().get_task_by_unique_id(unique_id).expect("registered"),
             &task
         ));
 
-        // ID 索引（Java 的 `m_idMap`）由 reader 经 `mapID` 填充；`addTask()` 自身不登记 ID
+        // The ID index (Java's `m_idMap`) is populated by the reader via `mapID`; `addTask()` itself does not register the ID
         file.borrow_mut()
             .get_tasks_mut()
-            .map_id(id.expect("已分配 ID"), Rc::clone(&task));
+            .map_id(id.expect("ID assigned"), Rc::clone(&task));
         assert!(Rc::ptr_eq(
-            &file.borrow().get_task_by_id(id).expect("已登记"),
+            &file.borrow().get_task_by_id(id).expect("registered"),
             &task
         ));
 
@@ -1690,11 +1690,11 @@ mod tests {
             &file
                 .borrow()
                 .get_resource_by_unique_id(unique_id)
-                .expect("已登记"),
+                .expect("registered"),
             &resource
         ));
         assert!(Rc::ptr_eq(
-            &file.borrow().get_resource_by_id(id).expect("已登记"),
+            &file.borrow().get_resource_by_id(id).expect("registered"),
             &resource
         ));
 
@@ -1702,7 +1702,7 @@ mod tests {
         assert!(file.borrow().get_resources().is_empty());
         assert!(file.borrow().get_child_resources().is_empty());
 
-        // 重复移除返回 false
+        // A repeated removal returns false
         assert!(!file.borrow_mut().remove_resource(&resource));
     }
 
@@ -1725,7 +1725,7 @@ mod tests {
             .add(Rc::clone(&assignment));
         assert_eq!(file.borrow().get_resource_assignments().len(), 1);
 
-        // 按任务 / 资源 unique ID 索引
+        // Indexed by task / resource unique ID
         assert_eq!(
             file.borrow()
                 .get_resource_assignments()
@@ -1740,7 +1740,7 @@ mod tests {
                 .borrow()
                 .get_resource_assignments()
                 .get_by_unique_id(unique_id)
-                .expect("已登记"),
+                .expect("registered"),
             &assignment
         ));
 
@@ -1775,7 +1775,7 @@ mod tests {
         );
         assert_eq!(file_ref.get_latest_finish_date(), finish);
 
-        // 实际时间缺失时 get_actual_start / get_actual_finish 行为与 Java 一致
+        // When the actual time is missing, get_actual_start / get_actual_finish behave the same as Java
         assert_eq!(file_ref.get_actual_start(), None);
         first
             .borrow_mut()
@@ -1786,7 +1786,7 @@ mod tests {
             .ok());
         assert!(file_ref.get_actual_start().is_some());
 
-        // 任一任务缺少 actualFinish 时整体返回 None
+        // When any task is missing actualFinish, the whole thing returns None
         assert_eq!(file_ref.get_actual_finish(), None);
         second
             .borrow_mut()
@@ -1809,7 +1809,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 日历解析
+    // Calendar resolution
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1825,21 +1825,21 @@ mod tests {
         let file_ref = file.borrow();
         assert_eq!(file_ref.get_calendars().len(), 1);
 
-        // 按名称 / 唯一 ID 解析
+        // Resolve by name / unique ID
         let by_name = file_ref
             .get_calendar_by_name(Some(crate::project_calendar::DEFAULT_BASE_CALENDAR_NAME))
-            .expect("按名称可查到");
+            .expect("findable by name");
         assert!(Rc::ptr_eq(&by_name, &calendar));
 
-        // `addDefaultBaseCalendar` 自身不分配唯一 ID（Java 由 `findOrCreateDefaultCalendar`
-        // 或 reader 分配），这里显式设置后验证按唯一 ID 的解析
+        // `addDefaultBaseCalendar` itself does not assign a unique ID (in Java it is assigned by `findOrCreateDefaultCalendar`
+        // or by the reader); here it is set explicitly to verify resolution by unique ID
         drop(file_ref);
         calendar.borrow_mut().set_unique_id(Some(7));
         let file_ref = file.borrow();
 
         let by_id = file_ref
             .get_calendar_by_unique_id(Some(7))
-            .expect("按唯一 ID 可查到");
+            .expect("findable by unique ID");
         assert!(Rc::ptr_eq(&by_id, &calendar));
 
         assert!(file_ref.get_calendar_by_name(Some("Missing")).is_none());
@@ -1856,13 +1856,13 @@ mod tests {
 
         let file_ref = file.borrow();
         assert!(Rc::ptr_eq(
-            &file_ref.get_default_calendar().expect("已设置默认日历"),
+            &file_ref.get_default_calendar().expect("default calendar set"),
             &calendar
         ));
 
-        // 基线日历：ProjectProperties 中未记录基线日历名时退回默认日历
+        // Baseline calendar: fall back to the default calendar when no baseline calendar name is recorded in ProjectProperties
         assert!(Rc::ptr_eq(
-            &file_ref.get_baseline_calendar().expect("退回默认日历"),
+            &file_ref.get_baseline_calendar().expect("falls back to default calendar"),
             &calendar
         ));
     }
@@ -1896,7 +1896,7 @@ mod tests {
         }
 
         let calendars = file.borrow().get_calendars_for_project();
-        // 全局日历全部保留；项目级日历只保留属于本项目的
+        // All global calendars are kept; project-level calendars keep only those belonging to this project
         assert_eq!(calendars.len(), 2);
         assert!(calendars.iter().any(|calendar| Rc::ptr_eq(calendar, &global)));
         assert!(calendars.iter().any(|calendar| Rc::ptr_eq(calendar, &mine)));
@@ -1914,10 +1914,10 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // 基线
+    // Baseline
     // -----------------------------------------------------------------------
 
-    /// 建立「当前项目任务 ↔ 基线项目任务」可匹配的一对文件（GUID 相同）。
+    /// Set up a pair of files whose "current project tasks <-> baseline project tasks" can be matched (same GUID).
     fn project_with_baseline() -> (
         Rc<RefCell<ProjectFile>>,
         Rc<RefCell<ProjectFile>>,
@@ -1930,7 +1930,7 @@ mod tests {
         let baseline = project();
         let baseline_task = add_task(&baseline);
 
-        // DefaultBaselineStrategy 以任务的 GUID 作为匹配键，两侧必须一致
+        // DefaultBaselineStrategy uses the task's GUID as the match key; both sides must match
         let guid = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").ok();
         current_task.borrow_mut().set_guid(guid);
         baseline_task.borrow_mut().set_guid(guid);
@@ -1943,28 +1943,28 @@ mod tests {
         let (file, baseline, current_task, baseline_task) = project_with_baseline();
 
         let task_guid = current_task.borrow().get_guid();
-        assert!(task_guid.is_some(), "任务应自动分配 GUID");
+        assert!(task_guid.is_some(), "task should be assigned a GUID automatically");
 
         file.borrow_mut().set_default_baseline(&baseline);
 
         // Java: m_baselines.put(0, baseline)
         assert!(Rc::ptr_eq(
-            &file.borrow().get_default_baseline().expect("已设置默认基线"),
+            &file.borrow().get_default_baseline().expect("default baseline set"),
             &baseline
         ));
         assert!(Rc::ptr_eq(
-            &file.borrow().get_baseline(0).expect("已设置基线 0"),
+            &file.borrow().get_baseline(0).expect("baseline 0 set"),
             &baseline
         ));
         assert!(file.borrow().get_baseline(5).is_none());
 
-        // Java: populateBaseline 会填充 baselineTaskMap（Rust 侧内层键为任务 unique ID）
+        // Java: populateBaseline populates baselineTaskMap (the Rust-side inner key is the task unique ID)
         let map = file.borrow().get_baseline_task_map(0);
-        let current_unique_id = current_task.borrow().get_unique_id().expect("有 unique ID");
-        let mapped = map.get(&current_unique_id).expect("基线任务已映射");
+        let current_unique_id = current_task.borrow().get_unique_id().expect("has unique ID");
+        let mapped = map.get(&current_unique_id).expect("baseline task mapped");
         assert!(Rc::ptr_eq(mapped, &baseline_task));
 
-        // 未设置的序号返回空映射
+        // An unset sequence number returns an empty map
         assert!(file.borrow().get_baseline_task_map(3).is_empty());
     }
 
@@ -1977,7 +1977,7 @@ mod tests {
 
         file.borrow_mut().set_default_baseline(&baseline);
 
-        // Java: populateBaseline 把 baseline 的 Cost 写入当前任务的 BaselineCost
+        // Java: populateBaseline writes the baseline's Cost into the current task's BaselineCost
         assert_eq!(current_task.borrow().get_baseline_cost(), cost);
         assert_eq!(
             current_task
@@ -1987,7 +1987,7 @@ mod tests {
             Some(crate::field_value::FieldValue::Double(123.0))
         );
 
-        // Java: 基线日期取基线项目的创建日期
+        // Java: the baseline date is the baseline project's creation date
         let creation_date = baseline
             .borrow()
             .get_project_properties()
@@ -2005,10 +2005,10 @@ mod tests {
 
         file.borrow_mut().set_baseline(&baseline, 3);
         assert!(Rc::ptr_eq(
-            &file.borrow().get_baseline(3).expect("已设置基线 3"),
+            &file.borrow().get_baseline(3).expect("baseline 3 set"),
             &baseline
         ));
-        // 序号 3 填充的是 Baseline3Cost（而不是默认基线的 BaselineCost）
+        // Sequence number 3 populates Baseline3Cost (not the default baseline's BaselineCost)
         assert_eq!(
             current_task
                 .borrow()
@@ -2018,7 +2018,7 @@ mod tests {
         );
         assert_eq!(current_task.borrow().get_baseline_cost(), None);
 
-        // Java: clearBaseline(index) 通过策略把对应字段清空
+        // Java: clearBaseline(index) clears the corresponding fields through the strategy
         file.borrow_mut().clear_baseline(3);
         assert_eq!(
             current_task
@@ -2028,11 +2028,11 @@ mod tests {
             None
         );
 
-        // 越界的序号只保存不解释
+        // An out-of-bounds sequence number is only stored and not interpreted
         let other = project();
         file.borrow_mut().set_baseline(&other, 11);
         assert!(Rc::ptr_eq(
-            &file.borrow().get_baseline(11).expect("已保存"),
+            &file.borrow().get_baseline(11).expect("saved"),
             &other
         ));
         assert!(current_task.borrow().get_baseline_cost().is_none());
@@ -2047,12 +2047,12 @@ mod tests {
 
         file.borrow_mut().clear_default_baseline();
         assert_eq!(current_task.borrow().get_baseline_cost(), None);
-        // Java: clearBaseline 不会把基线从 m_baselines 中移除
+        // Java: clearBaseline does not remove the baseline from m_baselines
         assert!(file.borrow().get_default_baseline().is_some());
     }
 
     // -----------------------------------------------------------------------
-    // 结构重建 / unique ID / 外部项目
+    // Structure rebuild / unique ID / external project
     // -----------------------------------------------------------------------
 
     #[test]
@@ -2065,7 +2065,7 @@ mod tests {
         child.borrow_mut().set_id(Some(2));
 
         // Java: readComplete() → fixUniqueIdClashes()
-        // （Rust 侧各容器使用 try_borrow，借用冲突时退化为跳过，不会 panic）
+        // (Rust-side containers use try_borrow and degrade to skipping on a borrow conflict, without panicking)
         file.borrow_mut().read_complete();
 
         assert_eq!(file.borrow().get_tasks().len(), 2);
@@ -2079,11 +2079,11 @@ mod tests {
         let only = add_task(&file);
         only.borrow_mut().set_outline_level(Some(0));
 
-        // Java: TaskContainer.updateStructure() 在任务数 <= 1 时直接返回
+        // Java: TaskContainer.updateStructure() returns immediately when the task count is <= 1
         file.borrow_mut().update_structure();
 
         assert_eq!(file.borrow().get_tasks().len(), 1);
-        // `addTask()` 已把该任务登记为顶层任务（Java 的 `m_childTasks`），早退不会清空它
+        // `addTask()` has already registered the task as a top-level task (Java's `m_childTasks`), so the early return does not clear it
         assert_eq!(file.borrow().get_child_tasks().len(), 1);
     }
 
@@ -2102,7 +2102,7 @@ mod tests {
             .map(|found| Rc::ptr_eq(&found, &subproject))
             .unwrap_or(false));
 
-        // 未登记的文件名返回 None（没有接线读取回调）
+        // An unregistered file name returns None (no read callback is wired)
         assert!(file
             .borrow_mut()
             .read_external_project(Some("X:\\projects\\other.mpp"))
@@ -2127,12 +2127,12 @@ mod tests {
         let first = add_task(&file);
         let second = add_task(&file);
 
-        // Task::add_predecessor 会借用父文件，因此这里先释放 file 借用
+        // Task::add_predecessor borrows the parent file, so the file borrow is released first here
         let relation = Task::add_predecessor(
             &second,
             RelationBuilder::new().predecessor_task(&first),
         )
-        .expect("文件未搬空时可用");
+        .expect("available when file is not emptied");
 
         assert_eq!(file.borrow().get_relations().len(), 1);
         assert_eq!(second.borrow().get_predecessors().len(), 1);
@@ -2148,6 +2148,6 @@ mod tests {
     #[test]
     fn get_self_returns_the_shared_handle() {
         let file = project();
-        assert!(Rc::ptr_eq(&file.borrow().get_self().expect("有句柄"), &file));
+        assert!(Rc::ptr_eq(&file.borrow().get_self().expect("has handle"), &file));
     }
 }

@@ -1,26 +1,26 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldReader12.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldReader12.java`
 //!
-//! 读取 MPP12 的字段别名（`Props` 里的 `CUSTOM_FIELDS` 块）：块内依次是
-//! 「别名块 → 两个未知块 → 字段定义块」，别名与字段号一起写进
-//! [`CustomFieldContainer`]（`CustomField::set_alias`）。
+//! Reads the field aliases of MPP12 (the `CUSTOM_FIELDS` block in `Props`): the block contains, in order,
+//! "alias block → two unknown blocks → field definition block"; aliases are written together with field IDs into
+//! [`CustomFieldContainer`](`CustomField::set_alias`).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `CustomFieldReader12(ProjectFile file, byte[] data)` | `new(&Rc<RefCell<ProjectFile>>, Option<&[u8]>)` | `ProjectFile` 共享为 `Rc<RefCell<..>>`；Java 的 `byte[]` 允许为 `null`（`process` 首行判空），故 Rust 侧用 `Option<&[u8]>`（「`null` → `Option<T>`」约定），构造时复制为 `Option<Vec<u8>>`（Java 保存的是调用方的数组引用，Rust 侧入参是借用，必须持有数据） |
-//! | `CustomFieldContainer m_fields = file.getCustomFields()` | `Rc<RefCell<CustomFieldContainer>>` | 同 Java |
-//! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | 同 Java（未命中的字段号由 `FieldTypeHelper` 处理，见下） |
-//! | `ByteArrayHelper.getInt/getShort` 越界抛 `ArrayIndexOutOfBoundsException` | [`checked_int`] / [`checked_short`] 返回 `None` 并中断解析 | 遵循「不 panic」约定，逐点注释 |
-//! | `offset += size`（`size` 为 `int`，Java 允许负值把偏移回退） | `advance_offset` 返回 `Option<usize>`，回退到负偏移时中断解析 | Java 在随后的越界读取中同样会抛 `ArrayIndexOutOfBoundsException` |
-//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | 与 Java 一样委托给该工具类（`crate::mpp::enterprise_custom_field_data_type` 已落地） |
-//! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | 逐个 `CustomFieldContainer::get_or_create(&container, key)` + `set_alias(Some(alias))` | Java 在 `FieldTypeHelper` 未识别字段号时会把 `null` 传给 `getOrCreate`（`HashMap` 允许 null 键，但 `CustomField` 随后会因 `field.getFieldTypeClass()` 抛 NPE）；Rust 的 `FieldKey` 无「未知」变体，故跳过该字段号 |
-//! | `aliasMap.forEach(...)` | `for (field_id, alias) in alias_map` | 遍历顺序与 Java 的 `HashMap` 一样不保证（各自内部顺序不同） |
+//! | `CustomFieldReader12(ProjectFile file, byte[] data)` | `new(&Rc<RefCell<ProjectFile>>, Option<&[u8]>)` | `ProjectFile` is shared as `Rc<RefCell<..>>`; Java's `byte[]` may be `null` (the first line of `process` checks for null), so the Rust side uses `Option<&[u8]>` (the "`null` → `Option<T>`" convention) and copies it into `Option<Vec<u8>>` at construction (Java stores the caller's array reference, while the Rust parameter is a borrow, so the data must be owned) |
+//! | `CustomFieldContainer m_fields = file.getCustomFields()` | `Rc<RefCell<CustomFieldContainer>>` | same as Java |
+//! | `Map<Integer, String> aliasMap` | `HashMap<i32, String>` | same as Java (field IDs that are not matched are handled by `FieldTypeHelper`, see below) |
+//! | `ByteArrayHelper.getInt/getShort` out of bounds throws `ArrayIndexOutOfBoundsException` | [`checked_int`] / [`checked_short`] return `None` and abort parsing | follows the "do not panic" convention, annotated at each point |
+//! | `offset += size` (`size` is an `int`; Java allows a negative value to move the offset backwards) | `advance_offset` returns `Option<usize>` and aborts parsing when the offset moves back past zero | Java likewise throws `ArrayIndexOutOfBoundsException` on the subsequent out-of-bounds read |
+//! | `EnterpriseCustomFieldDataType.getDataTypeFromID(int)` | [`EnterpriseCustomFieldDataType::get_data_type_from_id`](crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType::get_data_type_from_id) | the same as Java, delegates to that utility class (`crate::mpp::enterprise_custom_field_data_type` is already ported) |
+//! | `m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k)).setAlias(v)` | one by one `CustomFieldContainer::get_or_create(&container, key)` + `set_alias(Some(alias))` | When `FieldTypeHelper` does not recognize a field ID, Java passes `null` to `getOrCreate` (`HashMap` allows a null key, but `CustomField` then throws an NPE at `field.getFieldTypeClass()`); Rust's `FieldKey` has no "unknown" variant, so that field ID is skipped |
+//! | `aliasMap.forEach(...)` | `for (field_id, alias) in alias_map` | the iteration order is not guaranteed, just like Java's `HashMap` (their internal orders differ) |
 //!
-//! 跳过的 Java 方法：无（`process()` 逐行翻译，两个被注释掉的调试语句按原样保留注释）。
+//! Skipped Java methods: none (`process()` is translated line by line; the two commented-out debug statements keep their comments as-is).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
-//! 注释里出现的 `FieldTypeHelper` 调用是为将来扩展预留（Java 源文件同样只有注释）。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
+//! The `FieldTypeHelper` calls appearing in comments are reserved for future extension (the Java source file likewise only has comments).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -33,33 +33,33 @@ use crate::mpp::enterprise_custom_field_data_type::EnterpriseCustomFieldDataType
 use crate::mpp::mpp_utility::MPPUtility;
 use crate::project_file::ProjectFile;
 
-/// 读取 MPP12 的字段别名。
+/// Reads the field aliases of MPP12.
 ///
-/// 对应 Java: `class CustomFieldReader12`
+/// Corresponds to Java: `class CustomFieldReader12`
 pub struct CustomFieldReader12 {
-    /// 项目文件。
+/// The project file.
     ///
-    /// 对应 Java 字段: `private final ProjectFile m_file;`
+    /// Corresponds to Java field: `private final ProjectFile m_file;`
     file: Rc<RefCell<ProjectFile>>,
 
-    /// 自定义字段容器。
+/// The custom field container.
     ///
-    /// 对应 Java 字段: `private final CustomFieldContainer m_fields;`
+    /// Corresponds to Java field: `private final CustomFieldContainer m_fields;`
     fields: Rc<RefCell<CustomFieldContainer>>,
 
-    /// `Props` 中的 `CUSTOM_FIELDS` 数据块。
+/// The `CUSTOM_FIELDS` data block in `Props`.
     ///
-    /// 对应 Java 字段: `private final byte[] m_data;`
+    /// Corresponds to Java field: `private final byte[] m_data;`
     data: Option<Vec<u8>>,
 }
 
 impl CustomFieldReader12 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldReader12(ProjectFile file, byte[] data)`
+    /// Corresponds to Java: `public CustomFieldReader12(ProjectFile file, byte[] data)`
     pub fn new(file: &Rc<RefCell<ProjectFile>>, data: Option<&[u8]>) -> Self {
         // Java: m_fields = file.getCustomFields();
-        // 文件正被可变借用时（正常调用路径不会发生）退化为一枚独立容器，避免 panic。
+// When the file is already mutably borrowed (which never happens on the normal call path), degrade gracefully to a standalone container to avoid a panic.
         let fields = match file.try_borrow() {
             Ok(file) => file.get_custom_fields(),
             Err(_) => CustomFieldContainer::new(),
@@ -72,9 +72,9 @@ impl CustomFieldReader12 {
         }
     }
 
-    /// 处理字段别名。
+/// Processes the field aliases.
     ///
-    /// 对应 Java: `public void process()`
+    /// Corresponds to Java: `public void process()`
     pub fn process(&self) {
         // Java: if (m_data == null) { return; }
         let Some(data) = self.data.as_deref() else {
@@ -89,7 +89,7 @@ impl CustomFieldReader12 {
         let mut offset = 0usize;
 
         // Java: int aliasBlockSize = ByteArrayHelper.getInt(m_data, offset); offset += 8;
-        //（Java 注释：先出现两次「长度」，故跳过 8 字节）
+// (Java comment: the "length" appears twice, so skip 8 bytes)
         let Some(alias_block_size) = checked_int(data, offset) else {
             return;
         };
@@ -101,7 +101,7 @@ impl CustomFieldReader12 {
         };
         offset += 4;
 
-        // Java 把 `aliasBlockSize` 当作循环上界使用：负值时循环体不执行，Rust 侧同样处理。
+// Java uses `aliasBlockSize` as the loop bound: when negative, the loop body does not execute; the Rust side does the same.
         let alias_block_limit = usize::try_from(alias_block_size).unwrap_or(0);
 
         // Java: while (index < numberOfAliases && offset < aliasBlockSize)
@@ -113,7 +113,7 @@ impl CustomFieldReader12 {
             offset += 4;
 
             // Java: int aliasOffset = ByteArrayHelper.getInt(m_data, offset) + 4; offset += 4;
-            //（Java 注释：别名偏移「不知为何」要 +4）
+// (Java comment: the alias offset needs +4 "for some reason")
             let Some(alias_offset) = checked_int(data, offset).map(|value| i64::from(value) + 4)
             else {
                 break;
@@ -134,7 +134,7 @@ impl CustomFieldReader12 {
             index += 1;
         }
 
-        // Java 注释（原文保留）：
+// Java comment (kept verbatim):
         // NOTE: the blocks here all follow the same format.
         // 4 byte block size (excluding these 4 bytes)
         // 4 byte block size again
@@ -167,7 +167,7 @@ impl CustomFieldReader12 {
         };
         offset = next;
 
-        // Java 注释：字段定义块，长度出现两次，故跳过 8 字节
+// Java comment: the field definition block; the length appears twice, so skip 8 bytes
         // Java: offset += 8;
         offset = offset.saturating_add(8);
 
@@ -183,7 +183,7 @@ impl CustomFieldReader12 {
             offset = offset.saturating_add(8);
         }
 
-        // Java 注释（原文保留）：//System.out.println(ByteArrayHelper.hexdump(m_data, offset, m_data.length-offset, false));
+// Java comment (kept verbatim): //System.out.println(ByteArrayHelper.hexdump(m_data, offset, m_data.length-offset, false));
         for _ in 0..number_of_definitions {
             // Java: if (offset + 2 > m_data.length) { break; }
             if offset.saturating_add(2) > data.len() {
@@ -201,13 +201,13 @@ impl CustomFieldReader12 {
             }
 
             // Java: DataType customFieldDataType = EnterpriseCustomFieldDataType.getDataTypeFromID(ByteArrayHelper.getShort(m_data, offset + 12));
-            // Java 越界时抛异常；Rust 侧取不到时按 0 处理（`getDataTypeFromID(0)` = CURRENCY）
+// Java throws when out of bounds; the Rust side treats an unavailable value as 0 (`getDataTypeFromID(0)` = CURRENCY)
             let custom_field_data_type = EnterpriseCustomFieldDataType::get_data_type_from_id(
                 checked_short(data, offset + 12).unwrap_or(0),
             );
 
             // Java: FieldTypeHelper.getInstance(m_file, ByteArrayHelper.getInt(m_data, offset + 4), customFieldDataType);
-            //（Java 只用其副作用：确保企业自定义字段被创建；返回值被丢弃）
+// (Java only uses it for its side effect: ensuring the enterprise custom field is created; the return value is discarded)
             if let Some(field_id) = checked_int(data, offset + 4) {
                 let _ = FieldTypeHelper::get_instance_with_data_type(
                     &self.file,
@@ -222,7 +222,7 @@ impl CustomFieldReader12 {
 
         // Java: aliasMap.forEach((k, v) -> m_fields.getOrCreate(FieldTypeHelper.getInstance(m_file, k.intValue())).setAlias(v));
         for (field_id, alias) in alias_map {
-            // Java 会把 `null` 传给 `getOrCreate`（随后抛 NPE）；Rust 侧跳过未识别的字段号
+// Java passes `null` to `getOrCreate` (then throws an NPE); the Rust side skips unrecognized field IDs
             let Some(field) = FieldTypeHelper::get_instance(&self.file, field_id) else {
                 continue;
             };
@@ -233,11 +233,11 @@ impl CustomFieldReader12 {
     }
 }
 
-/// 按 Java 的 `offset += size` 推进偏移。
+/// Advances the offset like Java's `offset += size`.
 ///
-/// 对应 Java: `offset = 4 + aliasBlockSize` / `offset += unknownBlock1Size` 等。
-/// 结果为负时返回 `None`（Java 会在随后的越界读取中抛 `ArrayIndexOutOfBoundsException`，
-/// Rust 侧中断解析）。
+/// Corresponds to Java: `offset = 4 + aliasBlockSize` / `offset += unknownBlock1Size`, etc.
+/// Returns `None` when the result is negative (Java would throw `ArrayIndexOutOfBoundsException` on the subsequent out-of-bounds read,
+/// while the Rust side aborts parsing).
 fn advance_offset(offset: usize, size: i32) -> Option<usize> {
     let result = i64::try_from(offset).ok()? + i64::from(size);
     usize::try_from(result).ok()
@@ -251,7 +251,7 @@ mod tests {
     use crate::field_type_class::FieldTypeClass;
     use crate::task_field::TaskField;
 
-    /// UTF-16LE（NUL 结尾）字节。
+/// UTF-16LE (NUL-terminated) bytes.
     fn utf16(text: &str) -> Vec<u8> {
         let mut bytes = Vec::new();
         for unit in text.encode_utf16() {
@@ -261,24 +261,24 @@ mod tests {
         bytes
     }
 
-    /// 拼装完整的 `CUSTOM_FIELDS` 数据块。
+/// Assembles the complete `CUSTOM_FIELDS` data block.
     ///
-    /// 布局与 Java 的解析顺序一一对应：
+/// The layout corresponds one-to-one to Java's parse order:
     /// ```text
-    /// [0..4)        别名块大小（自偏移 4 起算的块长度；Java 用 offset = 4 + aliasBlockSize）
-    /// [4..8)        别名块大小（重复一次）
-    /// [8..12)       别名条数
-    /// [12..12+8n)   每条别名：字段号 + 别名偏移（Java 解析时 +4 才是绝对偏移）
-    /// 其后          别名文本（UTF-16LE、NUL 结尾）
-    /// 其后          未知块 1：4 字节大小 + 内容
-    /// 其后          未知块 2：4 字节大小 + 内容
-    /// 其后          字段定义块：大小 + 大小 + 定义条数 + 每条 8 字节
-    /// 其后          定义记录：首 2 字节为 blockSize，+4 字段号，+12 类型 ID
+/// [0..4)        alias block size (block length counted from offset 4; Java uses offset = 4 + aliasBlockSize)
+/// [4..8)        alias block size (repeated once)
+/// [8..12)       number of aliases
+/// [12..12+8n)   each alias: field ID + alias offset (Java adds 4 during parsing to get the absolute offset)
+/// after that    alias text (UTF-16LE, NUL-terminated)
+/// after that    unknown block 1: 4-byte size + content
+/// after that    unknown block 2: 4-byte size + content
+/// after that    field definition block: size + size + number of definitions + 8 bytes each
+/// after that    definition record: the first 2 bytes are blockSize, +4 field ID, +12 type ID
     /// ```
     fn custom_fields_block(aliases: &[(i32, &str)], definitions: &[(i32, i32)]) -> Vec<u8> {
         let count = aliases.len();
 
-        // 别名文本紧随别名条目之后，记录其绝对偏移
+// The alias text follows the alias entries; record its absolute offset
         let entries_end = 12 + 8 * count;
         let mut texts = Vec::new();
         let mut text_offsets = Vec::new();
@@ -300,13 +300,13 @@ mod tests {
         }
         data.extend_from_slice(&texts);
 
-        // 未知块 1：4 字节大小 + 内容
+// Unknown block 1: 4-byte size + content
         data.extend_from_slice(&4i32.to_le_bytes());
         data.extend_from_slice(&[0u8; 4]);
-        // 未知块 2：4 字节大小（0）+ 无内容
+// Unknown block 2: 4-byte size (0) + no content
         data.extend_from_slice(&0i32.to_le_bytes());
 
-        // 字段定义块：长度出现两次，随后是条数，再是每条 8 字节
+// Field definition block: the length appears twice, followed by the count, then 8 bytes per entry
         data.extend_from_slice(&(definitions.len() as i32 * 8 + 4).to_le_bytes());
         data.extend_from_slice(&(definitions.len() as i32 * 8 + 4).to_le_bytes());
         data.extend_from_slice(&(definitions.len() as i32).to_le_bytes());
@@ -315,7 +315,7 @@ mod tests {
             data.extend_from_slice(&0i32.to_le_bytes());
         }
 
-        // 定义记录：blockSize 指出本条长度
+// Definition record: blockSize gives the length of this entry
         for (field_id, type_id) in definitions {
             let mut record = vec![0u8; 16];
             record[0..2].copy_from_slice(&16u16.to_le_bytes());
@@ -327,17 +327,17 @@ mod tests {
         data
     }
 
-    /// 内置任务字段 NAME 的字段号。
+/// Field ID of the built-in task field NAME.
     fn name_field_id() -> i32 {
         MPPTaskField::TASK_FIELD_BASE | 14
     }
 
-    /// 内置任务字段 ID 的字段号。
+/// Field ID of the built-in task field ID.
     fn id_field_id() -> i32 {
         MPPTaskField::TASK_FIELD_BASE | 23
     }
 
-    /// 别名被登记到对应字段的配置上。
+/// The alias is registered on the configuration of the corresponding field.
     #[test]
     fn process_registers_aliases() {
         let block = custom_fields_block(
@@ -373,20 +373,20 @@ mod tests {
         );
     }
 
-    /// 数据块为 `None` / 空 / 被截断时不 panic，也不登记别名。
+/// Does not panic and registers no aliases when the data block is `None` / empty / truncated.
     #[test]
     fn process_handles_missing_and_truncated_data() {
         let file = ProjectFile::new();
 
-        // Java: m_data == null → 直接返回
+// Java: m_data == null → return immediately
         CustomFieldReader12::new(&file, None).process();
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
 
-        // 空块
+// Empty block
         CustomFieldReader12::new(&file, Some(&[])).process();
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
 
-        // 只有别名块头：别名条目读不出来（Java 抛越界异常）
+// Only the alias block header: the alias entries cannot be read (Java throws an out-of-bounds exception)
         let block = [
             32i32.to_le_bytes().as_slice(),
             32i32.to_le_bytes().as_slice(),
@@ -397,7 +397,7 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 名为空的别名不登记（Java 的 `!alias.isEmpty()`）。
+/// An alias with an empty name is not registered (Java's `!alias.isEmpty()`).
     #[test]
     fn process_skips_empty_aliases() {
         let block = custom_fields_block(&[(name_field_id(), "")], &[]);
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 未识别的字段号不登记别名（Java 会把 null 传给 `getOrCreate` 并抛 NPE）。
+/// An unrecognized field ID does not register an alias (Java passes null to `getOrCreate` and throws an NPE).
     #[test]
     fn process_skips_unknown_field_ids() {
         let block = custom_fields_block(&[(0x1234_0005, "Unknown Alias")], &[]);
@@ -419,12 +419,12 @@ mod tests {
         assert_eq!(file.borrow().get_custom_fields().borrow().size(), 0);
     }
 
-    /// 偏移推进辅助函数（Java 的 `offset += size`）。
+/// Offset advancement helper (Java's `offset += size`).
     #[test]
     fn advance_offset_matches_java() {
         assert_eq!(advance_offset(4, 8), Some(12));
         assert_eq!(advance_offset(4, 0), Some(4));
-        // 负数回退到负偏移 → None（Java 会抛越界异常）
+// A negative advance moves the offset below zero → None (Java throws an out-of-bounds exception)
         assert_eq!(advance_offset(4, -8), None);
     }
 }

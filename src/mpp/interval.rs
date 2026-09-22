@@ -1,47 +1,47 @@
-//! 对应 Java: `org/mpxj/mpp/Interval.java`
+//! Corresponds to Java: `org/mpxj/mpp/Interval.java`
 //!
-//! 每日 / 每周 / 每月的时间间隔（进度线的重复间隔等）。
+//! Daily / weekly / monthly time intervals (e.g. the repeat interval of progress lines).
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public enum Interval implements MpxjEnum` | 同名 `enum` + `impl crate::MpxjEnum` | 常量按 Java 声明顺序排列，判别值即 Java 的 int 值 |
-//! | `private static final Interval[] TYPE_VALUES = EnumHelper.createTypeArray(Interval.class)` | [`Interval::get_instance`] 的 `match` + [`Interval::ALL`] | 表长 3（偏移 0），取值 0..2 全部被填充，故 Java 的 `getInstance` 不会返回 `null` |
-//! | `getInstance(Number type)` | [`Interval::get_instance_optional`] | Rust 无重载，加 `_optional` 后缀 |
-//! | `getName()` / `toString()` | [`Interval::get_name`] / `Display` | 名称未本地化，与 Java 一致 |
+//! | `public enum Interval implements MpxjEnum` | same-named `enum` + `impl crate::MpxjEnum` | Constants are ordered as declared in Java, and the discriminant value is Java's int value |
+//! | `private static final Interval[] TYPE_VALUES = EnumHelper.createTypeArray(Interval.class)` | the `match` in [`Interval::get_instance`] + [`Interval::ALL`] | The table length is 3 (offset 0); values 0..2 are all filled, so Java's `getInstance` never returns `null` |
+//! | `getInstance(Number type)` | [`Interval::get_instance_optional`] | Rust has no overloading, so an `_optional` suffix is added |
+//! | `getName()` / `toString()` | [`Interval::get_name`] / `Display` | The name is not localized, matching Java |
 //!
-//! 跳过的 Java 成员：`EnumHelper.createTypeArray` 的反射建表（Rust 侧以 `match` + `ALL` 代替）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java members: the reflective table construction in `EnumHelper.createTypeArray` (replaced on the Rust side by `match` + `ALL`).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 时间间隔。
+/// Time interval.
 ///
-/// 对应 Java: `public enum Interval`
+/// Corresponds to Java: `public enum Interval`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Interval {
-    /// 对应 Java: `DAILY(0, "Daily")`
+    /// Corresponds to Java: `DAILY(0, "Daily")`
     Daily = 0,
-    /// 对应 Java: `WEEKLY(1, "Weekly")`
+    /// Corresponds to Java: `WEEKLY(1, "Weekly")`
     Weekly = 1,
-    /// 对应 Java: `MONTHLY(2, "Monthly")`
+    /// Corresponds to Java: `MONTHLY(2, "Monthly")`
     Monthly = 2,
 }
 
 impl Interval {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final Interval[] TYPE_VALUES`（去掉反射建表后）。
+/// Corresponds to Java: `private static final Interval[] TYPE_VALUES` (after removing the reflective table construction).
     pub const ALL: [Interval; 3] = [Interval::Daily, Interval::Weekly, Interval::Monthly];
 
-    /// 按 int 值取枚举实例。
+/// Get the enum instance by int value.
     ///
-    /// 对应 Java: `public static Interval getInstance(int type)`
+    /// Corresponds to Java: `public static Interval getInstance(int type)`
     ///
-    /// 越界时 Java 先回落到 `DAILY.getValue()`（0）再取表，故不会返回 `null`。
+/// On out of bounds, Java first falls back to `DAILY.getValue()` (0) before indexing the table, so it never returns `null`.
     pub fn get_instance(value: i32) -> Interval {
         match value {
             0 => Interval::Daily,
@@ -52,16 +52,16 @@ impl Interval {
         }
     }
 
-    /// 对应 Java: `public static Interval getInstance(Number type)`
+    /// Corresponds to Java: `public static Interval getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)`，最终回落到 `DAILY`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `DAILY`.
     pub fn get_instance_optional(value: Option<i32>) -> Interval {
         Interval::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取间隔名称（未做本地化）。
+/// Get the interval name (not localized).
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             Interval::Daily => "Daily",
@@ -70,30 +70,30 @@ impl Interval {
         }
     }
 
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     pub fn get_value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for Interval {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     ///
-    /// Java 返回 `getName()`，Rust 侧一致。
+/// Java returns `getName()`; the Rust side matches.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
 }
 
 impl MpxjEnum for Interval {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         self.get_value()
     }
 }
 
 impl From<Interval> for i32 {
-    /// Rust 特有的便捷转换，等价于 [`Interval::get_value`]。
+/// A Rust-specific convenience conversion, equivalent to [`Interval::get_value`].
     fn from(value: Interval) -> i32 {
         value.get_value()
     }
@@ -103,7 +103,7 @@ impl From<Interval> for i32 {
 mod tests {
     use super::*;
 
-    /// 判别值即 Java 的 int 值，且 `getInstance` 往返一致。
+/// The discriminant value is Java's int value, and `getInstance` round-trips consistently.
     #[test]
     fn round_trips_through_int_values() {
         for (index, item) in Interval::ALL.iter().enumerate() {
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// 越界回落 DAILY（Java 不会返回 null）。
+/// Out of bounds falls back to DAILY (Java never returns null).
     #[test]
     fn out_of_range_falls_back_to_daily() {
         for value in [-1, -100, 3, 4, 1000, i32::MAX, i32::MIN] {
@@ -126,7 +126,7 @@ mod tests {
         );
     }
 
-    /// 名称与 `toString()` 与 Java 一致。
+/// The name and `toString()` match Java.
     #[test]
     fn names_and_to_string_match_java() {
         assert_eq!(Interval::Daily.get_name(), "Daily");

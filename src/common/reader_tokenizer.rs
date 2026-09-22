@@ -1,71 +1,81 @@
-//! 对应 Java: `org/mpxj/common/ReaderTokenizer.java`
+//! Corresponds to Java: `org/mpxj/common/ReaderTokenizer.java`
 //!
-//! 与 Java 版语义一致：**按字符读取**（先解码字节流，再按字符分词），并且成块预读
-//! （Java 注释指出 `Reader.read()` 每次调用都要经过 `StreamDecoder`，加锁且每个字符都会分配，
-//! 因此改为按块读取）。预读意味着 Reader 会超前于当前 token，不能被后续的其他读取者共享——
-//! Rust 侧保持同样的约束。
+//! Semantics match the Java version: **read by character** (decode the byte stream first, then
+//! tokenize by character), with block-wise read-ahead (the Java comments note that
+//! `Reader.read()` goes through `StreamDecoder` on every call, takes a lock, and allocates per
+//! character, so it reads in blocks). Read-ahead means the Reader runs ahead of the current
+//! token and cannot be shared with other readers afterwards — the Rust side keeps the same
+//! constraint.
 //!
-//! 移植取舍：
-//! - Java 通过继承 `Tokenizer` 覆写 `protected int read()`；Rust 无继承，本类型**组合**一个
-//!   `Tokenizer<CharSource<R>>` 并转发其公开方法（父类逻辑与状态完全复用，见各转发方法注释）。
-//! - Java 的 `ReaderTokenizer(Reader r)` 接收的是「已经解码好的字符流」；Rust 的
-//!   `std::io::Read` 只提供字节，因此把 Java 中 `new InputStreamReader(is, charset)` 的解码职责
-//!   一并放进本类型：[`ReaderTokenizer::with_encoding`] 指定字符集，默认 UTF-8。
-//! - Java 的 `char[] m_readBuffer` + `m_index` + `m_length`（读缓冲区 + 位置指针）原样保留，
-//!   这是 Java 侧的回退/预读实现方式；Rust 侧额外用 `pending` 保存跨块残缺的多字节序列
-//!   （Java 中该缓冲位于 `StreamDecoder` 内部）。
-//! - Java 的一个 `char` 是 UTF-16 码元，Rust 的一个 `char` 是 Unicode 标量值：增补平面字符在
-//!   Java 中是代理项对，在 Rust 中是单个 `char`（拼接出的文本相同）。
-//! - `java.io.IOException` → `crate::MpxjError`，`PushbackReader` 式的回退由 [`Tokenizer`]
-//!   内部的 `next_character` / `next_token` 字段完成。
+//! Porting trade-offs:
+//! - Java overrides `protected int read()` by inheriting `Tokenizer`; Rust has no inheritance,
+//!   so this type **composes** a `Tokenizer<CharSource<R>>` and forwards its public methods
+//!   (the base-class logic and state are fully reused, see the comments on each forwarding
+//!   method).
+//! - Java's `ReaderTokenizer(Reader r)` receives an "already-decoded character stream"; Rust's
+//!   `std::io::Read` only provides bytes, so the decoding responsibility of Java's
+//!   `new InputStreamReader(is, charset)` is folded into this type:
+//!   [`ReaderTokenizer::with_encoding`] specifies the charset, defaulting to UTF-8.
+//! - Java's `char[] m_readBuffer` + `m_index` + `m_length` (read buffer + position pointer) are
+//!   kept as-is; this is how Java implements pushback/read-ahead, and the Rust side additionally
+//!   uses `pending` to hold an incomplete multi-byte sequence spanning blocks (in Java that
+//!   buffer lives inside `StreamDecoder`).
+//! - A Java `char` is a UTF-16 code unit, while a Rust `char` is a Unicode scalar value:
+//!   supplementary-plane characters are surrogate pairs in Java and a single `char` in Rust
+//!   (the concatenated text is the same).
+//! - `java.io.IOException` → `crate::MpxjError`; `PushbackReader`-style pushback is handled by
+//!   the `next_character` / `next_token` fields inside [`Tokenizer`].
 //!
-//! 未移植的方法：无。
+//! Unported methods: none.
 
 use super::tokenizer::{TT_EOF, TokenSource, Tokenizer};
 use crate::MpxjResult;
 use encoding_rs::{Decoder, Encoding};
 use std::io::Read;
 
-/// 对应 Java: `private static final int BUFFER_SIZE = 8192`
+/// Corresponds to Java: `private static final int BUFFER_SIZE = 8192`
 ///
-/// Java 侧是 `char[]` 的元素个数，Rust 侧用作每次向 `Read` 请求的字节数。
+/// In Java this is the number of `char[]` elements; the Rust side uses it as the number of bytes
+/// requested from `Read` each time.
 const BUFFER_SIZE: usize = 8192;
 
-/// 按字符读取的字符来源。
+/// A character-reading character source.
 ///
-/// 对应 Java: `ReaderTokenizer` 中覆写的 `protected int read()`（以及 `Reader.read(char[])` 的预读）。
+/// Corresponds to Java: the `protected int read()` overridden in `ReaderTokenizer` (and the
+/// read-ahead of `Reader.read(char[])`).
 pub struct CharSource<R: Read> {
-    /// 字节数据源，对应 Java 的 `Reader`（Java 中已由 `InputStreamReader` 解码）
+    /// Byte data source, corresponding to Java's `Reader` (already decoded by `InputStreamReader` in Java)
     reader: R,
-    /// 增量解码器，承担 Java 中 `InputStreamReader` + `StreamDecoder` 的解码职责
+    /// Incremental decoder, taking on the decoding role of Java's `InputStreamReader` + `StreamDecoder`
     decoder: Decoder,
-    /// 对应 Java: `private final char[] m_readBuffer = new char[BUFFER_SIZE]`
+    /// Corresponds to Java: `private final char[] m_readBuffer = new char[BUFFER_SIZE]`
     read_buffer: Vec<char>,
-    /// 对应 Java: `private int m_index`
+    /// Corresponds to Java: `private int m_index`
     index: usize,
-    /// 对应 Java: `private int m_length`
+    /// Corresponds to Java: `private int m_length`
     length: usize,
-    /// 跨块残缺的多字节序列（Java 中由 `StreamDecoder` 内部持有）
+    /// An incomplete multi-byte sequence spanning blocks (in Java held internally by `StreamDecoder`)
     pending: Vec<u8>,
-    /// 数据源是否已到达末尾，对应 Java 的 `m_length < 1`
+    /// Whether the data source has reached the end, corresponding to Java's `m_length < 1`
     eof: bool,
 }
 
 impl<R: Read> CharSource<R> {
-    /// 以 UTF-8 解码构造字符来源。
+    /// Construct a character source with UTF-8 decoding.
     ///
-    /// 对应 Java: `new InputStreamReader(is)`（Java 使用平台默认字符集，Rust 侧统一为 UTF-8）。
+    /// Corresponds to Java: `new InputStreamReader(is)` (Java uses the platform default charset;
+    /// the Rust side standardizes on UTF-8).
     pub fn new(reader: R) -> Self {
         Self::with_encoding(reader, encoding_rs::UTF_8)
     }
 
-    /// 以指定字符集解码构造字符来源。
+    /// Construct a character source with the specified charset decoding.
     ///
-    /// 对应 Java: `new InputStreamReader(is, charset)`
+    /// Corresponds to Java: `new InputStreamReader(is, charset)`
     pub fn with_encoding(reader: R, encoding: &'static Encoding) -> Self {
         Self {
             reader,
-            // Java 的 InputStreamReader 不剥离 BOM，这里同样关闭 BOM 处理
+            // Java's InputStreamReader does not strip the BOM; BOM handling is likewise disabled here
             decoder: encoding.new_decoder_without_bom_handling(),
             read_buffer: Vec::new(),
             index: 0,
@@ -75,19 +85,21 @@ impl<R: Read> CharSource<R> {
         }
     }
 
-    /// 取回底层字节数据源。
+    /// Take back the underlying byte data source.
     ///
-    /// 对应 Java: 无此方法（Java 的 `Reader`/`InputStream` 由调用方持有）。
+    /// Corresponds to Java: no such method (Java's `Reader`/`InputStream` is held by the caller).
     ///
-    /// 注意：本类型带预读，"取回"时数据源位置可能已经越过最后一个已返回的字符。
+    /// Note: this type has read-ahead, so on "take back" the data source position may already be
+    /// past the last returned character.
     pub fn into_inner(self) -> R {
         self.reader
     }
 
-    /// 读取下一个字符；数据源结束时返回 `None`。
+    /// Read the next character; returns `None` at the end of the data source.
     ///
-    /// 对应 Java: `protected int read() throws IOException`（Java 返回字符编码，
-    /// 结束返回 `TT_EOF`；Rust 侧以 `Option<char>` 表达同一语义）。
+    /// Corresponds to Java: `protected int read() throws IOException` (Java returns the character
+    /// code and `TT_EOF` at the end; the Rust side expresses the same semantics with
+    /// `Option<char>`).
     pub fn read_char(&mut self) -> MpxjResult<Option<char>> {
         if self.index == self.length {
             self.fill_buffer()?;
@@ -98,13 +110,13 @@ impl<R: Read> CharSource<R> {
                 self.index += 1;
                 Ok(Some(c))
             }
-            // 对应 Java: `if (m_length < 1) { m_length = 0; return TT_EOF; }`
+            // Corresponds to Java: `if (m_length < 1) { m_length = 0; return TT_EOF; }`
             None => Ok(None),
         }
     }
 
-    /// 填满读缓冲区：对应 Java 中 `read()` 里对 `m_reader.read(m_readBuffer)` 的调用，
-    /// 以及 `m_index = 0` 的位置指针复位。
+    /// Fill the read buffer: corresponds to the call to `m_reader.read(m_readBuffer)` in Java's
+    /// `read()`, and the reset of the position pointer `m_index = 0`.
     fn fill_buffer(&mut self) -> MpxjResult<()> {
         self.index = 0;
         self.length = 0;
@@ -125,7 +137,7 @@ impl<R: Read> CharSource<R> {
                 self.eof = true;
             }
 
-            // 上一轮未消费的残缺序列拼到本轮数据之前
+            // The incomplete sequence left unconsumed from the previous round is prepended to this round's data
             let mut input = std::mem::take(&mut self.pending);
             input.extend_from_slice(&bytes[..count]);
 
@@ -151,7 +163,7 @@ impl<R: Read> CharSource<R> {
 }
 
 impl<R: Read> TokenSource for CharSource<R> {
-    /// 对应 Java: `ReaderTokenizer` 中覆写的 `protected int read()`
+    /// Corresponds to Java: the `protected int read()` overridden in `ReaderTokenizer`
     fn read(&mut self) -> MpxjResult<i32> {
         match self.read_char()? {
             Some(c) => Ok(c as u32 as i32),
@@ -160,80 +172,81 @@ impl<R: Read> TokenSource for CharSource<R> {
     }
 }
 
-/// 从 `Read` 按字符读取并分词的 tokenizer。
+/// A tokenizer that reads by character from a `Read` and tokenizes.
 ///
-/// 对应 Java: `public class ReaderTokenizer extends Tokenizer`
+/// Corresponds to Java: `public class ReaderTokenizer extends Tokenizer`
 pub struct ReaderTokenizer<R: Read> {
-    /// 组合 + 转发：Java 侧为继承 `Tokenizer` 并覆写 `read()`
+    /// Composition + forwarding: in Java this is inheriting `Tokenizer` and overriding `read()`
     inner: Tokenizer<CharSource<R>>,
 }
 
 impl<R: Read> ReaderTokenizer<R> {
-    /// 构造 tokenizer，输入按 UTF-8 解码。
+    /// Construct a tokenizer; the input is decoded as UTF-8.
     ///
-    /// 对应 Java: `public ReaderTokenizer(Reader r)`
+    /// Corresponds to Java: `public ReaderTokenizer(Reader r)`
     pub fn new(reader: R) -> Self {
         Self {
             inner: Tokenizer::new(CharSource::new(reader)),
         }
     }
 
-    /// 构造 tokenizer，输入按指定字符集解码。
+    /// Construct a tokenizer; the input is decoded with the specified charset.
     ///
-    /// 对应 Java: `new ReaderTokenizer(new InputStreamReader(is, charset))`
+    /// Corresponds to Java: `new ReaderTokenizer(new InputStreamReader(is, charset))`
     pub fn with_encoding(reader: R, encoding: &'static Encoding) -> Self {
         Self {
             inner: Tokenizer::new(CharSource::with_encoding(reader, encoding)),
         }
     }
 
-    /// 取回底层数据源。
+    /// Take back the underlying data source.
     ///
-    /// 对应 Java: 无此方法（Java 中 `Reader` 由调用方持有）；Rust 侧用于「先按字节探测文件头、
-    /// 再按字符解码」的交接。
+    /// Corresponds to Java: no such method (in Java the `Reader` is held by the caller); the Rust
+    /// side uses it for the hand-off of "probe the file header by byte first, then decode by
+    /// character".
     pub fn into_inner(self) -> R {
         self.inner.into_source().into_inner()
     }
 
-    /// 读取下一个字符，数据源结束时返回 `None`。
+    /// Read the next character; returns `None` at the end of the data source.
     ///
-    /// 对应 Java: `protected int read()`（Java 中受 protected 限制，仅子类可用）
+    /// Corresponds to Java: `protected int read()` (protected in Java, available only to subclasses)
     pub fn read_char(&mut self) -> MpxjResult<Option<char>> {
         self.inner.source_mut().read_char()
     }
 
-    /// 对应 Java: `public int nextToken() throws IOException`
+    /// Corresponds to Java: `public int nextToken() throws IOException`
     pub fn next_token(&mut self) -> MpxjResult<i32> {
         self.inner.next_token()
     }
 
-    /// 对应 Java: `public String getToken()`
+    /// Corresponds to Java: `public String getToken()`
     pub fn get_token(&self) -> &str {
         self.inner.get_token()
     }
 
-    /// 对应 Java: `public int getType()`
+    /// Corresponds to Java: `public int getType()`
     pub fn get_type(&self) -> i32 {
         self.inner.get_type()
     }
 
-    /// 对应 Java: `public void setDelimiter(char delimiter)`
+    /// Corresponds to Java: `public void setDelimiter(char delimiter)`
     pub fn set_delimiter(&mut self, delimiter: char) {
         self.inner.set_delimiter(delimiter);
     }
 
-    /// 对应 Java: 无此方法（`m_delimiter` 为私有字段）
+    /// Corresponds to Java: no such method (`m_delimiter` is a private field)
     pub fn get_delimiter(&self) -> char {
         self.inner.get_delimiter()
     }
 
-    /// 对应 Java: `public static final int TT_EOL = '\n'`
+    /// Corresponds to Java: `public static final int TT_EOL = '\n'`
     pub const TT_EOL: i32 = super::tokenizer::TT_EOL;
 
-    /// 对应 Java: `public static final int TT_EOF = -1`
+    /// Corresponds to Java: `public static final int TT_EOF = -1`
     pub const TT_EOF: i32 = super::tokenizer::TT_EOF;
 
-    /// 对应 Java: `public static final int TT_WORD = -3`
+    /// Corresponds to Java: `public static final int TT_WORD = -3`
     pub const TT_WORD: i32 = super::tokenizer::TT_WORD;
 }
 
@@ -247,11 +260,11 @@ mod tests {
         ReaderTokenizer::new(Cursor::new(text.as_bytes().to_vec()))
     }
 
-    /// 读取全部 token，返回 (类型, 文本) 列表。
+    /// Read all tokens and return a list of (type, text).
     fn read_all(tk: &mut ReaderTokenizer<Cursor<Vec<u8>>>) -> Vec<(i32, String)> {
         let mut result = Vec::new();
         loop {
-            let token_type = tk.next_token().expect("内存数据源不会失败");
+            let token_type = tk.next_token().expect("in-memory data source never fails");
             result.push((token_type, tk.get_token().to_string()));
             if token_type == TT_EOF {
                 break;
@@ -347,7 +360,7 @@ mod tests {
 
     #[test]
     fn multi_byte_character_split_across_blocks_is_reassembled() {
-        // 8191 个 ASCII 字符 + 一个 3 字节 UTF-8 字符，正好跨过 8192 字节的读缓冲区边界
+        // 8191 ASCII characters + one 3-byte UTF-8 character, exactly crossing the 8192-byte read buffer boundary
         let mut text = "a".repeat(8191);
         text.push('中');
         text.push_str(",x\n");
@@ -362,13 +375,13 @@ mod tests {
 
     #[test]
     fn decodes_with_explicit_encoding() {
-        // GBK 编码的「中文」
+        // GBK-encoded "中文"
         let bytes = vec![0xD6, 0xD0, 0xCE, 0xC4];
         let mut tk = ReaderTokenizer::with_encoding(Cursor::new(bytes), encoding_rs::GBK);
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "中文");
 
-        // Windows-1252 编码的「é」
+        // Windows-1252-encoded "é"
         let mut tk = ReaderTokenizer::with_encoding(Cursor::new(vec![0xE9]), encoding_rs::WINDOWS_1252);
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "é");
@@ -376,7 +389,7 @@ mod tests {
 
     #[test]
     fn invalid_bytes_become_replacement_characters() {
-        // 孤立的高位字节在 UTF-8 中非法
+        // A lone high byte is invalid in UTF-8
         let mut tk = ReaderTokenizer::new(Cursor::new(vec![0xFF, b'a']));
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "\u{FFFD}a");
@@ -387,7 +400,7 @@ mod tests {
         let mut tk = source("a,b\n");
         assert_eq!(tk.next_token().unwrap(), TT_WORD);
         assert_eq!(tk.get_token(), "a");
-        // 预读会把数据源推进到末尾（Java 侧同样是「Reader 被读超前」的约束）
+        // Read-ahead advances the data source to the end (Java has the same "Reader is read ahead" constraint)
         let cursor = tk.into_inner();
         assert_eq!(cursor.position(), 4);
     }

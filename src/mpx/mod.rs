@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/mpx` 包（Microsoft Project Exchange 文本格式 reader）
+//! Corresponds to Java: `org/mpxj/mpx` package (Microsoft Project Exchange text format reader)
 
 pub mod accrue_type_utility;
 pub mod constraint_type_utility;

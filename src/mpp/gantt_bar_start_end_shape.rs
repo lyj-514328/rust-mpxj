@@ -1,85 +1,85 @@
-//! 对应 Java: `org/mpxj/mpp/GanttBarStartEndShape.java`
+//! Corresponds to Java: `org/mpxj/mpp/GanttBarStartEndShape.java`
 //!
-//! 甘特图条形「起点 / 终点」处绘制的形状。
+//! Shapes drawn at the start / end of Gantt chart bars.
 //!
-//! # 移植取舍
+//! # Porting trade-offs
 //!
-//! - Java 用 `EnumHelper.createTypeArray(GanttBarStartEndShape.class)` 反射生成
-//!   int → 枚举的查找表（数组长度 = 常量个数 25，取值 0..24 恰好填满，
-//!   `getInstance` 不会返回 `null`）；Rust 不用反射，改为
-//!   [`GanttBarStartEndShape::ALL`] + [`GanttBarStartEndShape::get_instance`] 的 `match`。
-//! - 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用。
+//! - Java uses reflection via `EnumHelper.createTypeArray(GanttBarStartEndShape.class)` to generate
+//! the int → enum lookup table (array length = constant count 25; values 0..24 exactly fill it,
+//! so `getInstance` never returns `null`); Rust does not use reflection and instead uses
+//! [`GanttBarStartEndShape::ALL`] + the `match` in [`GanttBarStartEndShape::get_instance`].
+//! - Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use them.
 //!
-//! 未移植的 Java 成员：无。
+//! Unported Java members: none.
 
 use std::fmt::{self, Display, Formatter};
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 甘特图条形起止端的形状。
+/// Shape of the start/end of Gantt chart bars.
 ///
-/// 对应 Java: `public enum GanttBarStartEndShape implements MpxjEnum`
+/// Corresponds to Java: `public enum GanttBarStartEndShape implements MpxjEnum`
 ///
-/// 声明顺序与 Java 一致，判别值即 Java 的 `m_value`。
+/// The declaration order matches Java, and the discriminant value is Java's `m_value`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GanttBarStartEndShape {
-    /// 对应 Java: `NONE(0, "None")`
+    /// Corresponds to Java: `NONE(0, "None")`
     None = 0,
-    /// 对应 Java: `NORTHHOMEPLATE(1, "North Home Plate")`
+    /// Corresponds to Java: `NORTHHOMEPLATE(1, "North Home Plate")`
     NorthHomePlate = 1,
-    /// 对应 Java: `SOUTHHOMEPLATE(2, "South Home Plate")`
+    /// Corresponds to Java: `SOUTHHOMEPLATE(2, "South Home Plate")`
     SouthHomePlate = 2,
-    /// 对应 Java: `DIAMOND(3, "Diamond")`
+    /// Corresponds to Java: `DIAMOND(3, "Diamond")`
     Diamond = 3,
-    /// 对应 Java: `UPARROW(4, "Up Arrow")`
+    /// Corresponds to Java: `UPARROW(4, "Up Arrow")`
     UpArrow = 4,
-    /// 对应 Java: `DOWNARROW(5, "Down Arrow")`
+    /// Corresponds to Java: `DOWNARROW(5, "Down Arrow")`
     DownArrow = 5,
-    /// 对应 Java: `RIGHTARROW(6, "Right Arrow")`
+    /// Corresponds to Java: `RIGHTARROW(6, "Right Arrow")`
     RightArrow = 6,
-    /// 对应 Java: `LEFTARROW(7, "Left Arrow")`
+    /// Corresponds to Java: `LEFTARROW(7, "Left Arrow")`
     LeftArrow = 7,
-    /// 对应 Java: `UPPOINTER(8, "Up Pointer")`
+    /// Corresponds to Java: `UPPOINTER(8, "Up Pointer")`
     UpPointer = 8,
-    /// 对应 Java: `SOUTHMINIHOMEPLATE(9, "South Mini Home Plate")`
+    /// Corresponds to Java: `SOUTHMINIHOMEPLATE(9, "South Mini Home Plate")`
     SouthMiniHomePlate = 9,
-    /// 对应 Java: `NORTHMINIHOMEPLATE(10, "North Mini Home Plate")`
+    /// Corresponds to Java: `NORTHMINIHOMEPLATE(10, "North Mini Home Plate")`
     NorthMiniHomePlate = 10,
-    /// 对应 Java: `VERTICALBAR(11, "Vertical Bar")`
+    /// Corresponds to Java: `VERTICALBAR(11, "Vertical Bar")`
     VerticalBar = 11,
-    /// 对应 Java: `SQUARE(12, "Square")`
+    /// Corresponds to Java: `SQUARE(12, "Square")`
     Square = 12,
-    /// 对应 Java: `DIAMONDCIRCLED(13, "Diamond Circled")`
+    /// Corresponds to Java: `DIAMONDCIRCLED(13, "Diamond Circled")`
     DiamondCircled = 13,
-    /// 对应 Java: `DOWNPOINTER(14, "Down Pointer")`
+    /// Corresponds to Java: `DOWNPOINTER(14, "Down Pointer")`
     DownPointer = 14,
-    /// 对应 Java: `UPARROWCIRCLED(15, "Up Arrow Circled")`
+    /// Corresponds to Java: `UPARROWCIRCLED(15, "Up Arrow Circled")`
     UpArrowCircled = 15,
-    /// 对应 Java: `DOWNARROWCIRCLED(16, "Down Arrow Circled")`
+    /// Corresponds to Java: `DOWNARROWCIRCLED(16, "Down Arrow Circled")`
     DownArrowCircled = 16,
-    /// 对应 Java: `UPPOINTERCIRCLED(17, "Up Pointer Circled")`
+    /// Corresponds to Java: `UPPOINTERCIRCLED(17, "Up Pointer Circled")`
     UpPointerCircled = 17,
-    /// 对应 Java: `DOWNPOINTERCIRCLED(18, "Down Pointer Circled")`
+    /// Corresponds to Java: `DOWNPOINTERCIRCLED(18, "Down Pointer Circled")`
     DownPointerCircled = 18,
-    /// 对应 Java: `CIRCLE(19, "Circle")`
+    /// Corresponds to Java: `CIRCLE(19, "Circle")`
     Circle = 19,
-    /// 对应 Java: `STAR(20, "Star")`
+    /// Corresponds to Java: `STAR(20, "Star")`
     Star = 20,
-    /// 对应 Java: `LEFTBRACKET(21, "Left Bracket")`
+    /// Corresponds to Java: `LEFTBRACKET(21, "Left Bracket")`
     LeftBracket = 21,
-    /// 对应 Java: `RIGHTBRACKET(22, "Right Bracket")`
+    /// Corresponds to Java: `RIGHTBRACKET(22, "Right Bracket")`
     RightBracket = 22,
-    /// 对应 Java: `LEFTGRADIENT(23, "Left Gradient")`
+    /// Corresponds to Java: `LEFTGRADIENT(23, "Left Gradient")`
     LeftGradient = 23,
-    /// 对应 Java: `RIGHTGRADIENT(24, "Right Gradient")`
+    /// Corresponds to Java: `RIGHTGRADIENT(24, "Right Gradient")`
     RightGradient = 24,
 }
 
 impl GanttBarStartEndShape {
-    /// 全部取值，顺序与 Java 声明顺序一致。
+/// All values, in the same order as declared in Java.
     ///
-    /// 对应 Java: `private static final GanttBarStartEndShape[] TYPE_VALUES`
-    /// （去掉反射建表后剩下的常量清单）。
+    /// Corresponds to Java: `private static final GanttBarStartEndShape[] TYPE_VALUES`
+/// (the list of constants left after removing the reflective table construction).
     pub const ALL: [GanttBarStartEndShape; 25] = [
         GanttBarStartEndShape::None,
         GanttBarStartEndShape::NorthHomePlate,
@@ -108,9 +108,9 @@ impl GanttBarStartEndShape {
         GanttBarStartEndShape::RightGradient,
     ];
 
-    /// 根据 int 值取枚举实例，越界（含负值）时回落到 `NONE`。
+/// Get the enum instance by int value; on out of bounds (including negative values) it falls back to `NONE`.
     ///
-    /// 对应 Java: `public static GanttBarStartEndShape getInstance(int type)`
+    /// Corresponds to Java: `public static GanttBarStartEndShape getInstance(int type)`
     pub fn get_instance(value: i32) -> GanttBarStartEndShape {
         match value {
             0 => GanttBarStartEndShape::None,
@@ -143,16 +143,16 @@ impl GanttBarStartEndShape {
         }
     }
 
-    /// 对应 Java: `public static GanttBarStartEndShape getInstance(Number type)`
+    /// Corresponds to Java: `public static GanttBarStartEndShape getInstance(Number type)`
     ///
-    /// Java 侧 `null` 走 `getInstance(-1)`，最终回落到 `NONE`。
+/// On the Java side `null` goes through `getInstance(-1)`, which ultimately falls back to `NONE`.
     pub fn get_instance_optional(value: Option<i32>) -> GanttBarStartEndShape {
         GanttBarStartEndShape::get_instance(value.unwrap_or(-1))
     }
 
-    /// 取形状名称（如 `"North Home Plate"`），与 Java 一致，未做本地化。
+/// Get the shape name (such as `"North Home Plate"`), matching Java, not localized.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> &'static str {
         match self {
             GanttBarStartEndShape::None => "None",
@@ -185,14 +185,14 @@ impl GanttBarStartEndShape {
 }
 
 impl MpxjEnum for GanttBarStartEndShape {
-    /// 对应 Java: `@Override public int getValue()`
+    /// Corresponds to Java: `@Override public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
 impl Display for GanttBarStartEndShape {
-    /// 对应 Java: `@Override public String toString()`，即 `getName()`。
+/// Corresponds to Java: `@Override public String toString()`, i.e. `getName()`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.get_name())
     }
@@ -224,7 +224,7 @@ mod tests {
             GanttBarStartEndShape::get_instance_optional(None),
             GanttBarStartEndShape::None
         );
-        // Java 的 `getInstance(Number)` 对 null 走 -1
+// Java's `getInstance(Number)` routes null through -1
         assert_eq!(
             GanttBarStartEndShape::get_instance_optional(Some(3)),
             GanttBarStartEndShape::Diamond

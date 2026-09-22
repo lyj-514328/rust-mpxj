@@ -1,46 +1,46 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldValueReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldValueReader.java`
 //!
-//! 自定义字段**取值列表**读取的公共实现：从 `TBkndOutlCode` 的定长 / 变长数据块中读出
-//! 取值项（unique ID、GUID、描述、未知数据块、父级 ID、取值类型、取值），按 unique ID 与
-//! GUID 登记到自定义字段容器，并按查找表 GUID 挂到对应字段的查找表上。
+//! Common implementation for reading custom field **value lists**: reads out from the fixed-length / variable-length data blocks of `TBkndOutlCode`
+//! value items (unique ID, GUID, description, unknown data block, parent ID, value type, value), registers them with the custom field container by unique ID and
+//! GUID, and attaches them to the corresponding field's lookup table by lookup table GUID.
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Restoring inheritance (composition + forwarding)
 //!
-//! Java: `abstract class CustomFieldValueReader`，由 `CustomFieldValueReader12` /
-//! `CustomFieldValueReader14` 继承（注意：`CustomFieldValueReader9` **不**继承本类，它是
-//! 独立实现，另有自己的取值列表解析逻辑）。Rust 无继承，故：
+//! Java: `abstract class CustomFieldValueReader`, extended by `CustomFieldValueReader12` /
+//! `CustomFieldValueReader14` (note: `CustomFieldValueReader9` does **not** extend this class; it is an
+//! independent implementation with its own value list parsing logic). Rust has no inheritance, therefore:
 //!
-//! - 本类在 Rust 中是**具体结构体**：Java 的 `abstract` 只用于禁止直接实例化，本类没有任何
-//!   抽象方法，Rust 侧不引入多余的类型；
+//! - This class is a **concrete struct** in Rust: Java's `abstract` is only used to forbid direct instantiation, and this class has no
+//! abstract methods, so the Rust side introduces no superfluous type;
 //! - [`CustomFieldValueReader12`](crate::mpp::custom_field_value_reader12::CustomFieldValueReader12)
-//!   与 `CustomFieldValueReader14` 各自**持有一个本结构体**（私有字段 `base`），并把全部公开
-//!   方法逐一转发；构造时通过 [`CustomFieldValueReader::set_parent_offset`] /
+//! and `CustomFieldValueReader14` each **hold one instance of this struct** (a private `base` field) and forward all public
+//! methods one by one; at construction time, via [`CustomFieldValueReader::set_parent_offset`] /
 //!   [`CustomFieldValueReader::set_type_offset`] /
-//!   [`CustomFieldValueReader::set_field_offset`] 写入 Java 子类直接赋值的 `protected` 字段。
+//! [`CustomFieldValueReader::set_field_offset`], write the `protected` fields that Java subclasses assign directly.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `CustomFieldValueReader(ProjectFile, Map<UUID, FieldType>, VarMeta, Var2Data, FixedData, FixedData)` | 同序构造，但第一个参数改为 `&Rc<RefCell<ProjectFile>>`，`Map<UUID, FieldType>` → `HashMap<Uuid, MppFieldType>` | `ProjectFile` 在本 crate 中以 `Rc<RefCell<..>>` 共享；`FieldType` 接口用 [`MppFieldType`] 表达 |
-//! | `private final ProjectProperties m_properties`（构造时从 file 取） | 不保存引用，按需用 `ProjectFile::try_borrow` 借用 | `ProjectProperties` 由 `ProjectFile` 持有，Rust 无法取出稳定引用（与 `FieldMap` 的既有做法一致）；借用冲突时按「取不到属性」处理，绝不 panic |
-//! | `private final CustomFieldContainer m_container` | `Rc<RefCell<CustomFieldContainer>>` | 与 Java 一样在构造时取 `file.getCustomFields()` |
-//! | `protected int m_parentOffset / m_typeOffset / m_fieldOffset` | 私有字段 + `set_*` / `get_*` 访问器（`usize`） | Java 子类直接给 `protected` 字段赋值；Rust 子类在别的文件里，故用访问器。偏移语义是非负字节下标，用 `usize` 表达 |
-//! | `protected Object getTypedValue(CustomFieldValueDataType, byte[])` | `pub fn get_typed_value(&self, Option<CustomFieldValueDataType>, &[u8]) -> Option<FieldValue>` | `Object` → [`FieldValue`]；`null` → `None`。取值类型为 `null`（Java 的 `getInstance` 未命中）时与 Java 一样按字符串猜测 |
-//! | `private String valueAsString(byte[])` | 私有方法 `value_as_string`（返回 [`FieldValue::String`]） | Java 用 `try/catch` 兜底成 hexdump；Rust 的 `MPPUtility::get_unicode_string` 是全函数（畸形数据也返回字符串），该兜底分支不可达，见方法注释 |
-//! | `ByteArrayHelper.getShort/getInt` 越界抛 `ArrayIndexOutOfBoundsException` | [`checked_short`] / [`checked_int`] 返回 `None` 并 `continue`（跳过该条记录） | 遵循「不 panic」约定 |
-//! | `m_container.registerValue(item)` / `table.add(item)` / `table.set(index, item)` | `register_value(item.stored_item())` / `table.add(item.to_stored_item())` / `table.set(index, item.to_stored_item())` | Java 在容器与查找表里放**同一个实例**；Rust 的查找表按值存放（元素类型不是 `Rc`），故查找表侧是内容相同的副本，容器侧与本次构造的实例共享同一份存储（见 [`CustomFieldValueItem`]） |
-//! | `table.stream().noneMatch(...)` | `table.as_slice().iter().all(...)` | Java 的 `Stream` 未移植（本 crate 用切片迭代替代） |
+//! | `CustomFieldValueReader(ProjectFile, Map<UUID, FieldType>, VarMeta, Var2Data, FixedData, FixedData)` | Constructed in the same order, but the first parameter is changed to `&Rc<RefCell<ProjectFile>>`, and `Map<UUID, FieldType>` → `HashMap<Uuid, MppFieldType>` | `ProjectFile` is shared as `Rc<RefCell<..>>` in this crate; the `FieldType` interface is expressed by [`MppFieldType`] |
+//! | `private final ProjectProperties m_properties` (taken from file at construction) | Do not store a reference; borrow on demand with `ProjectFile::try_borrow` | `ProjectProperties` is held by `ProjectFile`, and Rust cannot obtain a stable reference to it (consistent with the existing approach in `FieldMap`); on a borrow conflict, treat it as "properties unavailable" and never panic |
+//! | `private final CustomFieldContainer m_container` | `Rc<RefCell<CustomFieldContainer>>` | As in Java, take `file.getCustomFields()` at construction |
+//! | `protected int m_parentOffset / m_typeOffset / m_fieldOffset` | Private fields + `set_*` / `get_*` accessors (`usize`) | Java subclasses assign to the `protected` fields directly; Rust subclasses live in other files, hence accessors. The offset semantics is a non-negative byte index, expressed with `usize` |
+//! | `protected Object getTypedValue(CustomFieldValueDataType, byte[])` | `pub fn get_typed_value(&self, Option<CustomFieldValueDataType>, &[u8]) -> Option<FieldValue>` | `Object` → [`FieldValue`]; `null` → `None`. When the value type is `null` (Java's `getInstance` did not match), guess as a string as in Java |
+//! | `private String valueAsString(byte[])` | Private method `value_as_string` (returns [`FieldValue::String`]) | Java falls back to hexdump via `try/catch`; Rust's `MPPUtility::get_unicode_string` is a total function (it returns a string even for malformed data), so that fallback branch is unreachable, see the method comment |
+//! | `ByteArrayHelper.getShort/getInt` throws `ArrayIndexOutOfBoundsException` when out of bounds | [`checked_short`] / [`checked_int`] return `None` and `continue` (skip that record) | Follows the "no panic" convention |
+//! | `m_container.registerValue(item)` / `table.add(item)` / `table.set(index, item)` | `register_value(item.stored_item())` / `table.add(item.to_stored_item())` / `table.set(index, item.to_stored_item())` | Java puts the **same instance** in the container and the lookup table; Rust's lookup table stores by value (the element type is not `Rc`), so the lookup table side is a copy with identical content, while the container side shares the same storage as the instance constructed here (see [`CustomFieldValueItem`]) |
+//! | `table.stream().noneMatch(...)` | `table.as_slice().iter().all(...)` | Java's `Stream` is not ported (this crate substitutes slice iteration) |
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 //!
-//! # 已知功能缺口
+//! # Known functional gaps
 //!
-//! `m_lookupTableMap` 的键是查找表 GUID，值在 Java 中可能是 `null`（`populateLookupTableMap`
-//! 在 `FieldTypeHelper` 无法识别字段号时会放入 `null`）。Rust 的 `HashMap` 值类型不可空，
-//! 故调用方只放入能识别的字段；查不到时本类与 Java 一样跳过该取值项的查找表处理。
+//! The keys of `m_lookupTableMap` are lookup table GUIDs, and the values may be `null` in Java (`populateLookupTableMap`
+//! puts in `null` when `FieldTypeHelper` cannot recognize the field number). Rust's `HashMap` value type is non-nullable,
+//! so the caller only inserts fields that can be recognized; when not found, this class skips the lookup table handling of that value item just as Java does.
 
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
@@ -61,91 +61,91 @@ use crate::mpp::var_meta::VarMeta;
 use crate::project_file::ProjectFile;
 use crate::project_properties::ProjectProperties;
 
-/// 取值项 unique ID 在定长数据块中的偏移。
+/// The offset of the value item unique ID within the fixed-length data block.
 ///
-/// 对应 Java: `public static final int UNJQUE_ID_OFFSET = 4;`
-///（常量名沿用了 Java 源码里的拼写错误 `UNJQUE`）。
+/// Corresponds to Java: `public static final int UNJQUE_ID_OFFSET = 4;`
+/// (the constant name preserves the typo `UNJQUE` from the Java source).
 pub const UNJQUE_ID_OFFSET: usize = 4;
 
-/// 取值项「取值」在变长数据块中的数据类型键。
+/// The data type key of the value item "value" within the variable-length data block.
 ///
-/// 对应 Java: `public static final Integer VALUE_LIST_VALUE = Integer.valueOf(22);`
+/// Corresponds to Java: `public static final Integer VALUE_LIST_VALUE = Integer.valueOf(22);`
 pub const VALUE_LIST_VALUE: i32 = 22;
 
-/// 取值项「描述」在变长数据块中的数据类型键。
+/// The data type key of the value item "description" within the variable-length data block.
 ///
-/// 对应 Java: `public static final Integer VALUE_LIST_DESCRIPTION = Integer.valueOf(8);`
+/// Corresponds to Java: `public static final Integer VALUE_LIST_DESCRIPTION = Integer.valueOf(8);`
 pub const VALUE_LIST_DESCRIPTION: i32 = 8;
 
-/// 取值项「未知数据块」在变长数据块中的数据类型键。
+/// The data type key of the value item "unknown data block" within the variable-length data block.
 ///
-/// 对应 Java: `public static final Integer VALUE_LIST_UNKNOWN = Integer.valueOf(23);`
+/// Corresponds to Java: `public static final Integer VALUE_LIST_UNKNOWN = Integer.valueOf(23);`
 pub const VALUE_LIST_UNKNOWN: i32 = 23;
 
-/// 自定义字段取值列表的公共读取逻辑。
+/// Common reading logic for custom field value lists.
 ///
-/// 对应 Java: `abstract class CustomFieldValueReader`
+/// Corresponds to Java: `abstract class CustomFieldValueReader`
 pub struct CustomFieldValueReader {
-    /// 项目文件。
+/// The project file.
     ///
-    /// 对应 Java 构造方法中的 `m_properties = file.getProjectProperties()`
-    ///（Rust 侧改为按需借用，见类型说明）。
+/// Corresponds to `m_properties = file.getProjectProperties()` in the Java constructor
+/// (the Rust side changes this to borrowing on demand, see the type description).
     file: Rc<RefCell<ProjectFile>>,
 
-    /// 自定义字段容器。
+/// The custom field container.
     ///
-    /// 对应 Java 字段: `protected final CustomFieldContainer m_container;`
-    ///（构造方法中 `m_container = file.getCustomFields();`）
+    /// Corresponds to Java field: `protected final CustomFieldContainer m_container;`
+/// (in the constructor, `m_container = file.getCustomFields();`)
     container: Rc<RefCell<CustomFieldContainer>>,
 
-    /// 查找表 GUID → 字段。
+/// Lookup table GUID → field.
     ///
-    /// 对应 Java 字段: `protected final Map<UUID, FieldType> m_lookupTableMap;`
+    /// Corresponds to Java field: `protected final Map<UUID, FieldType> m_lookupTableMap;`
     lookup_table_map: HashMap<Uuid, MppFieldType>,
 
-    /// 取值列表的变长数据块元数据。
+/// The variable-length data block metadata of the value list.
     ///
-    /// 对应 Java 字段: `protected final VarMeta m_outlineCodeVarMeta;`
+    /// Corresponds to Java field: `protected final VarMeta m_outlineCodeVarMeta;`
     outline_code_var_meta: Rc<dyn VarMeta>,
 
-    /// 取值列表的变长数据块。
+/// The variable-length data block of the value list.
     ///
-    /// 对应 Java 字段: `protected final Var2Data m_outlineCodeVarData;`
+    /// Corresponds to Java field: `protected final Var2Data m_outlineCodeVarData;`
     outline_code_var_data: Var2Data,
 
-    /// 取值列表的定长数据块。
+/// The fixed-length data block of the value list.
     ///
-    /// 对应 Java 字段: `protected final FixedData m_outlineCodeFixedData;`
+    /// Corresponds to Java field: `protected final FixedData m_outlineCodeFixedData;`
     outline_code_fixed_data: FixedData,
 
-    /// 取值列表的第二个定长数据块（GUID 与取值类型）。
+/// The second fixed-length data block of the value list (GUID and value type).
     ///
-    /// 对应 Java 字段: `protected final FixedData m_outlineCodeFixedData2;`
+    /// Corresponds to Java field: `protected final FixedData m_outlineCodeFixedData2;`
     outline_code_fixed_data2: FixedData,
 
-    /// 父级 unique ID 在定长数据块中的偏移。
+/// The offset of the parent unique ID within the fixed-length data block.
     ///
-    /// 对应 Java 字段: `protected int m_parentOffset;`（由子类构造方法赋值）
+/// Corresponds to Java field: `protected int m_parentOffset;` (assigned by the subclass constructor)
     parent_offset: usize,
 
-    /// 取值类型在第二个定长数据块中的偏移。
+/// The offset of the value type within the second fixed-length data block.
     ///
-    /// 对应 Java 字段: `protected int m_typeOffset;`（由子类构造方法赋值）
+/// Corresponds to Java field: `protected int m_typeOffset;` (assigned by the subclass constructor)
     type_offset: usize,
 
-    /// 查找表 GUID 在第二个定长数据块中的偏移。
+/// The offset of the lookup table GUID within the second fixed-length data block.
     ///
-    /// 对应 Java 字段: `protected int m_fieldOffset;`（由子类构造方法赋值）
+/// Corresponds to Java field: `protected int m_fieldOffset;` (assigned by the subclass constructor)
     field_offset: usize,
 }
 
 impl CustomFieldValueReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldValueReader(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
+    /// Corresponds to Java: `public CustomFieldValueReader(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
     ///
-    /// 三个偏移（`m_parentOffset` / `m_typeOffset` / `m_fieldOffset`）在 Java 中由子类构造方法
-    /// 直接赋值，Rust 侧构造后为 0，由子类（或调用方）用 `set_*_offset` 设置。
+/// The three offsets (`m_parentOffset` / `m_typeOffset` / `m_fieldOffset`) are assigned directly by the subclass constructor in Java;
+/// on the Rust side they are 0 after construction and are set by the subclass (or caller) with `set_*_offset`.
     pub fn new(
         file: &Rc<RefCell<ProjectFile>>,
         lookup_table_map: HashMap<Uuid, MppFieldType>,
@@ -155,7 +155,7 @@ impl CustomFieldValueReader {
         outline_code_fixed_data2: FixedData,
     ) -> Self {
         // Java: m_container = file.getCustomFields();
-        // 文件正被可变借用时（正常调用路径不会发生）退化为一枚独立容器，避免 panic。
+// When the file is already mutably borrowed (which does not happen on the normal call path), degrade to a standalone container to avoid a panic.
         let container = match file.try_borrow() {
             Ok(file) => file.get_custom_fields(),
             Err(_) => CustomFieldContainer::new(),
@@ -175,9 +175,9 @@ impl CustomFieldValueReader {
         }
     }
 
-    /// 读取全部取值项。
+/// Reads all value items.
     ///
-    /// 对应 Java: `public void process()`
+    /// Corresponds to Java: `public void process()`
     pub fn process(&self) {
         // Java: for (int loop = 0; loop < m_outlineCodeFixedData.getItemCount(); loop++)
         for loop_index in 0..self.outline_code_fixed_data.get_item_count() {
@@ -191,7 +191,7 @@ impl CustomFieldValueReader {
             };
 
             // Java: Integer id = Integer.valueOf(ByteArrayHelper.getShort(fixedData, UNJQUE_ID_OFFSET));
-            // Java 在数据不足时抛 ArrayIndexOutOfBoundsException；Rust 侧跳过该条记录。
+// Java throws ArrayIndexOutOfBoundsException when there is insufficient data; the Rust side skips that record.
             let Some(id) = checked_short(fixed_data, UNJQUE_ID_OFFSET) else {
                 continue;
             };
@@ -226,12 +226,12 @@ impl CustomFieldValueReader {
             );
 
             // Java: item.setParentUniqueID(Integer.valueOf(ByteArrayHelper.getShort(fixedData, m_parentOffset)));
-            // Java 越界时抛异常；Rust 侧取不到时保持 null（`None`）。
+// Java throws when out of bounds; the Rust side keeps null (`None`) when it cannot be read.
             item.set_parent_unique_id(checked_short(fixed_data, self.parent_offset));
 
             // Java: byte[] fixedData2 = m_outlineCodeFixedData2.getByteArrayValue(loop);
             //       item.setGUID(MPPUtility.getGUID(fixedData2, 0));
-            // Java 的 `getGUID` 自身对 null / 过短数据返回 null，故这里用空切片表达缺失。
+// Java's `getGUID` itself returns null for null / too-short data, so an empty slice is used here to express absence.
             let fixed_data2 = self
                 .outline_code_fixed_data2
                 .get_byte_array_value(loop_index)
@@ -242,7 +242,7 @@ impl CustomFieldValueReader {
             let lookup_table_guid = MPPUtility::get_guid(fixed_data2, self.field_offset);
 
             // Java: item.setType(CustomFieldValueDataType.getInstance(ByteArrayHelper.getShort(fixedData2, m_typeOffset)));
-            // `getInstance` 对未定义的取值下标返回 null，与 Rust 的 `and_then` 等价。
+// `getInstance` returns null for an undefined value index, which is equivalent to Rust's `and_then`.
             item.set_type(
                 checked_short(fixed_data2, self.type_offset)
                     .and_then(CustomFieldValueDataType::get_instance),
@@ -258,7 +258,7 @@ impl CustomFieldValueReader {
 
             // Java: FieldType field = m_lookupTableMap.get(lookupTableGuid);
             //       if (field != null) { ... }
-            // Java 的 `getGUID` 可能返回 null，而映射中不会有 null 键，Rust 侧同样跳过。
+// Java's `getGUID` may return null, and the map has no null keys, so the Rust side likewise skips.
             let field = lookup_table_guid
                 .and_then(|guid| self.lookup_table_map.get(&guid))
                 .cloned();
@@ -269,7 +269,7 @@ impl CustomFieldValueReader {
                     CustomFieldContainer::get_or_create(&self.container, field.to_field_key());
                 let unique_id = item.get_unique_id();
 
-                // Java 注释：检查是否重复，unique ID 足以判定重复。
+// Java comment: check for duplicates; the unique ID suffices to determine a duplicate.
                 // Java: if (table.stream().noneMatch(i -> i.getUniqueID().equals(item.getUniqueID())))
                 let is_new = custom_field
                     .borrow()
@@ -285,8 +285,8 @@ impl CustomFieldValueReader {
                     table.add(item.to_stored_item());
                     table.set_guid(lookup_table_guid);
                 } else {
-                    // Java 注释：用新实例替换查找表中的旧实例，保证容器与查找表指向同一项。
-                    // Rust 侧查找表按值存放，故写入内容相同的副本。
+// Java comment: replace the old instance in the lookup table with the new one, ensuring the container and lookup table point to the same item.
+// The Rust side stores the lookup table by value, so it writes a copy with identical content.
                     let index = custom_field
                         .borrow()
                         .get_lookup_table()
@@ -305,13 +305,13 @@ impl CustomFieldValueReader {
         }
     }
 
-    /// 把从 MPP 文件读到的原始字节转换成 Java 类型的取值。
+/// Converts raw bytes read from the MPP file into a Java-typed value.
     ///
-    /// 对应 Java: `protected Object getTypedValue(CustomFieldValueDataType type, byte[] value)`
+    /// Corresponds to Java: `protected Object getTypedValue(CustomFieldValueDataType type, byte[] value)`
     ///
-    /// Java 的 `default` 分支覆盖「未列举的取值类型」与「`type == null`」两种情况，Rust 侧
-    /// `FLAG` 与 `None` 走同一分支。Java 的 `getTimestamp` / `getAdjustedDuration` 可能返回
-    /// `null`，故返回 `Option<FieldValue>`。
+/// Java's `default` branch covers both "an unlisted value type" and "`type == null`"; on the Rust side
+/// `FLAG` and `None` take the same branch. Java's `getTimestamp` / `getAdjustedDuration` may return
+/// `null`, so `Option<FieldValue>` is returned.
     pub fn get_typed_value(
         &self,
         type_: Option<CustomFieldValueDataType>,
@@ -333,20 +333,20 @@ impl CustomFieldValueReader {
             //    TimeUnit units = MPPUtility.getDurationTimeUnits(ByteArrayHelper.getShort(value, 4), m_properties.getDefaultDurationUnits());
             //    result = MPPUtility.getAdjustedDuration(m_properties, ByteArrayHelper.getInt(value, 0), units);
             CustomFieldValueDataType::Duration => {
-                // Java 直接读 `m_properties`；Rust 侧按需借用（借用冲突时退化为无默认单位）
+// Java reads `m_properties` directly; the Rust side borrows on demand (on a borrow conflict it degrades to no default unit)
                 let properties = self.try_project_properties();
                 let default_duration_units = properties
                     .as_deref()
                     .map(ProjectProperties::get_default_duration_units);
-                // Java 越界时抛异常；Rust 侧取不到时按 0 处理（`getDurationTimeUnits(0)` = DAYS）
+// Java throws when out of bounds; the Rust side treats an unreadable value as 0 (`getDurationTimeUnits(0)` = DAYS)
                 let units = MPPUtility::get_duration_time_units_with_default(
                     checked_short(value, 4).unwrap_or(0),
                     default_duration_units,
                 );
                 let duration = checked_int(value, 0).unwrap_or(0);
 
-                // Java 的 `getAdjustedDuration` 在 duration == -1 时返回 null；
-                // 无法借用项目属性时同样返回 None（Java 不存在该情形）。
+// Java's `getAdjustedDuration` returns null when duration == -1;
+// when the project properties cannot be borrowed it likewise returns None (Java has no such case).
                 properties
                     .as_deref()
                     .and_then(|properties| {
@@ -371,78 +371,78 @@ impl CustomFieldValueReader {
             }
 
             // Java: default: result = valueAsString(value);
-            //（Java 的 switch 未列举 FLAG 且常量已枚举完毕，故只有 default 可达）
+// (Java's switch does not list FLAG and the constants are all enumerated, so only default is reachable)
             CustomFieldValueDataType::Flag => Some(self.value_as_string(value)),
         }
     }
 
-    /// 尽力把一段字节解释成字符串。
+/// Best-effort interpretation of a run of bytes as a string.
     ///
-    /// 对应 Java: `private String valueAsString(byte[] value)`
+    /// Corresponds to Java: `private String valueAsString(byte[] value)`
     ///
-    /// Java 在 `MPPUtility.getUnicodeString` 抛异常时回退到
-    /// `ByteArrayHelper.hexdump(value, false)`；Rust 的
-    /// [`MPPUtility::get_unicode_string`] 是「全函数」（越界与畸形数据都只返回字符串），
-    /// 该 `catch` 分支不可达，故这里只保留解码结果。
+/// When `MPPUtility.getUnicodeString` throws, Java falls back to
+/// `ByteArrayHelper.hexdump(value, false)`; Rust's
+/// [`MPPUtility::get_unicode_string`] is a "total function" (out-of-bounds and malformed data only ever return a string),
+/// so that `catch` branch is unreachable, and only the decode result is kept here.
     fn value_as_string(&self, value: &[u8]) -> FieldValue {
         // Java: try { result = MPPUtility.getUnicodeString(value, 0); }
         //       catch (Exception ex) { result = ByteArrayHelper.hexdump(value, false); }
         FieldValue::String(MPPUtility::get_unicode_string(value, 0))
     }
 
-    /// 取「父级 unique ID」在定长数据块中的偏移。
+/// Gets the offset of the "parent unique ID" within the fixed-length data block.
     ///
-    /// 对应 Java: `protected int m_parentOffset`（Rust 侧为访问器，见类型说明）
+/// Corresponds to Java: `protected int m_parentOffset` (an accessor on the Rust side, see the type description)
     pub fn get_parent_offset(&self) -> usize {
         self.parent_offset
     }
 
-    /// 设置「父级 unique ID」的偏移。
+/// Sets the offset of the "parent unique ID".
     ///
-    /// 对应 Java: 子类构造方法中的 `m_parentOffset = ...`
+/// Corresponds to Java: `m_parentOffset = ...` in the subclass constructor
     pub fn set_parent_offset(&mut self, offset: usize) {
         self.parent_offset = offset;
     }
 
-    /// 取「取值类型」在第二个定长数据块中的偏移。
+/// Gets the offset of the "value type" within the second fixed-length data block.
     ///
-    /// 对应 Java: `protected int m_typeOffset`（Rust 侧为访问器，见类型说明）
+/// Corresponds to Java: `protected int m_typeOffset` (an accessor on the Rust side, see the type description)
     pub fn get_type_offset(&self) -> usize {
         self.type_offset
     }
 
-    /// 设置「取值类型」的偏移。
+/// Sets the offset of the "value type".
     ///
-    /// 对应 Java: 子类构造方法中的 `m_typeOffset = ...`
+/// Corresponds to Java: `m_typeOffset = ...` in the subclass constructor
     pub fn set_type_offset(&mut self, offset: usize) {
         self.type_offset = offset;
     }
 
-    /// 取「查找表 GUID」在第二个定长数据块中的偏移。
+/// Gets the offset of the "lookup table GUID" within the second fixed-length data block.
     ///
-    /// 对应 Java: `protected int m_fieldOffset`（Rust 侧为访问器，见类型说明）
+/// Corresponds to Java: `protected int m_fieldOffset` (an accessor on the Rust side, see the type description)
     pub fn get_field_offset(&self) -> usize {
         self.field_offset
     }
 
-    /// 设置「查找表 GUID」的偏移。
+/// Sets the offset of the "lookup table GUID".
     ///
-    /// 对应 Java: 子类构造方法中的 `m_fieldOffset = ...`
+/// Corresponds to Java: `m_fieldOffset = ...` in the subclass constructor
     pub fn set_field_offset(&mut self, offset: usize) {
         self.field_offset = offset;
     }
 
-    /// 借用项目属性（Rust 特有：Java 在构造方法里保存属性对象的引用）。
+/// Borrows the project properties (Rust-specific: Java stores a reference to the properties object in the constructor).
     fn try_project_properties(&self) -> Option<Ref<'_, ProjectProperties>> {
         let file = self.file.try_borrow().ok()?;
         Some(Ref::map(file, |file| file.get_project_properties()))
     }
 }
 
-/// 读取两字节短整数；数据不足时返回 `None`。
+/// Reads a two-byte short integer; returns `None` when there is insufficient data.
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(byte[], int)`（越界时 Java 抛
-/// `ArrayIndexOutOfBoundsException`，Rust 侧返回 `None`）。
+/// Corresponds to Java: `ByteArrayHelper.getShort(byte[], int)` (Java throws when out of bounds;
+/// the Rust side returns `None`).
 pub(crate) fn checked_short(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(2)? > data.len() {
         return None;
@@ -451,9 +451,9 @@ pub(crate) fn checked_short(data: &[u8], offset: usize) -> Option<i32> {
     Some(ByteArrayHelper::get_short(data, offset))
 }
 
-/// 读取四字节整数；数据不足时返回 `None`。
+/// Reads a four-byte integer; returns `None` when there is insufficient data.
 ///
-/// 对应 Java: `ByteArrayHelper.getInt(byte[], int)`（越界时 Java 抛异常）。
+/// Corresponds to Java: `ByteArrayHelper.getInt(byte[], int)` (Java throws when out of bounds).
 pub(crate) fn checked_int(data: &[u8], offset: usize) -> Option<i32> {
     if offset.checked_add(4)? > data.len() {
         return None;
@@ -480,7 +480,7 @@ pub(crate) mod test_support {
     use crate::mpp::var_meta9::VarMeta9;
     use crate::project_file::ProjectFile;
 
-    /// 构造一个 `FixedMeta` 块：16 字节块头 + 若干条 8 字节记录（第 4..8 字节是数据偏移）。
+/// Builds a `FixedMeta` block: a 16-byte block header + several 8-byte records (bytes 4..8 are the data offset).
     pub(crate) fn fixed_meta_bytes(offsets: &[i32]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&0xFADFADBAu32.to_le_bytes());
@@ -497,7 +497,7 @@ pub(crate) mod test_support {
         data
     }
 
-    /// 由若干条记录构造一个 `FixedData`（每条记录的长度由它在数据体中的实际字节数决定）。
+/// Builds a `FixedData` from several records (each record's length is determined by its actual byte count in the data body).
     pub(crate) fn fixed_data(items: &[Vec<u8>]) -> FixedData {
         let mut offsets = Vec::new();
         let mut body = Vec::new();
@@ -507,18 +507,18 @@ pub(crate) mod test_support {
             body.extend_from_slice(item);
         }
 
-        // 元数据记录固定 8 字节，偏移取自各条记录在数据体中的真实位置
+// Metadata records are a fixed 8 bytes; the offset is taken from each record's real position in the data body
         let meta =
-            FixedMeta::with_item_size(&fixed_meta_bytes(&offsets), 8).expect("FixedMeta 合法");
+            FixedMeta::with_item_size(&fixed_meta_bytes(&offsets), 8).expect("FixedMeta is valid");
         FixedData::new(&meta, &body)
     }
 
-    /// 构造一个空的 `FixedData`（0 条记录）。
+/// Builds an empty `FixedData` (0 records).
     pub(crate) fn empty_fixed_data() -> FixedData {
         fixed_data(&[])
     }
 
-    /// 手工拼装 Var2Data 数据块，返回「数据块 + 每项偏移」。
+/// Manually assembles a Var2Data block and returns "data block + offset per item".
     pub(crate) fn data_block(items: &[Vec<u8>]) -> (Vec<u8>, Vec<i32>) {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
@@ -532,7 +532,7 @@ pub(crate) mod test_support {
         (data, offsets)
     }
 
-    /// 用「唯一 ID + 类型 + 数据项索引」拼装配套的 VarMeta9 块。
+/// Assembles the matching VarMeta9 block from "unique ID + type + data item index".
     pub(crate) fn var_meta9_bytes(
         entries: &[(i32, i32, usize)],
         offsets: &[i32],
@@ -555,7 +555,7 @@ pub(crate) mod test_support {
         data
     }
 
-    /// 构造一个 `Var2Data` 并同时返回其元数据句柄（读取器构造需要两者）。
+/// Builds a `Var2Data` and returns its metadata handle at the same time (the reader constructor needs both).
     pub(crate) fn var_data_with_meta(
         entries: &[(i32, i32, Vec<u8>)],
     ) -> (Rc<dyn VarMeta>, Var2Data) {
@@ -569,14 +569,14 @@ pub(crate) mod test_support {
 
         let meta: Rc<dyn VarMeta> = Rc::new(
             VarMeta9::new(&var_meta9_bytes(&table, &offsets, data.len() as i32))
-                .expect("元数据合法"),
+                .expect("valid metadata"),
         );
         let file = ProjectFile::new();
         let var_data = Var2Data::new(&file, Rc::clone(&meta), &data);
         (meta, var_data)
     }
 
-    /// 按 [`crate::mpp::mpp_utility::MPPUtility::get_guid`] 的字节序构造 16 字节 GUID。
+/// Builds a 16-byte GUID using the byte order of [`crate::mpp::mpp_utility::MPPUtility::get_guid`].
     pub(crate) fn guid_bytes(value: u128) -> [u8; 16] {
         let uuid = Uuid::from_u128(value);
         let bytes = uuid.as_bytes();
@@ -586,7 +586,7 @@ pub(crate) mod test_support {
         ]
     }
 
-    /// 构造「查找表 GUID → 字段」映射。
+/// Builds the "lookup table GUID → field" map.
     pub(crate) fn lookup_table_map(entries: &[(u128, MppFieldType)]) -> HashMap<Uuid, MppFieldType> {
         entries
             .iter()
@@ -594,7 +594,7 @@ pub(crate) mod test_support {
             .collect()
     }
 
-    /// 构造一枚自定义字段键（测试用）。
+/// Builds a custom field key (for tests).
     pub(crate) fn custom_field_key(unique_id: i32) -> FieldKey {
         FieldKey::Custom(CustomFieldKey::new(
             unique_id,
@@ -618,19 +618,19 @@ mod tests {
     use crate::time_unit::TimeUnit;
     use chrono::NaiveDate;
 
-    /// 取值项 unique ID（测试统一使用）。
+/// The value item unique ID (used uniformly by the tests).
     const ID: i32 = 1;
 
-    /// 定长数据块记录长度（reader12 的偏移为 8 / 32 / 48，故第二个块需要 50 字节以上）。
+/// Fixed-length data block record length (reader12's offsets are 8 / 32 / 48, so the second block needs 50 bytes or more).
     const FIXED_ITEM_SIZE: usize = 20;
     const FIXED_DATA2_ITEM_SIZE: usize = 64;
 
-    /// 内置任务字段 NAME。
+/// The built-in task field NAME.
     fn name_field() -> MppFieldType {
         MppFieldType::Builtin(FieldKey::Task(TaskField::Name))
     }
 
-    /// 构造一条定长数据块记录。
+/// Builds a fixed-length data block record.
     fn fixed_record(unique_id: i32, parent_unique_id: Option<i32>) -> Vec<u8> {
         let mut record = vec![0u8; FIXED_ITEM_SIZE];
         record[UNJQUE_ID_OFFSET..UNJQUE_ID_OFFSET + 2]
@@ -641,7 +641,7 @@ mod tests {
         record
     }
 
-    /// 构造一条第二个定长数据块的记录（取值项 GUID / 查找表 GUID / 取值类型）。
+/// Builds a record of the second fixed-length data block (value item GUID / lookup table GUID / value type).
     fn fixed_record2(
         item_guid: Option<u128>,
         lookup_table_guid: Option<u128>,
@@ -660,12 +660,12 @@ mod tests {
         record
     }
 
-    /// 构造一个读取器样本：定长块 1 条记录 + 第二个定长块 1 条记录 + 变长块 3 项。
+/// Builds a reader sample: 1 record in the fixed-length block + 1 record in the second fixed-length block + 3 items in the variable-length block.
     ///
-    /// 定长块（20 字节）：[4..6) = ID，[8..10) = 父级 ID = 7
-    /// 第二个定长块（64 字节）：[0..16) = 取值项 GUID，[32..48) = 查找表 GUID，
-    /// [48..50) = 取值类型 = NUMBER(15)
-    /// 变长块：22（取值）= 8 字节 double 1.5；8（描述）= "desc"；23（未知）= 3 字节
+/// Fixed-length block (20 bytes): [4..6) = ID, [8..10) = parent ID = 7
+/// Second fixed-length block (64 bytes): [0..16) = value item GUID, [32..48) = lookup table GUID,
+/// [48..50) = value type = NUMBER(15)
+/// Variable-length block: 22 (value) = 8-byte double 1.5; 8 (description) = "desc"; 23 (unknown) = 3 bytes
     fn sample_reader() -> (CustomFieldValueReader, Rc<RefCell<ProjectFile>>) {
         let mut utf16 = Vec::new();
         for unit in "desc".encode_utf16() {
@@ -692,7 +692,7 @@ mod tests {
                 Some(CustomFieldValueDataType::Number),
             )]),
         );
-        // 与 CustomFieldValueReader12 相同的偏移
+// Same offsets as CustomFieldValueReader12
         reader.set_parent_offset(8);
         reader.set_type_offset(48);
         reader.set_field_offset(32);
@@ -700,7 +700,7 @@ mod tests {
         (reader, file)
     }
 
-    /// 取值项被登记进容器（按 unique ID 与 GUID），并挂到对应字段的查找表上。
+/// The value item is registered with the container (by unique ID and GUID) and attached to the corresponding field's lookup table.
     #[test]
     fn process_registers_items_and_populates_lookup_table() {
         let (reader, file) = sample_reader();
@@ -708,15 +708,15 @@ mod tests {
 
         let container = file.borrow().get_custom_fields();
 
-        // 按 unique ID / GUID 都能查到
+// Can be found by unique ID / GUID
         let by_id = container
             .borrow()
             .get_custom_field_value_item_by_unique_id(ID)
-            .expect("按 unique ID 应能查到");
+            .expect("findable by unique ID");
         let by_guid = container
             .borrow()
             .get_custom_field_value_item_by_guid(Uuid::from_u128(5))
-            .expect("按 GUID 应能查到");
+            .expect("findable by GUID");
         assert!(Rc::ptr_eq(&by_id, &by_guid));
 
         let item = by_id.borrow();
@@ -727,11 +727,11 @@ mod tests {
         assert_eq!(item.get_type(), Some(CustomFieldValueDataType::Number));
         assert_eq!(item.get_value(), Some(&FieldValue::Double(1.5)));
 
-        // 查找表：按查找表 GUID 找到字段 NAME，表里有一项且 GUID 已设置
+// Lookup table: field NAME is found by lookup table GUID; the table has one item and the GUID is set
         let custom_field = container
             .borrow()
             .get(FieldKey::Task(TaskField::Name))
-            .expect("应已创建字段配置");
+            .expect("field configuration should have been created");
         let custom_field = custom_field.borrow();
         let table = custom_field.get_lookup_table();
         assert_eq!(table.len(), 1);
@@ -743,7 +743,7 @@ mod tests {
         );
     }
 
-    /// 重复 unique ID：第二次出现时替换查找表中的元素，而不是追加。
+/// Duplicate unique ID: the second occurrence replaces the element in the lookup table instead of appending.
     #[test]
     fn process_replaces_duplicate_entries_in_lookup_table() {
         let (meta, var_data) =
@@ -770,9 +770,9 @@ mod tests {
         let custom_field = container
             .borrow()
             .get(FieldKey::Task(TaskField::Name))
-            .expect("应已创建字段配置");
+            .expect("field configuration should have been created");
         let custom_field = custom_field.borrow();
-        // 仍然只有一项（Java 的「替换」分支）
+// Still only one item (Java's "replace" branch)
         assert_eq!(custom_field.get_lookup_table().len(), 1);
         assert_eq!(
             custom_field
@@ -783,7 +783,7 @@ mod tests {
         );
     }
 
-    /// 查找表 GUID 无法在映射中找到字段时，只登记到容器（Java 的 `field == null` 分支）。
+/// When the lookup table GUID cannot find a field in the map, register only with the container (Java's `field == null` branch).
     #[test]
     fn process_skips_unknown_lookup_table_guid() {
         let (meta, var_data) =
@@ -792,7 +792,7 @@ mod tests {
         let file = ProjectFile::new();
         let mut reader = CustomFieldValueReader::new(
             &file,
-            // 空映射：查不到字段
+// Empty map: no field found
             HashMap::new(),
             meta,
             var_data,
@@ -812,7 +812,7 @@ mod tests {
         assert_eq!(container.borrow().size(), 0);
     }
 
-    /// unique ID 不在变长数据元数据里时跳过（Java 的 `continue`）。
+/// Skips when the unique ID is not in the variable-length data metadata (Java's `continue`).
     #[test]
     fn process_skips_items_without_var_data() {
         let (meta, var_data) =
@@ -839,10 +839,10 @@ mod tests {
             .is_none());
     }
 
-    /// 定长块为空 / 记录过短时不会 panic。
+/// Does not panic when the fixed-length block is empty / the record is too short.
     #[test]
     fn process_handles_empty_and_truncated_data() {
-        // 定长块为空
+// Fixed-length block is empty
         let (meta, var_data) =
             var_data_with_meta(&[(ID, VALUE_LIST_VALUE, 1.5f64.to_le_bytes().to_vec())]);
         let file = ProjectFile::new();
@@ -865,7 +865,7 @@ mod tests {
             .get_custom_field_value_item_by_unique_id(ID)
             .is_none());
 
-        // 记录只有 2 字节：读不出 unique ID（Java 抛越界异常）
+// Record is only 2 bytes: the unique ID cannot be read (Java throws an out-of-bounds exception)
         let (meta, var_data) =
             var_data_with_meta(&[(ID, VALUE_LIST_VALUE, 1.5f64.to_le_bytes().to_vec())]);
         let file = ProjectFile::new();
@@ -890,12 +890,12 @@ mod tests {
             .is_none());
     }
 
-    /// 取值类型映射（`getTypedValue` 的各分支）。
+/// Value type mapping (the branches of `getTypedValue`).
     #[test]
     fn typed_value_maps_each_type() {
         let (reader, file) = sample_reader();
 
-        // 项目属性会影响工期换算
+// Project properties affect duration conversion
         {
             let mut file = file.borrow_mut();
             let properties = file.get_project_properties_mut();
@@ -903,24 +903,24 @@ mod tests {
             properties.set_days_per_month(Some(20));
         }
 
-        // DATE：4 字节时间戳（低 2 字节为当日秒数、高 2 字节为天数）
+// DATE: 4-byte timestamp (the low 2 bytes are seconds within the day, the high 2 bytes are days)
         let date_bytes = [0x00, 0x00, 0x02, 0x00];
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::Date), &date_bytes),
             Some(FieldValue::DateTime(
                 NaiveDate::from_ymd_opt(1984, 1, 2)
-                    .expect("合法日期")
+                    .expect("valid date")
                     .and_hms_opt(0, 0, 0)
-                    .expect("合法时间")
+                    .expect("valid time")
             ))
         );
-        // FINISH_DATE 与 DATE 走同一分支
+// FINISH_DATE and DATE take the same branch
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::FinishDate), &date_bytes),
             reader.get_typed_value(Some(CustomFieldValueDataType::Date), &date_bytes)
         );
 
-        // DURATION：4 字节工期 + 2 字节单位（7 = 天）
+// DURATION: 4-byte duration + 2-byte unit (7 = days)
         let mut duration_bytes = 4800i32.to_le_bytes().to_vec();
         duration_bytes.extend_from_slice(&7u16.to_le_bytes());
         assert_eq!(
@@ -931,7 +931,7 @@ mod tests {
             )))
         );
 
-        // COST：以「分」为单位的双精度
+// COST: a double in "cents" units
         assert_eq!(
             reader.get_typed_value(
                 Some(CustomFieldValueDataType::Cost),
@@ -940,7 +940,7 @@ mod tests {
             Some(FieldValue::Double(2.5))
         );
 
-        // NUMBER：双精度
+// NUMBER: double
         assert_eq!(
             reader.get_typed_value(
                 Some(CustomFieldValueDataType::Number),
@@ -949,7 +949,7 @@ mod tests {
             Some(FieldValue::Double(1.5))
         );
 
-        // TEXT：UTF-16LE
+        // TEXT:UTF-16LE
         assert_eq!(
             reader.get_typed_value(
                 Some(CustomFieldValueDataType::Text),
@@ -958,7 +958,7 @@ mod tests {
             Some(FieldValue::String("AB".to_owned()))
         );
 
-        // FLAG 与「类型未知」都按字符串猜测（Java 的 default 分支）
+// Both FLAG and "unknown type" are guessed as a string (Java's default branch)
         assert_eq!(
             reader.get_typed_value(
                 Some(CustomFieldValueDataType::Flag),
@@ -972,17 +972,17 @@ mod tests {
         );
     }
 
-    /// 缺失 / 畸形数据不 panic，且返回 Java 的默认值。
+/// Missing / malformed data does not panic and returns Java's default values.
     #[test]
     fn typed_value_handles_missing_data() {
         let (reader, _file) = sample_reader();
 
-        // 空数据：日期时间戳读不出来 → None
+// Empty data: the date timestamp cannot be read → None
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::Date), &[]),
             None
         );
-        // 工期：越界读按 0 处理 → 0 天（Java 的 `getInt` 越界会抛异常）
+// Duration: an out-of-bounds read is treated as 0 → 0 days (Java's `getInt` throws when out of bounds)
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::Duration), &[]),
             Some(FieldValue::Duration(Duration::get_instance(
@@ -990,7 +990,7 @@ mod tests {
                 TimeUnit::Days
             )))
         );
-        // 双精度越界 → 0（与 Java 的 `getDouble` 一致）
+// Double out of bounds → 0 (consistent with Java's `getDouble`)
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::Cost), &[0x01]),
             Some(FieldValue::Double(0.0))
@@ -999,13 +999,13 @@ mod tests {
             reader.get_typed_value(Some(CustomFieldValueDataType::Number), &[]),
             Some(FieldValue::Double(0.0))
         );
-        // 空字符串
+// Empty string
         assert_eq!(
             reader.get_typed_value(Some(CustomFieldValueDataType::Text), &[]),
             Some(FieldValue::String(String::new()))
         );
 
-        // duration == -1 → Java 的 `getAdjustedDuration` 返回 null
+// duration == -1 → Java's `getAdjustedDuration` returns null
         let mut duration_bytes = (-1i32).to_le_bytes().to_vec();
         duration_bytes.extend_from_slice(&7u16.to_le_bytes());
         assert_eq!(
@@ -1014,7 +1014,7 @@ mod tests {
         );
     }
 
-    /// 偏移访问器（Java 的 `protected` 字段）往返。
+/// Round-trip of the offset accessors (Java's `protected` fields).
     #[test]
     fn offsets_round_trip() {
         let (mut reader, _file) = sample_reader();
@@ -1031,7 +1031,7 @@ mod tests {
         assert_eq!(reader.get_field_offset(), 18);
     }
 
-    /// 自定义字段（`FieldKey::Custom`）也能挂上查找表。
+/// A custom field (`FieldKey::Custom`) can also be attached to a lookup table.
     #[test]
     fn process_handles_custom_field_keys() {
         let (meta, var_data) =
@@ -1059,7 +1059,7 @@ mod tests {
         let custom_field = container
             .borrow()
             .get(custom_field_key(3))
-            .expect("自定义字段应已创建");
+            .expect("custom field should have been created");
         assert_eq!(custom_field.borrow().get_lookup_table().len(), 1);
     }
 }

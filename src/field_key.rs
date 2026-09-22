@@ -1,10 +1,10 @@
-//! 对应 Java: `org/mpxj/FieldType` 的运行时类型擦除形式。
+//! Corresponds to Java: the runtime type-erased form of `org/mpxj/FieldType`.
 //!
-//! Java 侧 `AbstractFieldContainer` 用 `Map<FieldType, Object>` 存字段，
-//! 键是 `FieldType` 接口，实际取值来自 `TaskField` / `ResourceField` /
-//! `AssignmentField` / `ProjectField` / `ConstraintField` 五个枚举。
-//! Rust 的 `HashMap` 需要一个具体键类型，因此这里引入 `FieldKey`
-//! 作为这五个枚举的统一载体 —— 语义与 Java 的 `FieldType` 接口等价。
+//! On the Java side `AbstractFieldContainer` stores fields in a `Map<FieldType, Object>`,
+//! whose keys are the `FieldType` interface and whose actual values come from the five enums `TaskField` / `ResourceField` /
+//! `AssignmentField` / `ProjectField` / `ConstraintField`.
+//! Rust's `HashMap` needs a concrete key type, so `FieldKey` is introduced here
+//! as the unified carrier for these five enums — semantically equivalent to Java's `FieldType` interface.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,20 +20,20 @@ use crate::resource_field::ResourceField;
 use crate::task_field::TaskField;
 use crate::user_defined_field::UserDefinedField;
 
-/// 对应 Java: `UserDefinedField` —— 它在字段表中作为键的等价形式。
+/// Corresponds to Java: `UserDefinedField` — its equivalent form as a key in the field table.
 ///
-/// Java 的 `AbstractFieldContainer` 用 `FieldType` 对象作键，`UserDefinedField`
-/// 是其中之一；而它的 `equals` / `hashCode` **只依据 `m_uniqueID`**（见 Java 源码
-/// `UserDefinedField.equals` / `hashCode`）。因此本类型同样以 `unique_id` 作为
-/// 唯一的等价依据 —— `PartialEq` / `Hash` 均手写为只比较该字段，语义与 Java 一致。
+/// Java's `AbstractFieldContainer` uses `FieldType` objects as keys; `UserDefinedField`
+/// is one of them, and its `equals` / `hashCode` rely **only on `m_uniqueID`** (see the Java source
+/// `UserDefinedField.equals` / `hashCode`). This type therefore likewise uses `unique_id` as
+/// the sole basis for equivalence — both `PartialEq` / `Hash` are hand-written to compare only that field, matching Java semantics.
 ///
-/// 除 `unique_id` 外还携带字段类型与数据类型（都是 `Copy` 的小枚举），
-/// 供 [`FieldType`] 实现回答 `get_field_type_class()` / `get_data_type()`。
+/// Besides `unique_id` it also carries the field type and data type (both small `Copy` enums),
+/// so that the [`FieldType`] implementation can answer `get_field_type_class()` / `get_data_type()`.
 ///
-/// # 为何不直接持有 `Rc<RefCell<UserDefinedField>>`
+/// # Why not directly hold `Rc<RefCell<UserDefinedField>>`
 ///
-/// [`FieldKey`] 需要 `Copy + Eq + Hash`（它被当作 `HashMap` 键、并按值在
-/// 实体与容器之间传递）。持有 `Rc` 会丢掉 `Copy`，进而波及全 crate 的调用点。
+/// [`FieldKey`] needs `Copy + Eq + Hash` (it is used as a `HashMap` key and passed by value between
+/// entities and containers). Holding an `Rc` would lose `Copy` and ripple through every call site in the crate.
 #[derive(Debug, Clone, Copy)]
 pub struct CustomFieldKey {
     unique_id: i32,
@@ -42,9 +42,9 @@ pub struct CustomFieldKey {
 }
 
 impl CustomFieldKey {
-    /// 由 unique ID、字段类型、数据类型构造。
+/// Construct from a unique ID, field type, and data type.
     ///
-    /// 对应 Java: `UserDefinedField.getUniqueID()` / `getFieldTypeClass()` / `getDataType()`
+    /// Corresponds to Java: `UserDefinedField.getUniqueID()` / `getFieldTypeClass()` / `getDataType()`
     pub fn new(unique_id: i32, field_type_class: FieldTypeClass, data_type: DataType) -> Self {
         Self {
             unique_id,
@@ -53,9 +53,9 @@ impl CustomFieldKey {
         }
     }
 
-    /// 由 [`UserDefinedField`] 构造。
+/// Construct from a [`UserDefinedField`].
     ///
-    /// 对应 Java: 直接把 `UserDefinedField` 实例当作 `FieldType` 键使用
+/// Corresponds to Java: using a `UserDefinedField` instance directly as a `FieldType` key
     pub fn from_field(field: &Rc<RefCell<UserDefinedField>>) -> Self {
         let field = field.borrow();
         Self {
@@ -67,37 +67,37 @@ impl CustomFieldKey {
         }
     }
 
-    /// 取 unique ID（本类型的唯一等价依据）。
+/// Get the unique ID (the sole basis for equivalence of this type).
     ///
-    /// 对应 Java: `UserDefinedField.getUniqueID()`
+    /// Corresponds to Java: `UserDefinedField.getUniqueID()`
     pub fn get_unique_id(&self) -> i32 {
         self.unique_id
     }
 
-    /// 取字段类型。
+/// Get the field type.
     ///
-    /// 对应 Java: `UserDefinedField.getFieldTypeClass()`
+    /// Corresponds to Java: `UserDefinedField.getFieldTypeClass()`
     pub fn get_field_type_class(&self) -> FieldTypeClass {
         self.field_type_class
     }
 
-    /// 取数据类型。
+/// Get the data type.
     ///
-    /// 对应 Java: `UserDefinedField.getDataType()`
+    /// Corresponds to Java: `UserDefinedField.getDataType()`
     pub fn get_data_type(&self) -> DataType {
         self.data_type
     }
 
-    /// 自定义字段在字段机制里的名称占位。
+/// Placeholder name for a custom field in the field mechanism.
     ///
-    /// Java 的 `UserDefinedField.getName()` 返回动态的外部名；本类型是 `Copy` 的
-    /// 等价键，无法承载 `String`，故返回该常量。需要真实名称时请直接读
-    /// [`UserDefinedField`]。
+/// Java's `UserDefinedField.getName()` returns a dynamic external name; this type is a `Copy`
+/// equivalent key and cannot carry a `String`, so it returns this constant. To get the real name, read
+    /// [`UserDefinedField`].
     pub const NAME: &'static str = "CUSTOM_FIELD";
 }
 
 impl PartialEq for CustomFieldKey {
-    /// 对应 Java: `UserDefinedField.equals` —— 只比较 `m_uniqueID`
+/// Corresponds to Java: `UserDefinedField.equals` — compares only `m_uniqueID`
     fn eq(&self, other: &Self) -> bool {
         self.unique_id == other.unique_id
     }
@@ -106,31 +106,31 @@ impl PartialEq for CustomFieldKey {
 impl Eq for CustomFieldKey {}
 
 impl std::hash::Hash for CustomFieldKey {
-    /// 对应 Java: `UserDefinedField.hashCode` —— 只散列 `m_uniqueID`
+/// Corresponds to Java: `UserDefinedField.hashCode` — hashes only `m_uniqueID`
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.unique_id.hash(state);
     }
 }
 
-/// 字段标识的统一载体，对应 Java 的 `FieldType` 接口引用。
+/// Unified carrier for a field identity, corresponding to a Java `FieldType` interface reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldKey {
-    /// 对应 Java: `TaskField`
+    /// Corresponds to Java: `TaskField`
     Task(TaskField),
-    /// 对应 Java: `ResourceField`
+    /// Corresponds to Java: `ResourceField`
     Resource(ResourceField),
-    /// 对应 Java: `AssignmentField`
+    /// Corresponds to Java: `AssignmentField`
     Assignment(AssignmentField),
-    /// 对应 Java: `ProjectField`
+    /// Corresponds to Java: `ProjectField`
     Project(ProjectField),
-    /// 对应 Java: `ConstraintField`
+    /// Corresponds to Java: `ConstraintField`
     Constraint(ConstraintField),
-    /// 对应 Java: `UserDefinedField`（自定义字段）
+/// Corresponds to Java: `UserDefinedField` (custom field)
     Custom(CustomFieldKey),
 }
 
 impl FieldKey {
-    /// 返回该字段的具体枚举名，便于日志与错误信息。
+/// Return the concrete enum name of this field, for logging and error messages.
     pub fn type_name(&self) -> &'static str {
         match self {
             FieldKey::Task(_) => "TaskField",
@@ -180,9 +180,9 @@ impl From<CustomFieldKey> for FieldKey {
 }
 
 impl From<&Rc<RefCell<UserDefinedField>>> for FieldKey {
-    /// 由自定义字段实例取等价键。
+/// Get the equivalent key from a custom field instance.
     ///
-    /// 对应 Java: 把 `UserDefinedField` 实例直接当作 `FieldType` 键
+/// Corresponds to Java: using a `UserDefinedField` instance directly as a `FieldType` key
     fn from(value: &Rc<RefCell<UserDefinedField>>) -> Self {
         FieldKey::Custom(CustomFieldKey::from_field(value))
     }
@@ -220,7 +220,7 @@ impl FieldType for FieldKey {
             FieldKey::Assignment(field) => field.name(),
             FieldKey::Project(field) => field.name(),
             FieldKey::Constraint(field) => field.name(),
-            // 自定义字段的名称是动态字符串，`Copy` 键无法承载，返回占位常量
+// The custom field name is a dynamic string; a `Copy` key cannot carry it, so return the placeholder constant
             FieldKey::Custom(_) => CustomFieldKey::NAME,
         }
     }
@@ -232,7 +232,7 @@ impl FieldType for FieldKey {
             FieldKey::Assignment(field) => field.get_name(),
             FieldKey::Project(field) => field.get_name(),
             FieldKey::Constraint(field) => field.get_name(),
-            // 同上
+// Same as above
             FieldKey::Custom(_) => CustomFieldKey::NAME,
         }
     }
@@ -255,7 +255,7 @@ impl FieldType for FieldKey {
             FieldKey::Assignment(field) => field.get_units_type().map(FieldKey::Assignment),
             FieldKey::Project(field) => field.get_units_type().map(FieldKey::Project),
             FieldKey::Constraint(field) => field.get_units_type().map(FieldKey::Constraint),
-            // 对应 Java: `UserDefinedField.getUnitsType()` 恒返回 null
+// Corresponds to Java: `UserDefinedField.getUnitsType()` always returns null
             FieldKey::Custom(_) => None,
         }
     }
@@ -291,11 +291,11 @@ mod tests {
 
     #[test]
     fn custom_field_key_equality_follows_java_unique_id_only() {
-        // 对应 Java: `UserDefinedField.equals` 只比较 `m_uniqueID`
+// Corresponds to Java: `UserDefinedField.equals` compares only `m_uniqueID`
         let a = CustomFieldKey::new(123, FieldTypeClass::Task, DataType::Numeric);
         let b = CustomFieldKey::new(123, FieldTypeClass::Resource, DataType::Custom);
 
-        assert_eq!(a, b, "元信息不同但 unique ID 相同应视为同一字段（与 Java 一致）");
+        assert_eq!(a, b, "different metadata but same unique ID should be treated as the same field (consistent with Java)");
         assert_ne!(a, CustomFieldKey::new(124, FieldTypeClass::Task, DataType::Numeric));
     }
 
@@ -311,7 +311,7 @@ mod tests {
             "value",
         );
 
-        // 元信息不同但 unique ID 相同 → 仍命中同一条目
+// Different metadata but the same unique ID => still hits the same entry
         let probe = FieldKey::Custom(CustomFieldKey::new(
             123,
             FieldTypeClass::Resource,
@@ -339,13 +339,13 @@ mod tests {
         assert_eq!(key.get_field_type_class(), FieldTypeClass::Assignment);
         assert_eq!(key.get_data_type(), DataType::Numeric);
         assert_eq!(key.value(), 7);
-        // 对应 Java: `UserDefinedField.getUnitsType()` 恒返回 null
+// Corresponds to Java: `UserDefinedField.getUnitsType()` always returns null
         assert!(key.get_units_type().is_none());
     }
 
     #[test]
     fn custom_field_round_trips_through_a_field_container() {
-        // 回归：在此之前自定义字段无法写入字段容器（FieldKey 无「自定义」变体）
+// Regression: before this, custom fields could not be written to the field container (FieldKey had no "custom" variant)
         let mut container = crate::abstract_field_container::AbstractFieldContainer::new();
         let key = FieldKey::Custom(CustomFieldKey::new(
             500,
@@ -363,9 +363,9 @@ mod tests {
 
     #[test]
     fn custom_field_value_is_readable_back_from_a_task() {
-        // 回归：`Task::get` 此前对非 TaskField 的键**直接返回 `None`**，
-        // 而 Java 的 `Task.get(FieldType)` 会回落到 `super.get(field)`（字段表）。
-        // 否则写进容器的自定义字段读不出来。
+// Regression: `Task::get` previously **returned `None` directly** for non-TaskField keys,
+// whereas Java's `Task.get(FieldType)` falls back to `super.get(field)` (the field table).
+// Otherwise custom fields written to the container cannot be read back.
         use crate::field_value::FieldValue;
         use crate::task::Task;
 

@@ -1,13 +1,14 @@
-//! 对应 Java: `org/mpxj/DataType.java`
+//! Corresponds to Java: `org/mpxj/DataType.java`
 
 use crate::mpxj_enum::MpxjEnum;
 
-/// 表示某个属性的数据类型。
+/// Represents the data type of a property.
 ///
-/// 对应 Java: `public enum DataType implements MpxjEnum`
+/// Corresponds to Java: `public enum DataType implements MpxjEnum`
 ///
-/// Java 侧用一个 `EnumHelper.createTypeArray` 反射生成的数组做 int → 枚举映射；
-/// Rust 侧不需要反射，直接在 [`DataType::get_instance`] 里用 `match` 完成。
+/// Java uses an array generated reflectively by `EnumHelper.createTypeArray` for the int → enum
+/// mapping; the Rust side needs no reflection and does it directly with a `match` in
+/// [`DataType::get_instance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataType {
     String = 1,
@@ -57,7 +58,7 @@ pub enum DataType {
     ActivityStatus = 45,
     ActivityType = 46,
     CriticalActivityType = 47,
-    /// Java 注释标记为 `// TODO: No longer used`
+    /// Java's comment marks it as `// TODO: No longer used`
     ActivityCodeList = 48,
     Time = 49,
     Custom = 50,
@@ -74,7 +75,7 @@ pub enum DataType {
 }
 
 impl DataType {
-    /// 全部取值，按 int 值升序排列。
+    /// All values, ordered by ascending int value.
     pub const ALL: [DataType; 60] = [
         DataType::String,
         DataType::Date,
@@ -138,9 +139,9 @@ impl DataType {
         DataType::TimephasedCostList,
     ];
 
-    /// 根据 int 值取枚举实例，越界时回落到 `STRING`。
+    /// Return an enum instance for an int value; falls back to `STRING` when out of range.
     ///
-    /// 对应 Java: `public static DataType getInstance(int type)`
+    /// Corresponds to Java: `public static DataType getInstance(int type)`
     pub fn get_instance(value: i32) -> DataType {
         match value {
             1 => DataType::String,
@@ -207,9 +208,9 @@ impl DataType {
         }
     }
 
-    /// 对应 Java: `public static DataType getInstance(Number type)`
+    /// Corresponds to Java: `public static DataType getInstance(Number type)`
     ///
-    /// Java 侧 `null` 会走 `getInstance(-1)` 从而回落到 `STRING`。
+    /// On the Java side `null` goes through `getInstance(-1)` and thus falls back to `STRING`.
     pub fn get_instance_optional(value: Option<i32>) -> DataType {
         DataType::get_instance(value.unwrap_or(-1))
     }

@@ -1,45 +1,45 @@
-//! 对应 Java: `org/mpxj/UniqueIdObjectSequenceProvider.java`
+//! Corresponds to Java: `org/mpxj/UniqueIdObjectSequenceProvider.java`
 
 use std::any::TypeId;
 use std::rc::Rc;
 
 use crate::common::object_sequence::ObjectSequence;
 
-/// 按类型提供 unique ID 序号生成器的接口。
+/// Interface that provides a unique ID sequence generator per type.
 ///
-/// 对应 Java: `public interface UniqueIdObjectSequenceProvider`
+/// Corresponds to Java: `public interface UniqueIdObjectSequenceProvider`
 ///
-/// # 与 Java 的差异：`Class<?>` 键改为 `std::any::TypeId`
+/// # Differences from Java: `Class<?>` keys changed to `std::any::TypeId`
 ///
-/// Java 侧以 `Class<?>` 作键（`ProjectContext` 内部实际用 `c.getName()` 字符串作键），
-/// Rust 没有 class 字面量，改用 [`TypeId`]：
+/// The Java side uses `Class<?>` as the key (internally `ProjectContext` actually uses the `c.getName()` string as the key),
+/// Rust has no class literals, so [`TypeId`] is used instead:
 ///
 /// | Java | Rust |
 /// |---|---|
 /// | `provider.getUniqueIdObjectSequence(Task.class)` | `provider.get_unique_id_object_sequence(TypeId::of::<Task>())` |
-/// | `provider.getUniqueIdObjectSequence(Task.class)`（泛型写法） | [`get_unique_id_object_sequence`] |
+/// | `provider.getUniqueIdObjectSequence(Task.class)` (generic form) | [`get_unique_id_object_sequence`] |
 ///
-/// 之所以把 trait 方法定义为「接收 `TypeId` 参数」而不是泛型方法，是为了让本 trait
-/// 仍然可以作 trait object 使用（容器持有
-/// `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`）；泛型方法会破坏对象安全性。
-/// 需要按类型书写时用 [`get_unique_id_object_sequence`] 这个泛型辅助函数。
+/// The trait method is defined as "taking a `TypeId` parameter" rather than as a generic method so that this trait
+/// can still be used as a trait object (the container holds
+/// `Rc<RefCell<dyn UniqueIdObjectSequenceProvider>>`); a generic method would break object safety.
+/// When writing by type, use the generic helper function [`get_unique_id_object_sequence`].
 ///
-/// # 与 Java 的差异：返回值用 `Rc<ObjectSequence>`
+/// # Differences from Java: the return value uses `Rc<ObjectSequence>`
 ///
-/// Java 侧每次返回**同一个** `ObjectSequence` 实例（`ProjectContext` 用
-/// `computeIfAbsent` 缓存）。Rust 侧用 `Rc<ObjectSequence>` 表达这种共享；因为
-/// [`ObjectSequence`] 内部用 `Cell<i32>`，共享时不需要额外的 `RefCell`。
+/// The Java side returns **the same** `ObjectSequence` instance every time (`ProjectContext` uses
+/// `computeIfAbsent` to cache it). The Rust side uses `Rc<ObjectSequence>` to express this sharing; because
+/// [`ObjectSequence`] internally uses `Cell<i32>`, no extra `RefCell` is needed when sharing.
 pub trait UniqueIdObjectSequenceProvider {
-    /// 取（必要时创建）指定类型的序号生成器。
+/// Get (creating if necessary) the sequence generator for the specified type.
     ///
-    /// 对应 Java: `ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
+    /// Corresponds to Java: `ObjectSequence getUniqueIdObjectSequence(Class<?> c)`
     ///
-    /// Java 侧实现会在内部缓存新创建的 `ObjectSequence`，因此 Rust 侧接收 `&mut self`。
+/// The Java implementation caches the newly created `ObjectSequence` internally, so the Rust side takes `&mut self`.
     fn get_unique_id_object_sequence(&mut self, type_id: TypeId) -> Rc<ObjectSequence>;
 }
 
-/// 按类型取序号生成器的泛型入口，对应 Java 的
-/// `provider.getUniqueIdObjectSequence(T.class)`。
+/// Generic entry point for getting the sequence generator by type, corresponding to Java's
+/// `provider.getUniqueIdObjectSequence(T.class)`.
 pub fn get_unique_id_object_sequence<T: 'static>(
     provider: &mut dyn UniqueIdObjectSequenceProvider,
 ) -> Rc<ObjectSequence> {
@@ -52,7 +52,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
-    /// 测试用实现：按 `TypeId` 缓存序号生成器，行为与 Java 的 `ProjectContext` 一致。
+/// Test implementation: caches sequence generators by `TypeId`, behaving like Java's `ProjectContext`.
     #[derive(Default)]
     struct TestProvider {
         sequences: HashMap<TypeId, Rc<ObjectSequence>>,
@@ -68,10 +68,10 @@ mod tests {
         }
     }
 
-    /// 测试用「实体」类型，仅用于区分 `TypeId`。
+/// Test "entity" type, used only to distinguish `TypeId`s.
     struct Alpha;
 
-    /// 测试用「实体」类型，仅用于区分 `TypeId`。
+/// Test "entity" type, used only to distinguish `TypeId`s.
     struct Beta;
 
     #[test]
@@ -82,12 +82,12 @@ mod tests {
         let alpha_again = get_unique_id_object_sequence::<Alpha>(&mut provider);
         let beta = get_unique_id_object_sequence::<Beta>(&mut provider);
 
-        // 同一类型共享同一个序列
+// The same type shares the same sequence
         assert!(Rc::ptr_eq(&alpha, &alpha_again));
         assert_eq!(alpha.get_next(), 1);
         assert_eq!(alpha_again.get_next(), 2);
 
-        // 不同类型各自独立
+// Different types are independent
         assert!(!Rc::ptr_eq(&alpha, &beta));
         assert_eq!(beta.get_next(), 1);
     }

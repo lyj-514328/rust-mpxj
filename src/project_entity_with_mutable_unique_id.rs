@@ -1,26 +1,26 @@
-//! 对应 Java: `org/mpxj/ProjectEntityWithMutableUniqueID.java`
+//! Corresponds to Java: `org/mpxj/ProjectEntityWithMutableUniqueID.java`
 
 use crate::project_entity_with_unique_id::ProjectEntityWithUniqueID;
 
-/// 具有**可变** unique ID 的实体。
+/// An entity with a **mutable** unique ID.
 ///
-/// 对应 Java: `public interface ProjectEntityWithMutableUniqueID extends ProjectEntityWithUniqueID`
+/// Corresponds to Java: `public interface ProjectEntityWithMutableUniqueID extends ProjectEntityWithUniqueID`
 ///
-/// Rust 侧的接口继承用 supertrait 表达；实现本 trait 的类型必须同时实现
-/// [`ProjectEntityWithUniqueID`]。
+/// Interface inheritance on the Rust side is expressed with supertraits; a type implementing this trait must also implement
+/// [`ProjectEntityWithUniqueID`].
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 的 `setUniqueID(Integer id)` 接受可空值，Rust 侧为 `Option<i32>`，传 `None`
-/// 等价于 Java 传 `null`。
+/// Java's `setUniqueID(Integer id)` accepts nullable values; the Rust side uses `Option<i32>`, and passing `None`
+/// is equivalent to passing `null` in Java.
 ///
-/// 被跳过的 Java 机制：无。
+/// Skipped Java mechanisms: none.
 ///
-/// 未移植的 Java 方法：无。
+/// Unported Java methods: none.
 pub trait ProjectEntityWithMutableUniqueID: ProjectEntityWithUniqueID {
-    /// 设置实体的 unique ID。
+    /// Sets the entity unique ID.
     ///
-    /// 对应 Java: `void setUniqueID(Integer id)`
+    /// Corresponds to Java: `void setUniqueID(Integer id)`
     fn set_unique_id(&mut self, id: Option<i32>);
 }
 
@@ -28,7 +28,7 @@ pub trait ProjectEntityWithMutableUniqueID: ProjectEntityWithUniqueID {
 mod tests {
     use super::*;
 
-    /// 测试用实体：unique ID 可读可写。
+    /// Test entity: unique ID is readable and writable.
     struct Entity {
         unique_id: Option<i32>,
     }

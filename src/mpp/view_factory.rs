@@ -1,25 +1,25 @@
-//! 对应 Java: `org/mpxj/mpp/ViewFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/ViewFactory.java`
 //!
-//! 「从 MPP 文件的视图数据中创建视图对象」的工厂契约，由 `ViewFactory9/12/14` 实现。
+//! The factory contract for "creating view objects from the view data of an MPP file", implemented by `ViewFactory9/12/14`.
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and the reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本接口未使用 |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | not used by this interface |
 //!
-//! # 接口的还原方式
+//! # How the interface is restored
 //!
-//! Java 的 `interface ViewFactory`（包内可见）在 Rust 侧还原为 [`ViewFactory`] trait，唯一的
-//! `createView` 方法对应 [`ViewFactory::create_view`]。Rust 无包内可见性，trait 取 `pub`。
+//! Java's `interface ViewFactory` (package-private) is restored on the Rust side as the [`ViewFactory`] trait; the only
+//! `createView` method corresponds to [`ViewFactory::create_view`]. Rust has no package-private visibility, so the trait is `pub`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `View createView(ProjectFile file, byte[] fixedMeta, byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases) throws IOException` | [`ViewFactory::create_view`] | 参数 `byte[]` → `&[u8]`；`ProjectFile` → `&Rc<RefCell<ProjectFile>>`（本 crate 以共享句柄传递文件）；`Map<Integer, FontBase>` → `&HashMap<i32, FontBase>`（即 `GanttChartView` 中的 `FontBaseMap` 别名所指类型，`FontBase` 不可变，按值存入映射） |
-//! | 返回接口类型 `View` | 返回 `Rc<RefCell<dyn View>>` | 与本 crate [`crate::view_container::ViewContainer`] 存放视图的元素类型一致，调用方可直接 `add` |
-//! | `throws IOException` | `MpxjResult<..>`（`Err(MpxjError)`） | 与 crate 其余 reader 链路的错误表达一致 |
+//! | `View createView(ProjectFile file, byte[] fixedMeta, byte[] fixedData, Var2Data varData, Map<Integer, FontBase> fontBases) throws IOException` | [`ViewFactory::create_view`] | Parameter `byte[]` → `&[u8]`; `ProjectFile` → `&Rc<RefCell<ProjectFile>>` (this crate passes the file by shared handle); `Map<Integer, FontBase>` → `&HashMap<i32, FontBase>` (i.e. the type referred to by the `FontBaseMap` alias in `GanttChartView`; `FontBase` is immutable and stored in the map by value) |
+//! | Returns the interface type `View` | returns `Rc<RefCell<dyn View>>` | Matches the element type used by this crate's [`crate::view_container::ViewContainer`] to store views, so callers can `add` directly |
+//! | `throws IOException` | `MpxjResult<..>` (`Err(MpxjError)`) | Consistent with the error representation used by the rest of the crate's reader chain |
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -31,21 +31,21 @@ use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 use crate::view::View;
 
-/// 创建视图对象的工厂。
+/// Factory for creating view objects.
 ///
-/// 对应 Java: `interface ViewFactory`
+/// Corresponds to Java: `interface ViewFactory`
 pub trait ViewFactory {
-    /// 创建一个视图。
+/// Create a view.
     ///
-    /// 对应 Java: `View createView(ProjectFile file, byte[] fixedMeta, byte[] fixedData,
+    /// Corresponds to Java: `View createView(ProjectFile file, byte[] fixedMeta, byte[] fixedData,
     /// Var2Data varData, Map<Integer, FontBase> fontBases) throws IOException`
     ///
-    /// - `file`：父 MPP 文件
-    /// - `fixed_meta`：视图的 FixedMeta 数据
-    /// - `fixed_data`：视图的 FixedData 数据
-    /// - `var_data`：视图的 Var2Data 数据
-    /// - `font_bases`：字体基数表（`字体索引 → FontBase`，与 `GanttChartView` 的
-    ///   `FontBaseMap` 别名同类型）
+/// - `file`: the parent MPP file
+/// - `fixed_meta`: the view's FixedMeta data
+/// - `fixed_data`: the view's FixedData data
+/// - `var_data`: the view's Var2Data data
+/// - `font_bases`: the font base table (`font index → FontBase`, same as `GanttChartView`'s
+/// `FontBaseMap` alias type)
     fn create_view(
         &self,
         file: &Rc<RefCell<ProjectFile>>,

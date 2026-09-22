@@ -1,52 +1,52 @@
-//! 对应 Java: `org/mpxj/mpp/MPP9Reader.java`
+//! Corresponds to Java: `org/mpxj/mpp/MPP9Reader.java`
 //!
-//! MPP9（Project 2000 / 2002 / 2003）文件的读取器：从 OLE 复合文档的 `Props9` / `   19`
-//! / `   29` 三处取出数据，填充 [`ProjectFile`]。本文档中的每个方法都与 Java 的同名方法
-//! 一一对应（方法名 snake_case 化），全量翻译，未做裁剪。
+//! Reader for MPP9 (Project 2000 / 2002 / 2003) files: reads data from the `Props9` / `   19`
+//! / `   29` locations of the OLE compound document and populates [`ProjectFile`]. Every method in this document
+//! corresponds one-to-one to the same-named Java method (method names in snake_case); fully translated, nothing trimmed.
 //!
-//! # 结构取舍：Java 的实例状态 → 私有状态结构体
+//! # Structural trade-off: Java instance state → private state struct
 //!
-//! Java 的 `MPP9Reader` 采用「无参构造 + 实例字段保存中间状态 + `process` 结束时
-//! `clearMemberData()` 置空」的形状；而 [`MPPVariantReader::process`] 的签名是
-//! `&self`（见 `mpp_variant_reader.rs` 文件头给出的三种实现风格）。这里采用其中的
-//! **风格 (2)**「把状态装进局部结构体，再把 `&mut` 传给各私有方法」，它最贴近 Java 的
-//! 逐方法翻译，且不引入内部可变性：
+//! Java's `MPP9Reader` uses the shape "no-arg constructor + instance fields holding intermediate state +
+//! nulling them out via `clearMemberData()` at the end of `process`"; while [`MPPVariantReader::process`] has the signature
+//! `&self` (see the three implementation styles given in the `mpp_variant_reader.rs` file header). This file uses
+//! **style (2)**, "pack the state into a local struct and pass `&mut` to each private method"; it stays closest to Java's
+//! method-by-method translation and introduces no interior mutability:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `final class MPP9Reader implements MPPVariantReader` | [`MPP9Reader`]（零尺寸类型）+ `impl MPPVariantReader for MPP9Reader` |
-//! | `MPP9Reader` 的实例字段（`m_reader` / `m_file` / `m_root` / `m_projectDir` / `m_viewDir` / `m_projectProps` / `m_outlineCodeVarData` / `m_fontBases` / `m_taskSubProjects` / `m_externalTasks` / `m_taskOrder` / `m_nullTaskOrder` / `m_resourceMap` / `m_inputStreamFactory`） | 私有结构体 [`MPP9ReaderState`] 的同名字段（去 `m_` 前缀） |
-//! | `MPP9Reader` 的私有实例方法（`populateMemberData` / `processTaskData` / `createTaskMap` / `postProcessTasks` / …） | [`MPP9ReaderState`] 上的同名方法，逐个对应 |
-//! | `try { populateMemberData(); … } finally { clearMemberData(); }` | [`MPP9Reader::process`]：建状态 → 跑主体 → 清状态 |
-//! | `private EventManager m_eventManager` | **不保存**：`ProjectFile::get_event_manager` 只返回只读 `Ref`，无法长期持有；改为在触发事件时经 `ProjectContext` 临时借用（见 [`fire_task_read_event`] / [`fire_resource_read_event`]） |
+//! | `final class MPP9Reader implements MPPVariantReader` | [`MPP9Reader`] (zero-sized type) + `impl MPPVariantReader for MPP9Reader` |
+//! | `MPP9Reader` instance fields (`m_reader` / `m_file` / `m_root` / `m_projectDir` / `m_viewDir` / `m_projectProps` / `m_outlineCodeVarData` / `m_fontBases` / `m_taskSubProjects` / `m_externalTasks` / `m_taskOrder` / `m_nullTaskOrder` / `m_resourceMap` / `m_inputStreamFactory`) | same-named fields of the private struct [`MPP9ReaderState`] (with the `m_` prefix removed) |
+//! | private instance methods of `MPP9Reader` (`populateMemberData` / `processTaskData` / `createTaskMap` / `postProcessTasks` / …) | same-named methods on [`MPP9ReaderState`], one for one |
+//! | `try { populateMemberData(); … } finally { clearMemberData(); }` | [`MPP9Reader::process`]: build state → run the body → clear state |
+//! | `private EventManager m_eventManager` | **Not stored**: `ProjectFile::get_event_manager` returns only a read-only `Ref`, which cannot be held long term; instead it is borrowed temporarily through `ProjectContext` when an event fires (see [`fire_task_read_event`] / [`fire_resource_read_event`]) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `InputStream` 构造参数 | `&[u8]` | 按项目约定；Java 用 `new DocumentInputStream(entry)` 处一律改 `entry.get_data()`（`Rc<Vec<u8>>`），Java 用 `m_inputStreamFactory.getInstance(..)` 处沿用工厂（加密文件同样能解密） |
-//! | `ProjectFile` / `ProjectContext` 的访问 | 一律 `try_borrow` / `try_borrow_mut` | 借用冲突时返回 `Err`（见 [`try_file`] / [`try_file_mut`]），绝不 panic |
-//! | `m_projectProps.getByteArray(..)` 后跨方法调用 | 先 `to_vec()` 复制 | Java 持有的是稳定引用；Rust 需要释放 `Props9` 的借用才能调用 `&mut self` 方法 |
-//! | `MPPUtility.decodePassword(props.getByteArray(..), code)` | 先复制再就地解密 | Java 就地修改 `Props` 中的数组，Rust 侧不修改 `Props`（只多一次复制） |
-//! | `reader.getReadPassword().matches(readPassword)` | 字符串相等比较 | Java 把文件中的密码当作**正则**去匹配用户输入；正则属未引入的依赖，且在真实（字母数字）密码上与相等比较等价，故按相等处理 |
-//! | `metaData[11]` 等数组下标 | [`meta_byte`]（越界返回 0） | Java 越界抛 `ArrayIndexOutOfBoundsException` |
-//! | `ByteArrayHelper.getShort/getInt` | [`get_short_by_offset`] / [`get_int_by_offset`]（内部用 `get_short_safe` / `get_int_safe`） | Java 越界抛异常；负偏移在 Java 同样抛异常，Rust 返回 0 |
-//! | `readSubProject` 的 `catch (ArrayIndexOutOfBoundsException)` | [`MPP9ReaderState::read_sub_project_inner`] 返回 `Err`，外壳记录忽略错误 | 与 Java「尽力容忍损坏文件」的意图一致 |
-//! | `m_file.getProjectConfig().setAutoWBS(..)` | 经 `ProjectContext` 取 `get_project_config_mut()` | `ProjectFile::get_project_config()` 只返回只读 `Ref` |
-//! | `Collections.sort(externalTasks)` | `Vec::sort_by(Task::compare_to)` | 等价（`Task.compareTo` 比较 ID） |
+//! | `InputStream` constructor parameter | `&[u8]` | per project convention; wherever Java uses `new DocumentInputStream(entry)` this becomes `entry.get_data()` (`Rc<Vec<u8>>`), and wherever Java uses `m_inputStreamFactory.getInstance(..)` the factory is kept (encrypted files are decrypted as well) |
+//! | Access to `ProjectFile` / `ProjectContext` | always `try_borrow` / `try_borrow_mut` | on a borrow conflict return `Err` (see [`try_file`] / [`try_file_mut`]); never panic |
+//! | cross-method call after `m_projectProps.getByteArray(..)` | copy first with `to_vec()` | Java holds a stable reference; Rust must release the `Props9` borrow before calling a `&mut self` method |
+//! | `MPPUtility.decodePassword(props.getByteArray(..), code)` | copy first, then decrypt in place | Java modifies the array inside `Props` in place; the Rust side does not modify `Props` (at the cost of one extra copy) |
+//! | `reader.getReadPassword().matches(readPassword)` | string equality comparison | Java treats the password in the file as a **regular expression** and matches the user input against it; regex is a dependency that has not been introduced, and on real (alphanumeric) passwords it is equivalent to equality, so equality is used |
+//! | array indexes such as `metaData[11]` | [`meta_byte`] (returns 0 when out of bounds) | Java throws `ArrayIndexOutOfBoundsException` when out of bounds |
+//! | `ByteArrayHelper.getShort/getInt` | [`get_short_by_offset`] / [`get_int_by_offset`] (internally using `get_short_safe` / `get_int_safe`) | Java throws when out of bounds; a negative offset also throws in Java, Rust returns 0 |
+//! | `readSubProject`'s `catch (ArrayIndexOutOfBoundsException)` | [`MPP9ReaderState::read_sub_project_inner`] returns `Err`, and the wrapper records an ignored error | consistent with Java's intent to tolerate corrupted files as far as possible |
+//! | `m_file.getProjectConfig().setAutoWBS(..)` | obtain `get_project_config_mut()` via `ProjectContext` | `ProjectFile::get_project_config()` returns only a read-only `Ref` |
+//! | `Collections.sort(externalTasks)` | `Vec::sort_by(Task::compare_to)` | equivalent (`Task.compareTo` compares IDs) |
 //!
-//! # 未翻译 / 跳过的 Java 代码
+//! # Untranslated / skipped Java code
 //!
 //! * `MPPUtility.convertRateFromHours(m_file, resource, ResourceField.STANDARD_RATE,
-//!   ResourceField.STANDARD_RATE_UNITS)`（`processResourceData` 中两处）——该方法与
-//!   `RateHelper.convertFromHours` 均已落地（见 `mpp_utility.rs`），调用点已接线。
-//! * `AvailabilityFactory::process` 返回「应追加到资源可用性表的行」，调用点经
-//!   `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
-//! * `postProcessTasks()` 上方被注释掉的旧实现（Java 中本就是注释）与 `dumpUnknownData`
-//!   及其两张常量表（Java 中同样是注释掉的调试代码）—— 未翻译注释掉的死代码。
-//! * 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//!   ResourceField.STANDARD_RATE_UNITS)` (two places in `processResourceData`) — that method and
+//!   `RateHelper.convertFromHours` have both been ported (see `mpp_utility.rs`), and the call sites are wired up.
+//! * `AvailabilityFactory::process` returns "the rows that should be appended to the resource availability table"; the call site
+//!   writes them back via `Resource::add_availability` (Java appends directly to `resource.getAvailability()`).
+//! * the old implementation commented out above `postProcessTasks()` (already a comment in Java) and `dumpUnknownData`
+//!   together with its two constant tables (also commented-out debug code in Java) — commented-out dead code is not translated.
+//! * reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms.
 //!
-//! # 接口假设（已核对一致）
+//! # Interface assumptions (verified to be consistent)
 //!
 //! ```text
 //! pub trait MPPVariantReader {
@@ -55,9 +55,9 @@
 //! }
 //! ```
 //!
-//! 用到的 `MPPReader` 只读开关：`get_read_properties_only` / `get_read_presentation_data` /
-//! `get_respect_password_protection` / `get_read_password`（`Option<&str>`）/
-//! `get_use_raw_timephased_data`。
+//! The read-only switches of `MPPReader` that are used: `get_read_properties_only` / `get_read_presentation_data` /
+//! `get_respect_password_protection` / `get_read_password`(`Option<&str>`)/
+//! `get_use_raw_timephased_data`.
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -124,173 +124,173 @@ use crate::task::Task;
 use crate::task_field::TaskField;
 use crate::time_unit::TimeUnit;
 
-/// 项目数据所在的存储名。
+/// Name of the storage holding the project data.
 ///
-/// 对应 Java: `root.getEntry("   19")`
+/// Corresponds to Java: `root.getEntry("   19")`
 const PROJECT_DIRECTORY: &str = "   19";
 
-/// 视图数据所在的存储名。
+/// Name of the storage holding the view data.
 ///
-/// 对应 Java: `root.getEntry("   29")`
+/// Corresponds to Java: `root.getEntry("   29")`
 const VIEW_DIRECTORY: &str = "   29";
 
-/// 任务数据存储名。
+/// Name of the task data storage.
 ///
-/// 对应 Java: `m_projectDir.getEntry("TBkndTask")`
+/// Corresponds to Java: `m_projectDir.getEntry("TBkndTask")`
 const TASK_DIRECTORY: &str = "TBkndTask";
 
-/// 资源数据存储名。
+/// Name of the resource data storage.
 ///
-/// 对应 Java: `m_projectDir.getEntry("TBkndRsc")`
+/// Corresponds to Java: `m_projectDir.getEntry("TBkndRsc")`
 const RESOURCE_DIRECTORY: &str = "TBkndRsc";
 
-/// 分派数据存储名。
+/// Name of the assignment data storage.
 ///
-/// 对应 Java: `m_projectDir.getEntry("TBkndAssn")`
+/// Corresponds to Java: `m_projectDir.getEntry("TBkndAssn")`
 const ASSIGNMENT_DIRECTORY: &str = "TBkndAssn";
 
-/// 大纲代码数据存储名。
+/// Name of the outline code data storage.
 ///
-/// 对应 Java: `m_projectDir.getEntry("TBkndOutlCode")`
+/// Corresponds to Java: `m_projectDir.getEntry("TBkndOutlCode")`
 const OUTLINE_CODE_DIRECTORY: &str = "TBkndOutlCode";
 
-/// 视图数据存储下的子存储名（视图定义）。
+/// Name of the sub-storage under the view data storage (view definitions).
 ///
-/// 对应 Java: `m_viewDir.getEntry("CV_iew")`
+/// Corresponds to Java: `m_viewDir.getEntry("CV_iew")`
 const VIEW_DIRECTORY_VIEWS: &str = "CV_iew";
 
-/// 视图数据存储下的子存储名（表定义）。
+/// Name of the sub-storage under the view data storage (table definitions).
 ///
-/// 对应 Java: `m_viewDir.getEntry("CTable")`
+/// Corresponds to Java: `m_viewDir.getEntry("CTable")`
 const VIEW_DIRECTORY_TABLES: &str = "CTable";
 
-/// 视图数据存储下的子存储名（筛选器定义）。
+/// Name of the sub-storage under the view data storage (filter definitions).
 ///
-/// 对应 Java: `m_viewDir.getEntry("CFilter")`
+/// Corresponds to Java: `m_viewDir.getEntry("CFilter")`
 const VIEW_DIRECTORY_FILTERS: &str = "CFilter";
 
-/// 视图数据存储下的子存储名（分组定义）。
+/// Name of the sub-storage under the view data storage (group definitions).
 ///
-/// 对应 Java: `m_viewDir.getEntry("CGrouping")`
+/// Corresponds to Java: `m_viewDir.getEntry("CGrouping")`
 const VIEW_DIRECTORY_GROUPS: &str = "CGrouping";
 
-/// 视图数据存储下的子存储名（已保存的视图状态与数据链接）。
+/// Name of the sub-storage under the view data storage (saved view state and data links).
 ///
-/// 对应 Java: `m_viewDir.getEntry("CEdl")`
+/// Corresponds to Java: `m_viewDir.getEntry("CEdl")`
 const VIEW_DIRECTORY_SAVED_VIEW_STATE: &str = "CEdl";
 
-/// 子项目任务唯一 ID 列表的结束标志。
+/// End marker of the subproject task unique ID list.
 ///
-/// 对应 Java: `private static final int SUBPROJECT_LISTEND = 0x00000303;`
+/// Corresponds to Java: `private static final int SUBPROJECT_LISTEND = 0x00000303;`
 const SUBPROJECT_LISTEND: i32 = 0x0000_0303;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 0。
+/// Marker value 0 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID0 = 0x00000000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID0 = 0x00000000;`
 const SUBPROJECT_TASKUNIQUEID0: i32 = 0x0000_0000;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 1。
+/// Marker value 1 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID1 = 0x0B340000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID1 = 0x0B340000;`
 const SUBPROJECT_TASKUNIQUEID1: i32 = 0x0B34_0000;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 2。
+/// Marker value 2 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID2 = 0x0ABB0000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID2 = 0x0ABB0000;`
 const SUBPROJECT_TASKUNIQUEID2: i32 = 0x0ABB_0000;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 3。
+/// Marker value 3 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID3 = 0x05A10000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID3 = 0x05A10000;`
 const SUBPROJECT_TASKUNIQUEID3: i32 = 0x05A1_0000;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 4。
+/// Marker value 4 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID4 = 0x02F70000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID4 = 0x02F70000;`
 const SUBPROJECT_TASKUNIQUEID4: i32 = 0x02F7_0000;
 
-/// 「前一个值是子项目任务唯一 ID」的标志值 5。
+/// Marker value 5 for "the previous value is a subproject task unique ID".
 ///
-/// 对应 Java: `private static final int SUBPROJECT_TASKUNIQUEID5 = 0x07010000;`
+/// Corresponds to Java: `private static final int SUBPROJECT_TASKUNIQUEID5 = 0x07010000;`
 const SUBPROJECT_TASKUNIQUEID5: i32 = 0x0701_0000;
 
-/// 表列数据的标准键。
+/// Standard key for table column data.
 ///
-/// 对应 Java: `private static final Integer TABLE_COLUMN_DATA_STANDARD = Integer.valueOf(1);`
+/// Corresponds to Java: `private static final Integer TABLE_COLUMN_DATA_STANDARD = Integer.valueOf(1);`
 const TABLE_COLUMN_DATA_STANDARD: i32 = 1;
 
-/// 表列数据的企业键。
+/// Enterprise key for table column data.
 ///
-/// 对应 Java: `private static final Integer TABLE_COLUMN_DATA_ENTERPRISE = Integer.valueOf(2);`
+/// Corresponds to Java: `private static final Integer TABLE_COLUMN_DATA_ENTERPRISE = Integer.valueOf(2);`
 const TABLE_COLUMN_DATA_ENTERPRISE: i32 = 2;
 
-/// 表列数据的基线键（Java 为 `null`）。
+/// Baseline key for table column data (Java uses `null`).
 ///
-/// 对应 Java: `private static final Integer TABLE_COLUMN_DATA_BASELINE = null;`
+/// Corresponds to Java: `private static final Integer TABLE_COLUMN_DATA_BASELINE = null;`
 const TABLE_COLUMN_DATA_BASELINE: Option<i32> = None;
 
-/// 大纲代码取值在变长数据块中的数据类型键。
+/// Data type key for outline code values in the variable-length data block.
 ///
-/// 对应 Java: `private static final Integer OUTLINECODE_DATA = Integer.valueOf(1);`
+/// Corresponds to Java: `private static final Integer OUTLINECODE_DATA = Integer.valueOf(1);`
 const OUTLINE_CODE_DATA: i32 = 1;
 
-/// 工期单位字段中「已确认」标志的掩码。
+/// Mask for the "confirmed" flag in the duration units field.
 ///
-/// 对应 Java: `private static final int DURATION_CONFIRMED_MASK = 0x20;`
+/// Corresponds to Java: `private static final int DURATION_CONFIRMED_MASK = 0x20;`
 const DURATION_CONFIRMED_MASK: i32 = 0x20;
 
-/// 已删除 / 空任务的唯一 ID 在定长数据块中的固定偏移。
+/// Fixed offset of the unique ID of deleted / empty tasks in the fixed-length data block.
 ///
-/// 对应 Java: `private static final int TASK_UNIQUE_ID_FIXED_OFFSET = 0;`
+/// Corresponds to Java: `private static final int TASK_UNIQUE_ID_FIXED_OFFSET = 0;`
 const TASK_UNIQUE_ID_FIXED_OFFSET: usize = 0;
 
-/// 已删除 / 空任务的 ID 在定长数据块中的固定偏移。
+/// Fixed offset of the ID of deleted / empty tasks in the fixed-length data block.
 ///
-/// 对应 Java: `private static final int TASK_ID_FIXED_OFFSET = 4;`
+/// Corresponds to Java: `private static final int TASK_ID_FIXED_OFFSET = 4;`
 const TASK_ID_FIXED_OFFSET: usize = 4;
 
-/// 「空任务」数据块的长度。
+/// Length of the "empty task" data block.
 ///
-/// 对应 Java: `private static final int NULL_TASK_BLOCK_SIZE = 8;`
+/// Corresponds to Java: `private static final int NULL_TASK_BLOCK_SIZE = 8;`
 const NULL_TASK_BLOCK_SIZE: usize = 8;
 
-/// 用 1983-12-31 00:00 表示「无日期」的纪元值。
+/// Epoch value representing "no date" as 1983-12-31 00:00.
 ///
-/// 对应 Java: `MicrosoftProjectConstants.EPOCH_DATE`
-/// （该类未移植，见 `mpp_utility.rs` 文件头对同名的处理）。
+/// Corresponds to Java: `MicrosoftProjectConstants.EPOCH_DATE`
+/// (this class is not ported; see the file header of `mpp_utility.rs` for how the same name is handled).
 fn epoch_date() -> chrono::NaiveDateTime {
     NaiveDate::from_ymd_opt(1983, 12, 31)
         .and_then(|date| date.and_hms_opt(0, 0, 0))
         .unwrap_or(chrono::NaiveDateTime::MIN)
 }
 
-/// MPP9 文件读取器。
+/// MPP9 file reader.
 ///
-/// 对应 Java: `final class MPP9Reader implements MPPVariantReader`
+/// Corresponds to Java: `final class MPP9Reader implements MPPVariantReader`
 ///
-/// 本类型是零尺寸类型：Java 的实例状态全部放在 [`MPP9ReaderState`] 中（见文件头）。
+/// This type is zero-sized: all Java instance state lives in [`MPP9ReaderState`] (see the file header).
 pub struct MPP9Reader;
 
 impl MPP9Reader {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: 隐式无参构造方法（`new MPP9Reader()`）
+    /// Corresponds to Java: implicit no-arg constructor (`new MPP9Reader()`)
     pub fn new() -> Self {
         Self
     }
 }
 
 impl Default for MPP9Reader {
-    /// 对应 Java: 隐式无参构造方法，等价于 [`MPP9Reader::new`]。
+    /// Corresponds to Java: implicit no-arg constructor, equivalent to [`MPP9Reader::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl MPPVariantReader for MPP9Reader {
-    /// 读取一份 MPP9 文件并填充 `file`。
+    /// Read an MPP9 file and populate `file`.
     ///
-    /// 对应 Java: `@Override public void process(MPPReader reader, ProjectFile file, DirectoryEntry root)`
+    /// Corresponds to Java: `@Override public void process(MPPReader reader, ProjectFile file, DirectoryEntry root)`
     fn process(
         &self,
         reader: &MPPReader,
@@ -301,8 +301,8 @@ impl MPPVariantReader for MPP9Reader {
         // try { populateMemberData(reader, file, root); processProjectProperties(); … }
         // finally { clearMemberData(); }
         //
-        // `populateMemberData` 失败时状态尚未建立（Java 此时各字段已部分赋值，但 `finally`
-        // 里的 `clearMemberData` 只是把引用置 null），Rust 侧没有可清理的状态，直接返回错误。
+        // When `populateMemberData` fails, the state has not been established yet (in Java the fields are
+        // already partially assigned at that point, but `clearMemberData` in `finally` just nulls the references); the Rust side has no state to clear, so it returns the error directly.
         let mut state = MPP9ReaderState::populate_member_data(reader, file, root)?;
         let result = state.process();
         state.clear_member_data();
@@ -310,88 +310,88 @@ impl MPPVariantReader for MPP9Reader {
     }
 }
 
-/// `MPP9Reader` 的实例状态（Java 的实例字段）。
+/// Instance state of `MPP9Reader` (Java's instance fields).
 ///
-/// 对应 Java: `MPP9Reader` 的实例字段集合（见文件头「结构取舍」）。
+/// Corresponds to Java: the set of instance fields of `MPP9Reader` (see "Structural trade-off" in the file header).
 struct MPP9ReaderState<'a> {
-    /// 父 reader（只用于读取 5 个开关）。
+    /// Parent reader (used only to read the 5 switches).
     ///
-    /// 对应 Java 字段: `private MPPReader m_reader`
+    /// Corresponds to Java field: `private MPPReader m_reader`
     reader: &'a MPPReader,
 
-    /// 待填充的项目文件。
+    /// Project file to be populated.
     ///
-    /// 对应 Java 字段: `private ProjectFile m_file`
+    /// Corresponds to Java field: `private ProjectFile m_file`
     file: Rc<RefCell<ProjectFile>>,
 
-    /// 复合文档的根存储。
+    /// Root storage of the compound document.
     ///
-    /// 对应 Java 字段: `private DirectoryEntry m_root`
+    /// Corresponds to Java field: `private DirectoryEntry m_root`
     root: DirectoryEntry,
 
-    /// 资源唯一 ID → 资源日历。
+    /// Resource unique ID → resource calendar.
     ///
-    /// 对应 Java 字段: `private HashMap<Integer, ProjectCalendar> m_resourceMap`
+    /// Corresponds to Java field: `private HashMap<Integer, ProjectCalendar> m_resourceMap`
     resource_map: HashMap<i32, Rc<RefCell<ProjectCalendar>>>,
 
-    /// 大纲代码取值数据。
+    /// Outline code value data.
     ///
-    /// 对应 Java 字段: `private Var2Data m_outlineCodeVarData`
+    /// Corresponds to Java field: `private Var2Data m_outlineCodeVarData`
     outline_code_var_data: Var2Data,
 
-    /// 项目 `Props` 数据流。
+    /// Project `Props` data stream.
     ///
-    /// 对应 Java 字段: `private Props9 m_projectProps`
+    /// Corresponds to Java field: `private Props9 m_projectProps`
     project_props: Props9,
 
-    /// 基础字体表：字体序号 → 基础字体。
+    /// Base font table: font index → base font.
     ///
-    /// 对应 Java 字段: `private Map<Integer, FontBase> m_fontBases`
+    /// Corresponds to Java field: `private Map<Integer, FontBase> m_fontBases`
     font_bases: HashMap<i32, FontBase>,
 
-    /// 任务唯一 ID → 所属子项目文件名。
+    /// Task unique ID → owning subproject file name.
     ///
-    /// 对应 Java 字段: `private Map<Integer, String> m_taskSubProjects`
+    /// Corresponds to Java field: `private Map<Integer, String> m_taskSubProjects`
     task_sub_projects: HashMap<i32, String>,
 
-    /// 外部任务唯一 ID 集合。
+    /// Set of external task unique IDs.
     ///
-    /// 对应 Java 字段: `private Set<Integer> m_externalTasks`
+    /// Corresponds to Java field: `private Set<Integer> m_externalTasks`
     external_tasks: BTreeSet<i32>,
 
-    /// 项目数据存储（`   19`）。
+    /// Project data storage (`   19`).
     ///
-    /// 对应 Java 字段: `private DirectoryEntry m_projectDir`
+    /// Corresponds to Java field: `private DirectoryEntry m_projectDir`
     project_dir: DirectoryEntry,
 
-    /// 视图数据存储（`   29`）。
+    /// View data storage (`   29`).
     ///
-    /// 对应 Java 字段: `private DirectoryEntry m_viewDir`
+    /// Corresponds to Java field: `private DirectoryEntry m_viewDir`
     view_dir: DirectoryEntry,
 
-    /// 任务 ID → 任务唯一 ID（用于 `postProcessTasks` 重排）。
+    /// Task ID → task unique ID (used for reordering in `postProcessTasks`).
     ///
-    /// 对应 Java 字段: `private Map<Integer, Integer> m_taskOrder`
+    /// Corresponds to Java field: `private Map<Integer, Integer> m_taskOrder`
     task_order: BTreeMap<i32, i32>,
 
-    /// 空任务 ID → 任务唯一 ID。
+    /// Empty task ID → task unique ID.
     ///
-    /// 对应 Java 字段: `private Map<Integer, Integer> m_nullTaskOrder`
+    /// Corresponds to Java field: `private Map<Integer, Integer> m_nullTaskOrder`
     null_task_order: BTreeMap<i32, i32>,
 
-    /// 按密码保护状态创建普通流 / 解密流的工厂。
+    /// Factory that creates plain / decrypting streams according to the password protection state.
     ///
-    /// 对应 Java 字段: `private DocumentInputStreamFactory m_inputStreamFactory`
+    /// Corresponds to Java field: `private DocumentInputStreamFactory m_inputStreamFactory`
     input_stream_factory: DocumentInputStreamFactory,
 }
 
 impl<'a> MPP9ReaderState<'a> {
-    /// 填充本 reader 需要的数据，并解析文件级属性。
+    /// Populate the data this reader needs and parse the file-level properties.
     ///
-    /// 对应 Java: `private void populateMemberData(MPPReader reader, ProjectFile file, DirectoryEntry root)`
+    /// Corresponds to Java: `private void populateMemberData(MPPReader reader, ProjectFile file, DirectoryEntry root)`
     ///
-    /// Rust 特有：Java 该方法把参数与解析结果写进实例字段（无返回值），本文件把「建状态」
-    /// 与「填字段」合并为一个返回 `Self` 的关联函数（见文件头「结构取舍」）。
+    /// Rust-specific: in Java this method writes the arguments and parse results into instance fields (no return value); this file merges
+    /// "build the state" and "fill the fields" into one associated function returning `Self` (see "Structural trade-off" in the file header).
     fn populate_member_data(
         reader: &'a MPPReader,
         file: &Rc<RefCell<ProjectFile>>,
@@ -441,7 +441,7 @@ impl<'a> MPP9ReaderState<'a> {
             //
             // Java: String readPassword = MPPUtility.decodePassword(props.getByteArray(
             //          PropsKey.PROTECTION_PASSWORD_HASH), m_inputStreamFactory.getEncryptionCode());
-            // （Java 就地解密 `Props` 中的数组；Rust 侧复制一份以免改动 `Props`）
+            // (Java decrypts the array inside `Props` in place; the Rust side makes a copy to avoid modifying `Props`)
             let mut password_hash = props
                 .get_byte_array(PropsKey::ProtectionPasswordHash)
                 .map(<[u8]>::to_vec)
@@ -451,14 +451,14 @@ impl<'a> MPP9ReaderState<'a> {
 
             // It looks like it is possible for a project file to have the password protection flag on
             // without a password. In this case MS Project treats the file as NOT protected.
-            // See https://github.com/joniles/mpxj/issues/xxx —— Java 注释原文见源码。
+            // See https://github.com/joniles/mpxj/issues/xxx — see the Java source for the original comment.
             if let Some(read_password) = read_password {
                 if !read_password.is_empty() {
                     // See if the correct read password was given
                     // Java: if (reader.getReadPassword() == null || !reader.getReadPassword().matches(readPassword))
                     let matches = match reader.get_read_password() {
                         None => false,
-                        // Java 用 `String.matches`（正则）；未引入正则依赖，按相等比较（见文件头）
+                        // Java uses `String.matches` (regex); the regex dependency has not been introduced, so equality is used (see the file header)
                         Some(given) => given == read_password.as_str(),
                     };
 
@@ -542,12 +542,12 @@ impl<'a> MPP9ReaderState<'a> {
         })
     }
 
-    /// 清空 transient 状态。
+    /// Clear the transient state.
     ///
-    /// 对应 Java: `private void clearMemberData()`
+    /// Corresponds to Java: `private void clearMemberData()`
     ///
-    /// Java 把各字段置 `null`（含 `m_file` / `m_root` / `m_projectProps` 等非集合字段）；
-    /// Rust 侧状态结构体在 `process` 结束时整体析构，等价于置空，故这里只清空集合。
+    /// Java sets each field to `null` (including non-collection fields such as `m_file` / `m_root` / `m_projectProps`);
+    /// the Rust state struct is dropped as a whole when `process` ends, which is equivalent to nulling it, so only the collections are cleared here.
     fn clear_member_data(&mut self) {
         self.resource_map.clear();
         self.font_bases.clear();
@@ -557,9 +557,9 @@ impl<'a> MPP9ReaderState<'a> {
         self.external_tasks.clear();
     }
 
-    /// `process` 的主体：`populateMemberData` 之后、`clearMemberData` 之前的所有步骤。
+    /// The body of `process`: all the steps after `populateMemberData` and before `clearMemberData`.
     ///
-    /// 对应 Java: `MPP9Reader#process` 中 `populateMemberData(...)` 之后的全部语句
+    /// Corresponds to Java: all statements after `populateMemberData(...)` in `MPP9Reader#process`
     fn process(&mut self) -> MpxjResult<()> {
         // Java: processProjectProperties();
         self.process_project_properties()?;
@@ -621,18 +621,18 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 处理项目属性数据。
+    /// Process the project property data.
     ///
-    /// 对应 Java: `private void processProjectProperties() throws MPXJException`
+    /// Corresponds to Java: `private void processProjectProperties() throws MPXJException`
     fn process_project_properties(&mut self) -> MpxjResult<()> {
         // Java: ProjectPropertiesReader reader = new ProjectPropertiesReader();
         //       reader.process(m_file, m_projectProps, m_root);
         ProjectPropertiesReader.process(&self.file, &self.project_props, &self.root)
     }
 
-    /// 处理图形化指标数据。
+    /// Process the graphical indicator data.
     ///
-    /// 对应 Java: `private void processGraphicalIndicators()`
+    /// Corresponds to Java: `private void processGraphicalIndicators()`
     fn process_graphical_indicators(&mut self) {
         // Java: GraphicalIndicatorReader graphicalIndicatorReader = new GraphicalIndicatorReader();
         //       graphicalIndicatorReader.process(m_file, m_projectProps);
@@ -640,16 +640,16 @@ impl<'a> MPP9ReaderState<'a> {
         reader.process(&self.file, &self.project_props);
     }
 
-    /// 读取子项目数据，并按任务 ID 建立索引。
+    /// Read the subproject data and index it by task ID.
     ///
-    /// 对应 Java: `private void processSubProjectData()`
+    /// Corresponds to Java: `private void processSubProjectData()`
     ///
-    /// Project 把「曾插入过本项目的所有子项目」按顺序存放，`unique id` 的偏移量正是由
-    /// 这个顺序推导出来的。
+    /// Project stores "all subprojects ever inserted into this project" in order, and the `unique id` offsets are derived exactly
+    /// from this order.
     fn process_sub_project_data(&mut self) {
         // Java: byte[] subProjData = m_projectProps.getByteArray(PropsKey.SUBPROJECT_DATA);
         //       if (subProjData == null) { return; }
-        // （复制一份：后续 `&mut self` 调用与 `m_projectProps` 的借用不能重叠）
+        // (make a copy: the subsequent `&mut self` call must not overlap with the borrow of `m_projectProps`)
         let Some(sub_proj_data) = self
             .project_props
             .get_byte_array(PropsKey::SubprojectData)
@@ -682,7 +682,7 @@ impl<'a> MPP9ReaderState<'a> {
             let item_header_offset = get_short_safe(sub_proj_data, offset);
             offset += 4;
 
-            // 20 字节头：16 字节 GUID + 4 字节标志
+            // 20-byte header: 16-byte GUID + 4-byte flag
             // Java: byte subProjectType = subProjData[itemHeaderOffset + 16];
             let sub_project_type = usize::try_from(item_header_offset + 16)
                 .ok()
@@ -939,13 +939,13 @@ impl<'a> MPP9ReaderState<'a> {
         }
     }
 
-    /// 从字节数组里读取子项目细节。
+    /// Read the subproject details from the byte array.
     ///
-    /// 对应 Java: `private void readSubProject(byte[] data, int headerOffset, int uniqueIDOffset, int filePathOffset, int fileNameOffset, int subprojectIndex)`
+    /// Corresponds to Java: `private void readSubProject(byte[] data, int headerOffset, int uniqueIDOffset, int filePathOffset, int fileNameOffset, int subprojectIndex)`
     ///
-    /// Java 用 `try/catch (ArrayIndexOutOfBoundsException)` 吞掉「数据格式不认识」的失败，
-    /// 只记录一条忽略错误；Rust 侧由 [`MPP9ReaderState::read_sub_project_inner`] 返回 `Err`
-    /// 表达同一情形。
+    /// Java swallows "unrecognized data format" failures with `try/catch (ArrayIndexOutOfBoundsException)`,
+    /// recording only an ignored error; the Rust side expresses the same situation through [`MPP9ReaderState::read_sub_project_inner`] returning `Err`
+    /// to express the same situation.
     #[allow(clippy::too_many_arguments)]
     fn read_sub_project(
         &mut self,
@@ -978,9 +978,9 @@ impl<'a> MPP9ReaderState<'a> {
         }
     }
 
-    /// `readSubProject` 的方法体（Java 中被 `try` 包住的部分）。
+    /// The body of `readSubProject` (the part wrapped in `try` in Java).
     ///
-    /// 数据越界时返回 `Err`（对应 Java 抛 `ArrayIndexOutOfBoundsException`）。
+    /// Returns `Err` when data is out of bounds (corresponding to Java throwing `ArrayIndexOutOfBoundsException`).
     #[allow(clippy::too_many_arguments)]
     fn read_sub_project_inner(
         &mut self,
@@ -991,8 +991,8 @@ impl<'a> MPP9ReaderState<'a> {
         file_name_offset: i32,
         subproject_index: i32,
     ) -> MpxjResult<()> {
-        // Java 的 `headerOffset`、`fileNameOffset` 与 `subprojectIndex` 在方法体中并未被使用
-        // （`subprojectIndex` 只出现在被注释掉的一行里），这里保留参数以保持 1:1。
+        // Java's `headerOffset`, `fileNameOffset` and `subprojectIndex` are not used in the method body
+        // (`subprojectIndex` appears only in a commented-out line); the parameters are kept here to preserve the 1:1 mapping.
         let _ = (header_offset, file_name_offset, subproject_index);
 
         // We have a 20 byte header.
@@ -1068,9 +1068,9 @@ impl<'a> MPP9ReaderState<'a> {
         self.process_unique_id_values(&sp, data, unique_id_offset)
     }
 
-    /// 记录子项目里的任务唯一 ID 与所属子项目文件的对应关系。
+    /// Record the mapping between task unique IDs inside a subproject and the owning subproject file.
     ///
-    /// 对应 Java: `private void processUniqueIdValues(String sp, byte[] data, int uniqueIDOffset)`
+    /// Corresponds to Java: `private void processUniqueIdValues(String sp, byte[] data, int uniqueIDOffset)`
     fn process_unique_id_values(
         &mut self,
         sp: &str,
@@ -1129,9 +1129,9 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 处理 `Props` 流中与项目数据可视外观有关的部分。
+    /// Process the parts of the `Props` stream related to the visual appearance of the project data.
     ///
-    /// 对应 Java: `private void processViewPropertyData() throws IOException`
+    /// Corresponds to Java: `private void processViewPropertyData() throws IOException`
     fn process_view_property_data(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("Props")) { … }
         if self.view_dir.get_entry("Props").is_none() {
@@ -1162,9 +1162,9 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 建立「基础字体序号 → 基础字体实例」的索引。
+    /// Build the index "base font index → base font instance".
     ///
-    /// 对应 Java: `private void processBaseFonts(byte[] data)`
+    /// Corresponds to Java: `private void processBaseFonts(byte[] data)`
     fn process_base_fonts(&mut self, data: &[u8]) {
         // Java: int offset = 0;
         let mut offset = 0usize;
@@ -1196,21 +1196,21 @@ impl<'a> MPP9ReaderState<'a> {
         }
     }
 
-    /// 读取 MPP 文件中定义的任务字段取值列表。
+    /// Read the list of task field values defined in the MPP file.
     ///
-    /// 对应 Java: `private void processCustomValueLists() throws IOException`
+    /// Corresponds to Java: `private void processCustomValueLists() throws IOException`
     fn process_custom_value_lists(&mut self) -> MpxjResult<()> {
         // Java: CustomFieldValueReader9 reader = new CustomFieldValueReader9(m_projectDir, m_file, m_projectProps);
         //       reader.process();
         CustomFieldValueReader9::new(&self.project_dir, &self.file, &self.project_props).process()
     }
 
-    /// 读取 MPP 文件中定义的资源 / 任务字段别名。
+    /// Read the resource / task field aliases defined in the MPP file.
     ///
-    /// 对应 Java: `private void processFieldNameAliases(Map<Integer, FieldType> map, byte[] data)`
+    /// Corresponds to Java: `private void processFieldNameAliases(Map<Integer, FieldType> map, byte[] data)`
     ///
-    /// Java 的 `Map<Integer, FieldType>` 在 Rust 侧为 `HashMap<i32, FieldKey>`
-    /// （`FieldType` 的运行时可哈希等价形式，见 `field_key.rs` 文件头）。
+    /// Java's `Map<Integer, FieldType>` becomes `HashMap<i32, FieldKey>` on the Rust side
+    /// (the runtime hashable equivalent of `FieldType`, see the file header of `field_key.rs`).
     fn process_field_name_aliases(&mut self, map: &HashMap<i32, FieldKey>, data: Option<&[u8]>) {
         let Some(data) = data else {
             return;
@@ -1249,12 +1249,12 @@ impl<'a> MPP9ReaderState<'a> {
         }
     }
 
-    /// 把任务的唯一标识映射到定长数据块中的下标。
+    /// Map task unique identifiers to indexes in the fixed-length data block.
     ///
-    /// 对应 Java: `private TreeMap<Integer, Integer> createTaskMap(FieldMap fieldMap, FixedMeta taskFixedMeta, FixedData taskFixedData, Var2Data taskVarData)`
+    /// Corresponds to Java: `private TreeMap<Integer, Integer> createTaskMap(FieldMap fieldMap, FixedMeta taskFixedMeta, FixedData taskFixedData, Var2Data taskVarData)`
     ///
-    /// Java 的 `TreeMap`（值可为 `null`）在 Rust 侧为 `BTreeMap<i32, Option<i32>>`：
-    /// 值为 `None` 表示「该唯一 ID 属于已删除的任务」。
+    /// Java's `TreeMap` (whose values may be `null`) becomes `BTreeMap<i32, Option<i32>>` on the Rust side:
+    /// A value of `None` means "this unique ID belongs to a deleted task".
     fn create_task_map(
         &self,
         field_map: &FieldMap,
@@ -1339,9 +1339,9 @@ impl<'a> MPP9ReaderState<'a> {
         task_map
     }
 
-    /// 把资源的唯一标识映射到定长数据块中的下标。
+    /// Map resource unique identifiers to indexes in the fixed-length data block.
     ///
-    /// 对应 Java: `private TreeMap<Integer, Integer> createResourceMap(FieldMap fieldMap, FixedMeta rscFixedMeta, FixedData rscFixedData)`
+    /// Corresponds to Java: `private TreeMap<Integer, Integer> createResourceMap(FieldMap fieldMap, FixedMeta rscFixedMeta, FixedData rscFixedData)`
     fn create_resource_map(
         &self,
         field_map: &FieldMap,
@@ -1381,12 +1381,12 @@ impl<'a> MPP9ReaderState<'a> {
         resource_map
     }
 
-    /// 处理日历数据。
+    /// Process the calendar data.
     ///
-    /// 对应 Java: `private void processCalendarData() throws IOException`
+    /// Corresponds to Java: `private void processCalendarData() throws IOException`
     ///
-    /// 日历数据的格式是：4 字节块头 + 7×60 字节（一周七天），其后可选地跟着一组
-    /// 64 字节的例外块。
+    /// The calendar data format is: a 4-byte block header + 7×60 bytes (the seven days of a week), optionally followed by a group
+    /// of 64-byte exception blocks.
     fn process_calendar_data(&mut self) -> MpxjResult<()> {
         // Java: CalendarFactory factory = new MPP9CalendarFactory(m_file);
         //       factory.processCalendarData(m_projectDir, m_projectProps, m_inputStreamFactory, m_resourceMap);
@@ -1399,12 +1399,12 @@ impl<'a> MPP9ReaderState<'a> {
         )
     }
 
-    /// 提取并整理任务数据。
+    /// Extract and organize the task data.
     ///
-    /// 对应 Java: `private void processTaskData() throws IOException`
+    /// Corresponds to Java: `private void processTaskData() throws IOException`
     ///
-    /// 下面按字母顺序遍历 `Task` 的各个 setter，从 MPP 文件中取出数据。找不到映射的地方
-    /// （例如字段是即时计算的，或者数据在文件中根本找不到）在 Java 中即以注释标出。
+    /// What follows walks through the `Task` setters in alphabetical order, pulling data out of the MPP file. Places where no mapping is found
+    /// (for example the field is computed on the fly, or the data simply cannot be found in the file) are marked with comments in Java.
     fn process_task_data(&mut self) -> MpxjResult<()> {
         // Java: FieldMap fieldMap = new FieldMap9(m_file); fieldMap.createTaskFieldMap(m_projectProps);
         let mut field_map = FieldMap9::new(&self.file);
@@ -1684,8 +1684,8 @@ impl<'a> MPP9ReaderState<'a> {
             task.borrow_mut().set_unique_id(Some(unique_id));
 
             // Java: switch (task.getConstraintType()) { … }
-            // 先把值取出来再释放借用：`match` 的 scrutinee 临时量会活到最后一条语句结束，
-            // 否则下面分支里的 `borrow_mut()` 会撞上未释放的 `borrow()`
+            // Take the value out first and release the borrow: the temporary from the `match` scrutinee lives until the end of the last statement,
+            // otherwise the `borrow_mut()` in the branch below would hit an unreleased `borrow()`
             let constraint_type = task.borrow().get_constraint_type();
             match constraint_type {
                 //
@@ -1744,8 +1744,8 @@ impl<'a> MPP9ReaderState<'a> {
 
                 if let Some(recurring_task_reader) = &recurring_task_reader {
                     // Java: recurringTaskReader.processRecurringTask(task, recurringData);
-                    // Java 的 processRecurringTask 直接写入 task；Rust 侧返回实例，由调用方挂载
-                    // （见 `recurring_task_reader.rs` 文件头）。返回的即 `Task` 持有的同一类型。
+                    // Java's processRecurringTask writes into the task directly; the Rust side returns the instance and the caller mounts it
+                    // (see the file header of `recurring_task_reader.rs`). The returned instance is the same type held by `Task`.
                     let recurring_task = recurring_task_reader.process_recurring_task(&recurring_data);
                     {
                         let mut task_ref = task.borrow_mut();
@@ -1790,7 +1790,7 @@ impl<'a> MPP9ReaderState<'a> {
 
                 // Java: Integer subprojectTaskUniqueID = task.getSubprojectTaskUniqueID();
                 //       if (subprojectTaskUniqueID != null) { task.setSubprojectTaskUniqueID(subprojectTaskUniqueID & 0xFFFF); }
-                // 先把值取出来再释放借用，避免在 `if let` 作用域内再次 `borrow_mut()`
+                // Take the value out first and release the borrow, to avoid another `borrow_mut()` inside the `if let` scope
                 let subproject_task_unique_id = task.borrow().get_subproject_task_unique_id();
                 if let Some(subproject_task_unique_id) = subproject_task_unique_id {
                     task.borrow_mut()
@@ -1900,11 +1900,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 提取任务的企业列取值。
+    /// Extract the task enterprise column values.
     ///
-    /// 对应 Java: `private void processTaskEnterpriseColumns(FieldMap fieldMap, Task task, Var2Data taskVarData)`
+    /// Corresponds to Java: `private void processTaskEnterpriseColumns(FieldMap fieldMap, Task task, Var2Data taskVarData)`
     ///
-    /// Java 无 `throws`；Rust 侧因需要借用项目属性（工期换算）而返回 `MpxjResult`。
+    /// Java has no `throws`; the Rust side returns `MpxjResult` because it needs to borrow the project properties (duration conversion).
     fn process_task_enterprise_columns(
         &self,
         field_map: &FieldMap,
@@ -1933,7 +1933,7 @@ impl<'a> MPP9ReaderState<'a> {
         for key in props.key_set() {
             // Java: FieldType field = FieldTypeHelper.getInstance(m_file, key.intValue());
             //       if (field == null || field.getDataType() == null) { continue; }
-            // （Rust 的 `MppFieldType::get_data_type()` 恒有值，故只需判空）
+            // (Rust's `MppFieldType::get_data_type()` always has a value, so only a null check is needed)
             let Some(field) = FieldTypeHelper::get_instance(&self.file, key) else {
                 continue;
             };
@@ -1941,9 +1941,9 @@ impl<'a> MPP9ReaderState<'a> {
             // Java: Object value = null;
             let mut value: Option<FieldValue> = None;
 
-            // Java 在 BOOLEAN 分支里把 `field` 置为 null，于是循环末尾的 `task.set(field, value)`
-            // 实际是 `task.set(null, null)`（往 HashMap 里写一个 null 键，无实际效果）。
-            // Rust 无 null 键，故用一个标志跳过末尾的写入。
+            // Java sets `field` to null in the BOOLEAN branch, so the `task.set(field, value)` at the end of the loop
+            // is actually `task.set(null, null)` (writing a null key into the HashMap, with no real effect).
+            // Rust has no null key, so a flag is used to skip the write at the end.
             let mut skip_final_set = false;
 
             match field.get_data_type() {
@@ -2111,9 +2111,9 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 提取资源的企业列数据。
+    /// Extract the resource enterprise column data.
     ///
-    /// 对应 Java: `private void processResourceEnterpriseColumns(FieldMap fieldMap, Resource resource, Var2Data resourceVarData)`
+    /// Corresponds to Java: `private void processResourceEnterpriseColumns(FieldMap fieldMap, Resource resource, Var2Data resourceVarData)`
     fn process_resource_enterprise_columns(
         &self,
         field_map: &FieldMap,
@@ -2153,7 +2153,7 @@ impl<'a> MPP9ReaderState<'a> {
             // Java: Object value = null;
             let mut value: Option<FieldValue> = None;
 
-            // 与任务侧同理：Java 在 BOOLEAN 分支里把 `field` 置为 null。
+            // Same as on the task side: Java sets `field` to null in the BOOLEAN branch.
             let mut skip_final_set = false;
 
             match field.get_data_type() {
@@ -2185,7 +2185,7 @@ impl<'a> MPP9ReaderState<'a> {
                 }
 
                 DataType::Boolean => {
-                    // Java: if (field == ResourceField.FLAG1) { field = null; …20 个 ENTERPRISE_FLAG… }
+                    // Java: if (field == ResourceField.FLAG1) { field = null; …20 ENTERPRISE_FLAG… }
                     if field.to_field_key() == FieldKey::Resource(ResourceField::Flag1) {
                         skip_final_set = true;
 
@@ -2303,11 +2303,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 项目文件里各外部任务所属的文件并不挂在任务上，而是存在「当前外部任务文件」（即最后
-    /// 使用过的那个）的概念。本方法遍历被标记为外部的任务，尽量把正确的外部项目数据关联
-    /// 到任务上。
+    /// In a project file, the file that each external task belongs to is not attached to the task; instead there is a notion of the "current external task file"
+    /// (that is, the last one used). This method walks the tasks marked as external and associates the correct external project data
+    /// with the tasks as far as possible.
     ///
-    /// 对应 Java: `private void processExternalTasks(List<Task> externalTasks)`
+    /// Corresponds to Java: `private void processExternalTasks(List<Task> externalTasks)`
     fn process_external_tasks(&self, external_tasks: &mut [Rc<RefCell<Task>>]) {
         //
         // Sort the list of tasks into ID order
@@ -2345,9 +2345,9 @@ impl<'a> MPP9ReaderState<'a> {
         }
     }
 
-    /// 处理关系（约束）数据。
+    /// Process the relation (constraint) data.
     ///
-    /// 对应 Java: `private void processConstraintData() throws IOException`
+    /// Corresponds to Java: `private void processConstraintData() throws IOException`
     fn process_constraint_data(&mut self) -> MpxjResult<()> {
         // Java: ConstraintFactory factory = new ConstraintFactory();
         //       factory.process(m_projectDir, m_file, m_inputStreamFactory);
@@ -2355,9 +2355,9 @@ impl<'a> MPP9ReaderState<'a> {
         factory.process(&self.project_dir, &self.file, &self.input_stream_factory)
     }
 
-    /// 提取并整理资源数据。
+    /// Extract and organize the resource data.
     ///
-    /// 对应 Java: `private void processResourceData() throws IOException`
+    /// Corresponds to Java: `private void processResourceData() throws IOException`
     fn process_resource_data(&mut self) -> MpxjResult<()> {
         // Java: FieldMap fieldMap = new FieldMap9(m_file); fieldMap.createResourceFieldMap(m_projectProps);
         let mut field_map = FieldMap9::new(&self.file);
@@ -2420,10 +2420,10 @@ impl<'a> MPP9ReaderState<'a> {
         // Java: HyperlinkReader hyperlinkReader = new HyperlinkReader();
         let hyperlink_reader = HyperlinkReader::new();
 
-        // Java: CostRateTableFactory crt = new CostRateTableFactory(m_file);（Java 在循环内创建，Rust 提到循环外）
+        // Java: CostRateTableFactory crt = new CostRateTableFactory(m_file); (Java creates it inside the loop; Rust hoists it outside)
         let cost_rate_factory = CostRateTableFactory::new(Rc::clone(&self.file));
 
-        // Java: AvailabilityFactory af = new AvailabilityFactory();（同上）
+        // Java: AvailabilityFactory af = new AvailabilityFactory(); (same as above)
         let availability_factory = AvailabilityFactory::new();
 
         // Java: for (Integer id : uniqueid) { … }
@@ -2542,8 +2542,8 @@ impl<'a> MPP9ReaderState<'a> {
             // Java:
             // MPPUtility.convertRateFromHours(m_file, resource, ResourceField.STANDARD_RATE, ResourceField.STANDARD_RATE_UNITS);
             // MPPUtility.convertRateFromHours(m_file, resource, ResourceField.OVERTIME_RATE, ResourceField.OVERTIME_RATE_UNITS);
-            // 说明：单位字段以整数存放 `TimeUnit`，[`MPPUtility::convert_rate_from_hours`] 内部据此
-            //       经 `RateHelper::convert_from_hours` 把「每小时金额」换算成目标单位。
+            // Note: the units field stores a `TimeUnit` as an integer, and [`MPPUtility::convert_rate_from_hours`] uses it internally
+            //       to convert the "amount per hour" into the target units via `RateHelper::convert_from_hours`.
             {
                 let mut resource_ref = resource.borrow_mut();
                 MPPUtility::convert_rate_from_hours(
@@ -2600,8 +2600,8 @@ impl<'a> MPP9ReaderState<'a> {
             //
             // Java: AvailabilityFactory af = new AvailabilityFactory();
             //       af.process(resource, rscVarData.getByteArray(id, fieldMap.getVarDataKey(ResourceField.AVAILABILITY_DATA)));
-            // 说明：`AvailabilityFactory::process` 按约定返回「应追加到可用性表的行」，此处经
-            //       `Resource::add_availability` 写回（Java 直接向 `resource.getAvailability()` 追加）。
+            // Note: `AvailabilityFactory::process` by convention returns "the rows that should be appended to the availability table"; here they are
+            //       written back via `Resource::add_availability` (Java appends directly to `resource.getAvailability()`).
             let availability_data = rsc_var_data.get_byte_array(
                 Some(id),
                 field_map.get_var_data_key(&resource_field(ResourceField::AvailabilityData)),
@@ -2630,9 +2630,9 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 提取并整理资源分派数据。
+    /// Extract and organize the resource assignment data.
     ///
-    /// 对应 Java: `private void processAssignmentData() throws IOException`
+    /// Corresponds to Java: `private void processAssignmentData() throws IOException`
     fn process_assignment_data(&mut self) -> MpxjResult<()> {
         // Java: FieldMap fieldMap = new FieldMap9(m_file); fieldMap.createAssignmentFieldMap(m_projectProps);
         let mut field_map = FieldMap9::new(&self.file);
@@ -2711,16 +2711,16 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 判断工期是否被标记为「已确认」（未确认即为估算）。
+    /// Determine whether the duration is marked as "confirmed" (not confirmed means estimated).
     ///
-    /// 对应 Java: `private boolean getDurationEstimated(int type)`
+    /// Corresponds to Java: `private boolean getDurationEstimated(int type)`
     fn get_duration_estimated(type_: i32) -> bool {
         (type_ & DURATION_CONFIRMED_MASK) != 0
     }
 
-    /// 从 MPP 文件中提取视图数据。
+    /// Extract the view data from the MPP file.
     ///
-    /// 对应 Java: `private void processViewData() throws IOException`
+    /// Corresponds to Java: `private void processViewData() throws IOException`
     fn process_view_data(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CV_iew")) { … }
         if self.view_dir.get_entry(VIEW_DIRECTORY_VIEWS).is_none() {
@@ -2801,11 +2801,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 从 MPP 文件中提取表数据。
+    /// Extract the table data from the MPP file.
     ///
-    /// 对应 Java: `private void processTableData() throws IOException`
+    /// Corresponds to Java: `private void processTableData() throws IOException`
     ///
-    /// TODO（Java 注释）: 本实现不处理由更高版本 MS Project 保存的 MPP9 文件。
+    /// TODO (Java comment): this implementation does not handle MPP9 files saved by a later version of MS Project.
     fn process_table_data(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CTable")) { … }
         if self.view_dir.get_entry(VIEW_DIRECTORY_TABLES).is_none() {
@@ -2869,11 +2869,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 读取筛选器定义。
+    /// Read the filter definitions.
     ///
-    /// 对应 Java: `private void processFilterData() throws IOException`
+    /// Corresponds to Java: `private void processFilterData() throws IOException`
     ///
-    /// TODO（Java 注释）: 由 Project 2007 / 2010 保存的 MPP9 文件上工作不正常。
+    /// TODO (Java comment): does not work correctly on MPP9 files saved by Project 2007 / 2010.
     fn process_filter_data(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CFilter")) { … }
         if self.view_dir.get_entry(VIEW_DIRECTORY_FILTERS).is_none() {
@@ -2919,11 +2919,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 读取分组定义。
+    /// Read the group definitions.
     ///
-    /// 对应 Java: `private void processGroupData() throws IOException`
+    /// Corresponds to Java: `private void processGroupData() throws IOException`
     ///
-    /// TODO（Java 注释）: 由 Project 2007 / 2010 保存的 MPP9 文件上工作不正常。
+    /// TODO (Java comment): does not work correctly on MPP9 files saved by Project 2007 / 2010.
     fn process_group_data(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CGrouping")) { … }
         if self.view_dir.get_entry(VIEW_DIRECTORY_GROUPS).is_none() {
@@ -2968,9 +2968,9 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 读取 MPP 文件中保存的视图状态。
+    /// Read the view state saved in the MPP file.
     ///
-    /// 对应 Java: `private void processSavedViewState() throws IOException`
+    /// Corresponds to Java: `private void processSavedViewState() throws IOException`
     fn process_saved_view_state(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CEdl")) { … }
         if self
@@ -3017,9 +3017,9 @@ impl<'a> MPP9ReaderState<'a> {
         ViewStateReader9::new().process(&self.file, &var_data, &fixed_data)
     }
 
-    /// 读取数据链接（DataLink）定义。
+    /// Read the data link (DataLink) definitions.
     ///
-    /// 对应 Java: `private void processDataLinks() throws IOException`
+    /// Corresponds to Java: `private void processDataLinks() throws IOException`
     fn process_data_links(&mut self) -> MpxjResult<()> {
         // Java: if (m_viewDir.hasEntry("CEdl")) { … }
         if self
@@ -3076,9 +3076,9 @@ impl<'a> MPP9ReaderState<'a> {
         factory.process()
     }
 
-    /// 在其它检查都放行之后，尽力再拦一次非法任务：按任务 ID 校验。
+    /// After all other checks pass, make a best effort to catch one more invalid task: validate by task ID.
     ///
-    /// 对应 Java: `private void postProcessTasks() throws MPXJException`
+    /// Corresponds to Java: `private void postProcessTasks() throws MPXJException`
     fn post_process_tasks(&mut self) -> MpxjResult<()> {
         //
         // Renumber ID values using a large increment to allow
@@ -3173,11 +3173,11 @@ impl<'a> MPP9ReaderState<'a> {
         Ok(())
     }
 
-    /// 取任务大纲代码的取值。
+    /// Get the task outline code value.
     ///
-    /// 对应 Java: `m_outlineCodeVarData.getUnicodeString((Integer) task.getCachedValue(TaskField.OUTLINE_CODEn_INDEX), OUTLINECODE_DATA)`
+    /// Corresponds to Java: `m_outlineCodeVarData.getUnicodeString((Integer) task.getCachedValue(TaskField.OUTLINE_CODEn_INDEX), OUTLINECODE_DATA)`
     fn task_outline_code(&self, task: &Rc<RefCell<Task>>, field: TaskField) -> Option<String> {
-        // Java 对 `null` 的 ID 会因 `TreeMap.get(null)` 抛 NPE；Rust 侧返回 None。
+        // In Java a `null` ID throws an NPE via `TreeMap.get(null)`; the Rust side returns None.
         let id = task
             .borrow()
             .get_cached_value(FieldKey::Task(field))
@@ -3186,9 +3186,9 @@ impl<'a> MPP9ReaderState<'a> {
             .get_unicode_string(id, Some(OUTLINE_CODE_DATA))
     }
 
-    /// 取资源大纲代码的取值。
+    /// Get the resource outline code value.
     ///
-    /// 对应 Java: `m_outlineCodeVarData.getUnicodeString((Integer) resource.getCachedValue(ResourceField.OUTLINE_CODEn_INDEX), OUTLINECODE_DATA)`
+    /// Corresponds to Java: `m_outlineCodeVarData.getUnicodeString((Integer) resource.getCachedValue(ResourceField.OUTLINE_CODEn_INDEX), OUTLINECODE_DATA)`
     fn resource_outline_code(
         &self,
         resource: &Rc<RefCell<Resource>>,
@@ -3204,63 +3204,63 @@ impl<'a> MPP9ReaderState<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// 私有辅助函数
+// Private helper functions
 // ---------------------------------------------------------------------------
 
-/// 把内置任务字段包装成 [`MppFieldType`]（Rust 特有：Java 直接传 `TaskField` 常量）。
+/// Wrap a built-in task field as a [`MppFieldType`] (Rust-specific: Java passes the `TaskField` constant directly).
 fn task_field(field: TaskField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Task(field))
 }
 
-/// 把内置资源字段包装成 [`MppFieldType`]（Rust 特有）。
+/// Wrap a built-in resource field as a [`MppFieldType`] (Rust-specific).
 fn resource_field(field: ResourceField) -> MppFieldType {
     MppFieldType::Builtin(FieldKey::Resource(field))
 }
 
-/// 取 `ProjectFile` 的只读借用。
+/// Take a read-only borrow of `ProjectFile`.
 ///
-/// 对应 Java: 直接使用 `m_file` 引用（Rust 侧必须 `try_borrow`，冲突时返回 `Err`）。
+/// Corresponds to Java: use the `m_file` reference directly (the Rust side must `try_borrow` and returns `Err` on a borrow conflict).
 fn try_file(file: &Rc<RefCell<ProjectFile>>) -> MpxjResult<Ref<'_, ProjectFile>> {
     file.try_borrow().map_err(|_| borrow_error("ProjectFile"))
 }
 
-/// 取 `ProjectFile` 的可变借用。
+/// Take a mutable borrow of `ProjectFile`.
 ///
-/// 对应 Java: 直接使用 `m_file` 引用（Rust 侧必须 `try_borrow_mut`，冲突时返回 `Err`）。
+/// Corresponds to Java: use the `m_file` reference directly (the Rust side must `try_borrow_mut` and returns `Err` on a borrow conflict).
 fn try_file_mut(file: &Rc<RefCell<ProjectFile>>) -> MpxjResult<RefMut<'_, ProjectFile>> {
     file.try_borrow_mut()
         .map_err(|_| borrow_error("ProjectFile"))
 }
 
-/// 构造「借用冲突」错误。
+/// Build a "borrow conflict" error.
 fn borrow_error(target: &str) -> MpxjError {
     MpxjError::new(format!("Unable to borrow {target}"))
 }
 
-/// 构造「条目不存在」错误。
+/// Build an "entry not found" error.
 ///
-/// 对应 Java: POI 的 `DirectoryEntry.getEntry` 抛 `FileNotFoundException`。
+/// Corresponds to Java: POI's `DirectoryEntry.getEntry` throws `FileNotFoundException`.
 fn missing_entry(name: &str) -> MpxjError {
     MpxjError::new(format!("Entry not found: {name}"))
 }
 
-/// 构造「数组越界」错误。
+/// Build an "array out of bounds" error.
 ///
-/// 对应 Java 的 `ArrayIndexOutOfBoundsException`（`readSubProject` 会捕获它并记录忽略错误）。
+/// Corresponds to Java's `ArrayIndexOutOfBoundsException` (`readSubProject` catches it and records an ignored error).
 fn out_of_bounds() -> MpxjError {
     MpxjError::new("Array index out of bounds")
 }
 
-/// 读取 `metaData[index]`；越界时返回 0。
+/// Read `metaData[index]`; return 0 when out of bounds.
 ///
-/// 对应 Java: `metaData[11]`（越界抛 `ArrayIndexOutOfBoundsException`）。
+/// Corresponds to Java: `metaData[11]` (throws `ArrayIndexOutOfBoundsException` when out of bounds).
 fn meta_byte(meta_data: &[u8], index: usize) -> u8 {
     meta_data.get(index).copied().unwrap_or(0)
 }
 
-/// 按 Java 的 `int` 偏移读取两字节；偏移为负或越界时返回 0。
+/// Read two bytes at a Java `int` offset; return 0 when the offset is negative or out of bounds.
 ///
-/// 对应 Java: `ByteArrayHelper.getShort(data, offset)`（越界 / 负偏移抛异常）。
+/// Corresponds to Java: `ByteArrayHelper.getShort(data, offset)` (throws when out of bounds / on a negative offset).
 fn get_short_by_offset(data: &[u8], offset: i32) -> i32 {
     match usize::try_from(offset) {
         Ok(offset) => get_short_safe(data, offset),
@@ -3268,9 +3268,9 @@ fn get_short_by_offset(data: &[u8], offset: i32) -> i32 {
     }
 }
 
-/// 按 Java 的 `int` 偏移读取四字节；偏移为负或越界时返回 0。
+/// Read four bytes at a Java `int` offset; return 0 when the offset is negative or out of bounds.
 ///
-/// 对应 Java: `ByteArrayHelper.getInt(data, offset)`（越界 / 负偏移抛异常）。
+/// Corresponds to Java: `ByteArrayHelper.getInt(data, offset)` (throws when out of bounds / on a negative offset).
 fn get_int_by_offset(data: &[u8], offset: i32) -> i32 {
     match usize::try_from(offset) {
         Ok(offset) => get_int_safe(data, offset),
@@ -3278,7 +3278,7 @@ fn get_int_by_offset(data: &[u8], offset: i32) -> i32 {
     }
 }
 
-/// 读取四字节；偏移为负或越界时返回 `Err`（用于 `readSubProject`「越界即放弃」的语义）。
+/// Read four bytes; return `Err` when the offset is negative or out of bounds (used for `readSubProject`'s "give up on out of bounds" semantics).
 fn get_int_checked(data: &[u8], offset: i32) -> MpxjResult<i32> {
     let offset = usize::try_from(offset).map_err(|_| out_of_bounds())?;
     if offset.checked_add(4).map_or(true, |end| end > data.len()) {
@@ -3288,22 +3288,22 @@ fn get_int_checked(data: &[u8], offset: i32) -> MpxjResult<i32> {
     Ok(get_int_safe(data, offset))
 }
 
-/// 把负数偏移转成 `usize`；负数返回 `Err`（对应 Java 抛异常）。
+/// Convert a negative offset to `usize`; a negative value returns `Err` (corresponding to Java throwing).
 fn checked_offset(offset: i32) -> MpxjResult<usize> {
     usize::try_from(offset).map_err(|_| out_of_bounds())
 }
 
-/// `offset + add`；结果超出 `i32` 或为负时返回 `Err`。
+/// `offset + add`; return `Err` when the result overflows `i32` or is negative.
 fn checked_offset_add(offset: i32, add: i32) -> MpxjResult<i32> {
     offset.checked_add(add).ok_or_else(out_of_bounds)
 }
 
-/// 触发「任务读取完毕」事件。
+/// Fire the "task read complete" event.
 ///
-/// 对应 Java: `m_eventManager.fireTaskReadEvent(task)`
+/// Corresponds to Java: `m_eventManager.fireTaskReadEvent(task)`
 ///
-/// Rust 特有：`ProjectFile::get_event_manager` 只返回只读 `Ref`，故经 `ProjectContext`
-/// 取可变引用（Java 持有的是稳定引用，见文件头）。
+/// Rust-specific: `ProjectFile::get_event_manager` returns only a read-only `Ref`, so it is obtained through `ProjectContext`
+/// as a mutable reference (Java holds a stable reference, see the file header).
 fn fire_task_read_event(file: &Rc<RefCell<ProjectFile>>, task: &Rc<RefCell<Task>>) -> MpxjResult<()> {
     let context = try_file(file)?.get_project_context();
     context
@@ -3314,9 +3314,9 @@ fn fire_task_read_event(file: &Rc<RefCell<ProjectFile>>, task: &Rc<RefCell<Task>
     Ok(())
 }
 
-/// 触发「资源读取完毕」事件。
+/// Fire the "resource read complete" event.
 ///
-/// 对应 Java: `m_eventManager.fireResourceReadEvent(resource)`
+/// Corresponds to Java: `m_eventManager.fireResourceReadEvent(resource)`
 fn fire_resource_read_event(
     file: &Rc<RefCell<ProjectFile>>,
     resource: &Rc<RefCell<Resource>>,
@@ -3330,9 +3330,9 @@ fn fire_resource_read_event(
     Ok(())
 }
 
-/// 资源字段名别名表。
+/// Resource field name alias table.
 ///
-/// 对应 Java: `private static final Map<Integer, FieldType> RESOURCE_FIELD_ALIASES`
+/// Corresponds to Java: `private static final Map<Integer, FieldType> RESOURCE_FIELD_ALIASES`
 fn resource_field_aliases() -> HashMap<i32, FieldKey> {
     use ResourceField as F;
 
@@ -3379,7 +3379,7 @@ fn resource_field_aliases() -> HashMap<i32, FieldKey> {
         );
     }
 
-    // FLAG10、FLAG1..FLAG9、FLAG11..FLAG20（Java 的键值顺序即如此）
+    // FLAG10, FLAG1..FLAG9, FLAG11..FLAG20 (this is the Java key order)
     map.insert(165, FieldKey::Resource(F::Flag10));
     for index in 0..9usize {
         map.insert(166 + index as i32, FieldKey::Resource(resource_flag_field(index)));
@@ -3399,9 +3399,9 @@ fn resource_field_aliases() -> HashMap<i32, FieldKey> {
     map
 }
 
-/// 任务字段名别名表。
+/// Task field name alias table.
 ///
-/// 对应 Java: `private static final Map<Integer, FieldType> TASK_FIELD_ALIASES`
+/// Corresponds to Java: `private static final Map<Integer, FieldType> TASK_FIELD_ALIASES`
 fn task_field_aliases() -> HashMap<i32, FieldKey> {
     let mut map = HashMap::new();
 
@@ -3410,7 +3410,7 @@ fn task_field_aliases() -> HashMap<i32, FieldKey> {
         map.insert(118 + index as i32, FieldKey::Task(task_text_field(index)));
     }
 
-    // START1..START10 / FINISH1..FINISH10（成对出现）
+    // START1..START10 / FINISH1..FINISH10 (appearing in pairs)
     for index in 0..10usize {
         map.insert(
             128 + (index as i32) * 2,
@@ -3427,7 +3427,7 @@ fn task_field_aliases() -> HashMap<i32, FieldKey> {
         map.insert(149 + index as i32, FieldKey::Task(task_number_field(index)));
     }
 
-    // DURATION1..DURATION10（间隔一个条目）
+    // DURATION1..DURATION10 (spaced one entry apart)
     for index in 0..10usize {
         map.insert(
             159 + (index as i32) * 2,
@@ -3477,7 +3477,7 @@ fn task_field_aliases() -> HashMap<i32, FieldKey> {
     map
 }
 
-/// 取任务的第 `index`（从 0 开始）个文本字段。
+/// Get the `index`-th (zero-based) text field of the task.
 fn task_text_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 30] = [
         TaskField::Text1,
@@ -3514,7 +3514,7 @@ fn task_text_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Text1)
 }
 
-/// 取任务的第 `index` 个开始日期字段。
+/// Get the `index`-th start date field of the task.
 fn task_start_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::Start1,
@@ -3531,7 +3531,7 @@ fn task_start_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Start1)
 }
 
-/// 取任务的第 `index` 个完成日期字段。
+/// Get the `index`-th finish date field of the task.
 fn task_finish_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::Finish1,
@@ -3548,7 +3548,7 @@ fn task_finish_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Finish1)
 }
 
-/// 取任务的第 `index` 个数字字段。
+/// Get the `index`-th number field of the task.
 fn task_number_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 20] = [
         TaskField::Number1,
@@ -3575,7 +3575,7 @@ fn task_number_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Number1)
 }
 
-/// 取任务的第 `index` 个工期字段。
+/// Get the `index`-th duration field of the task.
 fn task_duration_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::Duration1,
@@ -3592,7 +3592,7 @@ fn task_duration_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Duration1)
 }
 
-/// 取任务的第 `index` 个日期字段。
+/// Get the `index`-th date field of the task.
 fn task_date_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::Date1,
@@ -3609,7 +3609,7 @@ fn task_date_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Date1)
 }
 
-/// 取任务的第 `index` 个大纲代码字段。
+/// Get the `index`-th outline code field of the task.
 fn task_outline_code_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::OutlineCode1,
@@ -3626,7 +3626,7 @@ fn task_outline_code_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::OutlineCode1)
 }
 
-/// 取任务的第 `index` 个标志字段。
+/// Get the `index`-th flag field of the task.
 fn task_flag_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 20] = [
         TaskField::Flag1,
@@ -3653,7 +3653,7 @@ fn task_flag_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Flag1)
 }
 
-/// 取任务的第 `index` 个成本字段。
+/// Get the `index`-th cost field of the task.
 fn task_cost_field(index: usize) -> TaskField {
     const FIELDS: [TaskField; 10] = [
         TaskField::Cost1,
@@ -3670,7 +3670,7 @@ fn task_cost_field(index: usize) -> TaskField {
     FIELDS.get(index).copied().unwrap_or(TaskField::Cost1)
 }
 
-/// 取资源的第 `index` 个文本字段。
+/// Get the `index`-th text field of the resource.
 fn resource_text_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 30] = [
         ResourceField::Text1,
@@ -3707,7 +3707,7 @@ fn resource_text_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Text1)
 }
 
-/// 取资源的第 `index` 个开始日期字段。
+/// Get the `index`-th start date field of the resource.
 fn resource_start_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::Start1,
@@ -3724,7 +3724,7 @@ fn resource_start_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Start1)
 }
 
-/// 取资源的第 `index` 个完成日期字段。
+/// Get the `index`-th finish date field of the resource.
 fn resource_finish_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::Finish1,
@@ -3741,7 +3741,7 @@ fn resource_finish_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Finish1)
 }
 
-/// 取资源的第 `index` 个数字字段。
+/// Get the `index`-th number field of the resource.
 fn resource_number_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 20] = [
         ResourceField::Number1,
@@ -3768,7 +3768,7 @@ fn resource_number_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Number1)
 }
 
-/// 取资源的第 `index` 个工期字段。
+/// Get the `index`-th duration field of the resource.
 fn resource_duration_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::Duration1,
@@ -3785,7 +3785,7 @@ fn resource_duration_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Duration1)
 }
 
-/// 取资源的第 `index` 个日期字段。
+/// Get the `index`-th date field of the resource.
 fn resource_date_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::Date1,
@@ -3802,7 +3802,7 @@ fn resource_date_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Date1)
 }
 
-/// 取资源的第 `index` 个大纲代码字段。
+/// Get the `index`-th outline code field of the resource.
 fn resource_outline_code_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::OutlineCode1,
@@ -3819,7 +3819,7 @@ fn resource_outline_code_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::OutlineCode1)
 }
 
-/// 取资源的第 `index` 个标志字段。
+/// Get the `index`-th flag field of the resource.
 fn resource_flag_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 20] = [
         ResourceField::Flag1,
@@ -3846,7 +3846,7 @@ fn resource_flag_field(index: usize) -> ResourceField {
     FIELDS.get(index).copied().unwrap_or(ResourceField::Flag1)
 }
 
-/// 取资源的第 `index` 个成本字段。
+/// Get the `index`-th cost field of the resource.
 fn resource_cost_field(index: usize) -> ResourceField {
     const FIELDS: [ResourceField; 10] = [
         ResourceField::Cost1,
@@ -3873,19 +3873,19 @@ mod tests {
     use super::*;
     use crate::mpp::ole::PoifsFileSystem;
 
-    /// `FixedMeta` / `VarMeta` 块头的魔数。
+    /// Magic number of the `FixedMeta` / `VarMeta` block header.
     const MAGIC: u32 = 0xFADF_ADBA;
 
-    /// 任务记录在定长数据块中的长度（测试用）。
+    /// Length of a task record in the fixed-length data block (for tests).
     const TASK_BLOCK_SIZE: usize = 192;
 
-    /// 资源记录在定长数据块中的长度（测试用）。
+    /// Length of a resource record in the fixed-length data block (for tests).
     const RESOURCE_BLOCK_SIZE: usize = 192;
 
-    /// 任务 FixedMeta 的条目数（前 3 条被 `createTaskMap` 跳过，故任务在下标 3、4）。
+    /// Number of entries in the task FixedMeta (the first 3 are skipped by `createTaskMap`, so the tasks are at indexes 3 and 4).
     const TASK_META_ITEMS: usize = 5;
 
-    /// 拼装 `Props9` 流：16 字节块头 + 若干条目。
+    /// Assemble a `Props9` stream: a 16-byte block header + several entries.
     fn props9(entries: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(entries.len() as i16).to_le_bytes());
@@ -3895,7 +3895,7 @@ mod tests {
             data.extend_from_slice(&key.to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
             data.extend_from_slice(value);
-            // Java: 对齐到两字节边界
+            // Java: align to a two-byte boundary
             if value.len() % 2 != 0 {
                 data.push(0);
             }
@@ -3904,7 +3904,7 @@ mod tests {
         data
     }
 
-    /// 拼装 `VarMeta9` 流：24 字节块头 + 每条「唯一 ID(3) + 类型(1) + 偏移(4)」。
+    /// Assemble a `VarMeta9` stream: a 24-byte block header + one "unique ID(3) + type(1) + offset(4)" per entry.
     fn var_meta9(entries: &[(i32, i32, i32)], data_size: i32) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&MAGIC.to_le_bytes());
@@ -3923,7 +3923,7 @@ mod tests {
         data
     }
 
-    /// 拼装 `Var2Data` 流，返回 (数据, 各项偏移)。每项为「4 字节长度 + 数据」。
+    /// Assemble a `Var2Data` stream, returning (data, per-item offsets). Each item is "4-byte length + data".
     fn var2_data(items: &[Vec<u8>]) -> (Vec<u8>, Vec<i32>) {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
@@ -3937,9 +3937,9 @@ mod tests {
         (data, offsets)
     }
 
-    /// 拼装 `FixedMeta` 流，返回 (数据, 各条目的起始下标)。
+    /// Assemble a `FixedMeta` stream, returning (data, the start index of each entry).
     ///
-    /// 每条 `item_size` 字节，第 4..8 字节是该条数据在 `FixedData` 中的偏移。
+    /// Each entry is `item_size` bytes, and bytes 4..8 are the offset of that entry's data in `FixedData`.
     fn fixed_meta(item_size: usize, offsets: &[i32]) -> (Vec<u8>, Vec<usize>) {
         let mut data = Vec::new();
         data.extend_from_slice(&MAGIC.to_le_bytes());
@@ -3958,7 +3958,7 @@ mod tests {
         (data, starts)
     }
 
-    /// UTF-16LE（NUL 结尾）字符串。
+    /// NUL-terminated UTF-16LE string.
     fn utf16(text: &str) -> Vec<u8> {
         let mut data = Vec::new();
         for unit in text.encode_utf16() {
@@ -3968,80 +3968,80 @@ mod tests {
         data
     }
 
-    /// 把任务 / 资源的固定字段写进数据块。
+    /// Write the fixed fields of the task / resource into the data block.
     ///
-    /// - 偏移 0：唯一 ID（4 字节）
-    /// - 偏移 4：ID（4 字节）
-    /// - 偏移 58/60：工期单位与工期（`DurationTest9.mpp` 使用的布局）
-    /// - 偏移 88：开始时间（天数 2 → 1984-01-02）
-    /// - 偏移 160：日历唯一 ID
+    /// - offset 0: unique ID (4 bytes)
+    /// - offset 4: ID (4 bytes)
+    /// - offsets 58/60: duration units and duration (the layout used by `DurationTest9.mpp`)
+    /// - offset 88: start time (day count 2 → 1984-01-02)
+    /// - offset 160: calendar unique ID
     fn fixed_data_block(unique_id: i32, id: i32, duration: i32, calendar_id: i32) -> Vec<u8> {
         let mut data = vec![0u8; TASK_BLOCK_SIZE];
         data[0..4].copy_from_slice(&unique_id.to_le_bytes());
         data[4..8].copy_from_slice(&id.to_le_bytes());
-        // DurationUnits = 7（天）
+        // DurationUnits = 7 (days)
         data[58..60].copy_from_slice(&7i16.to_le_bytes());
         data[60..64].copy_from_slice(&duration.to_le_bytes());
-        // Start：低 2 字节为当日时刻（十分之一分钟），高 2 字节为天数
+        // Start: the low 2 bytes are the time of day (tenths of a minute), the high 2 bytes are the day count
         data[88..92].copy_from_slice(&[0x00, 0x00, 0x02, 0x00]);
         data[160..164].copy_from_slice(&calendar_id.to_le_bytes());
         data
     }
 
-    /// 数据块被「截断 / 损坏」的位置。
+    /// Location where the data block is "truncated / corrupted".
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Broken {
-        /// 全部流都正常。
+        /// All streams are fine.
         Nothing,
-        /// 日历的 `VarMeta` / `FixedMeta` 为垃圾数据。
+        /// The calendar's `VarMeta` / `FixedMeta` is garbage data.
         Calendar,
-        /// 任务的 `VarMeta` / `FixedMeta` 为垃圾数据。
+        /// The task's `VarMeta` / `FixedMeta` is garbage data.
         Task,
     }
 
-    /// 构建测试用的 MPP9 复合文档。
+    /// Build an MPP9 compound document for tests.
     ///
-    /// 结构（全部为最小可解析形态）：
+    /// Structure (all in the minimal parseable form):
     ///
     /// ```text
     /// /Props9
-    /// /   19/Props（含 SUBPROJECT_DATA）
+    /// /   19/Props (containing SUBPROJECT_DATA)
     /// /   19/TBkndOutlCode/{VarMeta,Var2Data}
-    /// /   19/TBkndCal/{VarMeta,Var2Data,FixedMeta,FixedData}（1 个日历，unique ID = 1）
-    /// /   19/TBkndTask/{VarMeta,Var2Data,FixedMeta,FixedData}（2 个任务）
-    /// /   19/TBkndRsc/{VarMeta,Var2Data,FixedMeta,FixedData}（1 个资源）
-    /// /   19/TBkndAssn/{VarMeta,Var2Data,FixedMeta,FixedData}（无分派）
-    /// /   19/TBkndCons/{FixedMeta,FixedData}（1 条关系）
+    /// /   19/TBkndCal/{VarMeta,Var2Data,FixedMeta,FixedData} (1 calendar, unique ID = 1)
+    /// /   19/TBkndTask/{VarMeta,Var2Data,FixedMeta,FixedData} (2 tasks)
+    /// /   19/TBkndRsc/{VarMeta,Var2Data,FixedMeta,FixedData} (1 resource)
+    /// /   19/TBkndAssn/{VarMeta,Var2Data,FixedMeta,FixedData} (no assignments)
+    /// /   19/TBkndCons/{FixedMeta,FixedData} (1 relation)
     /// /   29
     /// ```
     fn build_mpp9(broken: Broken) -> Vec<u8> {
-        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
+        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
 
-        // 根：Props9（空表即可 —— 密码标志为 0、无文件路径）
+        // Root: Props9 (an empty table suffices — password flag 0, no file path)
         file.create_stream("/Props9")
             .expect("Props9")
             .write_all(&props9(&[]))
-            .expect("写 Props9");
+            .expect("write Props9");
 
-        // 项目存储
+        // Project storage
         file.create_storage("/   19").expect("   19");
         file.create_stream("/   19/Props")
             .expect("Props")
             .write_all(&project_props())
-            .expect("写 Props");
+            .expect("write Props");
 
-        // 大纲代码：只要 VarMeta / Var2Data 存在即可（无 FixedMeta → 无取值列表）
+        // Outline codes: just having VarMeta / Var2Data is enough (no FixedMeta → no value list)
         file.create_storage("/   19/TBkndOutlCode").expect("TBkndOutlCode");
         file.create_stream("/   19/TBkndOutlCode/VarMeta")
             .expect("outl VarMeta")
             .write_all(&var_meta9(&[], 0))
-            .expect("写 outl VarMeta");
+            .expect("write outl VarMeta");
         file.create_stream("/   19/TBkndOutlCode/Var2Data")
             .expect("outl Var2Data")
             .write_all(&[])
-            .expect("写 outl Var2Data");
+            .expect("write outl Var2Data");
 
-        // 日历
+        // Calendar
         file.create_storage("/   19/TBkndCal").expect("TBkndCal");
         let cal_var_meta = match broken {
             Broken::Calendar => vec![0x00, 0x01, 0x02],
@@ -4050,11 +4050,11 @@ mod tests {
         file.create_stream("/   19/TBkndCal/VarMeta")
             .expect("cal VarMeta")
             .write_all(&cal_var_meta)
-            .expect("写 cal VarMeta");
+            .expect("write cal VarMeta");
         file.create_stream("/   19/TBkndCal/Var2Data")
             .expect("cal Var2Data")
             .write_all(&[])
-            .expect("写 cal Var2Data");
+            .expect("write cal Var2Data");
         let (cal_fixed_meta, _) = fixed_meta(10, &[0]);
         let cal_fixed_meta = match broken {
             Broken::Calendar => vec![0xEEu8; 20],
@@ -4063,16 +4063,16 @@ mod tests {
         file.create_stream("/   19/TBkndCal/FixedMeta")
             .expect("cal FixedMeta")
             .write_all(&cal_fixed_meta)
-            .expect("写 cal FixedMeta");
-        // 12 字节：calendarID = 1、baseCalendarID = 0、resourceID = 0
+            .expect("write cal FixedMeta");
+        // 12 bytes: calendarID = 1, baseCalendarID = 0, resourceID = 0
         let mut cal_fixed_data = vec![0u8; 12];
         cal_fixed_data[0..4].copy_from_slice(&1i32.to_le_bytes());
         file.create_stream("/   19/TBkndCal/FixedData")
             .expect("cal FixedData")
             .write_all(&cal_fixed_data)
-            .expect("写 cal FixedData");
+            .expect("write cal FixedData");
 
-        // 任务：两个任务（唯一 ID 1、2），另有 2 个用于对齐的占位条目
+        // Tasks: two tasks (unique IDs 1, 2), plus 2 placeholder entries for alignment
         file.create_storage("/   19/TBkndTask").expect("TBkndTask");
         let (task_name_data, task_name_offsets) = var2_data(&[utf16("Task 1"), utf16("Task 2")]);
         let task_var_meta = match broken {
@@ -4088,11 +4088,11 @@ mod tests {
         file.create_stream("/   19/TBkndTask/VarMeta")
             .expect("task VarMeta")
             .write_all(&task_var_meta)
-            .expect("写 task VarMeta");
+            .expect("write task VarMeta");
         file.create_stream("/   19/TBkndTask/Var2Data")
             .expect("task Var2Data")
             .write_all(&task_name_data)
-            .expect("写 task Var2Data");
+            .expect("write task Var2Data");
 
         let task_offsets: Vec<i32> = (0..TASK_META_ITEMS)
             .map(|index| match index {
@@ -4108,19 +4108,19 @@ mod tests {
         file.create_stream("/   19/TBkndTask/FixedMeta")
             .expect("task FixedMeta")
             .write_all(&task_fixed_meta)
-            .expect("写 task FixedMeta");
+            .expect("write task FixedMeta");
 
-        // 任务 A（下标 3）：唯一 ID 1、ID 1、关联日历 1
+        // Task A (index 3): unique ID 1, ID 1, linked calendar 1
         let mut task_data = fixed_data_block(1, 1, 4800, 1);
-        // 任务 B（下标 4）：唯一 ID 2、ID 2、不关联日历
+        // Task B (index 4): unique ID 2, ID 2, no linked calendar
         task_data.extend_from_slice(&fixed_data_block(2, 2, 4800, 0));
 
         if broken == Broken::Task {
-            // 只写入半个数据块：两条记录都拿不到完整数据
+            // Write only half the data block: neither record gets complete data
             task_data.truncate(TASK_BLOCK_SIZE + 4);
         }
 
-        // 只有任务记录（下标 3）需要设置标志位；这里用「任务 A 的元数据」验证关键标志
+        // Only the task record (index 3) needs its flags set; here "task A's metadata" is used to verify the key flags
         let mut task_fixed_meta_bytes = task_fixed_meta.clone();
         if broken != Broken::Task && task_meta_starts.len() == TASK_META_ITEMS {
             let start = task_meta_starts[3];
@@ -4133,7 +4133,7 @@ mod tests {
             task_fixed_meta_bytes[start + 38] = 0x01; // flag4
         }
 
-        // 覆盖写入（复合文档不支持就地改写，故重建该流）
+        // Overwrite (the compound document does not support in-place rewriting, so the stream is rebuilt)
         let mut file = rebuild_stream(
             file,
             "/   19/TBkndTask/FixedMeta",
@@ -4142,9 +4142,9 @@ mod tests {
         file.create_stream("/   19/TBkndTask/FixedData")
             .expect("task FixedData")
             .write_all(&task_data)
-            .expect("写 task FixedData");
+            .expect("write task FixedData");
 
-        // 资源：唯一 ID 1、ID 7（资源总在任务之前读取，故损坏任务数据时资源仍应存在）
+        // Resources: unique ID 1, ID 7 (resources are always read before tasks, so the resource should still exist when the task data is corrupted)
         file.create_storage("/   19/TBkndRsc").expect("TBkndRsc");
         let (resource_name_data, resource_name_offsets) = var2_data(&[utf16("Resource 1")]);
         let rsc_var_meta = var_meta9(
@@ -4154,17 +4154,17 @@ mod tests {
         file.create_stream("/   19/TBkndRsc/VarMeta")
             .expect("rsc VarMeta")
             .write_all(&rsc_var_meta)
-            .expect("写 rsc VarMeta");
+            .expect("write rsc VarMeta");
         file.create_stream("/   19/TBkndRsc/Var2Data")
             .expect("rsc Var2Data")
             .write_all(&resource_name_data)
-            .expect("写 rsc Var2Data");
+            .expect("write rsc Var2Data");
 
         let (rsc_fixed_meta, rsc_meta_starts) = fixed_meta(37, &[0]);
         file.create_stream("/   19/TBkndRsc/FixedMeta")
             .expect("rsc FixedMeta")
             .write_all(&rsc_fixed_meta)
-            .expect("写 rsc FixedMeta");
+            .expect("write rsc FixedMeta");
 
         let mut rsc_fixed_meta_bytes = rsc_fixed_meta.clone();
         if let Some(start) = rsc_meta_starts.first().copied() {
@@ -4179,90 +4179,90 @@ mod tests {
         file.create_stream("/   19/TBkndRsc/FixedData")
             .expect("rsc FixedData")
             .write_all(&rsc_data)
-            .expect("写 rsc FixedData");
+            .expect("write rsc FixedData");
 
-        // 分派：无（条目数为 0 → 工厂的循环不执行）
+        // Assignments: none (entry count 0 → the factory's loop does not execute)
         file.create_storage("/   19/TBkndAssn").expect("TBkndAssn");
         file.create_stream("/   19/TBkndAssn/VarMeta")
             .expect("assn VarMeta")
             .write_all(&var_meta9(&[], 0))
-            .expect("写 assn VarMeta");
+            .expect("write assn VarMeta");
         file.create_stream("/   19/TBkndAssn/Var2Data")
             .expect("assn Var2Data")
             .write_all(&[])
-            .expect("写 assn Var2Data");
+            .expect("write assn Var2Data");
         let (assn_fixed_meta, _) = fixed_meta(34, &[]);
         file.create_stream("/   19/TBkndAssn/FixedMeta")
             .expect("assn FixedMeta")
             .write_all(&assn_fixed_meta)
-            .expect("写 assn FixedMeta");
+            .expect("write assn FixedMeta");
         file.create_stream("/   19/TBkndAssn/FixedData")
             .expect("assn FixedData")
             .write_all(&[])
-            .expect("写 assn FixedData");
+            .expect("write assn FixedData");
 
-        // 关系：任务 A（唯一 ID 1）→ 任务 B（唯一 ID 2），FS + 1 天
+        // Relation: task A (unique ID 1) → task B (unique ID 2), FS + 1 day
         file.create_storage("/   19/TBkndCons").expect("TBkndCons");
         let (cons_fixed_meta, _) = fixed_meta(10, &[0]);
         file.create_stream("/   19/TBkndCons/FixedMeta")
             .expect("cons FixedMeta")
             .write_all(&cons_fixed_meta)
-            .expect("写 cons FixedMeta");
+            .expect("write cons FixedMeta");
 
         let mut cons_data = vec![0u8; 20];
-        cons_data[0..4].copy_from_slice(&100i32.to_le_bytes()); // 关系唯一 ID
-        cons_data[4..8].copy_from_slice(&1i32.to_le_bytes()); // 前置任务
-        cons_data[8..12].copy_from_slice(&2i32.to_le_bytes()); // 后续任务
+        cons_data[0..4].copy_from_slice(&100i32.to_le_bytes()); // relation unique ID
+        cons_data[4..8].copy_from_slice(&1i32.to_le_bytes()); // predecessor task
+        cons_data[8..12].copy_from_slice(&2i32.to_le_bytes()); // successor task
         cons_data[12..14].copy_from_slice(&1i16.to_le_bytes()); // FS
-        cons_data[14..16].copy_from_slice(&7i16.to_le_bytes()); // 天
-        cons_data[16..20].copy_from_slice(&4800i32.to_le_bytes()); // 1 天
+        cons_data[14..16].copy_from_slice(&7i16.to_le_bytes()); // days
+        cons_data[16..20].copy_from_slice(&4800i32.to_le_bytes()); // 1 day
         file.create_stream("/   19/TBkndCons/FixedData")
             .expect("cons FixedData")
             .write_all(&cons_data)
-            .expect("写 cons FixedData");
+            .expect("write cons FixedData");
 
-        // 视图存储（空 → 展示层全部跳过）
+        // View storage (empty → all presentation-layer code is skipped)
         file.create_storage("/   29").expect("   29");
 
         file.into_inner().into_inner()
     }
 
-    /// 用新的内容替换复合文档中的一个流（`cfb` 不支持原地改写）。
+    /// Replace a stream in the compound document with new content (`cfb` does not support in-place rewriting).
     fn rebuild_stream(
         file: CompoundFile<Cursor<Vec<u8>>>,
         path: &str,
         data: &[u8],
     ) -> CompoundFile<Cursor<Vec<u8>>> {
         let bytes = file.into_inner().into_inner();
-        let mut file = CompoundFile::open(Cursor::new(bytes)).expect("重新打开复合文档");
+        let mut file = CompoundFile::open(Cursor::new(bytes)).expect("reopen compound document");
         file.create_stream(path)
-            .expect("创建流")
+            .expect("create stream")
             .write_all(data)
-            .expect("写流");
+            .expect("write stream");
         file
     }
 
-    /// 项目 `Props` 流：子项目数据与 8 小时工作日的换算属性。
+    /// Project `Props` stream: subproject data and the conversion properties for an 8-hour working day.
     fn project_props() -> Vec<u8> {
         let mut data = vec![0u8; 160];
 
-        // 4 字节块大小 + 4 字节未知 + 4 字节 itemCountOffset
+        // 4-byte block size + 4 bytes unknown + 4-byte itemCountOffset
         data[8..12].copy_from_slice(&24i32.to_le_bytes());
 
-        // 条目头：itemHeaderOffset / uniqueIDOffset / filePathOffset / fileNameOffset
+        // Entry header: itemHeaderOffset / uniqueIDOffset / filePathOffset / fileNameOffset
         data[12..14].copy_from_slice(&32i16.to_le_bytes());
         data[16..18].copy_from_slice(&120i16.to_le_bytes());
         data[20..22].copy_from_slice(&60i16.to_le_bytes());
         data[24..26].copy_from_slice(&60i16.to_le_bytes());
 
-        // 20 字节条目头（32..52）的第 17 字节是子项目类型（0x01）
+        // Byte 17 of the 20-byte entry header (32..52) is the subproject type (0x01)
         data[48] = 0x01;
 
-        // 文件路径块：18 字节头 + 4 字节 + DOS 路径 + 24 字节 + 4 字节大小（0 → 用 DOS 路径）
+        // File path block: 18-byte header + 4 bytes + DOS path + 24 bytes + 4-byte size (0 → use the DOS path)
         let dos_path = b"C:\\sub.mpp\0";
         data[82..82 + dos_path.len()].copy_from_slice(dos_path);
 
-        // 唯一 ID 列表：0（TASKUNIQUEID0）、42（外部任务）、0x0303（结束）
+        // Unique ID list: 0 (TASKUNIQUEID0), 42 (external task), 0x0303 (end)
         data[120..124].copy_from_slice(&0i32.to_le_bytes());
         data[124..128].copy_from_slice(&42i32.to_le_bytes());
         data[128..132].copy_from_slice(&SUBPROJECT_LISTEND.to_le_bytes());
@@ -4275,14 +4275,14 @@ mod tests {
         ])
     }
 
-    /// 打开测试文件的根存储。
+    /// Open the root storage of the test file.
     fn open(bytes: Vec<u8>) -> (PoifsFileSystem, DirectoryEntry) {
-        let fs = PoifsFileSystem::new(Cursor::new(bytes)).expect("打开复合文档");
+        let fs = PoifsFileSystem::new(Cursor::new(bytes)).expect("open compound document");
         let root = fs.get_root();
         (fs, root)
     }
 
-    /// 驱动一次完整的解析。
+    /// Drive one complete parse.
     fn process(bytes: Vec<u8>, reader: &MPPReader) -> (MpxjResult<()>, Rc<RefCell<ProjectFile>>) {
         let (_fs, root) = open(bytes);
         let file = ProjectFile::new();
@@ -4290,46 +4290,46 @@ mod tests {
         (result, file)
     }
 
-    /// 断言两个 `NaiveDateTime` 相等（便于书写期望值）。
+    /// Assert that two `NaiveDateTime` values are equal (for easier writing of expected values).
     fn date_time(year: i32, month: u32, day: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(year, month, day)
-            .expect("合法日期")
+            .expect("valid date")
             .and_hms_opt(0, 0, 0)
-            .expect("合法时间")
+            .expect("valid time")
     }
 
-    /// 完整解析：任务、资源、日历、关系的关键字段。
+    /// Full parse: the key fields of tasks, resources, calendars and relations.
     #[test]
     fn parses_tasks_resources_calendar_and_relations() {
         let reader = MPPReader::new();
         let (result, file) = process(build_mpp9(Broken::Nothing), &reader);
-        assert!(result.is_ok(), "读取失败: {:?}", result.err());
+        assert!(result.is_ok(), "read failed: {:?}", result.err());
 
         let file_ref = file.borrow();
 
-        // ---- 任务 ----
+        // ---- Tasks ----
         let mut tasks: Vec<Rc<RefCell<Task>>> = file_ref
             .get_tasks()
             .iter()
             .map(Rc::clone)
             .collect();
         tasks.sort_by_key(|task| task.borrow().get_unique_id().unwrap_or(0));
-        assert_eq!(tasks.len(), 2, "应读出 2 个任务");
+        assert_eq!(tasks.len(), 2, "should read 2 tasks");
 
-        let task_a = file_ref.get_task_by_unique_id(Some(1)).expect("任务 1");
+        let task_a = file_ref.get_task_by_unique_id(Some(1)).expect("task 1");
         {
             let task = task_a.borrow();
             assert_eq!(task.get_name().as_deref(), Some("Task 1"));
             assert_eq!(task.get_id(), Some(1));
             assert_eq!(task.get_unique_id(), Some(1));
             assert!(!task.get_null());
-            // 工期：4800 个十分之一分钟、单位为天 → 1 天
-            let duration = task.get_duration().expect("工期");
+            // Duration: 4800 tenths of a minute, units in days → 1 day
+            let duration = task.get_duration().expect("duration");
             assert_eq!(duration.get_duration(), 1.0);
             assert_eq!(duration.get_units(), TimeUnit::Days);
-            // 开始时间：1983-12-31 + 2 天
+            // Start time: 1983-12-31 + 2 days
             assert_eq!(task.get_start(), Some(date_time(1984, 1, 2)));
-            // 元数据标志
+            // Metadata flags
             assert!(task.get_milestone());
             assert!(task.get_marked());
             assert!(task.get_hide_bar());
@@ -4341,27 +4341,27 @@ mod tests {
             assert!(task.get_flag(1));
             assert!(task.get_flag(4));
             assert!(!task.get_flag(2));
-            // `(metaData[12] & 0x02) == 0` → 展开
+            // `(metaData[12] & 0x02) == 0` → expanded
             assert!(task.get_expanded());
-            // 日历关联（定长数据块偏移 160 = 1）
+            // Calendar link (fixed-length data block offset 160 = 1)
             assert_eq!(task.get_calendar_unique_id(), Some(1));
-            assert!(task.get_calendar().is_some(), "任务应关联到日历");
+            assert!(task.get_calendar().is_some(), "task should be associated with a calendar");
         }
 
-        let task_b = file_ref.get_task_by_unique_id(Some(2)).expect("任务 2");
+        let task_b = file_ref.get_task_by_unique_id(Some(2)).expect("task 2");
         {
             let task = task_b.borrow();
             assert_eq!(task.get_name().as_deref(), Some("Task 2"));
             assert_eq!(task.get_id(), Some(2));
-            // 未设置标志位
+            // Flags not set
             assert!(!task.get_milestone());
             assert!(!task.get_flag(1));
             assert!(task.get_calendar().is_none());
         }
 
-        // ---- 关系：任务 B 的前置是任务 A ----
+        // ---- Relations: task B's predecessor is task A ----
         let predecessors = task_b.borrow().get_predecessors();
-        assert_eq!(predecessors.len(), 1, "任务 2 应有 1 个前置任务");
+        assert_eq!(predecessors.len(), 1, "task 2 should have 1 predecessor task");
         {
             let relation = predecessors[0].borrow();
             assert_eq!(
@@ -4370,105 +4370,105 @@ mod tests {
             );
         }
 
-        // ---- 资源 ----
-        let resource = file_ref.get_resource_by_unique_id(Some(1)).expect("资源 1");
+        // ---- Resources ----
+        let resource = file_ref.get_resource_by_unique_id(Some(1)).expect("resource 1");
         {
             let resource = resource.borrow();
             assert_eq!(resource.get_name().as_deref(), Some("Resource 1"));
             assert_eq!(resource.get_id(), Some(7));
             assert_eq!(resource.get_unique_id(), Some(1));
             assert_eq!(resource.get_type(), ResourceType::Work);
-            // 元数据标志（偏移 28 的 0x40 / 0x20）
+            // Metadata flags (0x40 / 0x20 at offset 28)
             assert!(resource.get_flag_at(1));
             assert!(resource.get_flag_at(10));
             assert!(!resource.get_flag_at(2));
         }
 
-        // ---- 日历 ----
-        let calendar = file_ref.get_calendar_by_unique_id(Some(1)).expect("日历 1");
+        // ---- Calendars ----
+        let calendar = file_ref.get_calendar_by_unique_id(Some(1)).expect("calendar 1");
         assert_eq!(calendar.borrow().get_unique_id(), Some(1));
 
-        // ---- 忽略错误：只应有「缺少摘要信息流」这一类（测试文件里没有这两个流） ----
+        // ---- Ignored errors: only the "missing summary information stream" kind should occur (the test file has neither of these streams) ----
         let unexpected: Vec<String> = file_ref
             .get_ignored_errors()
             .iter()
             .map(|error| error.message().to_owned())
             .filter(|message| !message.contains("SummaryInformation"))
             .collect();
-        assert!(unexpected.is_empty(), "意外的忽略错误: {unexpected:?}");
+        assert!(unexpected.is_empty(), "unexpected ignored error: {unexpected:?}");
     }
 
-    /// `getReadPropertiesOnly` 为真时只读项目属性。
+    /// When `getReadPropertiesOnly` is true, only the project properties are read.
     #[test]
     fn read_properties_only_skips_task_data() {
         let mut reader = MPPReader::new();
         reader.set_read_properties_only(true);
 
         let (result, file) = process(build_mpp9(Broken::Nothing), &reader);
-        assert!(result.is_ok(), "读取失败: {:?}", result.err());
+        assert!(result.is_ok(), "read failed: {:?}", result.err());
 
         let file_ref = file.borrow();
         assert_eq!(file_ref.get_tasks().len(), 0);
         assert_eq!(file_ref.get_project_properties().get_mpp_file_type(), Some(9));
     }
 
-    /// 缺少必需的存储时返回 `Err`，不 panic。
+    /// Returns `Err` when a required storage is missing; does not panic.
     #[test]
     fn missing_project_directory_reports_error() {
-        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
+        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
         file.create_stream("/Props9")
             .expect("Props9")
             .write_all(&props9(&[]))
-            .expect("写 Props9");
+            .expect("write Props9");
         let bytes = file.into_inner().into_inner();
 
         let reader = MPPReader::new();
         let (result, _file) = process(bytes, &reader);
-        assert!(result.is_err(), "缺少 `   19` 存储时应报错");
+        assert!(result.is_err(), "missing `   19` storage should error");
     }
 
-    /// 缺少 `Props9` 时返回 `Err`，不 panic。
+    /// Returns `Err` when `Props9` is missing; does not panic.
     #[test]
     fn missing_props9_reports_error() {
-        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("创建复合文档");
+        let mut file = CompoundFile::create(Cursor::new(Vec::new())).expect("create compound document");
         file.create_storage("/   19").expect("   19");
         file.create_stream("/   19/Props")
             .expect("Props")
             .write_all(&props9(&[]))
-            .expect("写 Props");
+            .expect("write Props");
         file.create_storage("/   29").expect("   29");
         let bytes = file.into_inner().into_inner();
 
         let reader = MPPReader::new();
         let (result, _file) = process(bytes, &reader);
-        assert!(result.is_err(), "缺少 Props9 时应报错");
+        assert!(result.is_err(), "missing Props9 should error");
     }
 
-    /// 日历数据损坏时返回 `Err`，不 panic。
+    /// Returns `Err` when the calendar data is corrupted; does not panic.
     #[test]
     fn broken_calendar_data_does_not_panic() {
         let reader = MPPReader::new();
         let (result, file) = process(build_mpp9(Broken::Calendar), &reader);
 
-        assert!(result.is_err(), "坏 magic 的 VarMeta 应导致读取失败");
+        assert!(result.is_err(), "VarMeta with bad magic should cause read failure");
         assert_eq!(file.borrow().get_tasks().len(), 0);
     }
 
-    /// 任务数据损坏时返回 `Err`，不 panic。
+    /// Returns `Err` when the task data is corrupted; does not panic.
     #[test]
     fn broken_task_data_does_not_panic() {
         let reader = MPPReader::new();
         let (result, file) = process(build_mpp9(Broken::Task), &reader);
 
-        assert!(result.is_err(), "坏 magic 的任务 VarMeta 应导致读取失败");
-        assert_eq!(file.borrow().get_resources().len(), 1, "任务之前已读出的资源应保留");
+        assert!(result.is_err(), "task VarMeta with bad magic should cause read failure");
+        assert_eq!(file.borrow().get_resources().len(), 1, "resources read before the task should be preserved");
     }
 
-    /// 空复合文档（连 `\1CompObj` 都没有）不会 panic。
+    /// An empty compound document (not even `\1CompObj`) does not panic.
     #[test]
     fn empty_compound_file_does_not_panic() {
         let bytes = CompoundFile::create(Cursor::new(Vec::new()))
-            .expect("创建复合文档")
+            .expect("create compound document")
             .into_inner()
             .into_inner();
 
@@ -4477,7 +4477,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// `processUniqueIdValues`：子项目任务唯一 ID 的收集规则。
+    /// `processUniqueIdValues`: the rules for collecting subproject task unique IDs.
     #[test]
     fn process_unique_id_values_collects_external_tasks() {
         let bytes = build_mpp9(Broken::Nothing);
@@ -4485,9 +4485,9 @@ mod tests {
         let reader = MPPReader::new();
         let file = ProjectFile::new();
         let mut state =
-            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("建立读取状态");
+            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("establish read state");
 
-        // 列表：[TASKUNIQUEID0, 42, LISTEND]
+        // List: [TASKUNIQUEID0, 42, LISTEND]
         let mut data = vec![0u8; 16];
         data[0..4].copy_from_slice(&SUBPROJECT_TASKUNIQUEID0.to_le_bytes());
         data[4..8].copy_from_slice(&42i32.to_le_bytes());
@@ -4495,21 +4495,21 @@ mod tests {
 
         state
             .process_unique_id_values("sub.mpp", &data, 0)
-            .expect("解析唯一 ID 列表");
+            .expect("parse unique ID list");
 
-        // 0 号唯一 ID 由 TASKUNIQUEID0 记录；42 号是「外部任务」
+        // Unique ID 0 is recorded by TASKUNIQUEID0; number 42 is the "external task"
         assert_eq!(state.task_sub_projects.get(&0).map(String::as_str), Some("sub.mpp"));
         assert_eq!(state.task_sub_projects.get(&42).map(String::as_str), Some("sub.mpp"));
         assert!(state.external_tasks.contains(&42));
         assert!(!state.external_tasks.contains(&0));
 
-        // 越界的偏移：返回 Err（Java 抛异常后被 readSubProject 捕获）
+        // Out-of-bounds offset: returns Err (Java throws and readSubProject catches it)
         assert!(state.process_unique_id_values("sub.mpp", &data, 14).is_err());
-        // uniqueIDOffset == -1：直接返回
+        // uniqueIDOffset == -1: return immediately
         assert!(state.process_unique_id_values("sub.mpp", &data, -1).is_ok());
     }
 
-    /// `readSubProject`：读取 DOS 路径并记录映射；越界数据不会 panic。
+    /// `readSubProject`: reads the DOS path and records the mapping; out-of-bounds data does not panic.
     #[test]
     fn read_sub_project_reads_the_dos_path() {
         let bytes = build_mpp9(Broken::Nothing);
@@ -4517,14 +4517,14 @@ mod tests {
         let reader = MPPReader::new();
         let file = ProjectFile::new();
         let mut state =
-            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("建立读取状态");
+            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("establish read state");
 
         let mut data = vec![0u8; 200];
         let dos_path = b"C:\\sub.mpp\0";
         data[22..22 + dos_path.len()].copy_from_slice(dos_path);
-        // 文件名块的 4 字节大小为 0 → 使用 DOS 路径
+        // The 4-byte size of the file name block is 0 → use the DOS path
         data[55..59].copy_from_slice(&0i32.to_le_bytes());
-        // 唯一 ID 列表
+        // Unique ID list
         data[120..124].copy_from_slice(&SUBPROJECT_TASKUNIQUEID0.to_le_bytes());
         data[124..128].copy_from_slice(&7i32.to_le_bytes());
         data[128..132].copy_from_slice(&SUBPROJECT_LISTEND.to_le_bytes());
@@ -4537,12 +4537,12 @@ mod tests {
         );
         assert!(file.borrow().get_ignored_errors().is_empty());
 
-        // 数据过短：记录忽略错误但不 panic
+        // Data too short: records an ignored error but does not panic
         state.read_sub_project(&[0u8; 4], 0, 120, 0, 0, 1);
         assert_eq!(file.borrow().get_ignored_errors().len(), 1);
     }
 
-    /// 子项目数据（`SUBPROJECT_DATA`）会被 `processSubProjectData` 解析。
+    /// The subproject data (`SUBPROJECT_DATA`) is parsed by `processSubProjectData`.
     #[test]
     fn process_sub_project_data_reads_the_props_block() {
         let bytes = build_mpp9(Broken::Nothing);
@@ -4550,7 +4550,7 @@ mod tests {
         let reader = MPPReader::new();
         let file = ProjectFile::new();
         let mut state =
-            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("建立读取状态");
+            MPP9ReaderState::populate_member_data(&reader, &file, &root).expect("establish read state");
 
         state.process_sub_project_data();
 
@@ -4562,7 +4562,7 @@ mod tests {
         assert!(file.borrow().get_ignored_errors().is_empty());
     }
 
-    /// `getDurationEstimated`：工期单位字段中的「已确认」标志。
+    /// `getDurationEstimated`: the "confirmed" flag in the duration units field.
     #[test]
     fn duration_estimated_uses_the_confirmed_mask() {
         assert!(MPP9ReaderState::get_duration_estimated(0x20));
@@ -4571,7 +4571,7 @@ mod tests {
         assert!(!MPP9ReaderState::get_duration_estimated(0));
     }
 
-    /// 字段名别名表的规模与关键映射（逐项照搬 Java 的两张静态表）。
+    /// Size and key mappings of the field name alias tables (copied item by item from Java's two static tables).
     #[test]
     fn field_name_alias_tables_match_java() {
         let resource_aliases = resource_field_aliases();
@@ -4579,10 +4579,10 @@ mod tests {
         // 52..81 → TEXT1..TEXT30
         assert_eq!(resource_aliases.get(&52), Some(&FieldKey::Resource(ResourceField::Text1)));
         assert_eq!(resource_aliases.get(&81), Some(&FieldKey::Resource(ResourceField::Text30)));
-        // 82..91 → START1..START10；92..101 → FINISH1..FINISH10
+        // 82..91 → START1..START10;92..101 → FINISH1..FINISH10
         assert_eq!(resource_aliases.get(&82), Some(&FieldKey::Resource(ResourceField::Start1)));
         assert_eq!(resource_aliases.get(&101), Some(&FieldKey::Resource(ResourceField::Finish10)));
-        // 165 → FLAG10，166..174 → FLAG1..FLAG9，175..184 → FLAG11..FLAG20
+        // 165 → FLAG10,166..174 → FLAG1..FLAG9,175..184 → FLAG11..FLAG20
         assert_eq!(resource_aliases.get(&165), Some(&FieldKey::Resource(ResourceField::Flag10)));
         assert_eq!(resource_aliases.get(&166), Some(&FieldKey::Resource(ResourceField::Flag1)));
         assert_eq!(resource_aliases.get(&174), Some(&FieldKey::Resource(ResourceField::Flag9)));
@@ -4595,20 +4595,20 @@ mod tests {
         assert_eq!(task_aliases.len(), 130);
         assert_eq!(task_aliases.get(&118), Some(&FieldKey::Task(TaskField::Text1)));
         assert_eq!(task_aliases.get(&127), Some(&FieldKey::Task(TaskField::Text10)));
-        // START/FINISH 成对：128/129 → START1/FINISH1，146/147 → START10/FINISH10
+        // START/FINISH in pairs: 128/129 → START1/FINISH1, 146/147 → START10/FINISH10
         assert_eq!(task_aliases.get(&128), Some(&FieldKey::Task(TaskField::Start1)));
         assert_eq!(task_aliases.get(&129), Some(&FieldKey::Task(TaskField::Finish1)));
         assert_eq!(task_aliases.get(&146), Some(&FieldKey::Task(TaskField::Start10)));
         assert_eq!(task_aliases.get(&147), Some(&FieldKey::Task(TaskField::Finish10)));
-        // DURATION 的键值间隔一个条目：159/161/…/177
+        // DURATION keys are spaced one entry apart: 159/161/…/177
         assert_eq!(task_aliases.get(&159), Some(&FieldKey::Task(TaskField::Duration1)));
         assert_eq!(task_aliases.get(&161), Some(&FieldKey::Task(TaskField::Duration2)));
         assert_eq!(task_aliases.get(&177), Some(&FieldKey::Task(TaskField::Duration10)));
-        // 194..213 → TEXT11..TEXT30；214..223 → NUMBER11..NUMBER20
+        // 194..213 → TEXT11..TEXT30;214..223 → NUMBER11..NUMBER20
         assert_eq!(task_aliases.get(&194), Some(&FieldKey::Task(TaskField::Text11)));
         assert_eq!(task_aliases.get(&213), Some(&FieldKey::Task(TaskField::Text30)));
         assert_eq!(task_aliases.get(&223), Some(&FieldKey::Task(TaskField::Number20)));
-        // 227..236 → OUTLINE_CODE1..10；237..256 → FLAG1..FLAG20；278..287 → COST1..COST10
+        // 227..236 → OUTLINE_CODE1..10;237..256 → FLAG1..FLAG20;278..287 → COST1..COST10
         assert_eq!(task_aliases.get(&236), Some(&FieldKey::Task(TaskField::OutlineCode10)));
         assert_eq!(task_aliases.get(&237), Some(&FieldKey::Task(TaskField::Flag1)));
         assert_eq!(task_aliases.get(&256), Some(&FieldKey::Task(TaskField::Flag20)));

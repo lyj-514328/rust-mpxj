@@ -1,23 +1,25 @@
-//! 对应 Java: `org/mpxj/mpx/LocaleData_ru.java`
+//! Corresponds to Java: `org/mpxj/mpx/LocaleData_ru.java`
 //!
-//! # 移植取舍（`ResourceBundle` / `ListResourceBundle`）
+//! # Porting trade-offs (`ResourceBundle` / `ListResourceBundle`)
 //!
-//! Java 的 `LocaleData_ru` 是俄语资源包，只覆盖部分键；未覆盖的键由 `ResourceBundle`
-//! 从基类回落取值。Rust 侧把该语言实际覆盖的键写成模块级 `pub const`
-//! （标量常量按 Java `RESOURCE_DATA` 的键名命名，数组常量沿用 Java 的字段名），
-//! 并用 [`OVERRIDES`]（对应 `getContents()` 的返回值）汇总；未覆盖的键为 `None`，
-//! 由 `locale_data` 模块回落到英文默认资源。取值逻辑见 `locale_data` 模块头部说明；
-//! `ListResourceBundle` 的协议方法由常量表替代，不移植。
+//! Java's `LocaleData_ru` is the Russian resource bundle and overrides only some keys; keys it does not
+//! override are resolved by `ResourceBundle` by falling back from the base bundle. The Rust side writes the
+//! keys this language actually overrides as module-level `pub const`s (scalar constants are named after the
+//! keys in Java's `RESOURCE_DATA`, and array constants keep Java's field names), and aggregates them in
+//! [`OVERRIDES`] (corresponding to the return value of `getContents()`); keys that are not overridden are
+//! `None` and fall back to the English default resources via the `locale_data` module. See the module header
+//! of `locale_data` for the value-lookup logic; the protocol methods of `ListResourceBundle` are replaced by
+//! constant tables and are not ported.
 //!
-//! 本语言未覆盖的键：`PROGRAM_NAME`、`FILE_VERSION`、`DEFAULT_START_TIME`。
+//! Keys not overridden by this language: `PROGRAM_NAME`, `FILE_VERSION`, `DEFAULT_START_TIME`.
 //!
-//! 需注意的上游数据（均按 Java 源码原样照抄）：
-//! - `RESOURCE_NAMES_DATA` 只有 51 项：缺少 `Overtime Work` 一项，因此下标 24 之后
-//!   的名表整体比英文表前移一位；
-//! - 若干条目存在明显的拼写/复制问题（如 `Запалнированная`、`Запалнироанное`、
-//!   `Finish1` 与 `Finish` 同名、`"Скрытое поле "` 末尾带空格）。
+//! Upstream data to be aware of (all copied verbatim from the Java source):
+//! - `RESOURCE_NAMES_DATA` has only 51 entries: it is missing `Overtime Work`, so after index 24 the
+//!   name table is shifted one position earlier than the English table;
+//! - Several entries have obvious spelling/copy issues (such as `Запалнированная`, `Запалнироанное`,
+//!   `Finish1` sharing the name `Finish`, and `"Скрытое поле "` with a trailing space).
 //!
-//! 未移植的成员：无。
+//! Skipped Java methods/members: none.
 
 use crate::code_page::CodePage;
 use crate::currency_symbol_position::CurrencySymbolPosition;
@@ -26,19 +28,19 @@ use crate::mpx::locale_data::LocaleOverrides;
 use crate::project_date_format::ProjectDateFormat;
 use crate::project_time_format::ProjectTimeFormat;
 
-/// 俄语时间单位别名表。
+/// Russian time unit alias table.
 ///
-/// 对应 Java: `LocaleData_ru.TIME_UNITS_ARRAY_DATA`（Java 字面量顺序：分钟、小时、天、
-/// 周、月、年、百分比、随后是各「已用」单位；下标 5 是年、下标 6 是百分比，
-/// 与 `TimeUnit` 的取值顺序不同，此处照抄 Java）。
+/// Corresponds to Java: `LocaleData_ru.TIME_UNITS_ARRAY_DATA` (Java literal order: minutes, hours, days,
+/// weeks, months, years, percent, followed by the "elapsed" units; index 5 is years and index 6 is percent,
+/// which differs from the `TimeUnit` value order; copied verbatim from Java here).
 pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["минута"],           // 0 TimeUnit.MINUTES
     &["час"],              // 1 TimeUnit.HOURS
     &["день"],             // 2 TimeUnit.DAYS
     &["неделя"],           // 3 TimeUnit.WEEKS
     &["месяц"],            // 4 TimeUnit.MONTHS
-    &["год"],              // 5 TimeUnit.PERCENT（Java 字面量位置）
-    &["%"],                // 6 TimeUnit.YEARS（Java 字面量位置）
+    &["год"],              // 5 TimeUnit.PERCENT (Java literal position)
+    &["%"],                // 6 TimeUnit.YEARS (Java literal position)
     &["каждую минуту"],    // 7 TimeUnit.ELAPSED_MINUTES
     &["каждый час"],       // 8 TimeUnit.ELAPSED_HOURS
     &["каждый день"],      // 9 TimeUnit.ELAPSED_DAYS
@@ -48,21 +50,21 @@ pub const TIME_UNITS_ARRAY_DATA: [&'static [&'static str]; 14] = [
     &["каждый %"],         // 13 TimeUnit.ELAPSED_PERCENT
 ];
 
-/// 俄语资源键 `ACCRUE_TYPES` 的名表。
+/// Name table for the Russian resource key `ACCRUE_TYPES`.
 ///
-/// 对应 Java: `LocaleData_ru.ACCRUE_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_ru.ACCRUE_TYPES_DATA`.
 pub const ACCRUE_TYPES_DATA: [Option<&'static str>; 3] =
     [Some("Начало"), Some("Конец"), Some("Повседневный")];
 
-/// 俄语资源键 `RELATION_TYPES` 的名表。
+/// Name table for the Russian resource key `RELATION_TYPES`.
 ///
-/// 对应 Java: `LocaleData_ru.RELATION_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_ru.RELATION_TYPES_DATA`.
 pub const RELATION_TYPES_DATA: [Option<&'static str>; 4] =
     [Some("КК"), Some("КН"), Some("НК"), Some("НН")];
 
-/// 俄语资源键 `PRIORITY_TYPES` 的名表。
+/// Name table for the Russian resource key `PRIORITY_TYPES`.
 ///
-/// 对应 Java: `LocaleData_ru.PRIORITY_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_ru.PRIORITY_TYPES_DATA`.
 pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Самый низкий"),
     Some("Очень низкий"),
@@ -76,9 +78,9 @@ pub const PRIORITY_TYPES_DATA: [Option<&'static str>; 10] = [
     Some("Без приоритета"),
 ];
 
-/// 俄语资源键 `CONSTRAINT_TYPES` 的名表。
+/// Name table for the Russian resource key `CONSTRAINT_TYPES`.
 ///
-/// 对应 Java: `LocaleData_ru.CONSTRAINT_TYPES_DATA`。
+/// Corresponds to Java: `LocaleData_ru.CONSTRAINT_TYPES_DATA`.
 pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("Как можно раньше"),
     Some("Как можно позже"),
@@ -90,9 +92,9 @@ pub const CONSTRAINT_TYPES_DATA: [Option<&'static str>; 8] = [
     Some("Закончиться не позже"),
 ];
 
-/// 俄语资源键 `TASK_NAMES` 的名表（下标与 MPX 任务字段号对应；行末注释为英文默认名）。
+/// Name table for the Russian resource key `TASK_NAMES` (indices correspond to MPX task field numbers; end-of-line comments are the English default names).
 ///
-/// 对应 Java: `LocaleData_ru.TASK_NAMES_DATA`。
+/// Corresponds to Java: `LocaleData_ru.TASK_NAMES_DATA`.
 pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                                        // -
     Some("Название"),                            // Name
@@ -125,21 +127,21 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     None,                                        // -
     None,                                        // -
     Some("Стоимость"),                           // Cost
-    Some("Запалнированная стоимость"),           // Baseline Cost（Java 源码中的拼写）
+    Some("Запалнированная стоимость"),           // Baseline Cost (spelling in the Java source)
     Some("Реальная стоимость"),                  // Actual Cost
     Some("Ожидаемая стоимость"),                 // Remaining Cost
-    Some("Разбежнность стоимости"),              // Cost Variance（Java 源码拼写为双 н）
+    Some("Разбежнность стоимости"),              // Cost Variance (spelled with a double н in the Java source)
     Some("Фиксированная стоимость"),             // Fixed Cost
     Some("Стоимость1"),                          // Cost1
     Some("Стоимость2"),                          // Cost2
     Some("Стоимость3"),                          // Cost3
     None,                                        // -
     Some("Длительность"),                        // Duration
-    Some("Запалнированная длительность"),        // Baseline Duration（Java 源码中的拼写）
+    Some("Запалнированная длительность"),        // Baseline Duration (spelling in the Java source)
     Some("Реальная длительность"),               // Actual Duration
     Some("Ожидаемая длительность"),              // Remaining Duration
     Some("% завершено"),                         // % Complete
-    Some("Разбежнность длительности"),           // Duration Variance（Java 源码拼写为双 н）
+    Some("Разбежнность длительности"),           // Duration Variance (spelled with a double н in the Java source)
     Some("Длительность1"),                       // Duration1
     Some("Длительность2"),                       // Duration2
     Some("Длительность3"),                       // Duration3
@@ -150,17 +152,17 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Предыдущее окончание"),                // Early Finish
     Some("Следующее начало"),                    // Late Start
     Some("Следующее окончание"),                 // Late Finish
-    Some("Запалнироанное начало"),               // Baseline Start（Java 源码中的拼写）
+    Some("Запалнироанное начало"),               // Baseline Start (spelling in the Java source)
     Some("Запланированное окончание"),           // Baseline Finish
     Some("Реальное начало"),                     // Actual Start
     Some("Реальное окончание"),                  // Actual Finish
     Some("Начало1"),                             // Start1
-    Some("Окончание"),                           // Finish1（Java 源码与 Finish 同名）
+    Some("Окончание"),                           // Finish1 (same name as Finish in the Java source)
     Some("Начало2"),                             // Start2
     Some("Окончание2"),                          // Finish2
     Some("Начало3"),                             // Start3
     Some("Окончание3"),                          // Finish3
-    Some("Смешение начала"),                     // Start Variance（Java 源码为 ш）
+    Some("Смешение начала"),                     // Start Variance (ш in the Java source)
     Some("Смещение окончания"),                  // Finish Variance
     Some("Принудительная дата"),                 // Constraint Date
     None,                                        // -
@@ -217,7 +219,7 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Всего"),                               // Summary
     Some("Объекты"),                             // Objects
     Some("Отмечено полей"),                      // Linked Fields
-    Some("Скрытое поле "),                       // Hide Bar（Java 源码末尾含空格）
+    Some("Скрытое поле "),                       // Hide Bar (trailing space in the Java source)
     None,                                        // -
     Some("Создано"),                             // Created
     Some("Начало4"),                             // Start4
@@ -249,10 +251,10 @@ pub const TASK_NAMES_DATA: [Option<&'static str>; 153] = [
     Some("Начать"),                              // Resume
 ];
 
-/// 俄语资源键 `RESOURCE_NAMES` 的名表（下标与 MPX 资源字段号对应；行末注释为英文默认名）。
+/// Name table for the Russian resource key `RESOURCE_NAMES` (indices correspond to MPX resource field numbers; end-of-line comments are the English default names).
 ///
-/// 对应 Java: `LocaleData_ru.RESOURCE_NAMES_DATA`。Java 源码中该表只有 51 项
-/// （缺少 `Overtime Work`），所以下标 24 起比英文表前移一位。
+/// Corresponds to Java: `LocaleData_ru.RESOURCE_NAMES_DATA`. In the Java source this table has only 51 entries
+/// (it is missing `Overtime Work`), so from index 24 it is shifted one position earlier than the English table.
 pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 51] = [
     None,                              // -
     Some("Имя"),                       // Name
@@ -278,16 +280,16 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 51] = [
     Some("Запланировано работ"),       // Baseline Work
     Some("Выполнено работ"),           // Actual Work
     Some("Осталось работ"),            // Remaining Work
-    Some("Разбежность работ"),         // Work Variance（Java 源码缺 Overtime Work）
+    Some("Разбежность работ"),         // Work Variance (Overtime Work missing in the Java source)
     Some("% работ завершено"),         // % Work Complete
     None,                              // -
     None,                              // -
     None,                              // -
     Some("Стоимость"),                 // Cost
-    Some("Запалнированная стоимость"), // Baseline Cost（Java 源码中的拼写）
+    Some("Запалнированная стоимость"), // Baseline Cost (spelling in the Java source)
     Some("Реальная стоимость"),        // Actual Cost
     Some("Ожидаемая стоимость"),       // Remaining Cost
-    Some("Разбежнность стоимости"),    // Cost Variance（Java 源码拼写为双 н）
+    Some("Разбежнность стоимости"),    // Cost Variance (spelled with a double н in the Java source)
     None,                              // -
     None,                              // -
     None,                              // -
@@ -307,45 +309,45 @@ pub const RESOURCE_NAMES_DATA: [Option<&'static str>; 51] = [
     Some("Связанные поля"),            // Linked Fields
 ];
 
-/// 对应资源键 `FILE_DELIMITER`
+/// Corresponds to the resource key `FILE_DELIMITER`
 pub const FILE_DELIMITER: char = ';';
-/// 对应资源键 `CODE_PAGE`
+/// Corresponds to the resource key `CODE_PAGE`
 pub const CODE_PAGE: CodePage = CodePage::Ru;
-/// 对应资源键 `CURRENCY_SYMBOL`（Java 源码为空字符串）
+/// Corresponds to the resource key `CURRENCY_SYMBOL` (an empty string in the Java source)
 pub const CURRENCY_SYMBOL: &'static str = "";
-/// 对应资源键 `CURRENCY_SYMBOL_POSITION`
+/// Corresponds to the resource key `CURRENCY_SYMBOL_POSITION`
 pub const CURRENCY_SYMBOL_POSITION: CurrencySymbolPosition = CurrencySymbolPosition::Before;
-/// 对应资源键 `CURRENCY_DIGITS`
+/// Corresponds to the resource key `CURRENCY_DIGITS`
 pub const CURRENCY_DIGITS: i32 = 2;
-/// 对应资源键 `CURRENCY_THOUSANDS_SEPARATOR`
+/// Corresponds to the resource key `CURRENCY_THOUSANDS_SEPARATOR`
 pub const CURRENCY_THOUSANDS_SEPARATOR: char = '.';
-/// 对应资源键 `CURRENCY_DECIMAL_SEPARATOR`
+/// Corresponds to the resource key `CURRENCY_DECIMAL_SEPARATOR`
 pub const CURRENCY_DECIMAL_SEPARATOR: char = ',';
-/// 对应资源键 `DATE_ORDER`
+/// Corresponds to the resource key `DATE_ORDER`
 pub const DATE_ORDER: DateOrder = DateOrder::Dmy;
-/// 对应资源键 `TIME_FORMAT`
+/// Corresponds to the resource key `TIME_FORMAT`
 pub const TIME_FORMAT: ProjectTimeFormat = ProjectTimeFormat::TwentyFourHour;
-/// 对应资源键 `DATE_SEPARATOR`
+/// Corresponds to the resource key `DATE_SEPARATOR`
 pub const DATE_SEPARATOR: char = '/';
-/// 对应资源键 `TIME_SEPARATOR`
+/// Corresponds to the resource key `TIME_SEPARATOR`
 pub const TIME_SEPARATOR: char = ':';
-/// 对应资源键 `AM_TEXT`
+/// Corresponds to the resource key `AM_TEXT`
 pub const AM_TEXT: &'static str = "";
-/// 对应资源键 `PM_TEXT`
+/// Corresponds to the resource key `PM_TEXT`
 pub const PM_TEXT: &'static str = "";
-/// 对应资源键 `DATE_FORMAT`
+/// Corresponds to the resource key `DATE_FORMAT`
 pub const DATE_FORMAT: ProjectDateFormat = ProjectDateFormat::DdMmYyyy;
-/// 对应资源键 `BAR_TEXT_DATE_FORMAT`
+/// Corresponds to the resource key `BAR_TEXT_DATE_FORMAT`
 pub const BAR_TEXT_DATE_FORMAT: i32 = 0;
-/// 对应资源键 `NA`
+/// Corresponds to the resource key `NA`
 pub const NA: &'static str = "недоступно";
-/// 对应资源键 `YES`
+/// Corresponds to the resource key `YES`
 pub const YES: &'static str = "Да";
-/// 对应资源键 `NO`
+/// Corresponds to the resource key `NO`
 pub const NO: &'static str = "Нет";
 
-/// 俄语资源包的内容，对应 Java `LocaleData_ru.RESOURCE_DATA`
-/// （即 `getContents()` 的返回值）。
+/// Contents of the Russian resource bundle, corresponding to Java `LocaleData_ru.RESOURCE_DATA`
+/// (that is, the return value of `getContents()`).
 pub static OVERRIDES: LocaleOverrides = LocaleOverrides {
     file_delimiter: Some(FILE_DELIMITER),
     program_name: None,
@@ -391,7 +393,7 @@ mod tests {
         assert_eq!(PRIORITY_TYPES_DATA.len(), 10);
         assert_eq!(CONSTRAINT_TYPES_DATA.len(), 8);
         assert_eq!(TASK_NAMES_DATA.len(), 153);
-        // Java: 该表缺少 Overtime Work，只有 51 项
+        // Java: this table is missing Overtime Work and has only 51 entries
         assert_eq!(RESOURCE_NAMES_DATA.len(), 51);
     }
 
@@ -409,7 +411,7 @@ mod tests {
 
         assert_eq!(RESOURCE_NAMES_DATA[1], Some("Имя"));
         assert_eq!(RESOURCE_NAMES_DATA[11], Some("Email"));
-        // Java: 缺少 Overtime Work，下标 24 即 Work Variance
+        // Java: Overtime Work is missing, so index 24 is Work Variance
         assert_eq!(RESOURCE_NAMES_DATA[24], Some("Разбежность работ"));
         assert_eq!(RESOURCE_NAMES_DATA[29], Some("Стоимость"));
         assert_eq!(RESOURCE_NAMES_DATA[33], Some("Разбежнность стоимости"));
@@ -433,7 +435,7 @@ mod tests {
         assert_eq!(LocaleData::get_string(MpxLocale::Ru, LocaleData::NA), Some("недоступно"));
         assert_eq!(LocaleData::get_string(MpxLocale::Ru, LocaleData::YES), Some("Да"));
         assert_eq!(LocaleData::get_string(MpxLocale::Ru, LocaleData::NO), Some("Нет"));
-        // 未覆盖的键回落英文
+        // Keys not overridden fall back to English
         assert_eq!(
             LocaleData::get_string(MpxLocale::Ru, LocaleData::FILE_VERSION),
             Some("4.0")

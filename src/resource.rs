@@ -1,76 +1,76 @@
-//! 对应 Java: `org/mpxj/Resource.java`
+//! Corresponds to Java: `org/mpxj/Resource.java`
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **字段存储（Java 继承 → Rust 组合）**：Java 的 `Resource extends AbstractFieldContainer<Resource>`，
-//!   `set` / `get` / `getCachedValue` 由基类提供；Rust 无继承，本类持有一个
-//!   [`AbstractFieldContainer`]，由 [`Resource::set`] / [`Resource::get`] /
-//!   [`Resource::get_cached_value`] 转发（见 [`crate::abstract_field_container`] 的说明）。
-//!   Java 的三个抽象方法在 Rust 中的落位：`handleFieldChange` →
-//!   [`Resource::handle_field_change`]；`getAlwaysCalculatedField` →
-//!   [`is_always_calculated`]；`getCalculationMethod` → [`Resource::calculate`] 的 `match`。
-//! - **无法用 `FieldValue` 表达的值**：[`crate::field_value::FieldValue`] 目前只有标量变体
-//!   （无枚举 / `Notes` / `UUID` / 集合变体），故下列 Java 字段在字段
-//!   容器中改用等价的标量编码，类型化访问器负责转换：
+//! - **Field storage (Java inheritance → Rust composition)**: Java's `Resource extends AbstractFieldContainer<Resource>`,
+//!   `set` / `get` / `getCachedValue` are provided by the base class; Rust has no inheritance, so this class holds an
+//!   [`AbstractFieldContainer`], forwarded by [`Resource::set`] / [`Resource::get`] /
+//!   [`Resource::get_cached_value`] (see the notes in [`crate::abstract_field_container`]).
+//!   Where the three Java abstract methods land in Rust: `handleFieldChange` →
+//!   [`Resource::handle_field_change`];`getAlwaysCalculatedField` →
+//!   [`is_always_calculated`]; `getCalculationMethod` → the `match` in [`Resource::calculate`].
+//! - **Values that `FieldValue` cannot express**: [`crate::field_value::FieldValue`] currently only has scalar variants
+//!   (no enum / `Notes` / `UUID` / collection variants), so the following Java fields use
+//!   equivalent scalar encodings in the field container, with typed accessors handling conversion:
 //!
-//!   | Java 字段 | Rust 编码 |
+//!   | Java field | Rust encoding |
 //!   |---|---|
-//!   | `ResourceField.TYPE`（`ResourceType`） | `FieldValue::Integer`（声明顺序下标，`WORK` = 1） |
-//!   | `ResourceField.ACCRUE_AT`（`AccrueType`） | `FieldValue::Integer`（`getValue()`） |
-//!   | `ResourceField.WORKGROUP`（`WorkGroup`） | `FieldValue::Integer`（`getValue()`） |
-//!   | `ResourceField.BOOKING_TYPE`（`BookingType`） | `FieldValue::Integer`（`getValue()`） |
-//!   | `ResourceField.NOTES`（`Notes`） | `FieldValue::String`（`Notes.toString()`） |
-//!   | `ResourceField.GUID`（`UUID`） | `FieldValue::String`（`UUID.toString()`） |
+//!   | `ResourceField.TYPE` (`ResourceType`) | `FieldValue::Integer` (declaration-order index, `WORK` = 1) |
+//!   | `ResourceField.ACCRUE_AT`(`AccrueType`) | `FieldValue::Integer`(`getValue()`) |
+//!   | `ResourceField.WORKGROUP`(`WorkGroup`) | `FieldValue::Integer`(`getValue()`) |
+//!   | `ResourceField.BOOKING_TYPE`(`BookingType`) | `FieldValue::Integer`(`getValue()`) |
+//!   | `ResourceField.NOTES`(`Notes`) | `FieldValue::String`(`Notes.toString()`) |
+//!   | `ResourceField.GUID`(`UUID`) | `FieldValue::String`(`UUID.toString()`) |
 //!
-//!   因此 [`Resource::get_notes_object`] 只能返回纯文本 [`PlainNotes`]，
-//!   [`Resource::set_notes_object`] 也只能保留纯文本；`get(GUID)` 返回字符串而非 `Uuid`。
-//!   `ResourceField.RESOURCE_CODE_VALUES` / `ROLE_CODE_VALUES`（`Map<ResourceCode, ...>`）
-//!   无对应类型，未移植（见下）。
-//! - **构造方法与自动编号**：Java 的 `Resource(ProjectContext)` 在构造时按配置分配
-//!   unique ID 与 ID。Rust 侧 `&mut self` 无法取得自身的 `Rc`（`mapID` / `updateUniqueID`
-//!   都需要元素句柄），且容器方法总在上下文被 `borrow_mut` 时调用。因此 Rust 侧
-//!   [`Resource::new`] 只做字段初始化，自动编号由 [`crate::resource_container::ResourceContainer::add`]
-//!   用容器自带的序号生成器完成（见该文件的说明）。
-//! - **反向引用**：Java 的 `private final ProjectContext m_context` 是强引用；Rust 侧改为
-//!   `Weak<RefCell<ProjectContext>>`。另新增 Rust 专有字段 `self_ref`
-//!   （`Weak<RefCell<Resource>>`），供 `handleFieldChange` 在 unique ID / ID 变化时回调容器
-//!   （Java 用 `this`），由容器在包装 `Rc` 后通过 `set_self_reference` 接线。
-//! - **集合**：`List<Resource>` → `Vec<Rc<RefCell<Resource>>>`；
+//!   Therefore [`Resource::get_notes_object`] can only return plain-text [`PlainNotes`],
+//!   and [`Resource::set_notes_object`] can only keep plain text; `get(GUID)` returns a string rather than a `Uuid`.
+//!   `ResourceField.RESOURCE_CODE_VALUES` / `ROLE_CODE_VALUES`(`Map<ResourceCode, ...>`)
+//!   No corresponding type exists, so it is not ported (see below).
+//! - **Constructor and automatic numbering**: Java's `Resource(ProjectContext)` assigns
+//!   unique ID and ID in the constructor according to configuration. On the Rust side `&mut self` cannot obtain its own `Rc` (`mapID` / `updateUniqueID`
+//!   both need an element handle), and container methods are always called while the context is `borrow_mut`ed. Therefore on the Rust side
+//!   [`Resource::new`] only initializes fields, and automatic numbering is done by [`crate::resource_container::ResourceContainer::add`]
+//!   using the container's own sequence generator (see the notes in that file).
+//! - **Back references**: Java's `private final ProjectContext m_context` is a strong reference; the Rust side uses
+//!   `Weak<RefCell<ProjectContext>>` instead. There is also a new Rust-specific field `self_ref`
+//!   (`Weak<RefCell<Resource>>`), which lets `handleFieldChange` call back into the container when the unique ID / ID changes
+//!   (Java uses `this`); the container wires it up via `set_self_reference` after wrapping the `Rc`.
+//! - **Collections**: `List<Resource>` → `Vec<Rc<RefCell<Resource>>>`;
 //!   `Map<Resource, SkillLevel>` → `HashMap<i32, (Weak<RefCell<Resource>>, SkillLevel)>`
-//!   （键取 `NumberHelper.getInt(role.getID())`，与 Java 以 ID 为 `equals`/`hashCode` 等价）；
-//!   [`Resource::get_role_assignments`] 返回 `Vec<(Rc<RefCell<Resource>>, SkillLevel)>` 快照。
-//! - **AvailabilityTable**：Java 直接持有可变对象；Rust 侧用 `RefCell<AvailabilityTable>`
-//!   包一层（`availableFrom` / `availableTo` 需要 `&mut self`），故
-//!   [`Resource::get_availability`] 返回 `Ref<'_, AvailabilityTable>`。
-//! - **`get` 不写回缓存**：Java 的 `get` 会把非「始终计算」字段的计算结果 `set` 回字段表；
-//!   Rust 的 `get(&self)` 无法写回，改为每次重新计算（结果相同，仅少一次缓存写入）。
-//! - **索引型重载**：Rust 无重载，所有按索引取值/设值的 Java 方法（如 `getCost(int)`、
-//!   `setBaselineWork(int, Duration)`）统一加 `_at` 后缀（如 [`Resource::get_cost_at`]、
-//!   [`Resource::set_baseline_work_at`]）。
-//! - **`selectField`**：Java 越界抛 `IllegalArgumentException`；Rust 侧返回 `None`，
-//!   对应的访问器返回 `None` / 保持原值（不 panic）。
-//! - **`compareTo`/`equals`/`hashCode`/`toString`** → `Ord`/`PartialEq`+`Eq`/`Hash`/`Display`。
+//!   (the key is `NumberHelper.getInt(role.getID())`, equivalent to Java using ID for `equals`/`hashCode`);
+//!   [`Resource::get_role_assignments`] returns a `Vec<(Rc<RefCell<Resource>>, SkillLevel)>` snapshot.
+//! - **AvailabilityTable**: Java directly holds a mutable object; the Rust side wraps it in a `RefCell<AvailabilityTable>`
+//!   layer (`availableFrom` / `availableTo` need `&mut self`), so
+//!   [`Resource::get_availability`] returns `Ref<'_, AvailabilityTable>`.
+//! - **`get` does not write back to the cache**: Java's `get` `set`s the computed result of non-"always calculated" fields back into the field table;
+//!   Rust's `get(&self)` cannot write back, so it recomputes each time (same result, just one fewer cache write).
+//! - **Indexed overloads**: Rust has no overloading, so all Java methods that get/set by index (such as `getCost(int)`,
+//!   `setBaselineWork(int, Duration)`) are given an `_at` suffix (such as [`Resource::get_cost_at`],
+//!   [`Resource::set_baseline_work_at`]).
+//! - **`selectField`**: Java throws `IllegalArgumentException` when out of bounds; the Rust side returns `None`,
+//!   and the corresponding accessor returns `None` / keeps the original value (without panicking).
+//! - **`compareTo`/`equals`/`hashCode`/`toString`** → `Ord`/`PartialEq`+`Eq`/`Hash`/`Display`.
 //!
-//! # 跳过的 Java 方法（及原因）
+//! # Skipped Java Methods (and reasons)
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | 由 [`crate::field_container::FieldContainer`] 的默认实现提供（等价 Java 中「字段不在 `TIMEPHASED_*_FUNCTIONS` 表中」的回落：全 `None` 列表），因为下一条的时间分段家族尚未移植 |
-//! | `getTimephasedPlannedWork` 等全部 `getTimephased*`、`reduceTimephasedWork` / `reduceTimephasedCost` / `reduceTimephasedMaterial`、`TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | `org.mpxj.TimephasedUtility` 未单独成模块（`addTimephasedDurations` / `addTimephasedNumbers` 目前内联在 [`crate::resource_assignment`] 的私有函数中，尚不可复用）；[`crate::resource_assignment::ResourceAssignment`] 的时间分段 API 已落地 |
-//! | `getLocation` / `setLocation` | `Location` 属 P6/Primavera 专用数据，本工程只做 MPP/MPX reader，故不移植 |
-//! | `getCurrency` / `setCurrency` | `Currency` 属 P6/Primavera 专用数据（同上） |
-//! | `getResourceCodeValues` / `addResourceCodeValue` / `getRoleCodeValues` / `addRoleCodeValue` | `ResourceCode` / `RoleCode` / `ResourceCodeValue` / `RoleCodeValue` 属 P6/Primavera 专用数据（同上），`FieldValue` 亦无集合变体 |
+//! | `getTimephasedDurationValues` / `getTimephasedNumericValues` | Provided by the default implementation of [`crate::field_container::FieldContainer`] (equivalent to Java's fallback when "the field is not in the `TIMEPHASED_*_FUNCTIONS` tables": an all-`None` list), because the timephased family in the next entry is not yet ported |
+//! | `getTimephasedPlannedWork` and all other `getTimephased*`, `reduceTimephasedWork` / `reduceTimephasedCost` / `reduceTimephasedMaterial`, `TIMEPHASED_WORK_FUNCTIONS` / `TIMEPHASED_NUMERIC_FUNCTIONS` | `org.mpxj.TimephasedUtility` is not a separate module (`addTimephasedDurations` / `addTimephasedNumbers` are currently inlined in private functions in [`crate::resource_assignment`] and are not yet reusable); the timephased API of [`crate::resource_assignment::ResourceAssignment`] has landed |
+//! | `getLocation` / `setLocation` | `Location` is P6/Primavera-specific data, and this project is only an MPP/MPX reader, so it is not ported |
+//! | `getCurrency` / `setCurrency` | `Currency` is P6/Primavera-specific data (same as above) |
+//! | `getResourceCodeValues` / `addResourceCodeValue` / `getRoleCodeValues` / `addRoleCodeValue` | `ResourceCode` / `RoleCode` / `ResourceCodeValue` / `RoleCodeValue` are P6/Primavera-specific data (same as above), and `FieldValue` has no collection variant either |
 //!
-//! 被跳过的 Java 机制：反射、`Serializable`（本类未使用）。
+//! Skipped Java mechanisms: reflection, `Serializable` (unused by this class).
 //!
-//! # 对相关模块的接口假设
+//! # Interface assumptions about related modules
 //!
-//! - `crate::resource_assignment::ResourceAssignment`：`get_start()` / `get_finish()` →
-//!   `Option<NaiveDateTime>`，`get_planned_work()` → `Option<Duration>`，
-//!   `get_planned_cost()` → `Option<f64>`，`set_resource_unique_id(Option<i32>)`。
-//! - `crate::resource_assignment_container::ResourceAssignmentContainer`：
-//!   `get_by_resource_unique_id(Option<i32>) -> Vec<Rc<RefCell<ResourceAssignment>>>`。
-//! - `crate::project_file::ProjectFile`：`get_resource_assignments() -> &ResourceAssignmentContainer`。
+//! - `crate::resource_assignment::ResourceAssignment`:`get_start()` / `get_finish()` →
+//!   `Option<NaiveDateTime>`,`get_planned_work()` → `Option<Duration>`,
+//!   `get_planned_cost()` → `Option<f64>`,`set_resource_unique_id(Option<i32>)`.
+//! - `crate::resource_assignment_container::ResourceAssignmentContainer`:
+//!   `get_by_resource_unique_id(Option<i32>) -> Vec<Rc<RefCell<ResourceAssignment>>>`.
+//! - `crate::project_file::ProjectFile`:`get_resource_assignments() -> &ResourceAssignmentContainer`.
 
 use std::cell::{Ref, RefCell};
 use std::cmp::Ordering;
@@ -112,40 +112,40 @@ use crate::resource_type::ResourceType;
 use crate::shift::Shift;
 use crate::skill_level::SkillLevel;
 use crate::unit_of_measure::UnitOfMeasure;
-// 注：`TimeUnit` 仅在测试中被显式命名，主代码中的单位类型由 `Duration` 推导得出。
+// Note: `TimeUnit` is only named explicitly in tests; in the main code the unit type is inferred from `Duration`.
 use crate::work_group::WorkGroup;
 
-/// 成本费率表数量（对应 Java: `CostRateTable.MAX_TABLES`）。
+/// Number of cost rate tables (Corresponds to Java: `CostRateTable.MAX_TABLES`).
 const MAX_TABLES: usize = 5;
 
-/// `Resource.addCalendar` 中使用的默认资源日历名称。
+/// Default resource calendar name used in `Resource.addCalendar`.
 ///
-/// 对应 Java: `"Unnamed Resource"`。
+/// Corresponds to Java: `"Unnamed Resource"`.
 const UNNAMED_RESOURCE: &str = "Unnamed Resource";
 
-/// 默认基准日历名称。
+/// Default base calendar name.
 ///
-/// 对应 Java: `Resource.setBaseCalendar` 中的字面量 `"Standard"`。
+/// Corresponds to Java: the literal `"Standard"` in `Resource.setBaseCalendar`.
 const DEFAULT_BASE_CALENDAR: &str = "Standard";
 
-/// 默认的默认可用性（100%）。
+/// Default value of default availability (100%).
 ///
-/// 对应 Java: `private static final Number DEFAULT_DEFAULT_UNITS = NumberHelper.DOUBLE_ONEHUNDRED;`
+/// Corresponds to Java: `private static final Number DEFAULT_DEFAULT_UNITS = NumberHelper.DOUBLE_ONEHUNDRED;`
 const DEFAULT_DEFAULT_UNITS: f64 = NumberHelper::DOUBLE_ONEHUNDRED;
 
-/// 把 `ResourceField` 包装成统一的 [`FieldKey`]。
+/// Wraps a `ResourceField` into a unified [`FieldKey`].
 fn key(field: ResourceField) -> FieldKey {
     FieldKey::Resource(field)
 }
 
-/// 对应 Java: `LocalDateTime.now()`。
+/// Corresponds to Java: `LocalDateTime.now()`.
 fn now() -> NaiveDateTime {
     Local::now().naive_local()
 }
 
-/// 对应 Java: `Resource.selectField(ResourceField[] fields, int index)`。
+/// Corresponds to Java: `Resource.selectField(ResourceField[] fields, int index)`.
 ///
-/// Java 越界抛 `IllegalArgumentException`；Rust 侧返回 `None`。
+/// Java throws `IllegalArgumentException` when out of bounds; the Rust side returns `None`.
 fn select_field(fields: &[ResourceField], index: i32) -> Option<ResourceField> {
     if index < 1 || index as usize > fields.len() {
         return None;
@@ -153,7 +153,7 @@ fn select_field(fields: &[ResourceField], index: i32) -> Option<ResourceField> {
     fields.get(index as usize - 1).copied()
 }
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_TEXT`（下标 1-30）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_TEXT` (indices 1-30).
 const CUSTOM_TEXT: [ResourceField; 30] = [
     ResourceField::Text1,
     ResourceField::Text2,
@@ -187,7 +187,7 @@ const CUSTOM_TEXT: [ResourceField; 30] = [
     ResourceField::Text30,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_START`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_START` (indices 1-10).
 const CUSTOM_START: [ResourceField; 10] = [
     ResourceField::Start1,
     ResourceField::Start2,
@@ -201,7 +201,7 @@ const CUSTOM_START: [ResourceField; 10] = [
     ResourceField::Start10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_FINISH`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_FINISH` (indices 1-10).
 const CUSTOM_FINISH: [ResourceField; 10] = [
     ResourceField::Finish1,
     ResourceField::Finish2,
@@ -215,7 +215,7 @@ const CUSTOM_FINISH: [ResourceField; 10] = [
     ResourceField::Finish10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_NUMBER`（下标 1-20）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_NUMBER` (indices 1-20).
 const CUSTOM_NUMBER: [ResourceField; 20] = [
     ResourceField::Number1,
     ResourceField::Number2,
@@ -239,7 +239,7 @@ const CUSTOM_NUMBER: [ResourceField; 20] = [
     ResourceField::Number20,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_DURATION`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_DURATION` (indices 1-10).
 const CUSTOM_DURATION: [ResourceField; 10] = [
     ResourceField::Duration1,
     ResourceField::Duration2,
@@ -253,7 +253,7 @@ const CUSTOM_DURATION: [ResourceField; 10] = [
     ResourceField::Duration10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_DATE`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_DATE` (indices 1-10).
 const CUSTOM_DATE: [ResourceField; 10] = [
     ResourceField::Date1,
     ResourceField::Date2,
@@ -267,7 +267,7 @@ const CUSTOM_DATE: [ResourceField; 10] = [
     ResourceField::Date10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_COST`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_COST` (indices 1-10).
 const CUSTOM_COST: [ResourceField; 10] = [
     ResourceField::Cost1,
     ResourceField::Cost2,
@@ -281,7 +281,7 @@ const CUSTOM_COST: [ResourceField; 10] = [
     ResourceField::Cost10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_FLAG`（下标 1-20）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_FLAG` (indices 1-20).
 const CUSTOM_FLAG: [ResourceField; 20] = [
     ResourceField::Flag1,
     ResourceField::Flag2,
@@ -305,7 +305,7 @@ const CUSTOM_FLAG: [ResourceField; 20] = [
     ResourceField::Flag20,
 ];
 
-/// 对应 Java: `ResourceFieldLists.CUSTOM_OUTLINE_CODE`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.CUSTOM_OUTLINE_CODE` (indices 1-10).
 const CUSTOM_OUTLINE_CODE: [ResourceField; 10] = [
     ResourceField::OutlineCode1,
     ResourceField::OutlineCode2,
@@ -319,7 +319,7 @@ const CUSTOM_OUTLINE_CODE: [ResourceField; 10] = [
     ResourceField::OutlineCode10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_COST`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_COST` (indices 1-10).
 const ENTERPRISE_CUSTOM_COST: [ResourceField; 10] = [
     ResourceField::EnterpriseCost1,
     ResourceField::EnterpriseCost2,
@@ -333,7 +333,7 @@ const ENTERPRISE_CUSTOM_COST: [ResourceField; 10] = [
     ResourceField::EnterpriseCost10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_DATE`（下标 1-30）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_DATE` (indices 1-30).
 const ENTERPRISE_CUSTOM_DATE: [ResourceField; 30] = [
     ResourceField::EnterpriseDate1,
     ResourceField::EnterpriseDate2,
@@ -367,7 +367,7 @@ const ENTERPRISE_CUSTOM_DATE: [ResourceField; 30] = [
     ResourceField::EnterpriseDate30,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_DURATION`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_DURATION` (indices 1-10).
 const ENTERPRISE_CUSTOM_DURATION: [ResourceField; 10] = [
     ResourceField::EnterpriseDuration1,
     ResourceField::EnterpriseDuration2,
@@ -381,7 +381,7 @@ const ENTERPRISE_CUSTOM_DURATION: [ResourceField; 10] = [
     ResourceField::EnterpriseDuration10,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_FLAG`（下标 1-20）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_FLAG` (indices 1-20).
 const ENTERPRISE_CUSTOM_FLAG: [ResourceField; 20] = [
     ResourceField::EnterpriseFlag1,
     ResourceField::EnterpriseFlag2,
@@ -405,7 +405,7 @@ const ENTERPRISE_CUSTOM_FLAG: [ResourceField; 20] = [
     ResourceField::EnterpriseFlag20,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_NUMBER`（下标 1-40）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_NUMBER` (indices 1-40).
 const ENTERPRISE_CUSTOM_NUMBER: [ResourceField; 40] = [
     ResourceField::EnterpriseNumber1,
     ResourceField::EnterpriseNumber2,
@@ -449,7 +449,7 @@ const ENTERPRISE_CUSTOM_NUMBER: [ResourceField; 40] = [
     ResourceField::EnterpriseNumber40,
 ];
 
-/// 对应 Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_TEXT`（下标 1-40）。
+/// Corresponds to Java: `ResourceFieldLists.ENTERPRISE_CUSTOM_TEXT` (indices 1-40).
 const ENTERPRISE_CUSTOM_TEXT: [ResourceField; 40] = [
     ResourceField::EnterpriseText1,
     ResourceField::EnterpriseText2,
@@ -493,7 +493,7 @@ const ENTERPRISE_CUSTOM_TEXT: [ResourceField; 40] = [
     ResourceField::EnterpriseText40,
 ];
 
-/// 对应 Java: `ResourceFieldLists.BASELINE_COSTS`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.BASELINE_COSTS` (indices 1-10).
 const BASELINE_COSTS: [ResourceField; 10] = [
     ResourceField::Baseline1Cost,
     ResourceField::Baseline2Cost,
@@ -507,7 +507,7 @@ const BASELINE_COSTS: [ResourceField; 10] = [
     ResourceField::Baseline10Cost,
 ];
 
-/// 对应 Java: `ResourceFieldLists.BASELINE_WORKS`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.BASELINE_WORKS` (indices 1-10).
 const BASELINE_WORKS: [ResourceField; 10] = [
     ResourceField::Baseline1Work,
     ResourceField::Baseline2Work,
@@ -521,7 +521,7 @@ const BASELINE_WORKS: [ResourceField; 10] = [
     ResourceField::Baseline10Work,
 ];
 
-/// 对应 Java: `ResourceFieldLists.BASELINE_BUDGET_COSTS`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.BASELINE_BUDGET_COSTS` (indices 1-10).
 const BASELINE_BUDGET_COSTS: [ResourceField; 10] = [
     ResourceField::Baseline1BudgetCost,
     ResourceField::Baseline2BudgetCost,
@@ -535,7 +535,7 @@ const BASELINE_BUDGET_COSTS: [ResourceField; 10] = [
     ResourceField::Baseline10BudgetCost,
 ];
 
-/// 对应 Java: `ResourceFieldLists.BASELINE_BUDGET_WORKS`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.BASELINE_BUDGET_WORKS` (indices 1-10).
 const BASELINE_BUDGET_WORKS: [ResourceField; 10] = [
     ResourceField::Baseline1BudgetWork,
     ResourceField::Baseline2BudgetWork,
@@ -549,7 +549,7 @@ const BASELINE_BUDGET_WORKS: [ResourceField; 10] = [
     ResourceField::Baseline10BudgetWork,
 ];
 
-/// 对应 Java: `ResourceFieldLists.BASELINE_MATERIALS`（下标 1-10）。
+/// Corresponds to Java: `ResourceFieldLists.BASELINE_MATERIALS` (indices 1-10).
 const BASELINE_MATERIALS: [ResourceField; 10] = [
     ResourceField::Baseline1Material,
     ResourceField::Baseline2Material,
@@ -563,7 +563,7 @@ const BASELINE_MATERIALS: [ResourceField; 10] = [
     ResourceField::Baseline10Material,
 ];
 
-/// 对应 Java: `Resource.ALWAYS_CALCULATED_FIELDS`。
+/// Corresponds to Java: `Resource.ALWAYS_CALCULATED_FIELDS`.
 fn is_always_calculated(field: FieldKey) -> bool {
     matches!(
         field,
@@ -581,9 +581,9 @@ fn is_always_calculated(field: FieldKey) -> bool {
     )
 }
 
-/// 对应 Java: `Resource.DEPENDENCY_MAP`（由 `FieldContainerDependencies` 静态块构建）。
+/// Corresponds to Java: `Resource.DEPENDENCY_MAP` (built by the `FieldContainerDependencies` static block).
 ///
-/// 键是「被修改的字段」，值是需要清理缓存的「计算字段」列表。
+/// Keys are "modified fields"; values are lists of "calculated fields" whose caches must be cleared.
 fn dependency_map() -> &'static HashMap<FieldKey, Vec<FieldKey>> {
     static MAP: OnceLock<HashMap<FieldKey, Vec<FieldKey>>> = OnceLock::new();
 
@@ -643,7 +643,7 @@ fn dependency_map() -> &'static HashMap<FieldKey, Vec<FieldKey>> {
     })
 }
 
-/// `ResourceType` 的存储下标（声明顺序）。
+/// Storage index of `ResourceType` (declaration order).
 fn resource_type_index(value: ResourceType) -> i32 {
     match value {
         ResourceType::Material => 0,
@@ -653,66 +653,66 @@ fn resource_type_index(value: ResourceType) -> i32 {
     }
 }
 
-/// 项目中的资源。
+/// A resource in the project.
 ///
-/// 对应 Java: `public final class Resource extends AbstractFieldContainer<Resource> implements Comparable<Resource>, ProjectEntityWithID, ChildResourceContainer`
+/// Corresponds to Java: `public final class Resource extends AbstractFieldContainer<Resource> implements Comparable<Resource>, ProjectEntityWithID, ChildResourceContainer`
 pub struct Resource {
-    /// 父上下文（弱引用，避免 `Rc` 循环）。
+    /// Parent context (weak reference to avoid an `Rc` cycle).
     ///
-    /// 对应 Java: `private final ProjectContext m_context;`
+    /// Corresponds to Java: `private final ProjectContext m_context;`
     context: Weak<RefCell<ProjectContext>>,
 
-    /// 自身的弱引用（Rust 专有）。
+    /// Weak reference to itself (Rust-specific).
     ///
-    /// 对应 Java 中 `handleFieldChange` 里的 `this`：unique ID / ID 变化时需要把自身句柄
-    /// 交给容器（`updateUniqueID` / `mapID`）。由
-    /// [`crate::resource_container::ResourceContainer`] 在包装 `Rc` 后接线。
+    /// Corresponds to `this` in Java's `handleFieldChange`: when the unique ID / ID changes, the element handle
+    /// must be handed to the container (`updateUniqueID` / `mapID`). It is
+    /// wired up by [`crate::resource_container::ResourceContainer`] after wrapping the `Rc`.
     self_ref: Weak<RefCell<Resource>>,
 
-    /// 字段存储（Java 的继承基类 `AbstractFieldContainer`）。
+    /// Field storage (Java's inherited base class `AbstractFieldContainer`).
     fields: AbstractFieldContainer,
 
-    /// 是否为空资源。
+    /// Whether this is a null resource.
     ///
-    /// 对应 Java: `private boolean m_null;`
+    /// Corresponds to Java: `private boolean m_null;`
     null: bool,
 
-    /// Active Directory GUID。
+    /// Active Directory GUID.
     ///
-    /// 对应 Java: `private String m_activeDirectoryGUID;`
+    /// Corresponds to Java: `private String m_activeDirectoryGUID;`
     active_directory_guid: Option<String>,
 
-    /// 角色分配（角色 ID → 角色与技能等级）。
+    /// Role assignments (role ID → role and skill level).
     ///
-    /// 对应 Java: `private final Map<Resource, SkillLevel> m_roleAssignments = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Resource, SkillLevel> m_roleAssignments = new HashMap<>();`
     role_assignments: HashMap<i32, (Weak<RefCell<Resource>>, SkillLevel)>,
 
-    /// 子资源。
+    /// Child resources.
     ///
-    /// 对应 Java: `private final List<Resource> m_children = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<Resource> m_children = new ArrayList<>();`
     children: Vec<Rc<RefCell<Resource>>>,
 
-    /// 成本费率表（A-E）。
+    /// Cost rate tables (A-E).
     ///
-    /// 对应 Java: `private final CostRateTable[] m_costRateTables;`
+    /// Corresponds to Java: `private final CostRateTable[] m_costRateTables;`
     cost_rate_tables: Vec<CostRateTable>,
 
-    /// 可用性表。
+    /// Availability table.
     ///
-    /// 对应 Java: `private final AvailabilityTable m_availability = new AvailabilityTable();`
+    /// Corresponds to Java: `private final AvailabilityTable m_availability = new AvailabilityTable();`
     ///
-    /// Rust 侧用 `RefCell` 包一层，因为 `availableFrom` / `availableTo` 需要 `&mut self`
-    /// （见文件头说明）。
+    /// The Rust side wraps it in a `RefCell` because `availableFrom` / `availableTo` need `&mut self`
+    /// (see the notes at the top of the file).
     availability: RefCell<AvailabilityTable>,
 }
 
 impl Resource {
-    /// 构造方法。
+    /// Constructor.
     ///
-    /// 对应 Java: `Resource(ProjectContext context)`
+    /// Corresponds to Java: `Resource(ProjectContext context)`
     ///
-    /// Rust 侧只做字段初始化；Java 在构造方法中按配置分配的 unique ID / ID 由
-    /// [`crate::resource_container::ResourceContainer::add`] 完成（见文件头说明）。
+    /// The Rust side only initializes fields; the unique ID / ID that Java assigns in the constructor according to configuration are handled by
+    /// [`crate::resource_container::ResourceContainer::add`] (see the notes at the top of the file).
     pub(crate) fn new(context: Weak<RefCell<ProjectContext>>) -> Self {
         let mut cost_rate_tables = Vec::with_capacity(MAX_TABLES);
         for _ in 0..MAX_TABLES {
@@ -734,26 +734,26 @@ impl Resource {
         }
     }
 
-    /// 接线自身的弱引用（Rust 专有，供容器在包装 `Rc` 后调用）。
+    /// Wires up the weak reference to itself (Rust-specific, called by the container after wrapping the `Rc`).
     ///
-    /// 对应 Java: `handleFieldChange` 中使用的 `this`。
+    /// Corresponds to Java: the `this` used in `handleFieldChange`.
     pub(crate) fn set_self_reference(&mut self, resource: &Rc<RefCell<Resource>>) {
         self.self_ref = Rc::downgrade(resource);
     }
 
-    /// 取父上下文（Rust 侧返回升级后的强引用，Java 返回强引用字段）。
+    /// Gets the parent context (the Rust side returns the upgraded strong reference; Java returns the strong-reference field).
     ///
-    /// 对应 Java: `public ProjectContext getProjectContext()`
+    /// Corresponds to Java: `public ProjectContext getProjectContext()`
     pub fn get_project_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
     }
 
-    /// 创建并加入一个子资源。
+    /// Creates and adds a child resource.
     ///
-    /// 对应 Java: `@Override public Resource addResource()`
+    /// Corresponds to Java: `@Override public Resource addResource()`
     ///
-    /// Java 依赖非空的 `m_context`；Rust 侧上下文不可用（未接线或已被可变借用）时返回
-    /// `None`（不 panic）。
+    /// Java relies on a non-null `m_context`; the Rust side returns
+    /// `None` when the context is unavailable (not wired up or already mutably borrowed), without panicking.
     pub fn add_resource(&mut self) -> Option<Rc<RefCell<Resource>>> {
         let context = self.context.upgrade()?;
         let resource = {
@@ -769,34 +769,34 @@ impl Resource {
         Some(resource)
     }
 
-    /// 把已有资源作为当前资源的子资源加入。
+    /// Adds an existing resource as a child of the current resource.
     ///
-    /// 对应 Java: `public void addChildResource(Resource child)`
+    /// Corresponds to Java: `public void addChildResource(Resource child)`
     ///
-    /// Java 的 `child.setParentResource(this)` 写入的是父资源的 unique ID；Rust 侧
-    /// `&mut self` 无需自身 `Rc` 即可取得该值，故直接写入。
+    /// Java's `child.setParentResource(this)` writes the parent resource's unique ID; on the Rust side
+    /// `&mut self` can obtain that value without its own `Rc`, so it is written directly.
     pub fn add_child_resource(&mut self, child: &Rc<RefCell<Resource>>) {
         let parent_unique_id = self.get_unique_id();
         child.borrow_mut().set_parent_resource_unique_id(parent_unique_id);
         self.children.push(Rc::clone(child));
     }
 
-    /// 取子资源列表（Java 返回实时列表，Rust 返回快照）。
+    /// Gets the child resource list (Java returns the live list; Rust returns a snapshot).
     ///
-    /// 对应 Java: `@Override public List<Resource> getChildResources()`
+    /// Corresponds to Java: `@Override public List<Resource> getChildResources()`
     pub fn get_child_resources(&self) -> Vec<Rc<RefCell<Resource>>> {
         self.children.clone()
     }
 
-    /// 取子资源列表的可变引用（Rust 专有，供容器 `updateStructure` 的
-    /// `getChildResources().clear()` 使用）。
+    /// Gets a mutable reference to the child resource list (Rust-specific, for the container's `updateStructure`
+    /// `getChildResources().clear()`).
     pub fn get_child_resources_mut(&mut self) -> &mut Vec<Rc<RefCell<Resource>>> {
         &mut self.children
     }
 
-    /// 移除一个子资源。
+    /// Removes a child resource.
     ///
-    /// 对应 Java: `public void removeChildResource(Resource child)`
+    /// Corresponds to Java: `public void removeChildResource(Resource child)`
     pub fn remove_child_resource(&mut self, child: &Rc<RefCell<Resource>>) {
         let before = self.children.len();
         self.children.retain(|item| !Rc::ptr_eq(item, child));
@@ -805,23 +805,23 @@ impl Resource {
         }
     }
 
-    /// 设置 Name 字段。
+    /// Sets the Name field.
     ///
-    /// 对应 Java: `public void setName(String val)`
+    /// Corresponds to Java: `public void setName(String val)`
     pub fn set_name(&mut self, val: Option<String>) {
         self.set_field_value(key(ResourceField::Name), val.map(FieldValue::String));
     }
 
-    /// 取 Name 字段。
+    /// Gets the Name field.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<String> {
         self.get_string(ResourceField::Name)
     }
 
-    /// 设置资源类型。
+    /// Sets the resource type.
     ///
-    /// 对应 Java: `public void setType(ResourceType type)`
+    /// Corresponds to Java: `public void setType(ResourceType type)`
     pub fn set_type(&mut self, value: ResourceType) {
         self.set_field_value(
             key(ResourceField::Type),
@@ -829,9 +829,9 @@ impl Resource {
         );
     }
 
-    /// 取资源类型（未设置时返回默认值 `WORK`）。
+    /// Gets the resource type (returns the default `WORK` when unset).
     ///
-    /// 对应 Java: `public ResourceType getType()`
+    /// Corresponds to Java: `public ResourceType getType()`
     pub fn get_type(&self) -> ResourceType {
         self.get(key(ResourceField::Type))
             .and_then(|value| value.as_integer())
@@ -839,37 +839,37 @@ impl Resource {
             .unwrap_or(ResourceType::Work)
     }
 
-    /// 设置空资源标志。
+    /// Sets the null resource flag.
     ///
-    /// 对应 Java: `public void setIsNull(boolean isNull)`
+    /// Corresponds to Java: `public void setIsNull(boolean isNull)`
     pub fn set_is_null(&mut self, is_null: bool) {
         self.null = is_null;
     }
 
-    /// 取空资源标志。
+    /// Gets the null resource flag.
     ///
-    /// 对应 Java: `public boolean getNull()`
+    /// Corresponds to Java: `public boolean getNull()`
     pub fn get_null(&self) -> bool {
         self.null
     }
 
-    /// 设置 Initials 字段。
+    /// Sets the Initials field.
     ///
-    /// 对应 Java: `public void setInitials(String val)`
+    /// Corresponds to Java: `public void setInitials(String val)`
     pub fn set_initials(&mut self, val: Option<String>) {
         self.set_field_value(key(ResourceField::Initials), val.map(FieldValue::String));
     }
 
-    /// 取 Initials 字段。
+    /// Gets the Initials field.
     ///
-    /// 对应 Java: `public String getInitials()`
+    /// Corresponds to Java: `public String getInitials()`
     pub fn get_initials(&self) -> Option<String> {
         self.get_string(ResourceField::Initials)
     }
 
-    /// 设置日语读音（phonetics）。
+    /// Sets the Japanese phonetics.
     ///
-    /// 对应 Java: `public void setPhonetics(String phonetics)`
+    /// Corresponds to Java: `public void setPhonetics(String phonetics)`
     pub fn set_phonetics(&mut self, phonetics: Option<String>) {
         self.set_field_value(
             key(ResourceField::Phonetics),
@@ -877,16 +877,16 @@ impl Resource {
         );
     }
 
-    /// 取日语读音（phonetics）。
+    /// Gets the Japanese phonetics.
     ///
-    /// 对应 Java: `public String getPhonetics()`
+    /// Corresponds to Java: `public String getPhonetics()`
     pub fn get_phonetics(&self) -> Option<String> {
         self.get_string(ResourceField::Phonetics)
     }
 
-    /// 设置 Windows 账号名。
+    /// Sets the Windows account name.
     ///
-    /// 对应 Java: `public void setNtAccount(String ntAccount)`
+    /// Corresponds to Java: `public void setNtAccount(String ntAccount)`
     pub fn set_nt_account(&mut self, nt_account: Option<String>) {
         self.set_field_value(
             key(ResourceField::WindowsUserAccount),
@@ -894,51 +894,51 @@ impl Resource {
         );
     }
 
-    /// 取 Windows 账号名。
+    /// Gets the Windows account name.
     ///
-    /// 对应 Java: `public String getNtAccount()`
+    /// Corresponds to Java: `public String getNtAccount()`
     pub fn get_nt_account(&self) -> Option<String> {
         self.get_string(ResourceField::WindowsUserAccount)
     }
 
-    /// 取材料资源的单位标签（由单位名称缩写计算）。
+    /// Gets the material resource's unit label (calculated from the unit abbreviation).
     ///
-    /// 对应 Java: `public String getMaterialLabel()`
+    /// Corresponds to Java: `public String getMaterialLabel()`
     pub fn get_material_label(&self) -> Option<String> {
         self.get_string(ResourceField::MaterialLabel)
     }
 
-    /// 设置 Code 字段。
+    /// Sets the Code field.
     ///
-    /// 对应 Java: `public void setCode(String val)`
+    /// Corresponds to Java: `public void setCode(String val)`
     pub fn set_code(&mut self, val: Option<String>) {
         self.set_field_value(key(ResourceField::Code), val.map(FieldValue::String));
     }
 
-    /// 取 Code 字段。
+    /// Gets the Code field.
     ///
-    /// 对应 Java: `public String getCode()`
+    /// Corresponds to Java: `public String getCode()`
     pub fn get_code(&self) -> Option<String> {
         self.get_string(ResourceField::Code)
     }
 
-    /// 设置 Group 字段。
+    /// Sets the Group field.
     ///
-    /// 对应 Java: `public void setGroup(String val)`
+    /// Corresponds to Java: `public void setGroup(String val)`
     pub fn set_group(&mut self, val: Option<String>) {
         self.set_field_value(key(ResourceField::Group), val.map(FieldValue::String));
     }
 
-    /// 取 Group 字段。
+    /// Gets the Group field.
     ///
-    /// 对应 Java: `public String getGroup()`
+    /// Corresponds to Java: `public String getGroup()`
     pub fn get_group(&self) -> Option<String> {
         self.get_string(ResourceField::Group)
     }
 
-    /// 设置工作组（work group）。
+    /// Sets the work group.
     ///
-    /// 对应 Java: `public void setWorkGroup(WorkGroup workGroup)`
+    /// Corresponds to Java: `public void setWorkGroup(WorkGroup workGroup)`
     pub fn set_work_group(&mut self, work_group: WorkGroup) {
         self.set_field_value(
             key(ResourceField::Workgroup),
@@ -946,18 +946,18 @@ impl Resource {
         );
     }
 
-    /// 取工作组（work group）。
+    /// Gets the work group.
     ///
-    /// 对应 Java: `public WorkGroup getWorkGroup()`
+    /// Corresponds to Java: `public WorkGroup getWorkGroup()`
     pub fn get_work_group(&self) -> Option<WorkGroup> {
         self.get(key(ResourceField::Workgroup))
             .and_then(|value| value.as_integer())
             .map(WorkGroup::get_instance)
     }
 
-    /// 设置电子邮箱地址。
+    /// Sets the email address.
     ///
-    /// 对应 Java: `public void setEmailAddress(String emailAddress)`
+    /// Corresponds to Java: `public void setEmailAddress(String emailAddress)`
     pub fn set_email_address(&mut self, email_address: Option<String>) {
         self.set_field_value(
             key(ResourceField::EmailAddress),
@@ -965,16 +965,16 @@ impl Resource {
         );
     }
 
-    /// 取电子邮箱地址。
+    /// Gets the email address.
     ///
-    /// 对应 Java: `public String getEmailAddress()`
+    /// Corresponds to Java: `public String getEmailAddress()`
     pub fn get_email_address(&self) -> Option<String> {
         self.get_string(ResourceField::EmailAddress)
     }
 
-    /// 设置超链接文本。
+    /// Sets the hyperlink text.
     ///
-    /// 对应 Java: `public void setHyperlink(String hyperlink)`
+    /// Corresponds to Java: `public void setHyperlink(String hyperlink)`
     pub fn set_hyperlink(&mut self, hyperlink: Option<String>) {
         self.set_field_value(
             key(ResourceField::Hyperlink),
@@ -982,16 +982,16 @@ impl Resource {
         );
     }
 
-    /// 取超链接文本。
+    /// Gets the hyperlink text.
     ///
-    /// 对应 Java: `public String getHyperlink()`
+    /// Corresponds to Java: `public String getHyperlink()`
     pub fn get_hyperlink(&self) -> Option<String> {
         self.get_string(ResourceField::Hyperlink)
     }
 
-    /// 设置超链接地址。
+    /// Sets the hyperlink address.
     ///
-    /// 对应 Java: `public void setHyperlinkAddress(String hyperlinkAddress)`
+    /// Corresponds to Java: `public void setHyperlinkAddress(String hyperlinkAddress)`
     pub fn set_hyperlink_address(&mut self, hyperlink_address: Option<String>) {
         self.set_field_value(
             key(ResourceField::HyperlinkAddress),
@@ -999,16 +999,16 @@ impl Resource {
         );
     }
 
-    /// 取超链接地址。
+    /// Gets the hyperlink address.
     ///
-    /// 对应 Java: `public String getHyperlinkAddress()`
+    /// Corresponds to Java: `public String getHyperlinkAddress()`
     pub fn get_hyperlink_address(&self) -> Option<String> {
         self.get_string(ResourceField::HyperlinkAddress)
     }
 
-    /// 设置超链接子地址。
+    /// Sets the hyperlink sub-address.
     ///
-    /// 对应 Java: `public void setHyperlinkSubAddress(String hyperlinkSubAddress)`
+    /// Corresponds to Java: `public void setHyperlinkSubAddress(String hyperlinkSubAddress)`
     pub fn set_hyperlink_sub_address(&mut self, hyperlink_sub_address: Option<String>) {
         self.set_field_value(
             key(ResourceField::HyperlinkSubaddress),
@@ -1016,16 +1016,16 @@ impl Resource {
         );
     }
 
-    /// 取超链接子地址。
+    /// Gets the hyperlink sub-address.
     ///
-    /// 对应 Java: `public String getHyperlinkSubAddress()`
+    /// Corresponds to Java: `public String getHyperlinkSubAddress()`
     pub fn get_hyperlink_sub_address(&self) -> Option<String> {
         self.get_string(ResourceField::HyperlinkSubaddress)
     }
 
-    /// 设置超链接屏幕提示。
+    /// Sets the hyperlink screen tip.
     ///
-    /// 对应 Java: `public void setHyperlinkScreenTip(String text)`
+    /// Corresponds to Java: `public void setHyperlinkScreenTip(String text)`
     pub fn set_hyperlink_screen_tip(&mut self, text: Option<String>) {
         self.set_field_value(
             key(ResourceField::HyperlinkScreenTip),
@@ -1033,16 +1033,16 @@ impl Resource {
         );
     }
 
-    /// 取超链接屏幕提示。
+    /// Gets the hyperlink screen tip.
     ///
-    /// 对应 Java: `public String getHyperlinkScreenTip()`
+    /// Corresponds to Java: `public String getHyperlinkScreenTip()`
     pub fn get_hyperlink_screen_tip(&self) -> Option<String> {
         self.get_string(ResourceField::HyperlinkScreenTip)
     }
 
-    /// 设置默认可用性（默认 100）。
+    /// Sets the default availability (default 100).
     ///
-    /// 对应 Java: `public void setDefaultUnits(Number defaultUnits)`
+    /// Corresponds to Java: `public void setDefaultUnits(Number defaultUnits)`
     pub fn set_default_units(&mut self, default_units: Option<f64>) {
         self.set_field_value(
             key(ResourceField::DefaultUnits),
@@ -1050,23 +1050,23 @@ impl Resource {
         );
     }
 
-    /// 取默认可用性。
+    /// Gets the default availability.
     ///
-    /// 对应 Java: `public Number getDefaultUnits()`
+    /// Corresponds to Java: `public Number getDefaultUnits()`
     pub fn get_default_units(&self) -> Option<f64> {
         self.get_f64(ResourceField::DefaultUnits)
     }
 
-    /// 取当前日期的最大可用性。
+    /// Gets the maximum availability for the current date.
     ///
-    /// 对应 Java: `public Number getMaxUnits()`
+    /// Corresponds to Java: `public Number getMaxUnits()`
     pub fn get_max_units(&self) -> Option<f64> {
         self.get_f64(ResourceField::MaxUnits)
     }
 
-    /// 设置高峰利用率。
+    /// Sets the peak utilization.
     ///
-    /// 对应 Java: `public void setPeakUnits(Number peakUnits)`
+    /// Corresponds to Java: `public void setPeakUnits(Number peakUnits)`
     pub fn set_peak_units(&mut self, peak_units: Option<f64>) {
         self.set_field_value(
             key(ResourceField::Peak),
@@ -1074,16 +1074,16 @@ impl Resource {
         );
     }
 
-    /// 取高峰利用率。
+    /// Gets the peak utilization.
     ///
-    /// 对应 Java: `public Number getPeakUnits()`
+    /// Corresponds to Java: `public Number getPeakUnits()`
     pub fn get_peak_units(&self) -> Option<f64> {
         self.get_f64(ResourceField::Peak)
     }
 
-    /// 设置过度分配标志。
+    /// Sets the over-allocation flag.
     ///
-    /// 对应 Java: `public void setOverAllocated(boolean overallocated)`
+    /// Corresponds to Java: `public void setOverAllocated(boolean overallocated)`
     pub fn set_over_allocated(&mut self, overallocated: bool) {
         self.set_field_value(
             key(ResourceField::Overallocated),
@@ -1091,44 +1091,44 @@ impl Resource {
         );
     }
 
-    /// 取过度分配标志。
+    /// Gets the over-allocation flag.
     ///
-    /// 对应 Java: `public boolean getOverAllocated()`
+    /// Corresponds to Java: `public boolean getOverAllocated()`
     pub fn get_over_allocated(&self) -> bool {
         self.get_bool(ResourceField::Overallocated)
     }
 
-    /// 取「可用起始」日期。
+    /// Gets the "available from" date.
     ///
-    /// 对应 Java: `public LocalDateTime getAvailableFrom()`
+    /// Corresponds to Java: `public LocalDateTime getAvailableFrom()`
     pub fn get_available_from(&self) -> Option<NaiveDateTime> {
         self.get_date_time(ResourceField::AvailableFrom)
     }
 
-    /// 取「可用截止」日期。
+    /// Gets the "available to" date.
     ///
-    /// 对应 Java: `public LocalDateTime getAvailableTo()`
+    /// Corresponds to Java: `public LocalDateTime getAvailableTo()`
     pub fn get_available_to(&self) -> Option<NaiveDateTime> {
         self.get_date_time(ResourceField::AvailableTo)
     }
 
-    /// 取全部已分配任务的最早开始日期。
+    /// Gets the earliest start date of all assigned tasks.
     ///
-    /// 对应 Java: `public LocalDateTime getStart()`
+    /// Corresponds to Java: `public LocalDateTime getStart()`
     pub fn get_start(&self) -> Option<NaiveDateTime> {
         self.get_date_time(ResourceField::Start)
     }
 
-    /// 取全部已分配任务的最晚完成日期。
+    /// Gets the latest finish date of all assigned tasks.
     ///
-    /// 对应 Java: `public LocalDateTime getFinish()`
+    /// Corresponds to Java: `public LocalDateTime getFinish()`
     pub fn get_finish(&self) -> Option<NaiveDateTime> {
         self.get_date_time(ResourceField::Finish)
     }
 
-    /// 设置是否可参与资源平衡。
+    /// Sets whether the resource can be leveled.
     ///
-    /// 对应 Java: `public void setCanLevel(boolean canLevel)`
+    /// Corresponds to Java: `public void setCanLevel(boolean canLevel)`
     pub fn set_can_level(&mut self, can_level: bool) {
         self.set_field_value(
             key(ResourceField::CanLevel),
@@ -1136,16 +1136,16 @@ impl Resource {
         );
     }
 
-    /// 取是否可参与资源平衡。
+    /// Gets whether the resource can be leveled.
     ///
-    /// 对应 Java: `public boolean getCanLevel()`
+    /// Corresponds to Java: `public boolean getCanLevel()`
     pub fn get_can_level(&self) -> bool {
         self.get_bool(ResourceField::CanLevel)
     }
 
-    /// 设置成本计提方式。
+    /// Sets the cost accrual method.
     ///
-    /// 对应 Java: `public void setAccrueAt(AccrueType type)`
+    /// Corresponds to Java: `public void setAccrueAt(AccrueType type)`
     pub fn set_accrue_at(&mut self, value: AccrueType) {
         self.set_field_value(
             key(ResourceField::AccrueAt),
@@ -1153,39 +1153,39 @@ impl Resource {
         );
     }
 
-    /// 取成本计提方式。
+    /// Gets the cost accrual method.
     ///
-    /// 对应 Java: `public AccrueType getAccrueAt()`
+    /// Corresponds to Java: `public AccrueType getAccrueAt()`
     pub fn get_accrue_at(&self) -> Option<AccrueType> {
         self.get(key(ResourceField::AccrueAt))
             .and_then(|value| value.as_integer())
             .and_then(AccrueType::get_instance)
     }
 
-    /// 设置 Work 字段（导入 MS Project 时忽略）。
+    /// Sets the Work field (ignored when reading MS Project files).
     ///
-    /// 对应 Java: `public void setWork(Duration val)`
+    /// Corresponds to Java: `public void setWork(Duration val)`
     pub fn set_work(&mut self, val: Option<Duration>) {
         self.set_field_value(key(ResourceField::Work), val.map(FieldValue::Duration));
     }
 
-    /// 取 Work 字段。
+    /// Gets the Work field.
     ///
-    /// 对应 Java: `public Duration getWork()`
+    /// Corresponds to Java: `public Duration getWork()`
     pub fn get_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::Work)
     }
 
-    /// 取 Regular Work 字段（MPX 规范的扩展）。
+    /// Gets the Regular Work field (an extension in the MPX specification).
     ///
-    /// 对应 Java: `public Duration getRegularWork()`
+    /// Corresponds to Java: `public Duration getRegularWork()`
     pub fn get_regular_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::RegularWork)
     }
 
-    /// 设置 Regular Work 字段。
+    /// Sets the Regular Work field.
     ///
-    /// 对应 Java: `public void setRegularWork(Duration duration)`
+    /// Corresponds to Java: `public void setRegularWork(Duration duration)`
     pub fn set_regular_work(&mut self, duration: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::RegularWork),
@@ -1193,9 +1193,9 @@ impl Resource {
         );
     }
 
-    /// 设置 Actual Work 字段。
+    /// Sets the Actual Work field.
     ///
-    /// 对应 Java: `public void setActualWork(Duration val)`
+    /// Corresponds to Java: `public void setActualWork(Duration val)`
     pub fn set_actual_work(&mut self, val: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::ActualWork),
@@ -1203,16 +1203,16 @@ impl Resource {
         );
     }
 
-    /// 取 Actual Work 字段。
+    /// Gets the Actual Work field.
     ///
-    /// 对应 Java: `public Duration getActualWork()`
+    /// Corresponds to Java: `public Duration getActualWork()`
     pub fn get_actual_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::ActualWork)
     }
 
-    /// 设置加班工时。
+    /// Sets the overtime work.
     ///
-    /// 对应 Java: `public void setOvertimeWork(Duration overtimeWork)`
+    /// Corresponds to Java: `public void setOvertimeWork(Duration overtimeWork)`
     pub fn set_overtime_work(&mut self, overtime_work: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::OvertimeWork),
@@ -1220,16 +1220,16 @@ impl Resource {
         );
     }
 
-    /// 取加班工时。
+    /// Gets the overtime work.
     ///
-    /// 对应 Java: `public Duration getOvertimeWork()`
+    /// Corresponds to Java: `public Duration getOvertimeWork()`
     pub fn get_overtime_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::OvertimeWork)
     }
 
-    /// 设置 Remaining Work 字段（导入 MS Project 时忽略）。
+    /// Sets the Remaining Work field (ignored when reading MS Project files).
     ///
-    /// 对应 Java: `public void setRemainingWork(Duration val)`
+    /// Corresponds to Java: `public void setRemainingWork(Duration val)`
     pub fn set_remaining_work(&mut self, val: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::RemainingWork),
@@ -1237,23 +1237,23 @@ impl Resource {
         );
     }
 
-    /// 取 Remaining Work 字段。
+    /// Gets the Remaining Work field.
     ///
-    /// 对应 Java: `public Duration getRemainingWork()`
+    /// Corresponds to Java: `public Duration getRemainingWork()`
     pub fn get_remaining_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::RemainingWork)
     }
 
-    /// 取实际加班工时。
+    /// Gets the actual overtime work.
     ///
-    /// 对应 Java: `public Duration getActualOvertimeWork()`
+    /// Corresponds to Java: `public Duration getActualOvertimeWork()`
     pub fn get_actual_overtime_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::ActualOvertimeWork)
     }
 
-    /// 设置实际加班工时。
+    /// Sets the actual overtime work.
     ///
-    /// 对应 Java: `public void setActualOvertimeWork(Duration duration)`
+    /// Corresponds to Java: `public void setActualOvertimeWork(Duration duration)`
     pub fn set_actual_overtime_work(&mut self, duration: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::ActualOvertimeWork),
@@ -1261,16 +1261,16 @@ impl Resource {
         );
     }
 
-    /// 取剩余加班工时。
+    /// Gets the remaining overtime work.
     ///
-    /// 对应 Java: `public Duration getRemainingOvertimeWork()`
+    /// Corresponds to Java: `public Duration getRemainingOvertimeWork()`
     pub fn get_remaining_overtime_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::RemainingOvertimeWork)
     }
 
-    /// 设置剩余加班工时。
+    /// Sets the remaining overtime work.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeWork(Duration duration)`
+    /// Corresponds to Java: `public void setRemainingOvertimeWork(Duration duration)`
     pub fn set_remaining_overtime_work(&mut self, duration: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::RemainingOvertimeWork),
@@ -1278,9 +1278,9 @@ impl Resource {
         );
     }
 
-    /// 设置完成百分比。
+    /// Sets the percentage complete.
     ///
-    /// 对应 Java: `public void setPercentWorkComplete(Number percentWorkComplete)`
+    /// Corresponds to Java: `public void setPercentWorkComplete(Number percentWorkComplete)`
     pub fn set_percent_work_complete(&mut self, percent_work_complete: Option<f64>) {
         self.set_field_value(
             key(ResourceField::PercentWorkComplete),
@@ -1288,51 +1288,51 @@ impl Resource {
         );
     }
 
-    /// 取完成百分比。
+    /// Gets the percentage complete.
     ///
-    /// 对应 Java: `public Number getPercentWorkComplete()`
+    /// Corresponds to Java: `public Number getPercentWorkComplete()`
     pub fn get_percent_work_complete(&self) -> Option<f64> {
         self.get_f64(ResourceField::PercentWorkComplete)
     }
 
-    /// 取标准费率（由当前成本费率表 A 计算）。
+    /// Gets the standard rate (calculated from the current cost rate table A).
     ///
-    /// 对应 Java: `public Rate getStandardRate()`
+    /// Corresponds to Java: `public Rate getStandardRate()`
     pub fn get_standard_rate(&self) -> Option<Rate> {
         self.get_field_rate(ResourceField::StandardRate)
     }
 
-    /// 设置成本字段。
+    /// Sets the Cost field.
     ///
-    /// 对应 Java: `public void setCost(Number cost)`
+    /// Corresponds to Java: `public void setCost(Number cost)`
     pub fn set_cost(&mut self, cost: Option<f64>) {
         self.set_field_value(key(ResourceField::Cost), cost.map(FieldValue::Double));
     }
 
-    /// 取成本字段。
+    /// Gets the Cost field.
     ///
-    /// 对应 Java: `public Number getCost()`
+    /// Corresponds to Java: `public Number getCost()`
     pub fn get_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::Cost)
     }
 
-    /// 取加班费率（由当前成本费率表 A 计算）。
+    /// Gets the overtime rate (calculated from the current cost rate table A).
     ///
-    /// 对应 Java: `public Rate getOvertimeRate()`
+    /// Corresponds to Java: `public Rate getOvertimeRate()`
     pub fn get_overtime_rate(&self) -> Option<Rate> {
         self.get_field_rate(ResourceField::OvertimeRate)
     }
 
-    /// 取加班成本。
+    /// Gets the overtime cost.
     ///
-    /// 对应 Java: `public Number getOvertimeCost()`
+    /// Corresponds to Java: `public Number getOvertimeCost()`
     pub fn get_overtime_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::OvertimeCost)
     }
 
-    /// 设置加班成本。
+    /// Sets the overtime cost.
     ///
-    /// 对应 Java: `public void setOvertimeCost(Number currency)`
+    /// Corresponds to Java: `public void setOvertimeCost(Number currency)`
     pub fn set_overtime_cost(&mut self, currency: Option<f64>) {
         self.set_field_value(
             key(ResourceField::OvertimeCost),
@@ -1340,16 +1340,16 @@ impl Resource {
         );
     }
 
-    /// 取每次使用成本（由当前成本费率表 A 计算）。
+    /// Gets the cost per use (calculated from the current cost rate table A).
     ///
-    /// 对应 Java: `public Number getCostPerUse()`
+    /// Corresponds to Java: `public Number getCostPerUse()`
     pub fn get_cost_per_use(&self) -> Option<f64> {
         self.get_f64(ResourceField::CostPerUse)
     }
 
-    /// 设置实际成本。
+    /// Sets the actual cost.
     ///
-    /// 对应 Java: `public void setActualCost(Number actualCost)`
+    /// Corresponds to Java: `public void setActualCost(Number actualCost)`
     pub fn set_actual_cost(&mut self, actual_cost: Option<f64>) {
         self.set_field_value(
             key(ResourceField::ActualCost),
@@ -1357,23 +1357,23 @@ impl Resource {
         );
     }
 
-    /// 取实际成本。
+    /// Gets the actual cost.
     ///
-    /// 对应 Java: `public Number getActualCost()`
+    /// Corresponds to Java: `public Number getActualCost()`
     pub fn get_actual_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::ActualCost)
     }
 
-    /// 取实际加班成本。
+    /// Gets the actual overtime cost.
     ///
-    /// 对应 Java: `public Number getActualOvertimeCost()`
+    /// Corresponds to Java: `public Number getActualOvertimeCost()`
     pub fn get_actual_overtime_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::ActualOvertimeCost)
     }
 
-    /// 设置实际加班成本。
+    /// Sets the actual overtime cost.
     ///
-    /// 对应 Java: `public void setActualOvertimeCost(Number actualOvertimeCost)`
+    /// Corresponds to Java: `public void setActualOvertimeCost(Number actualOvertimeCost)`
     pub fn set_actual_overtime_cost(&mut self, actual_overtime_cost: Option<f64>) {
         self.set_field_value(
             key(ResourceField::ActualOvertimeCost),
@@ -1381,9 +1381,9 @@ impl Resource {
         );
     }
 
-    /// 设置剩余成本。
+    /// Sets the remaining cost.
     ///
-    /// 对应 Java: `public void setRemainingCost(Number remainingCost)`
+    /// Corresponds to Java: `public void setRemainingCost(Number remainingCost)`
     pub fn set_remaining_cost(&mut self, remaining_cost: Option<f64>) {
         self.set_field_value(
             key(ResourceField::RemainingCost),
@@ -1391,23 +1391,23 @@ impl Resource {
         );
     }
 
-    /// 取剩余成本。
+    /// Gets the remaining cost.
     ///
-    /// 对应 Java: `public Number getRemainingCost()`
+    /// Corresponds to Java: `public Number getRemainingCost()`
     pub fn get_remaining_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::RemainingCost)
     }
 
-    /// 取剩余加班成本。
+    /// Gets the remaining overtime cost.
     ///
-    /// 对应 Java: `public Number getRemainingOvertimeCost()`
+    /// Corresponds to Java: `public Number getRemainingOvertimeCost()`
     pub fn get_remaining_overtime_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::RemainingOvertimeCost)
     }
 
-    /// 设置剩余加班成本。
+    /// Sets the remaining overtime cost.
     ///
-    /// 对应 Java: `public void setRemainingOvertimeCost(Number remainingOvertimeCost)`
+    /// Corresponds to Java: `public void setRemainingOvertimeCost(Number remainingOvertimeCost)`
     pub fn set_remaining_overtime_cost(&mut self, remaining_overtime_cost: Option<f64>) {
         self.set_field_value(
             key(ResourceField::RemainingOvertimeCost),
@@ -1415,9 +1415,9 @@ impl Resource {
         );
     }
 
-    /// 设置工时偏差。
+    /// Sets the work variance.
     ///
-    /// 对应 Java: `public void setWorkVariance(Duration workVariance)`
+    /// Corresponds to Java: `public void setWorkVariance(Duration workVariance)`
     pub fn set_work_variance(&mut self, work_variance: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::WorkVariance),
@@ -1425,16 +1425,16 @@ impl Resource {
         );
     }
 
-    /// 取工时偏差。
+    /// Gets the work variance.
     ///
-    /// 对应 Java: `public Duration getWorkVariance()`
+    /// Corresponds to Java: `public Duration getWorkVariance()`
     pub fn get_work_variance(&self) -> Option<Duration> {
         self.get_duration(ResourceField::WorkVariance)
     }
 
-    /// 设置成本偏差。
+    /// Sets the cost variance.
     ///
-    /// 对应 Java: `public void setCostVariance(Number costVariance)`
+    /// Corresponds to Java: `public void setCostVariance(Number costVariance)`
     pub fn set_cost_variance(&mut self, cost_variance: Option<f64>) {
         self.set_field_value(
             key(ResourceField::CostVariance),
@@ -1442,159 +1442,159 @@ impl Resource {
         );
     }
 
-    /// 取成本偏差。
+    /// Gets the cost variance.
     ///
-    /// 对应 Java: `public Number getCostVariance()`
+    /// Corresponds to Java: `public Number getCostVariance()`
     pub fn get_cost_variance(&self) -> Option<f64> {
         self.get_f64(ResourceField::CostVariance)
     }
 
-    /// 设置进度偏差（SV）。
+    /// Sets the schedule variance (SV).
     ///
-    /// 对应 Java: `public void setSV(Number sv)`
+    /// Corresponds to Java: `public void setSV(Number sv)`
     pub fn set_sv(&mut self, sv: Option<f64>) {
         self.set_field_value(key(ResourceField::Sv), sv.map(FieldValue::Double));
     }
 
-    /// 取进度偏差（SV）。
+    /// Gets the schedule variance (SV).
     ///
-    /// 对应 Java: `public Number getSV()`
+    /// Corresponds to Java: `public Number getSV()`
     pub fn get_sv(&self) -> Option<f64> {
         self.get_f64(ResourceField::Sv)
     }
 
-    /// 设置成本偏差（CV）。
+    /// Sets the cost variance (CV).
     ///
-    /// 对应 Java: `public void setCV(Number cv)`
+    /// Corresponds to Java: `public void setCV(Number cv)`
     pub fn set_cv(&mut self, cv: Option<f64>) {
         self.set_field_value(key(ResourceField::Cv), cv.map(FieldValue::Double));
     }
 
-    /// 取成本偏差（CV）。
+    /// Gets the cost variance (CV).
     ///
-    /// 对应 Java: `public Number getCV()`
+    /// Corresponds to Java: `public Number getCV()`
     pub fn get_cv(&self) -> Option<f64> {
         self.get_f64(ResourceField::Cv)
     }
 
-    /// 设置已完成工作实际成本（ACWP）。
+    /// Sets the actual cost of work performed (ACWP).
     ///
-    /// 对应 Java: `public void setACWP(Number acwp)`
+    /// Corresponds to Java: `public void setACWP(Number acwp)`
     pub fn set_acwp(&mut self, acwp: Option<f64>) {
         self.set_field_value(key(ResourceField::Acwp), acwp.map(FieldValue::Double));
     }
 
-    /// 取已完成工作实际成本（ACWP）。
+    /// Gets the actual cost of work performed (ACWP).
     ///
-    /// 对应 Java: `public Number getACWP()`
+    /// Corresponds to Java: `public Number getACWP()`
     pub fn get_acwp(&self) -> Option<f64> {
         self.get_f64(ResourceField::Acwp)
     }
 
-    /// 设置纯文本备注。
+    /// Sets the plain-text notes.
     ///
-    /// 对应 Java: `public void setNotes(String notes)`
+    /// Corresponds to Java: `public void setNotes(String notes)`
     pub fn set_notes(&mut self, notes: Option<String>) {
         self.set_field_value(key(ResourceField::Notes), notes.map(FieldValue::String));
     }
 
-    /// 取纯文本备注。
+    /// Gets the plain-text notes.
     ///
-    /// 对应 Java: `public String getNotes()`
+    /// Corresponds to Java: `public String getNotes()`
     pub fn get_notes(&self) -> String {
         self.get(key(ResourceField::Notes))
             .and_then(|value| value.as_string().map(str::to_owned))
             .unwrap_or_default()
     }
 
-    /// 设置 `Notes` 实例（Rust 侧只能保留其纯文本表示，见文件头说明）。
+    /// Sets the `Notes` instance (the Rust side can only keep its plain-text representation; see the notes at the top of the file).
     ///
-    /// 对应 Java: `public void setNotesObject(Notes notes)`
+    /// Corresponds to Java: `public void setNotesObject(Notes notes)`
     pub fn set_notes_object(&mut self, notes: Option<&dyn Notes>) {
         self.set_notes(notes.map(|notes| notes.to_string()));
     }
 
-    /// 取纯文本备注对象（Rust 侧固定为 [`PlainNotes`]）。
+    /// Gets the plain-text notes object (fixed to [`PlainNotes`] on the Rust side).
     ///
-    /// 对应 Java: `public Notes getNotesObject()`
+    /// Corresponds to Java: `public Notes getNotesObject()`
     pub fn get_notes_object(&self) -> Option<PlainNotes> {
         self.get(key(ResourceField::Notes))
             .and_then(|value| value.as_string().map(|text| PlainNotes::new(Some(text.to_owned()))))
     }
 
-    /// 设置计划工作预算成本（BCWS）。
+    /// Sets the budgeted cost of work scheduled (BCWS).
     ///
-    /// 对应 Java: `public void setBCWS(Number bcws)`
+    /// Corresponds to Java: `public void setBCWS(Number bcws)`
     pub fn set_bcws(&mut self, bcws: Option<f64>) {
         self.set_field_value(key(ResourceField::Bcws), bcws.map(FieldValue::Double));
     }
 
-    /// 取计划工作预算成本（BCWS）。
+    /// Gets the budgeted cost of work scheduled (BCWS).
     ///
-    /// 对应 Java: `public Number getBCWS()`
+    /// Corresponds to Java: `public Number getBCWS()`
     pub fn get_bcws(&self) -> Option<f64> {
         self.get_f64(ResourceField::Bcws)
     }
 
-    /// 设置已完成工作预算成本（BCWP）。
+    /// Sets the budgeted cost of work performed (BCWP).
     ///
-    /// 对应 Java: `public void setBCWP(Number bcwp)`
+    /// Corresponds to Java: `public void setBCWP(Number bcwp)`
     pub fn set_bcwp(&mut self, bcwp: Option<f64>) {
         self.set_field_value(key(ResourceField::Bcwp), bcwp.map(FieldValue::Double));
     }
 
-    /// 取已完成工作预算成本（BCWP）。
+    /// Gets the budgeted cost of work performed (BCWP).
     ///
-    /// 对应 Java: `public Number getBCWP()`
+    /// Corresponds to Java: `public Number getBCWP()`
     pub fn get_bcwp(&self) -> Option<f64> {
         self.get_f64(ResourceField::Bcwp)
     }
 
-    /// 设置通用资源标志。
+    /// Sets the generic resource flag.
     ///
-    /// 对应 Java: `public void setGeneric(boolean value)`
+    /// Corresponds to Java: `public void setGeneric(boolean value)`
     pub fn set_generic(&mut self, value: bool) {
         self.set_field_value(key(ResourceField::Generic), Some(FieldValue::Boolean(value)));
     }
 
-    /// 取通用资源标志。
+    /// Gets the generic resource flag.
     ///
-    /// 对应 Java: `public boolean getGeneric()`
+    /// Corresponds to Java: `public boolean getGeneric()`
     pub fn get_generic(&self) -> bool {
         self.get_bool(ResourceField::Generic)
     }
 
-    /// 设置活动标志。
+    /// Sets the active flag.
     ///
-    /// 对应 Java: `public void setActive(boolean value)`
+    /// Corresponds to Java: `public void setActive(boolean value)`
     pub fn set_active(&mut self, value: bool) {
         self.set_field_value(key(ResourceField::Active), Some(FieldValue::Boolean(value)));
     }
 
-    /// 取活动标志（默认 `true`）。
+    /// Gets the active flag (defaults to `true`).
     ///
-    /// 对应 Java: `public boolean getActive()`
+    /// Corresponds to Java: `public boolean getActive()`
     pub fn get_active(&self) -> bool {
         self.get_bool(ResourceField::Active)
     }
 
-    /// 设置 Active Directory GUID。
+    /// Sets the Active Directory GUID.
     ///
-    /// 对应 Java: `public void setActiveDirectoryGUID(String guid)`
+    /// Corresponds to Java: `public void setActiveDirectoryGUID(String guid)`
     pub fn set_active_directory_guid(&mut self, guid: Option<String>) {
         self.active_directory_guid = guid;
     }
 
-    /// 取 Active Directory GUID。
+    /// Gets the Active Directory GUID.
     ///
-    /// 对应 Java: `public String getActiveDirectoryGUID()`
+    /// Corresponds to Java: `public String getActiveDirectoryGUID()`
     pub fn get_active_directory_guid(&self) -> Option<String> {
         self.active_directory_guid.clone()
     }
 
-    /// 设置实际加班工时上限（protected）。
+    /// Sets the maximum actual overtime work (protected).
     ///
-    /// 对应 Java: `public void setActualOvertimeWorkProtected(Duration duration)`
+    /// Corresponds to Java: `public void setActualOvertimeWorkProtected(Duration duration)`
     pub fn set_actual_overtime_work_protected(&mut self, duration: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::ActualOvertimeWorkProtected),
@@ -1602,16 +1602,16 @@ impl Resource {
         );
     }
 
-    /// 取实际加班工时上限（protected）。
+    /// Gets the maximum actual overtime work (protected).
     ///
-    /// 对应 Java: `public Duration getActualOvertimeWorkProtected()`
+    /// Corresponds to Java: `public Duration getActualOvertimeWorkProtected()`
     pub fn get_actual_overtime_work_protected(&self) -> Option<Duration> {
         self.get_duration(ResourceField::ActualOvertimeWorkProtected)
     }
 
-    /// 设置实际工时上限（protected）。
+    /// Sets the maximum actual work (protected).
     ///
-    /// 对应 Java: `public void setActualWorkProtected(Duration duration)`
+    /// Corresponds to Java: `public void setActualWorkProtected(Duration duration)`
     pub fn set_actual_work_protected(&mut self, duration: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::ActualWorkProtected),
@@ -1619,16 +1619,16 @@ impl Resource {
         );
     }
 
-    /// 取实际工时上限（protected）。
+    /// Gets the maximum actual work (protected).
     ///
-    /// 对应 Java: `public Duration getActualWorkProtected()`
+    /// Corresponds to Java: `public Duration getActualWorkProtected()`
     pub fn get_actual_work_protected(&self) -> Option<Duration> {
         self.get_duration(ResourceField::ActualWorkProtected)
     }
 
-    /// 设置预订类型。
+    /// Sets the booking type.
     ///
-    /// 对应 Java: `public void setBookingType(BookingType bookingType)`
+    /// Corresponds to Java: `public void setBookingType(BookingType bookingType)`
     pub fn set_booking_type(&mut self, booking_type: BookingType) {
         self.set_field_value(
             key(ResourceField::BookingType),
@@ -1636,18 +1636,18 @@ impl Resource {
         );
     }
 
-    /// 取预订类型。
+    /// Gets the booking type.
     ///
-    /// 对应 Java: `public BookingType getBookingType()`
+    /// Corresponds to Java: `public BookingType getBookingType()`
     pub fn get_booking_type(&self) -> Option<BookingType> {
         self.get(key(ResourceField::BookingType))
             .and_then(|value| value.as_integer())
             .map(BookingType::get_instance)
     }
 
-    /// 设置创建日期。
+    /// Sets the creation date.
     ///
-    /// 对应 Java: `public void setCreationDate(LocalDateTime creationDate)`
+    /// Corresponds to Java: `public void setCreationDate(LocalDateTime creationDate)`
     pub fn set_creation_date(&mut self, creation_date: Option<NaiveDateTime>) {
         self.set_field_value(
             key(ResourceField::Created),
@@ -1655,16 +1655,16 @@ impl Resource {
         );
     }
 
-    /// 取创建日期。
+    /// Gets the creation date.
     ///
-    /// 对应 Java: `public LocalDateTime getCreationDate()`
+    /// Corresponds to Java: `public LocalDateTime getCreationDate()`
     pub fn get_creation_date(&self) -> Option<NaiveDateTime> {
         self.get_date_time(ResourceField::Created)
     }
 
-    /// 设置企业资源标志。
+    /// Sets the enterprise resource flag.
     ///
-    /// 对应 Java: `public void setEnterprise(boolean enterprise)`
+    /// Corresponds to Java: `public void setEnterprise(boolean enterprise)`
     pub fn set_enterprise(&mut self, enterprise: bool) {
         self.set_field_value(
             key(ResourceField::Enterprise),
@@ -1672,23 +1672,23 @@ impl Resource {
         );
     }
 
-    /// 取企业资源标志。
+    /// Gets the enterprise resource flag.
     ///
-    /// 对应 Java: `public boolean getEnterprise()`
+    /// Corresponds to Java: `public boolean getEnterprise()`
     pub fn get_enterprise(&self) -> bool {
         self.get_bool(ResourceField::Enterprise)
     }
 
-    /// 取资源日历的 unique ID。
+    /// Gets the resource calendar's unique ID.
     ///
-    /// 对应 Java: `public Integer getCalendarUniqueID()`
+    /// Corresponds to Java: `public Integer getCalendarUniqueID()`
     pub fn get_calendar_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::CalendarUniqueId)
     }
 
-    /// 设置资源日历的 unique ID。
+    /// Sets the resource calendar's unique ID.
     ///
-    /// 对应 Java: `public void setCalendarUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setCalendarUniqueID(Integer id)`
     pub fn set_calendar_unique_id(&mut self, id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::CalendarUniqueId),
@@ -1696,9 +1696,9 @@ impl Resource {
         );
     }
 
-    /// 取资源关联的日历。
+    /// Gets the calendar associated with the resource.
     ///
-    /// 对应 Java: `public ProjectCalendar getCalendar()`
+    /// Corresponds to Java: `public ProjectCalendar getCalendar()`
     pub fn get_calendar(&self) -> Option<Rc<RefCell<ProjectCalendar>>> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -1707,19 +1707,19 @@ impl Resource {
             .get_by_unique_id(self.get_calendar_unique_id())
     }
 
-    /// 关联一个已有的资源日历。
+    /// Associates an existing resource calendar.
     ///
-    /// 对应 Java: `public void setCalendar(ProjectCalendar calendar)`
+    /// Corresponds to Java: `public void setCalendar(ProjectCalendar calendar)`
     pub fn set_calendar(&mut self, calendar: Option<&Rc<RefCell<ProjectCalendar>>>) {
         let unique_id = calendar.and_then(|calendar| calendar.borrow().get_unique_id());
         self.set_calendar_unique_id(unique_id);
     }
 
-    /// 新建并关联一个资源日历。
+    /// Creates and associates a new resource calendar.
     ///
-    /// 对应 Java: `public ProjectCalendar addCalendar() throws MPXJException`
+    /// Corresponds to Java: `public ProjectCalendar addCalendar() throws MPXJException`
     ///
-    /// Rust 侧上下文不可用（未接线或已被可变借用）时返回 `Err`（Java 不会出现该分支）。
+    /// The Rust side returns `Err` when the context is unavailable (not wired up or already mutably borrowed); this branch cannot occur in Java.
     pub fn add_calendar(&mut self) -> MpxjResult<Rc<RefCell<ProjectCalendar>>> {
         if self.get_calendar().is_some() {
             return Err(MpxjError::new(MpxjError::MAXIMUM_RECORDS));
@@ -1750,9 +1750,9 @@ impl Resource {
         Ok(calendar)
     }
 
-    /// 设置基准日历名称（空值回落到 `"Standard"`）。
+    /// Sets the base calendar name (falls back to `"Standard"` when empty).
     ///
-    /// 对应 Java: `public void setBaseCalendar(String val)`
+    /// Corresponds to Java: `public void setBaseCalendar(String val)`
     pub fn set_base_calendar(&mut self, val: Option<String>) {
         let value = match val {
             Some(value) if !value.is_empty() => value,
@@ -1761,9 +1761,9 @@ impl Resource {
         self.set_field_value(key(ResourceField::BaseCalendar), Some(FieldValue::String(value)));
     }
 
-    /// 设置基线成本（导入 MS Project 时忽略）。
+    /// Sets the baseline cost (ignored when reading MS Project files).
     ///
-    /// 对应 Java: `public void setBaselineCost(Number val)`
+    /// Corresponds to Java: `public void setBaselineCost(Number val)`
     pub fn set_baseline_cost(&mut self, val: Option<f64>) {
         self.set_field_value(
             key(ResourceField::BaselineCost),
@@ -1771,9 +1771,9 @@ impl Resource {
         );
     }
 
-    /// 设置基线工时（导入 MS Project 时忽略）。
+    /// Sets the baseline work (ignored when reading MS Project files).
     ///
-    /// 对应 Java: `public void setBaselineWork(Duration val)`
+    /// Corresponds to Java: `public void setBaselineWork(Duration val)`
     pub fn set_baseline_work(&mut self, val: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::BaselineWork),
@@ -1781,30 +1781,30 @@ impl Resource {
         );
     }
 
-    /// 取该资源关联的基准日历名称。
+    /// Gets the base calendar name associated with this resource.
     ///
-    /// 对应 Java: `public String getBaseCalendar()`
+    /// Corresponds to Java: `public String getBaseCalendar()`
     pub fn get_base_calendar(&self) -> Option<String> {
         self.get_string(ResourceField::BaseCalendar)
     }
 
-    /// 取基线成本。
+    /// Gets the baseline cost.
     ///
-    /// 对应 Java: `public Number getBaselineCost()`
+    /// Corresponds to Java: `public Number getBaselineCost()`
     pub fn get_baseline_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::BaselineCost)
     }
 
-    /// 取基线工时。
+    /// Gets the baseline work.
     ///
-    /// 对应 Java: `public Duration getBaselineWork()`
+    /// Corresponds to Java: `public Duration getBaselineWork()`
     pub fn get_baseline_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::BaselineWork)
     }
 
-    /// 设置「链接字段」标志（导入 MS Project 时忽略）。
+    /// Sets the "linked fields" flag (ignored when reading MS Project files).
     ///
-    /// 对应 Java: `public void setLinkedFields(boolean val)`
+    /// Corresponds to Java: `public void setLinkedFields(boolean val)`
     pub fn set_linked_fields(&mut self, val: bool) {
         self.set_field_value(
             key(ResourceField::LinkedFields),
@@ -1812,60 +1812,60 @@ impl Resource {
         );
     }
 
-    /// 取「链接字段」标志。
+    /// Gets the "linked fields" flag.
     ///
-    /// 对应 Java: `public boolean getLinkedFields()`
+    /// Corresponds to Java: `public boolean getLinkedFields()`
     pub fn get_linked_fields(&self) -> bool {
         self.get_bool(ResourceField::LinkedFields)
     }
 
-    /// 设置 Objects 字段。
+    /// Sets the Objects field.
     ///
-    /// 对应 Java: `public void setObjects(Integer val)`
+    /// Corresponds to Java: `public void setObjects(Integer val)`
     pub fn set_objects(&mut self, val: Option<i32>) {
         self.set_field_value(key(ResourceField::Objects), val.map(FieldValue::Integer));
     }
 
-    /// 取 Objects 字段。
+    /// Gets the Objects field.
     ///
-    /// 对应 Java: `public Integer getObjects()`
+    /// Corresponds to Java: `public Integer getObjects()`
     pub fn get_objects(&self) -> Option<i32> {
         self.get_i32(ResourceField::Objects)
     }
 
-    /// 设置文本字段（下标 1-30）。
+    /// Sets the text field (indices 1-30).
     ///
-    /// 对应 Java: `public void setText(int index, String value)`
+    /// Corresponds to Java: `public void setText(int index, String value)`
     pub fn set_text_at(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(&CUSTOM_TEXT, index) {
             self.set_field_value(key(field), value.map(FieldValue::String));
         }
     }
 
-    /// 取文本字段（下标 1-30）。
+    /// Gets the text field (indices 1-30).
     ///
-    /// 对应 Java: `public String getText(int index)`
+    /// Corresponds to Java: `public String getText(int index)`
     pub fn get_text_at(&self, index: i32) -> Option<String> {
         select_field(&CUSTOM_TEXT, index).and_then(|field| self.get_string(field))
     }
 
-    /// 取父资源的 unique ID。
+    /// Gets the parent resource's unique ID.
     ///
-    /// 对应 Java: `public Integer getParentResourceUniqueID()`
+    /// Corresponds to Java: `public Integer getParentResourceUniqueID()`
     pub fn get_parent_resource_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::ParentId)
     }
 
-    /// 设置父资源的 unique ID。
+    /// Sets the parent resource's unique ID.
     ///
-    /// 对应 Java: `public void setParentResourceUniqueID(Integer id)`
+    /// Corresponds to Java: `public void setParentResourceUniqueID(Integer id)`
     pub fn set_parent_resource_unique_id(&mut self, id: Option<i32>) {
         self.set_field_value(key(ResourceField::ParentId), id.map(FieldValue::Integer));
     }
 
-    /// 取父资源。
+    /// Gets the parent resource.
     ///
-    /// 对应 Java: `public Resource getParentResource()`
+    /// Corresponds to Java: `public Resource getParentResource()`
     pub fn get_parent_resource(&self) -> Option<Rc<RefCell<Resource>>> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -1874,149 +1874,149 @@ impl Resource {
             .get_by_unique_id(self.get_parent_resource_unique_id())
     }
 
-    /// 设置父资源。
+    /// Sets the parent resource.
     ///
-    /// 对应 Java: `public void setParentResource(Resource resource)`
+    /// Corresponds to Java: `public void setParentResource(Resource resource)`
     pub fn set_parent_resource(&mut self, resource: Option<&Rc<RefCell<Resource>>>) {
         let unique_id = resource.and_then(|resource| resource.borrow().get_unique_id());
         self.set_parent_resource_unique_id(unique_id);
     }
 
-    /// 设置开始日期字段（下标 1-10）。
+    /// Sets the start date field (indices 1-10).
     ///
-    /// 对应 Java: `public void setStart(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setStart(int index, LocalDateTime value)`
     pub fn set_start_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(&CUSTOM_START, index) {
             self.set_field_value(key(field), value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取开始日期字段（下标 1-10）。
+    /// Gets the start date field (indices 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getStart(int index)`
+    /// Corresponds to Java: `public LocalDateTime getStart(int index)`
     pub fn get_start_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(&CUSTOM_START, index).and_then(|field| self.get_date_time(field))
     }
 
-    /// 设置完成日期字段（下标 1-10）。
+    /// Sets the finish date field (indices 1-10).
     ///
-    /// 对应 Java: `public void setFinish(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setFinish(int index, LocalDateTime value)`
     pub fn set_finish_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(&CUSTOM_FINISH, index) {
             self.set_field_value(key(field), value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取完成日期字段（下标 1-10）。
+    /// Gets the finish date field (indices 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getFinish(int index)`
+    /// Corresponds to Java: `public LocalDateTime getFinish(int index)`
     pub fn get_finish_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(&CUSTOM_FINISH, index).and_then(|field| self.get_date_time(field))
     }
 
-    /// 设置数字字段（下标 1-20）。
+    /// Sets the number field (indices 1-20).
     ///
-    /// 对应 Java: `public void setNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setNumber(int index, Number value)`
     pub fn set_number_at(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(&CUSTOM_NUMBER, index) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 取数字字段（下标 1-20）。
+    /// Gets the number field (indices 1-20).
     ///
-    /// 对应 Java: `public Number getNumber(int index)`
+    /// Corresponds to Java: `public Number getNumber(int index)`
     pub fn get_number_at(&self, index: i32) -> Option<f64> {
         select_field(&CUSTOM_NUMBER, index).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置工期字段（下标 1-10）。
+    /// Sets the duration field (indices 1-10).
     ///
-    /// 对应 Java: `public void setDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setDuration(int index, Duration value)`
     pub fn set_duration_at(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = select_field(&CUSTOM_DURATION, index) {
             self.set_field_value(key(field), value.map(FieldValue::Duration));
         }
     }
 
-    /// 取工期字段（下标 1-10）。
+    /// Gets the duration field (indices 1-10).
     ///
-    /// 对应 Java: `public Duration getDuration(int index)`
+    /// Corresponds to Java: `public Duration getDuration(int index)`
     pub fn get_duration_at(&self, index: i32) -> Option<Duration> {
         select_field(&CUSTOM_DURATION, index).and_then(|field| self.get_duration(field))
     }
 
-    /// 设置日期字段（下标 1-10）。
+    /// Sets the date field (indices 1-10).
     ///
-    /// 对应 Java: `public void setDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setDate(int index, LocalDateTime value)`
     pub fn set_date_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(&CUSTOM_DATE, index) {
             self.set_field_value(key(field), value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取日期字段（下标 1-10）。
+    /// Gets the date field (indices 1-10).
     ///
-    /// 对应 Java: `public LocalDateTime getDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getDate(int index)`
     pub fn get_date_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(&CUSTOM_DATE, index).and_then(|field| self.get_date_time(field))
     }
 
-    /// 设置成本字段（下标 1-10）。
+    /// Sets the cost field (indices 1-10).
     ///
-    /// 对应 Java: `public void setCost(int index, Number value)`
+    /// Corresponds to Java: `public void setCost(int index, Number value)`
     pub fn set_cost_at(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(&CUSTOM_COST, index) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 取成本字段（下标 1-10）。
+    /// Gets the cost field (indices 1-10).
     ///
-    /// 对应 Java: `public Number getCost(int index)`
+    /// Corresponds to Java: `public Number getCost(int index)`
     pub fn get_cost_at(&self, index: i32) -> Option<f64> {
         select_field(&CUSTOM_COST, index).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置标志字段（下标 1-20）。
+    /// Sets the flag field (indices 1-20).
     ///
-    /// 对应 Java: `public void setFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setFlag(int index, boolean value)`
     pub fn set_flag_at(&mut self, index: i32, value: bool) {
         if let Some(field) = select_field(&CUSTOM_FLAG, index) {
             self.set_field_value(key(field), Some(FieldValue::Boolean(value)));
         }
     }
 
-    /// 取标志字段（下标 1-20）。
+    /// Gets the flag field (indices 1-20).
     ///
-    /// 对应 Java: `public boolean getFlag(int index)`
+    /// Corresponds to Java: `public boolean getFlag(int index)`
     pub fn get_flag_at(&self, index: i32) -> bool {
         select_field(&CUSTOM_FLAG, index)
             .map(|field| self.get_bool(field))
             .unwrap_or(false)
     }
 
-    /// 设置大纲代码字段（下标 1-10）。
+    /// Sets the outline code field (indices 1-10).
     ///
-    /// 对应 Java: `public void setOutlineCode(int index, String value)`
+    /// Corresponds to Java: `public void setOutlineCode(int index, String value)`
     pub fn set_outline_code_at(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(&CUSTOM_OUTLINE_CODE, index) {
             self.set_field_value(key(field), value.map(FieldValue::String));
         }
     }
 
-    /// 取大纲代码字段（下标 1-10）。
+    /// Gets the outline code field (indices 1-10).
     ///
-    /// 对应 Java: `public String getOutlineCode(int index)`
+    /// Corresponds to Java: `public String getOutlineCode(int index)`
     pub fn get_outline_code_at(&self, index: i32) -> Option<String> {
         select_field(&CUSTOM_OUTLINE_CODE, index).and_then(|field| self.get_string(field))
     }
 
-    /// 把本资源从项目中移除。
+    /// Removes this resource from the project.
     ///
-    /// 对应 Java: `public void remove()`
+    /// Corresponds to Java: `public void remove()`
     ///
-    /// Rust 侧依赖 [`Resource::set_self_reference`] 接线的自身弱引用；未接线时为空操作。
+    /// The Rust side relies on the self weak reference wired up by [`Resource::set_self_reference`]; it is a no-op when not wired up.
     pub fn remove(&mut self) {
         let Some(self_rc) = self.self_ref.upgrade() else {
             return;
@@ -2024,41 +2024,41 @@ impl Resource {
         let Some(context) = self.context.upgrade() else {
             return;
         };
-        // 注：此处不能写成以 `if let` 作函数末尾语句的形式—— scrutinee 的临时值会在函数
-        // 局部变量之后析构，导致编译器判定 `context` 生命周期不足。
+        // Note: this cannot be written with `if let` as the final statement of the function — the scrutinee's temporaries are dropped
+        // after the function's locals, causing the compiler to decide that `context` does not live long enough.
         let Ok(mut context_ref) = context.try_borrow_mut() else {
             return;
         };
         context_ref.get_resources_mut().remove_resource(&self_rc);
     }
 
-    /// 按字段别名取值。
+    /// Gets a value by field alias.
     ///
-    /// 对应 Java: `public Object getFieldByAlias(String alias)`
+    /// Corresponds to Java: `public Object getFieldByAlias(String alias)`
     pub fn get_field_by_alias(&self, alias: &str) -> Option<FieldValue> {
         let field = self.get_field_key_by_alias(alias)?;
         self.get(field)
     }
 
-    /// 按字段别名设值。
+    /// Sets a value by field alias.
     ///
-    /// 对应 Java: `public void setFieldByAlias(String alias, Object value)`
+    /// Corresponds to Java: `public void setFieldByAlias(String alias, Object value)`
     pub fn set_field_by_alias(&mut self, alias: &str, value: Option<FieldValue>) {
         if let Some(field) = self.get_field_key_by_alias(alias) {
             self.set_field_value(field, value);
         }
     }
 
-    /// 取分配给本资源的全部资源分配。
+    /// Gets all resource assignments assigned to this resource.
     ///
-    /// 对应 Java: `public List<ResourceAssignment> getTaskAssignments()`
+    /// Corresponds to Java: `public List<ResourceAssignment> getTaskAssignments()`
     pub fn get_task_assignments(&self) -> Vec<Rc<RefCell<ResourceAssignment>>> {
         self.get_resource_assignment_stream(self.get_unique_id())
     }
 
-    /// 为资源添加角色分配（替换该角色已有分配）。
+    /// Adds a role assignment for the resource (replacing the existing assignment for that role).
     ///
-    /// 对应 Java: `public void addRoleAssignment(Resource role, SkillLevel skillLevel)`
+    /// Corresponds to Java: `public void addRoleAssignment(Resource role, SkillLevel skillLevel)`
     pub fn add_role_assignment(
         &mut self,
         role: &Rc<RefCell<Resource>>,
@@ -2069,17 +2069,17 @@ impl Resource {
             .insert(role_id, (Rc::downgrade(role), skill_level));
     }
 
-    /// 移除一个角色分配。
+    /// Removes a role assignment.
     ///
-    /// 对应 Java: `public void removeRoleAssignment(Resource role)`
+    /// Corresponds to Java: `public void removeRoleAssignment(Resource role)`
     pub fn remove_role_assignment(&mut self, role: &Rc<RefCell<Resource>>) {
         let role_id = NumberHelper::get_int(role.borrow().get_id().map(f64::from));
         self.role_assignments.remove(&role_id);
     }
 
-    /// 取角色分配列表（Java 返回 `Map<Resource, SkillLevel>`，Rust 返回快照 `Vec`）。
+    /// Gets the role assignment list (Java returns a `Map<Resource, SkillLevel>`; Rust returns a snapshot `Vec`).
     ///
-    /// 对应 Java: `public Map<Resource, SkillLevel> getRoleAssignments()`
+    /// Corresponds to Java: `public Map<Resource, SkillLevel> getRoleAssignments()`
     pub fn get_role_assignments(&self) -> Vec<(Rc<RefCell<Resource>>, SkillLevel)> {
         self.role_assignments
             .values()
@@ -2087,16 +2087,16 @@ impl Resource {
             .collect()
     }
 
-    /// 取子项目中的资源 unique ID。
+    /// Gets the resource unique ID within the subproject.
     ///
-    /// 对应 Java: `public Integer getSubprojectResourceUniqueID()`
+    /// Corresponds to Java: `public Integer getSubprojectResourceUniqueID()`
     pub fn get_subproject_resource_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::SubprojectResourceUniqueId)
     }
 
-    /// 设置子项目中的资源 unique ID。
+    /// Sets the resource unique ID within the subproject.
     ///
-    /// 对应 Java: `public void setSubprojectResourceUniqueID(Integer subprojectUniqueResourceID)`
+    /// Corresponds to Java: `public void setSubprojectResourceUniqueID(Integer subprojectUniqueResourceID)`
     pub fn set_subproject_resource_unique_id(&mut self, value: Option<i32>) {
         self.set_field_value(
             key(ResourceField::SubprojectResourceUniqueId),
@@ -2104,161 +2104,161 @@ impl Resource {
         );
     }
 
-    /// 取企业成本字段（下标 1-10）。
+    /// Gets the enterprise cost field (indices 1-10).
     ///
-    /// 对应 Java: `public Number getEnterpriseCost(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseCost(int index)`
     pub fn get_enterprise_cost_at(&self, index: i32) -> Option<f64> {
         select_field(&ENTERPRISE_CUSTOM_COST, index).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置企业成本字段（下标 1-10）。
+    /// Sets the enterprise cost field (indices 1-10).
     ///
-    /// 对应 Java: `public void setEnterpriseCost(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseCost(int index, Number value)`
     pub fn set_enterprise_cost_at(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_COST, index) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 取企业日期字段（下标 1-30）。
+    /// Gets the enterprise date field (indices 1-30).
     ///
-    /// 对应 Java: `public LocalDateTime getEnterpriseDate(int index)`
+    /// Corresponds to Java: `public LocalDateTime getEnterpriseDate(int index)`
     pub fn get_enterprise_date_at(&self, index: i32) -> Option<NaiveDateTime> {
         select_field(&ENTERPRISE_CUSTOM_DATE, index).and_then(|field| self.get_date_time(field))
     }
 
-    /// 设置企业日期字段（下标 1-30）。
+    /// Sets the enterprise date field (indices 1-30).
     ///
-    /// 对应 Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
+    /// Corresponds to Java: `public void setEnterpriseDate(int index, LocalDateTime value)`
     pub fn set_enterprise_date_at(&mut self, index: i32, value: Option<NaiveDateTime>) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_DATE, index) {
             self.set_field_value(key(field), value.map(FieldValue::DateTime));
         }
     }
 
-    /// 取企业工期字段（下标 1-10）。
+    /// Gets the enterprise duration field (indices 1-10).
     ///
-    /// 对应 Java: `public Duration getEnterpriseDuration(int index)`
+    /// Corresponds to Java: `public Duration getEnterpriseDuration(int index)`
     pub fn get_enterprise_duration_at(&self, index: i32) -> Option<Duration> {
         select_field(&ENTERPRISE_CUSTOM_DURATION, index).and_then(|field| self.get_duration(field))
     }
 
-    /// 设置企业工期字段（下标 1-10）。
+    /// Sets the enterprise duration field (indices 1-10).
     ///
-    /// 对应 Java: `public void setEnterpriseDuration(int index, Duration value)`
+    /// Corresponds to Java: `public void setEnterpriseDuration(int index, Duration value)`
     pub fn set_enterprise_duration_at(&mut self, index: i32, value: Option<Duration>) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_DURATION, index) {
             self.set_field_value(key(field), value.map(FieldValue::Duration));
         }
     }
 
-    /// 取企业标志字段（下标 1-20）。
+    /// Gets the enterprise flag field (indices 1-20).
     ///
-    /// 对应 Java: `public boolean getEnterpriseFlag(int index)`
+    /// Corresponds to Java: `public boolean getEnterpriseFlag(int index)`
     pub fn get_enterprise_flag_at(&self, index: i32) -> bool {
         select_field(&ENTERPRISE_CUSTOM_FLAG, index)
             .map(|field| self.get_bool(field))
             .unwrap_or(false)
     }
 
-    /// 设置企业标志字段（下标 1-20）。
+    /// Sets the enterprise flag field (indices 1-20).
     ///
-    /// 对应 Java: `public void setEnterpriseFlag(int index, boolean value)`
+    /// Corresponds to Java: `public void setEnterpriseFlag(int index, boolean value)`
     pub fn set_enterprise_flag_at(&mut self, index: i32, value: bool) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_FLAG, index) {
             self.set_field_value(key(field), Some(FieldValue::Boolean(value)));
         }
     }
 
-    /// 取企业数字字段（下标 1-40）。
+    /// Gets the enterprise number field (indices 1-40).
     ///
-    /// 对应 Java: `public Number getEnterpriseNumber(int index)`
+    /// Corresponds to Java: `public Number getEnterpriseNumber(int index)`
     pub fn get_enterprise_number_at(&self, index: i32) -> Option<f64> {
         select_field(&ENTERPRISE_CUSTOM_NUMBER, index).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置企业数字字段（下标 1-40）。
+    /// Sets the enterprise number field (indices 1-40).
     ///
-    /// 对应 Java: `public void setEnterpriseNumber(int index, Number value)`
+    /// Corresponds to Java: `public void setEnterpriseNumber(int index, Number value)`
     pub fn set_enterprise_number_at(&mut self, index: i32, value: Option<f64>) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_NUMBER, index) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 取企业文本字段（下标 1-40）。
+    /// Gets the enterprise text field (indices 1-40).
     ///
-    /// 对应 Java: `public String getEnterpriseText(int index)`
+    /// Corresponds to Java: `public String getEnterpriseText(int index)`
     pub fn get_enterprise_text_at(&self, index: i32) -> Option<String> {
         select_field(&ENTERPRISE_CUSTOM_TEXT, index).and_then(|field| self.get_string(field))
     }
 
-    /// 设置企业文本字段（下标 1-40）。
+    /// Sets the enterprise text field (indices 1-40).
     ///
-    /// 对应 Java: `public void setEnterpriseText(int index, String value)`
+    /// Corresponds to Java: `public void setEnterpriseText(int index, String value)`
     pub fn set_enterprise_text_at(&mut self, index: i32, value: Option<String>) {
         if let Some(field) = select_field(&ENTERPRISE_CUSTOM_TEXT, index) {
             self.set_field_value(key(field), value.map(FieldValue::String));
         }
     }
 
-    /// 设置基线成本字段（下标 1-10）。
+    /// Sets the baseline cost field (indices 1-10).
     ///
-    /// 对应 Java: `public void setBaselineCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineCost(int baselineNumber, Number value)`
     pub fn set_baseline_cost_at(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = select_field(&BASELINE_COSTS, baseline_number) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 设置基线工时字段（下标 1-10）。
+    /// Sets the baseline work field (indices 1-10).
     ///
-    /// 对应 Java: `public void setBaselineWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineWork(int baselineNumber, Duration value)`
     pub fn set_baseline_work_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(&BASELINE_WORKS, baseline_number) {
             self.set_field_value(key(field), value.map(FieldValue::Duration));
         }
     }
 
-    /// 取基线成本字段（下标 1-10）。
+    /// Gets the baseline cost field (indices 1-10).
     ///
-    /// 对应 Java: `public Number getBaselineCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineCost(int baselineNumber)`
     pub fn get_baseline_cost_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(&BASELINE_COSTS, baseline_number).and_then(|field| self.get_f64(field))
     }
 
-    /// 取基线工时字段（下标 1-10）。
+    /// Gets the baseline work field (indices 1-10).
     ///
-    /// 对应 Java: `public Duration getBaselineWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineWork(int baselineNumber)`
     pub fn get_baseline_work_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(&BASELINE_WORKS, baseline_number).and_then(|field| self.get_duration(field))
     }
 
-    /// 取预算标志。
+    /// Gets the budget flag.
     ///
-    /// 对应 Java: `public boolean getBudget()`
+    /// Corresponds to Java: `public boolean getBudget()`
     pub fn get_budget(&self) -> bool {
         self.get_bool(ResourceField::Budget)
     }
 
-    /// 设置预算标志。
+    /// Sets the budget flag.
     ///
-    /// 对应 Java: `public void setBudget(boolean budget)`
+    /// Corresponds to Java: `public void setBudget(boolean budget)`
     pub fn set_budget(&mut self, budget: bool) {
         self.set_field_value(key(ResourceField::Budget), Some(FieldValue::Boolean(budget)));
     }
 
-    /// 取资源 GUID（Rust 侧从字符串编码解析）。
+    /// Gets the resource GUID (parsed from the string encoding on the Rust side).
     ///
-    /// 对应 Java: `public UUID getGUID()`
+    /// Corresponds to Java: `public UUID getGUID()`
     pub fn get_guid(&self) -> Option<Uuid> {
         self.get(key(ResourceField::Guid))
             .and_then(|value| value.as_string().and_then(|text| Uuid::parse_str(text).ok()))
     }
 
-    /// 设置资源 GUID。
+    /// Sets the resource GUID.
     ///
-    /// 对应 Java: `public void setGUID(UUID value)`
+    /// Corresponds to Java: `public void setGUID(UUID value)`
     pub fn set_guid(&mut self, value: Option<Uuid>) {
         self.set_field_value(
             key(ResourceField::Guid),
@@ -2266,23 +2266,23 @@ impl Resource {
         );
     }
 
-    /// 设置单位字段。
+    /// Sets the units field.
     ///
-    /// 对应 Java: `public void setUnit(String value)`
+    /// Corresponds to Java: `public void setUnit(String value)`
     pub fn set_unit(&mut self, value: Option<String>) {
         self.set_field_value(key(ResourceField::Unit), value.map(FieldValue::String));
     }
 
-    /// 取单位字段。
+    /// Gets the units field.
     ///
-    /// 对应 Java: `public String getUnit()`
+    /// Corresponds to Java: `public String getUnit()`
     pub fn get_unit(&self) -> Option<String> {
         self.get_string(ResourceField::Unit)
     }
 
-    /// 设置供应参考字段。
+    /// Sets the supply reference field.
     ///
-    /// 对应 Java: `public void setSupplyReference(String value)`
+    /// Corresponds to Java: `public void setSupplyReference(String value)`
     pub fn set_supply_reference(&mut self, value: Option<String>) {
         self.set_field_value(
             key(ResourceField::SupplyReference),
@@ -2290,44 +2290,44 @@ impl Resource {
         );
     }
 
-    /// 取供应参考字段。
+    /// Gets the supply reference field.
     ///
-    /// 对应 Java: `public String getSupplyReference()`
+    /// Corresponds to Java: `public String getSupplyReference()`
     pub fn get_supply_reference(&self) -> Option<String> {
         self.get_string(ResourceField::SupplyReference)
     }
 
-    /// 设置描述字段。
+    /// Sets the description field.
     ///
-    /// 对应 Java: `public void setDescription(String value)`
+    /// Corresponds to Java: `public void setDescription(String value)`
     pub fn set_description(&mut self, value: Option<String>) {
         self.set_field_value(key(ResourceField::Description), value.map(FieldValue::String));
     }
 
-    /// 取描述字段。
+    /// Gets the description field.
     ///
-    /// 对应 Java: `public String getDescription()`
+    /// Corresponds to Java: `public String getDescription()`
     pub fn get_description(&self) -> Option<String> {
         self.get_string(ResourceField::Description)
     }
 
-    /// 设置资源 ID 字段。
+    /// Sets the resource ID field.
     ///
-    /// 对应 Java: `public void setResourceID(String value)`
+    /// Corresponds to Java: `public void setResourceID(String value)`
     pub fn set_resource_id(&mut self, value: Option<String>) {
         self.set_field_value(key(ResourceField::ResourceId), value.map(FieldValue::String));
     }
 
-    /// 取资源 ID 字段。
+    /// Gets the resource ID field.
     ///
-    /// 对应 Java: `public String getResourceID()`
+    /// Corresponds to Java: `public String getResourceID()`
     pub fn get_resource_id(&self) -> Option<String> {
         self.get_string(ResourceField::ResourceId)
     }
 
-    /// 设置 modify on integrate 字段。
+    /// Sets the modify on integrate field.
     ///
-    /// 对应 Java: `public void setModifyOnIntegrate(boolean value)`
+    /// Corresponds to Java: `public void setModifyOnIntegrate(boolean value)`
     pub fn set_modify_on_integrate(&mut self, value: bool) {
         self.set_field_value(
             key(ResourceField::ModifyOnIntegrate),
@@ -2335,16 +2335,16 @@ impl Resource {
         );
     }
 
-    /// 取 modify on integrate 字段。
+    /// Gets the modify on integrate field.
     ///
-    /// 对应 Java: `public boolean getModifyOnIntegrate()`
+    /// Corresponds to Java: `public boolean getModifyOnIntegrate()`
     pub fn get_modify_on_integrate(&self) -> bool {
         self.get_bool(ResourceField::ModifyOnIntegrate)
     }
 
-    /// 设置 expenses only 字段。
+    /// Sets the expenses only field.
     ///
-    /// 对应 Java: `public void setExpensesOnly(boolean value)`
+    /// Corresponds to Java: `public void setExpensesOnly(boolean value)`
     pub fn set_expenses_only(&mut self, value: bool) {
         self.set_field_value(
             key(ResourceField::ExpensesOnly),
@@ -2352,116 +2352,116 @@ impl Resource {
         );
     }
 
-    /// 取 expenses only 字段。
+    /// Gets the expenses only field.
     ///
-    /// 对应 Java: `public boolean getExpensesOnly()`
+    /// Corresponds to Java: `public boolean getExpensesOnly()`
     pub fn get_expenses_only(&self) -> bool {
         self.get_bool(ResourceField::ExpensesOnly)
     }
 
-    /// 设置 period dur 字段。
+    /// Sets the period dur field.
     ///
-    /// 对应 Java: `public void setPeriodDur(Number value)`
+    /// Corresponds to Java: `public void setPeriodDur(Number value)`
     pub fn set_period_dur(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::PeriodDur), value.map(FieldValue::Double));
     }
 
-    /// 取 period dur 字段。
+    /// Gets the period dur field.
     ///
-    /// 对应 Java: `public Number getPeriodDur()`
+    /// Corresponds to Java: `public Number getPeriodDur()`
     pub fn get_period_dur(&self) -> Option<f64> {
         self.get_f64(ResourceField::PeriodDur)
     }
 
-    /// 设置优先级字段。
+    /// Sets the priority field.
     ///
-    /// 对应 Java: `public void setPriority(Number value)`
+    /// Corresponds to Java: `public void setPriority(Number value)`
     pub fn set_priority(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::Priority), value.map(FieldValue::Double));
     }
 
-    /// 取优先级字段。
+    /// Gets the priority field.
     ///
-    /// 对应 Java: `public Number getPriority()`
+    /// Corresponds to Java: `public Number getPriority()`
     pub fn get_priority(&self) -> Option<f64> {
         self.get_f64(ResourceField::Priority)
     }
 
-    /// 设置费率字段（TurboProject 专用）。
+    /// Sets the rate field (TurboProject-specific).
     ///
-    /// 对应 Java: `public void setRate(Number value)`
+    /// Corresponds to Java: `public void setRate(Number value)`
     pub fn set_rate(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::Rate), value.map(FieldValue::Double));
     }
 
-    /// 取费率字段（TurboProject 专用）。
+    /// Gets the rate field (TurboProject-specific).
     ///
-    /// 对应 Java: `public Number getRate()`
+    /// Corresponds to Java: `public Number getRate()`
     pub fn get_rate(&self) -> Option<f64> {
         self.get_f64(ResourceField::Rate)
     }
 
-    /// 设置 pool 字段。
+    /// Sets the pool field.
     ///
-    /// 对应 Java: `public void setPool(Number value)`
+    /// Corresponds to Java: `public void setPool(Number value)`
     pub fn set_pool(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::Pool), value.map(FieldValue::Double));
     }
 
-    /// 取 pool 字段。
+    /// Gets the pool field.
     ///
-    /// 对应 Java: `public Number getPool()`
+    /// Corresponds to Java: `public Number getPool()`
     pub fn get_pool(&self) -> Option<f64> {
         self.get_f64(ResourceField::Pool)
     }
 
-    /// 设置 per day 字段。
+    /// Sets the per day field.
     ///
-    /// 对应 Java: `public void setPerDay(Number value)`
+    /// Corresponds to Java: `public void setPerDay(Number value)`
     pub fn set_per_day(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::PerDay), value.map(FieldValue::Double));
     }
 
-    /// 取 per day 字段。
+    /// Gets the per day field.
     ///
-    /// 对应 Java: `public Number getPerDay()`
+    /// Corresponds to Java: `public Number getPerDay()`
     pub fn get_per_day(&self) -> Option<f64> {
         self.get_f64(ResourceField::PerDay)
     }
 
-    /// 设置电话字段。
+    /// Sets the phone field.
     ///
-    /// 对应 Java: `public void setPhone(String value)`
+    /// Corresponds to Java: `public void setPhone(String value)`
     pub fn set_phone(&mut self, value: Option<String>) {
         self.set_field_value(key(ResourceField::Phone), value.map(FieldValue::String));
     }
 
-    /// 取电话字段。
+    /// Gets the phone field.
     ///
-    /// 对应 Java: `public String getPhone()`
+    /// Corresponds to Java: `public String getPhone()`
     pub fn get_phone(&self) -> Option<String> {
         self.get_string(ResourceField::Phone)
     }
 
-    /// 设置角色标志。
+    /// Sets the role flag.
     ///
-    /// 对应 Java: `public void setRole(boolean value)`
+    /// Corresponds to Java: `public void setRole(boolean value)`
     pub fn set_role(&mut self, value: bool) {
         self.set_field_value(key(ResourceField::Role), Some(FieldValue::Boolean(value)));
     }
 
-    /// 取角色标志（默认 `false`）。
+    /// Gets the role flag (defaults to `false`).
     ///
-    /// 对应 Java: `public boolean getRole()`
+    /// Corresponds to Java: `public boolean getRole()`
     pub fn get_role(&self) -> bool {
         self.get_bool(ResourceField::Role)
     }
 
-    /// 关联一个完整的成本费率表。
+    /// Associates a complete cost rate table.
     ///
-    /// 对应 Java: `public void setCostRateTable(int index, CostRateTable crt)`
+    /// Corresponds to Java: `public void setCostRateTable(int index, CostRateTable crt)`
     ///
-    /// Java 越界抛 `ArrayIndexOutOfBoundsException`；Rust 侧越界为空操作。
+    /// Java throws `ArrayIndexOutOfBoundsException` when out of bounds; the Rust side is a no-op when out of bounds.
     pub fn set_cost_rate_table(&mut self, index: i32, crt: CostRateTable) {
         if index >= 0 {
             if let Some(slot) = self.cost_rate_tables.get_mut(index as usize) {
@@ -2470,9 +2470,9 @@ impl Resource {
         }
     }
 
-    /// 取成本费率表。
+    /// Gets the cost rate table.
     ///
-    /// 对应 Java: `public CostRateTable getCostRateTable(int index)`
+    /// Corresponds to Java: `public CostRateTable getCostRateTable(int index)`
     pub fn get_cost_rate_table(&self, index: i32) -> Option<&CostRateTable> {
         if index < 0 || index >= CostRateTable::MAX_TABLES {
             return None;
@@ -2480,9 +2480,9 @@ impl Resource {
         self.cost_rate_tables.get(index as usize)
     }
 
-    /// 取当前日期生效的成本费率表行。
+    /// Gets the cost rate table row in effect on the current date.
     ///
-    /// 对应 Java: `public CostRateTableEntry getCurrentCostRateTableEntry(int costRateTable)`
+    /// Corresponds to Java: `public CostRateTableEntry getCurrentCostRateTableEntry(int costRateTable)`
     pub fn get_current_cost_rate_table_entry(
         &self,
         cost_rate_table: i32,
@@ -2491,27 +2491,27 @@ impl Resource {
             .and_then(|table| table.get_entry_by_date(now()))
     }
 
-    /// 取本资源的可用性表。
+    /// Gets this resource's availability table.
     ///
-    /// 对应 Java: `public AvailabilityTable getAvailability()`
+    /// Corresponds to Java: `public AvailabilityTable getAvailability()`
     pub fn get_availability(&self) -> Ref<'_, AvailabilityTable> {
         self.availability.borrow()
     }
 
-    /// 向本资源的可用性表追加一行（Rust 特有）。
+    /// Appends a row to this resource's availability table (Rust-specific).
     ///
-    /// 对应 Java: `resource.getAvailability().add(entry)`
+    /// Corresponds to Java: `resource.getAvailability().add(entry)`
     ///
-    /// Java 的 `getAvailability()` 直接返回**可变**的 `m_availability`，调用方就地追加；
-    /// Rust 侧 [`Resource::get_availability`] 只借出只读 `Ref`，故补本入口作为等价的写通道。
-    /// MPP/MPX 读取器填充可用性表时都经此方法（Java 的顺序与排序逻辑由调用方保证，此处不额外处理）。
+    /// Java's `getAvailability()` directly returns the **mutable** `m_availability`, and callers append in place;
+    /// on the Rust side [`Resource::get_availability`] only lends out a read-only `Ref`, so this entry point is added as the equivalent write channel.
+    /// The MPP/MPX readers all go through this method when filling the availability table (Java's ordering and sorting logic is guaranteed by the caller and is not handled separately here).
     pub fn add_availability(&mut self, entry: Availability) {
         self.availability.get_mut().add(entry);
     }
 
-    /// 取当前日期生效的可用性表行。
+    /// Gets the availability table row in effect on the current date.
     ///
-    /// 对应 Java: `public Availability getCurrentAvailabilityTableEntry()`
+    /// Corresponds to Java: `public Availability getCurrentAvailabilityTableEntry()`
     pub fn get_current_availability_table_entry(&self) -> Option<Availability> {
         let date = now();
         self.availability
@@ -2520,44 +2520,44 @@ impl Resource {
             .and_then(|table| table.get_entry_by_date(date).copied())
     }
 
-    /// 取预算成本。
+    /// Gets the budget cost.
     ///
-    /// 对应 Java: `public Number getBudgetCost()`
+    /// Corresponds to Java: `public Number getBudgetCost()`
     pub fn get_budget_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::BudgetCost)
     }
 
-    /// 设置预算成本。
+    /// Sets the budget cost.
     ///
-    /// 对应 Java: `public void setBudgetCost(Number value)`
+    /// Corresponds to Java: `public void setBudgetCost(Number value)`
     pub fn set_budget_cost(&mut self, value: Option<f64>) {
         self.set_field_value(key(ResourceField::BudgetCost), value.map(FieldValue::Double));
     }
 
-    /// 取预算工时。
+    /// Gets the budget work.
     ///
-    /// 对应 Java: `public Duration getBudgetWork()`
+    /// Corresponds to Java: `public Duration getBudgetWork()`
     pub fn get_budget_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::BudgetWork)
     }
 
-    /// 设置预算工时。
+    /// Sets the budget work.
     ///
-    /// 对应 Java: `public void setBudgetWork(Duration value)`
+    /// Corresponds to Java: `public void setBudgetWork(Duration value)`
     pub fn set_budget_work(&mut self, value: Option<Duration>) {
         self.set_field_value(key(ResourceField::BudgetWork), value.map(FieldValue::Duration));
     }
 
-    /// 取基线预算成本。
+    /// Gets the baseline budget cost.
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost()`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost()`
     pub fn get_baseline_budget_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::BaselineBudgetCost)
     }
 
-    /// 设置基线预算成本。
+    /// Sets the baseline budget cost.
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(Number value)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(Number value)`
     pub fn set_baseline_budget_cost(&mut self, value: Option<f64>) {
         self.set_field_value(
             key(ResourceField::BaselineBudgetCost),
@@ -2565,16 +2565,16 @@ impl Resource {
         );
     }
 
-    /// 取基线预算工时。
+    /// Gets the baseline budget work.
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork()`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork()`
     pub fn get_baseline_budget_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::BaselineBudgetWork)
     }
 
-    /// 设置基线预算工时。
+    /// Sets the baseline budget work.
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(Duration value)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(Duration value)`
     pub fn set_baseline_budget_work(&mut self, value: Option<Duration>) {
         self.set_field_value(
             key(ResourceField::BaselineBudgetWork),
@@ -2582,62 +2582,62 @@ impl Resource {
         );
     }
 
-    /// 取基线预算成本字段（下标 1-10）。
+    /// Gets the baseline budget cost field (indices 1-10).
     ///
-    /// 对应 Java: `public Number getBaselineBudgetCost(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineBudgetCost(int baselineNumber)`
     pub fn get_baseline_budget_cost_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(&BASELINE_BUDGET_COSTS, baseline_number).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置基线预算成本字段（下标 1-10）。
+    /// Sets the baseline budget cost field (indices 1-10).
     ///
-    /// 对应 Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
+    /// Corresponds to Java: `public void setBaselineBudgetCost(int baselineNumber, Number value)`
     pub fn set_baseline_budget_cost_at(&mut self, baseline_number: i32, value: Option<f64>) {
         if let Some(field) = select_field(&BASELINE_BUDGET_COSTS, baseline_number) {
             self.set_field_value(key(field), value.map(FieldValue::Double));
         }
     }
 
-    /// 取基线预算工时字段（下标 1-10）。
+    /// Gets the baseline budget work field (indices 1-10).
     ///
-    /// 对应 Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
+    /// Corresponds to Java: `public Duration getBaselineBudgetWork(int baselineNumber)`
     pub fn get_baseline_budget_work_at(&self, baseline_number: i32) -> Option<Duration> {
         select_field(&BASELINE_BUDGET_WORKS, baseline_number).and_then(|field| self.get_duration(field))
     }
 
-    /// 设置基线预算工时字段（下标 1-10）。
+    /// Sets the baseline budget work field (indices 1-10).
     ///
-    /// 对应 Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
+    /// Corresponds to Java: `public void setBaselineBudgetWork(int baselineNumber, Duration value)`
     pub fn set_baseline_budget_work_at(&mut self, baseline_number: i32, value: Option<Duration>) {
         if let Some(field) = select_field(&BASELINE_BUDGET_WORKS, baseline_number) {
             self.set_field_value(key(field), value.map(FieldValue::Duration));
         }
     }
 
-    /// 取成本中心。
+    /// Gets the cost center.
     ///
-    /// 对应 Java: `public String getCostCenter()`
+    /// Corresponds to Java: `public String getCostCenter()`
     pub fn get_cost_center(&self) -> Option<String> {
         self.get_string(ResourceField::CostCenter)
     }
 
-    /// 设置成本中心。
+    /// Sets the cost center.
     ///
-    /// 对应 Java: `public void setCostCenter(String value)`
+    /// Corresponds to Java: `public void setCostCenter(String value)`
     pub fn set_cost_center(&mut self, value: Option<String>) {
         self.set_field_value(key(ResourceField::CostCenter), value.map(FieldValue::String));
     }
 
-    /// 取「从单位计算成本」标志（默认 `true`）。
+    /// Gets the "calculate costs from units" flag (defaults to `true`).
     ///
-    /// 对应 Java: `public boolean getCalculateCostsFromUnits()`
+    /// Corresponds to Java: `public boolean getCalculateCostsFromUnits()`
     pub fn get_calculate_costs_from_units(&self) -> bool {
         self.get_bool(ResourceField::CalculateCostsFromUnits)
     }
 
-    /// 设置「从单位计算成本」标志。
+    /// Sets the "calculate costs from units" flag.
     ///
-    /// 对应 Java: `public void setCalculateCostsFromUnits(boolean calculateCostsFromUnits)`
+    /// Corresponds to Java: `public void setCalculateCostsFromUnits(boolean calculateCostsFromUnits)`
     pub fn set_calculate_costs_from_units(&mut self, calculate_costs_from_units: bool) {
         self.set_field_value(
             key(ResourceField::CalculateCostsFromUnits),
@@ -2645,16 +2645,16 @@ impl Resource {
         );
     }
 
-    /// 取资源序号。
+    /// Gets the resource sequence number.
     ///
-    /// 对应 Java: `public Integer getSequenceNumber()`
+    /// Corresponds to Java: `public Integer getSequenceNumber()`
     pub fn get_sequence_number(&self) -> Option<i32> {
         self.get_i32(ResourceField::SequenceNumber)
     }
 
-    /// 设置资源序号。
+    /// Sets the resource sequence number.
     ///
-    /// 对应 Java: `public void setSequenceNumber(Integer sequenceNumber)`
+    /// Corresponds to Java: `public void setSequenceNumber(Integer sequenceNumber)`
     pub fn set_sequence_number(&mut self, sequence_number: Option<i32>) {
         self.set_field_value(
             key(ResourceField::SequenceNumber),
@@ -2662,16 +2662,16 @@ impl Resource {
         );
     }
 
-    /// 取位置（location）的 unique ID。
+    /// Gets the location unique ID.
     ///
-    /// 对应 Java: `public Integer getLocationUniqueID()`
+    /// Corresponds to Java: `public Integer getLocationUniqueID()`
     pub fn get_location_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::LocationUniqueId)
     }
 
-    /// 设置位置（location）的 unique ID。
+    /// Sets the location unique ID.
     ///
-    /// 对应 Java: `public void setLocationUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setLocationUniqueID(Integer uniqueID)`
     pub fn set_location_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::LocationUniqueId),
@@ -2679,16 +2679,16 @@ impl Resource {
         );
     }
 
-    /// 取班次 unique ID。
+    /// Gets the shift unique ID.
     ///
-    /// 对应 Java: `public Integer getShiftUniqueID()`
+    /// Corresponds to Java: `public Integer getShiftUniqueID()`
     pub fn get_shift_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::ShiftUniqueId)
     }
 
-    /// 设置班次 unique ID。
+    /// Sets the shift unique ID.
     ///
-    /// 对应 Java: `public void setShiftUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setShiftUniqueID(Integer uniqueID)`
     pub fn set_shift_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::ShiftUniqueId),
@@ -2696,9 +2696,9 @@ impl Resource {
         );
     }
 
-    /// 取班次。
+    /// Gets the shift.
     ///
-    /// 对应 Java: `public Shift getShift()`
+    /// Corresponds to Java: `public Shift getShift()`
     pub fn get_shift(&self) -> Option<Rc<Shift>> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -2708,23 +2708,23 @@ impl Resource {
             .cloned()
     }
 
-    /// 设置班次。
+    /// Sets the shift.
     ///
-    /// 对应 Java: `public void setShift(Shift shift)`
+    /// Corresponds to Java: `public void setShift(Shift shift)`
     pub fn set_shift(&mut self, shift: Option<&Rc<Shift>>) {
         self.set_shift_unique_id(shift.and_then(|shift| shift.get_unique_id()));
     }
 
-    /// 取计量单位 unique ID。
+    /// Gets the unit of measure unique ID.
     ///
-    /// 对应 Java: `public Integer getUnitOfMeasureUniqueID()`
+    /// Corresponds to Java: `public Integer getUnitOfMeasureUniqueID()`
     pub fn get_unit_of_measure_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::UnitOfMeasureUniqueId)
     }
 
-    /// 设置计量单位 unique ID。
+    /// Sets the unit of measure unique ID.
     ///
-    /// 对应 Java: `public void setUnitOfMeasureUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setUnitOfMeasureUniqueID(Integer uniqueID)`
     pub fn set_unit_of_measure_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::UnitOfMeasureUniqueId),
@@ -2732,9 +2732,9 @@ impl Resource {
         );
     }
 
-    /// 取计量单位。
+    /// Gets the unit of measure.
     ///
-    /// 对应 Java: `public UnitOfMeasure getUnitOfMeasure()`
+    /// Corresponds to Java: `public UnitOfMeasure getUnitOfMeasure()`
     pub fn get_unit_of_measure(&self) -> Option<UnitOfMeasure> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -2744,25 +2744,25 @@ impl Resource {
             .cloned()
     }
 
-    /// 设置计量单位。
+    /// Sets the unit of measure.
     ///
-    /// 对应 Java: `public void setUnitOfMeasure(UnitOfMeasure unitOfMeasure)`
+    /// Corresponds to Java: `public void setUnitOfMeasure(UnitOfMeasure unitOfMeasure)`
     pub fn set_unit_of_measure(&mut self, unit_of_measure: Option<&UnitOfMeasure>) {
         self.set_unit_of_measure_unique_id(
             unit_of_measure.and_then(|unit_of_measure| unit_of_measure.get_unique_id()),
         );
     }
 
-    /// 取主要角色 unique ID。
+    /// Gets the primary role unique ID.
     ///
-    /// 对应 Java: `public Integer getPrimaryRoleUniqueID()`
+    /// Corresponds to Java: `public Integer getPrimaryRoleUniqueID()`
     pub fn get_primary_role_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::PrimaryRoleUniqueId)
     }
 
-    /// 设置主要角色 unique ID。
+    /// Sets the primary role unique ID.
     ///
-    /// 对应 Java: `public void setPrimaryRoleUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setPrimaryRoleUniqueID(Integer uniqueID)`
     pub fn set_primary_role_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::PrimaryRoleUniqueId),
@@ -2770,9 +2770,9 @@ impl Resource {
         );
     }
 
-    /// 取主要角色。
+    /// Gets the primary role.
     ///
-    /// 对应 Java: `public Resource getPrimaryRole()`
+    /// Corresponds to Java: `public Resource getPrimaryRole()`
     pub fn get_primary_role(&self) -> Option<Rc<RefCell<Resource>>> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
@@ -2781,23 +2781,23 @@ impl Resource {
             .get_by_unique_id(self.get_primary_role_unique_id())
     }
 
-    /// 设置主要角色。
+    /// Sets the primary role.
     ///
-    /// 对应 Java: `public void setPrimaryRole(Resource role)`
+    /// Corresponds to Java: `public void setPrimaryRole(Resource role)`
     pub fn set_primary_role(&mut self, role: Option<&Rc<RefCell<Resource>>>) {
         self.set_primary_role_unique_id(role.and_then(|role| role.borrow().get_unique_id()));
     }
 
-    /// 取货币 unique ID。
+    /// Gets the currency unique ID.
     ///
-    /// 对应 Java: `public Integer getCurrencyUniqueID()`
+    /// Corresponds to Java: `public Integer getCurrencyUniqueID()`
     pub fn get_currency_unique_id(&self) -> Option<i32> {
         self.get_i32(ResourceField::CurrencyUniqueId)
     }
 
-    /// 设置货币 unique ID。
+    /// Sets the currency unique ID.
     ///
-    /// 对应 Java: `public void setCurrencyUniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public void setCurrencyUniqueID(Integer uniqueID)`
     pub fn set_currency_unique_id(&mut self, unique_id: Option<i32>) {
         self.set_field_value(
             key(ResourceField::CurrencyUniqueId),
@@ -2805,150 +2805,150 @@ impl Resource {
         );
     }
 
-    /// 取计划工时。
+    /// Gets the planned work.
     ///
-    /// 对应 Java: `public Duration getPlannedWork()`
+    /// Corresponds to Java: `public Duration getPlannedWork()`
     pub fn get_planned_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::PlannedWork)
     }
 
-    /// 取计划成本。
+    /// Gets the planned cost.
     ///
-    /// 对应 Java: `public Number getPlannedCost()`
+    /// Corresponds to Java: `public Number getPlannedCost()`
     pub fn get_planned_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::PlannedCost)
     }
 
-    /// 取实际常规工时。
+    /// Gets the actual regular work.
     ///
-    /// 对应 Java: `public Duration getActualRegularWork()`
+    /// Corresponds to Java: `public Duration getActualRegularWork()`
     pub fn get_actual_regular_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::ActualRegularWork)
     }
 
-    /// 取剩余常规工时。
+    /// Gets the remaining regular work.
     ///
-    /// 对应 Java: `public Duration getRemainingRegularWork()`
+    /// Corresponds to Java: `public Duration getRemainingRegularWork()`
     pub fn get_remaining_regular_work(&self) -> Option<Duration> {
         self.get_duration(ResourceField::RemainingRegularWork)
     }
 
-    /// 取实际常规成本。
+    /// Gets the actual regular cost.
     ///
-    /// 对应 Java: `public Number getActualRegularCost()`
+    /// Corresponds to Java: `public Number getActualRegularCost()`
     pub fn get_actual_regular_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::ActualRegularCost)
     }
 
-    /// 取剩余常规成本。
+    /// Gets the remaining regular cost.
     ///
-    /// 对应 Java: `public Number getRemainingRegularCost()`
+    /// Corresponds to Java: `public Number getRemainingRegularCost()`
     pub fn get_remaining_regular_cost(&self) -> Option<f64> {
         self.get_f64(ResourceField::RemainingRegularCost)
     }
 
-    /// 取计划材料用量。
+    /// Gets the planned material quantity.
     ///
-    /// 对应 Java: `public Number getPlannedMaterial()`
+    /// Corresponds to Java: `public Number getPlannedMaterial()`
     pub fn get_planned_material(&self) -> Option<f64> {
         self.get_f64(ResourceField::PlannedMaterial)
     }
 
-    /// 取实际材料用量。
+    /// Gets the actual material quantity.
     ///
-    /// 对应 Java: `public Number getActualMaterial()`
+    /// Corresponds to Java: `public Number getActualMaterial()`
     pub fn get_actual_material(&self) -> Option<f64> {
         self.get_f64(ResourceField::ActualMaterial)
     }
 
-    /// 取剩余材料用量。
+    /// Gets the remaining material quantity.
     ///
-    /// 对应 Java: `public Number getRemainingMaterial()`
+    /// Corresponds to Java: `public Number getRemainingMaterial()`
     pub fn get_remaining_material(&self) -> Option<f64> {
         self.get_f64(ResourceField::RemainingMaterial)
     }
 
-    /// 取材料用量。
+    /// Gets the material quantity.
     ///
-    /// 对应 Java: `public Number getMaterial()`
+    /// Corresponds to Java: `public Number getMaterial()`
     pub fn get_material(&self) -> Option<f64> {
         self.get_f64(ResourceField::Material)
     }
 
-    /// 取基线材料用量。
+    /// Gets the baseline material quantity.
     ///
-    /// 对应 Java: `public Number getBaselineMaterial()`
+    /// Corresponds to Java: `public Number getBaselineMaterial()`
     ///
-    /// Java 侧读取的是 `AssignmentField.BASELINE_MATERIAL`（原文如此），该键不会出现在
-    /// 资源的字段表中，因此恒为 `null`；Rust 侧保持同样行为。
+    /// The Java side reads `AssignmentField.BASELINE_MATERIAL` (sic), and that key never appears in
+    /// the resource's field table, so it is always `null`; the Rust side keeps the same behavior.
     pub fn get_baseline_material(&self) -> Option<f64> {
         self.get(key_for_assignment_baseline_material())
             .and_then(|value| value.as_double())
     }
 
-    /// 取基线材料用量字段（下标 1-10）。
+    /// Gets the baseline material quantity field (indices 1-10).
     ///
-    /// 对应 Java: `public Number getBaselineMaterial(int baselineNumber)`
+    /// Corresponds to Java: `public Number getBaselineMaterial(int baselineNumber)`
     pub fn get_baseline_material_at(&self, baseline_number: i32) -> Option<f64> {
         select_field(&BASELINE_MATERIALS, baseline_number).and_then(|field| self.get_f64(field))
     }
 
-    /// 设置字段值（对应 Java 的 `set(FieldType, Object)` 与 `handleFieldChange`）。
+    /// Sets a field value (corresponds to Java's `set(FieldType, Object)` and `handleFieldChange`).
     ///
-    /// 传 `None` 等价于 Java 传 `null`。
+    /// Passing `None` is equivalent to passing `null` in Java.
     pub fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         self.set_field_value(field, value);
     }
 
-    /// 读取字段值（含计算字段）。对应 Java: `Object get(FieldType field)`
+    /// Reads a field value (including calculated fields). Corresponds to Java: `Object get(FieldType field)`
     pub fn get(&self, field: FieldKey) -> Option<FieldValue> {
         self.get_field_value(field)
     }
 
-    /// 只读取已保存的字段值，不触发计算。对应 Java: `Object getCachedValue(FieldType field)`
+    /// Reads only the stored field value without triggering calculation. Corresponds to Java: `Object getCachedValue(FieldType field)`
     pub fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 关闭字段更新时的依赖字段清理与事件触发。
+    /// Disables dependent-field cleanup and event firing on field updates.
     ///
-    /// 对应 Java: `AbstractFieldContainer.disableEvents()`
+    /// Corresponds to Java: `AbstractFieldContainer.disableEvents()`
     pub fn disable_events(&mut self) {
         self.fields.disable_events();
     }
 
-    /// 开启字段更新时的依赖字段清理与事件触发（默认状态）。
+    /// Enables dependent-field cleanup and event firing on field updates (the default state).
     ///
-    /// 对应 Java: `AbstractFieldContainer.enableEvents()`
+    /// Corresponds to Java: `AbstractFieldContainer.enableEvents()`
     pub fn enable_events(&mut self) {
         self.fields.enable_events();
     }
 
-    /// 按别名解析字段键。
+    /// Resolves a field key by alias.
     ///
-    /// 对应 Java: `m_context.getResources().getFieldTypeByAlias(alias)`
+    /// Corresponds to Java: `m_context.getResources().getFieldTypeByAlias(alias)`
     fn get_field_key_by_alias(&self, alias: &str) -> Option<FieldKey> {
         let context = self.context.upgrade()?;
         let context_ref = context.try_borrow().ok()?;
         context_ref.get_resources().get_field_type_by_alias(alias)
     }
 
-    /// 实际写入字段值。
+    /// Actually writes the field value.
     fn set_field_value(&mut self, field: FieldKey, value: Option<FieldValue>) {
         let old_value = self.fields.get_cached_value(field).cloned();
         if old_value == value {
             return;
         }
 
-        // Java 的顺序是「写入字段表 → handleFieldChange → 触发事件」；Rust 侧因
-        // `AbstractFieldContainer` 的回调闭包不能同时可变借用 `Resource` 的其它字段，
-        // 改为「handleFieldChange → 写入并触发事件」。被处理的字段逻辑不读取字段表本身，
-        // 因此行为等价。
+        // Java's order is "write to field table → handleFieldChange → fire event"; on the Rust side, because
+        // the callback closure of `AbstractFieldContainer` cannot mutably borrow the other fields of `Resource` at the same time,
+        // it is changed to "handleFieldChange → write and fire event". The handled field logic does not read the field table itself,
+        // so the behavior is equivalent.
         self.handle_field_change(field, old_value, value.clone());
         self.fields.set(field, value);
     }
 
-    /// 读取字段值（含计算字段）。
+    /// Reads a field value (including calculated fields).
     fn get_field_value(&self, field: FieldKey) -> Option<FieldValue> {
         let always_calculated = is_always_calculated(field);
         let cached = if always_calculated {
@@ -2961,12 +2961,12 @@ impl Resource {
             return cached;
         }
 
-        // Java 会把非「始终计算」字段的结果写回字段表；Rust 的 `&self` 无法写回，
-        // 每次重新计算（结果相同，见文件头说明）。
+        // Java writes the result of non-"always calculated" fields back to the field table; Rust's `&self` cannot write back,
+        // so it recomputes each time (same result; see the notes at the top of the file).
         self.calculate(field)
     }
 
-    /// 对应 Java: `getCalculationMethod(field).apply(this)` 的分派实现。
+    /// Corresponds to Java: the dispatch implementation of `getCalculationMethod(field).apply(this)`.
     fn calculate(&self, field: FieldKey) -> Option<FieldValue> {
         let resource_field = match field {
             FieldKey::Resource(field) => field,
@@ -3077,14 +3077,14 @@ impl Resource {
             ResourceField::DefaultUnits => {
                 Some(FieldValue::Double(self.default_default_units()))
             }
-            // Java 返回空的 HashMap；`FieldValue` 无集合变体，Rust 侧返回 `None`
-            // （见文件头说明）。
+            // Java returns an empty HashMap; `FieldValue` has no collection variant, so the Rust side returns `None`
+            // (see the notes at the top of the file).
             ResourceField::ResourceCodeValues | ResourceField::RoleCodeValues => None,
             _ => None,
         }
     }
 
-    /// 对应 Java: `Resource.handleFieldChange(FieldType field, Object oldValue, Object newValue)`
+    /// Corresponds to Java: `Resource.handleFieldChange(FieldType field, Object oldValue, Object newValue)`
     fn handle_field_change(
         &mut self,
         field: FieldKey,
@@ -3119,18 +3119,18 @@ impl Resource {
         self.fields.clear_dependent_fields(dependency_map(), field);
     }
 
-    /// 计算成本偏差。
+    /// Calculates the cost variance.
     ///
-    /// 对应 Java: `Resource.calculateCostVariance()`
+    /// Corresponds to Java: `Resource.calculateCostVariance()`
     fn calculate_cost_variance(&self) -> Option<f64> {
         let cost = self.get_cost()?;
         let baseline_cost = self.get_baseline_cost()?;
         Some(NumberHelper::get_double(Some(cost - baseline_cost)))
     }
 
-    /// 计算工时偏差。
+    /// Calculates the work variance.
     ///
-    /// 对应 Java: `Resource.calculateWorkVariance()`
+    /// Corresponds to Java: `Resource.calculateWorkVariance()`
     fn calculate_work_variance(&self) -> Option<Duration> {
         let work = self.get_work()?;
         let baseline_work = self.get_baseline_work()?;
@@ -3152,101 +3152,101 @@ impl Resource {
         ))
     }
 
-    /// 计算成本偏差（CV = BCWP - ACWP）。
+    /// Calculates the cost variance (CV = BCWP - ACWP).
     ///
-    /// 对应 Java: `Resource.calculateCV()`
+    /// Corresponds to Java: `Resource.calculateCV()`
     fn calculate_cv(&self) -> f64 {
         NumberHelper::get_double(self.get_bcwp()) - NumberHelper::get_double(self.get_acwp())
     }
 
-    /// 计算进度偏差（SV = BCWP - BCWS）。
+    /// Calculates the schedule variance (SV = BCWP - BCWS).
     ///
-    /// 对应 Java: `Resource.calculateSV()`
+    /// Corresponds to Java: `Resource.calculateSV()`
     fn calculate_sv(&self) -> Option<f64> {
         let bcwp = self.get_bcwp()?;
         let bcws = self.get_bcws()?;
         Some(NumberHelper::get_double(Some(bcwp - bcws)))
     }
 
-    /// 计算是否过度分配。
+    /// Calculates whether the resource is over-allocated.
     ///
-    /// 对应 Java: `Resource.calculateOverallocated()`
+    /// Corresponds to Java: `Resource.calculateOverallocated()`
     fn calculate_overallocated(&self) -> bool {
         let peak_units = NumberHelper::get_double(self.get_peak_units());
         let max_units = NumberHelper::get_double(self.get_max_units());
         peak_units > max_units
     }
 
-    /// 资源类型的默认值。
+    /// Default value of the resource type.
     ///
-    /// 对应 Java: `Resource.defaultType()`
+    /// Corresponds to Java: `Resource.defaultType()`
     fn default_type(&self) -> ResourceType {
         ResourceType::Work
     }
 
-    /// 角色标志的默认值。
+    /// Default value of the role flag.
     ///
-    /// 对应 Java: `Resource.defaultRoleFlag()`
+    /// Corresponds to Java: `Resource.defaultRoleFlag()`
     fn default_role_flag(&self) -> bool {
         false
     }
 
-    /// 「从单位计算成本」标志的默认值。
+    /// Default value of the "calculate costs from units" flag.
     ///
-    /// 对应 Java: `Resource.defaultCalculateCostsFromUnits()`
+    /// Corresponds to Java: `Resource.defaultCalculateCostsFromUnits()`
     fn default_calculate_costs_from_units(&self) -> bool {
         true
     }
 
-    /// 活动标志的默认值。
+    /// Default value of the active flag.
     ///
-    /// 对应 Java: `Resource.defaultActive()`
+    /// Corresponds to Java: `Resource.defaultActive()`
     fn default_active(&self) -> bool {
         true
     }
 
-    /// 默认可用性的默认值。
+    /// Default value of default availability.
     ///
-    /// 对应 Java: `Resource.defaultDefaultUnits()`
+    /// Corresponds to Java: `Resource.defaultDefaultUnits()`
     fn default_default_units(&self) -> f64 {
         DEFAULT_DEFAULT_UNITS
     }
 
-    /// 计算当前费率表 A 的标准费率。
+    /// Calculates the standard rate from the current rate table A.
     ///
-    /// 对应 Java: `Resource.calculateStandardRate()`
+    /// Corresponds to Java: `Resource.calculateStandardRate()`
     fn calculate_standard_rate(&self) -> Option<crate::rate::Rate> {
         let entry = self.get_current_cost_rate_table_entry(0)?;
         Some(entry.get_standard_rate())
     }
 
-    /// 计算当前费率表 A 的加班费率。
+    /// Calculates the overtime rate from the current rate table A.
     ///
-    /// 对应 Java: `Resource.calculateOvertimeRate()`
+    /// Corresponds to Java: `Resource.calculateOvertimeRate()`
     fn calculate_overtime_rate(&self) -> Option<crate::rate::Rate> {
         let entry = self.get_current_cost_rate_table_entry(0)?;
         Some(entry.get_overtime_rate())
     }
 
-    /// 计算当前费率表 A 的每次使用成本。
+    /// Calculates the cost per use from the current rate table A.
     ///
-    /// 对应 Java: `Resource.calculateCostPerUse()`
+    /// Corresponds to Java: `Resource.calculateCostPerUse()`
     fn calculate_cost_per_use(&self) -> Option<f64> {
         let entry = self.get_current_cost_rate_table_entry(0)?;
         entry.get_cost_per_use()
     }
 
-    /// 计算材料标签（单位名称缩写）。
+    /// Calculates the material label (unit abbreviation).
     ///
-    /// 对应 Java: `Resource.calculateMaterialLabel()`
+    /// Corresponds to Java: `Resource.calculateMaterialLabel()`
     fn calculate_material_label(&self) -> Option<String> {
         let unit_of_measure = self.get_unit_of_measure()?;
         unit_of_measure.get_abbreviation().map(str::to_owned)
     }
 
-    /// 计算全部已分配任务的最早开始日期。
+    /// Calculates the earliest start date of all assigned tasks.
     ///
-    /// 对应 Java: `Resource.calculateStart()`
+    /// Corresponds to Java: `Resource.calculateStart()`
     fn calculate_start(&self) -> Option<NaiveDateTime> {
         self.get_resource_assignment_stream(self.get_unique_id())
             .iter()
@@ -3259,9 +3259,9 @@ impl Resource {
             .min()
     }
 
-    /// 计算全部已分配任务的最晚完成日期。
+    /// Calculates the latest finish date of all assigned tasks.
     ///
-    /// 对应 Java: `Resource.calculateFinish()`
+    /// Corresponds to Java: `Resource.calculateFinish()`
     fn calculate_finish(&self) -> Option<NaiveDateTime> {
         self.get_resource_assignment_stream(self.get_unique_id())
             .iter()
@@ -3274,9 +3274,9 @@ impl Resource {
             .max()
     }
 
-    /// 汇总全部资源分配的计划工时。
+    /// Aggregates the planned work of all resource assignments.
     ///
-    /// 对应 Java: `Resource.calculatePlannedWork()`
+    /// Corresponds to Java: `Resource.calculatePlannedWork()`
     fn calculate_planned_work(&self) -> Option<Duration> {
         let list: Vec<Duration> = self
             .get_resource_assignment_stream(self.get_unique_id())
@@ -3306,9 +3306,9 @@ impl Resource {
         Some(Duration::get_instance(sum, unit))
     }
 
-    /// 汇总全部资源分配的计划成本。
+    /// Aggregates the planned cost of all resource assignments.
     ///
-    /// 对应 Java: `Resource.calculatePlannedCost()`
+    /// Corresponds to Java: `Resource.calculatePlannedCost()`
     fn calculate_planned_cost(&self) -> Option<f64> {
         let list: Vec<f64> = self
             .get_resource_assignment_stream(self.get_unique_id())
@@ -3328,17 +3328,17 @@ impl Resource {
         Some(list.iter().sum())
     }
 
-    /// 计算当前可用性表行中的可用单位数。
+    /// Calculates the available units in the current availability table row.
     ///
-    /// 对应 Java: `Resource.calculateMaxUnits()`
+    /// Corresponds to Java: `Resource.calculateMaxUnits()`
     fn calculate_max_units(&self) -> Option<f64> {
         let entry = self.get_current_availability_table_entry()?;
         entry.get_units()
     }
 
-    /// 计算「可用起始」日期。
+    /// Calculates the "available from" date.
     ///
-    /// 对应 Java: `Resource.calculateAvailableFrom()`
+    /// Corresponds to Java: `Resource.calculateAvailableFrom()`
     fn calculate_available_from(&self) -> Option<NaiveDateTime> {
         let date = now();
         self.availability
@@ -3347,9 +3347,9 @@ impl Resource {
             .and_then(|mut table| table.available_from(date))
     }
 
-    /// 计算「可用截止」日期。
+    /// Calculates the "available to" date.
     ///
-    /// 对应 Java: `Resource.calculateAvailableTo()`
+    /// Corresponds to Java: `Resource.calculateAvailableTo()`
     fn calculate_available_to(&self) -> Option<NaiveDateTime> {
         let date = now();
         self.availability
@@ -3358,9 +3358,9 @@ impl Resource {
             .and_then(|mut table| table.available_to(date))
     }
 
-    /// 计算常规成本（总成本 - 加班成本）。
+    /// Calculates the regular cost (total cost - overtime cost).
     ///
-    /// 对应 Java: `Resource.calculateRegularCost(Supplier<Number>, Supplier<Number>)`
+    /// Corresponds to Java: `Resource.calculateRegularCost(Supplier<Number>, Supplier<Number>)`
     fn calculate_regular_cost(&self, total_cost: Option<f64>, overtime_cost: Option<f64>) -> Option<f64> {
         if total_cost.is_none() && overtime_cost.is_none() {
             return None;
@@ -3369,9 +3369,9 @@ impl Resource {
         Some(NumberHelper::get_double(total_cost) - NumberHelper::get_double(overtime_cost))
     }
 
-    /// 计算常规工时（总工时 - 加班工时）。
+    /// Calculates the regular work (total work - overtime work).
     ///
-    /// 对应 Java: `Resource.calculateRegularWork(Supplier<Duration>, Supplier<Duration>)`
+    /// Corresponds to Java: `Resource.calculateRegularWork(Supplier<Duration>, Supplier<Duration>)`
     fn calculate_regular_work(
         &self,
         total_work: Option<Duration>,
@@ -3406,9 +3406,9 @@ impl Resource {
         Some(Duration::get_instance(total - overtime, units))
     }
 
-    /// 计算材料用量（仅材料资源有值）。
+    /// Calculates the material quantity (has a value only for material resources).
     ///
-    /// 对应 Java: `Resource.calculateMaterial(Supplier<Duration>)`
+    /// Corresponds to Java: `Resource.calculateMaterial(Supplier<Duration>)`
     fn calculate_material(&self, work: Option<Duration>) -> Option<f64> {
         if self.get_type() != ResourceType::Material {
             return None;
@@ -3417,43 +3417,43 @@ impl Resource {
         work.map(|work| work.get_duration())
     }
 
-    /// 取单字段的整数缓存值（不做计算）。
+    /// Gets the integer cached value of a single field (without calculation).
     fn get_i32(&self, field: ResourceField) -> Option<i32> {
         self.get(key(field)).and_then(|value| value.as_integer())
     }
 
-    /// 取单字段的浮点值（含计算字段）。
+    /// Gets the floating-point value of a single field (including calculated fields).
     fn get_f64(&self, field: ResourceField) -> Option<f64> {
         self.get(key(field)).and_then(|value| value.as_double())
     }
 
-    /// 取单字段的布尔值（含计算字段，`null` 视为 `false`）。
+    /// Gets the boolean value of a single field (including calculated fields; `null` is treated as `false`).
     fn get_bool(&self, field: ResourceField) -> bool {
         BooleanHelper::get_boolean(self.get(key(field)).and_then(|value| value.as_boolean()))
     }
 
-    /// 取单字段的字符串（含计算字段）。
+    /// Gets the string value of a single field (including calculated fields).
     fn get_string(&self, field: ResourceField) -> Option<String> {
         self.get(key(field))
             .and_then(|value| value.as_string().map(str::to_owned))
     }
 
-    /// 取单字段的工期（含计算字段）。
+    /// Gets the duration of a single field (including calculated fields).
     fn get_duration(&self, field: ResourceField) -> Option<Duration> {
         self.get(key(field)).and_then(|value| value.as_duration())
     }
 
-    /// 取单字段的日期时间（含计算字段）。
+    /// Gets the date/time of a single field (including calculated fields).
     fn get_date_time(&self, field: ResourceField) -> Option<NaiveDateTime> {
         self.get(key(field)).and_then(|value| value.as_date_time())
     }
 
-    /// 取单字段的费率（含计算字段）。
+    /// Gets the rate of a single field (including calculated fields).
     fn get_field_rate(&self, field: ResourceField) -> Option<Rate> {
         self.get(key(field)).and_then(|value| value.as_rate())
     }
 
-    /// 取按 unique ID 索引的资源分配（Java 的 `getResourceAssignmentStream`）。
+    /// Gets resource assignments indexed by unique ID (Java's `getResourceAssignmentStream`).
     fn get_resource_assignment_stream(
         &self,
         id: Option<i32>,
@@ -3485,13 +3485,13 @@ impl Resource {
     }
 }
 
-/// Java `getBaselineMaterial()` 读取的键（`AssignmentField.BASELINE_MATERIAL`）。
+/// The key read by Java's `getBaselineMaterial()` (`AssignmentField.BASELINE_MATERIAL`).
 fn key_for_assignment_baseline_material() -> FieldKey {
     FieldKey::Assignment(crate::assignment_field::AssignmentField::BaselineMaterial)
 }
 
 impl ProjectEntityWithUniqueID for Resource {
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     fn get_unique_id(&self) -> Option<i32> {
         self.get(key(ResourceField::UniqueId))
             .and_then(|value| value.as_integer())
@@ -3499,22 +3499,22 @@ impl ProjectEntityWithUniqueID for Resource {
 }
 
 impl ProjectEntityWithMutableUniqueID for Resource {
-    /// 对应 Java: `@Override public void setUniqueID(Integer val)`
+    /// Corresponds to Java: `@Override public void setUniqueID(Integer val)`
     fn set_unique_id(&mut self, id: Option<i32>) {
         self.set_field_value(key(ResourceField::UniqueId), id.map(FieldValue::Integer));
     }
 }
 
 impl ProjectEntityWithID for Resource {
-    /// 对应 Java: `@Override public Integer getID()`
+    /// Corresponds to Java: `@Override public Integer getID()`
     fn get_id(&self) -> Option<i32> {
         self.get(key(ResourceField::Id)).and_then(|value| value.as_integer())
     }
 
-    /// 对应 Java: `@Override public void setID(Integer val)`
+    /// Corresponds to Java: `@Override public void setID(Integer val)`
     ///
-    /// Java 在写入字段前会先解除旧 ID 映射、登记新 ID 映射；Rust 侧同样在写入前完成
-    /// 两步（依赖 [`Resource::set_self_reference`] 接线的自身弱引用，未接线时跳过映射维护）。
+    /// Java removes the old ID mapping and registers the new ID mapping before writing the field; the Rust side likewise performs
+    /// the two steps before writing (relying on the self weak reference wired up by [`Resource::set_self_reference`]; mapping maintenance is skipped when not wired up).
     fn set_id(&mut self, id: Option<i32>) {
         let previous = self.get_id();
         if let Some(self_rc) = self.self_ref.upgrade() {
@@ -3534,34 +3534,34 @@ impl ProjectEntityWithID for Resource {
 }
 
 impl FieldContainer for Resource {
-    /// 对应 Java: `AbstractFieldContainer.set(FieldType, Object)`
+    /// Corresponds to Java: `AbstractFieldContainer.set(FieldType, Object)`
     fn set(&mut self, field: FieldKey, value: Option<FieldValue>) {
         self.set_field_value(field, value);
     }
 
-    /// 对应 Java: `AbstractFieldContainer.get(FieldType)`
+    /// Corresponds to Java: `AbstractFieldContainer.get(FieldType)`
     fn get(&self, field: FieldKey) -> Option<FieldValue> {
         self.get_field_value(field)
     }
 
-    /// 对应 Java: `AbstractFieldContainer.getCachedValue(FieldType)`
+    /// Corresponds to Java: `AbstractFieldContainer.getCachedValue(FieldType)`
     fn get_cached_value(&self, field: FieldKey) -> Option<&FieldValue> {
         self.fields.get_cached_value(field)
     }
 
-    /// 对应 Java: `AbstractFieldContainer.addFieldListener(FieldListener)`
+    /// Corresponds to Java: `AbstractFieldContainer.addFieldListener(FieldListener)`
     fn add_field_listener(&mut self, listener: Box<dyn FieldListener>) {
         self.fields.add_field_listener(listener);
     }
 
-    /// 对应 Java: `AbstractFieldContainer.removeFieldListener(FieldListener)`
+    /// Corresponds to Java: `AbstractFieldContainer.removeFieldListener(FieldListener)`
     fn clear_field_listeners(&mut self) {
         self.fields.clear_field_listeners();
     }
 }
 
 impl PartialEq for Resource {
-    /// 对应 Java: `@Override public boolean equals(Object o)`（按 ID 比较）
+    /// Corresponds to Java: `@Override public boolean equals(Object o)` (compares by ID)
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
@@ -3570,7 +3570,7 @@ impl PartialEq for Resource {
 impl Eq for Resource {}
 
 impl Ord for Resource {
-    /// 对应 Java: `@Override public int compareTo(Resource o)`
+    /// Corresponds to Java: `@Override public int compareTo(Resource o)`
     fn cmp(&self, other: &Self) -> Ordering {
         let id1 = NumberHelper::get_int(self.get_id().map(f64::from));
         let id2 = NumberHelper::get_int(other.get_id().map(f64::from));
@@ -3585,14 +3585,14 @@ impl PartialOrd for Resource {
 }
 
 impl Hash for Resource {
-    /// 对应 Java: `@Override public int hashCode()`
+    /// Corresponds to Java: `@Override public int hashCode()`
     fn hash<H: Hasher>(&self, state: &mut H) {
         NumberHelper::get_int(self.get_id().map(f64::from)).hash(state);
     }
 }
 
 impl Display for Resource {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -3605,7 +3605,7 @@ impl Display for Resource {
 }
 
 impl Debug for Resource {
-    /// Java 侧未覆写调试输出；Rust 侧输出关键标识字段（`Box<dyn Notes>` 等内部状态不输出）。
+    /// Java does not override debug output; the Rust side outputs the key identifying fields (`Box<dyn Notes>` and other internal state are not output).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Resource")
             .field("id", &self.get_id())
@@ -3615,7 +3615,7 @@ impl Debug for Resource {
     }
 }
 
-/// 把 `Option<T>` 渲染成 Java `String` 拼接的形态（`null` → `"null"`）。
+/// Renders an `Option<T>` the way Java string concatenation does (`null` → `"null"`).
 fn optional_display<T: Display>(value: Option<T>) -> String {
     value.map_or_else(|| "null".to_owned(), |value| value.to_string())
 }
@@ -3625,12 +3625,12 @@ mod tests {
     use super::*;
     use crate::time_unit::TimeUnit;
 
-    /// 构造一个未挂接到上下文的资源（工厂方法仅在测试中使用）。
+    /// Constructs a resource that is not attached to a context (the factory method is used only in tests).
     fn resource() -> Resource {
         Resource::new(Weak::new())
     }
 
-    /// 构造一个挂接到上下文的资源。
+    /// Constructs a resource attached to a context.
     fn attached_resource(context: &Rc<RefCell<ProjectContext>>) -> Rc<RefCell<Resource>> {
         let resource = Rc::new(RefCell::new(Resource::new(Rc::downgrade(context))));
         resource.borrow_mut().set_self_reference(&resource);
@@ -3658,13 +3658,13 @@ mod tests {
         );
         assert_eq!(resource.get_percent_work_complete(), Some(25.0));
 
-        // 通用 API 与类型化 API 看到同一份数据
+        // The generic API and the typed API see the same data
         assert_eq!(
             resource.get(key(ResourceField::Name)),
             Some(FieldValue::String("Fred".to_owned()))
         );
 
-        // 传 None 等价于 Java 传 null，字段被移除
+        // Passing None is equivalent to passing null in Java; the field is removed
         resource.set_name(None);
         assert_eq!(resource.get_name(), None);
         assert!(resource.get_cached_value(key(ResourceField::Name)).is_none());
@@ -3732,15 +3732,15 @@ mod tests {
     fn availability_and_cost_rate_tables_are_initialised_like_java() {
         let resource = resource();
 
-        // Java 构造方法为 5 张表各放入一条默认表行
+        // The Java constructor puts one default rate row into each of the 5 tables
         for index in 0..CostRateTable::MAX_TABLES {
-            let table = resource.get_cost_rate_table(index).expect("表存在");
+            let table = resource.get_cost_rate_table(index).expect("table exists");
             assert_eq!(table.len(), 1);
         }
         assert!(resource.get_cost_rate_table(-1).is_none());
         assert!(resource.get_cost_rate_table(CostRateTable::MAX_TABLES).is_none());
 
-        // 可用性表初始为空
+        // The availability table starts out empty
         assert!(resource.get_availability().is_empty());
         assert!(resource.get_current_availability_table_entry().is_none());
     }
@@ -3749,8 +3749,8 @@ mod tests {
     fn availability_table_drives_max_units_and_available_dates() {
         fn date_time(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
             NaiveDateTime::new(
-                chrono::NaiveDate::from_ymd_opt(year, month, day).expect("合法日期"),
-                chrono::NaiveTime::from_hms_opt(hour, minute, 0).expect("合法时间"),
+                chrono::NaiveDate::from_ymd_opt(year, month, day).expect("valid date"),
+                chrono::NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time"),
             )
         }
 
@@ -3764,9 +3764,9 @@ mod tests {
             ));
         }
 
-        // 当前日期落在区间之外（2024 年 1 月已过），因此取不到「当前」行
+        // The current date falls outside the interval (January 2024 has passed), so no "current" row is found
         assert!(resource.get_current_availability_table_entry().is_none());
-        // 目标日期晚于唯一区间：availableFrom 返回该区间结束 + 1 分钟，availableTo 无值
+        // The target date is later than the only interval: availableFrom returns the end of that interval + 1 minute, and availableTo has no value
         assert_eq!(
             resource.get_available_from(),
             Some(date_time(2024, 1, 31, 17, 1))
@@ -3827,7 +3827,7 @@ mod tests {
         assert_eq!(resource.get_cv(), Some(20.0));
         assert_eq!(resource.get_sv(), Some(10.0));
 
-        // 显式设置的值优先于计算值（与 Java 的缓存语义一致）
+        // An explicitly set value takes precedence over the calculated value (consistent with Java's cache semantics)
         resource.set_cv(Some(1.0));
         assert_eq!(resource.get_cv(), Some(1.0));
     }
@@ -3836,7 +3836,7 @@ mod tests {
     fn overallocated_compares_peak_and_max_units() {
         let mut resource = resource();
 
-        // Java 未提供 setMaxUnits（MAX_UNITS 由可用性表计算）；无可用性表时按 0 处理。
+        // Java does not provide a setMaxUnits (MAX_UNITS is calculated from the availability table); with no availability table it is treated as 0.
         resource.set_peak_units(Some(120.0));
         assert!(resource.get_over_allocated());
 
@@ -3851,7 +3851,7 @@ mod tests {
         resource.set_work(Some(Duration::get_instance(6.0, TimeUnit::Hours)));
         resource.set_baseline_work(Some(Duration::get_instance(4.0, TimeUnit::Hours)));
 
-        // 默认（WORK）资源没有材料用量
+        // The default (WORK) resource has no material quantity
         assert_eq!(resource.get_material(), None);
 
         resource.set_type(ResourceType::Material);
@@ -3880,12 +3880,12 @@ mod tests {
     fn dependent_fields_are_cleared_when_dependencies_change() {
         let mut resource = resource();
 
-        // 触发一次计算并确认可以再计算
+        // Triggers a calculation and confirms it can be calculated again
         resource.set_cost(Some(10.0));
         resource.set_baseline_cost(Some(4.0));
         assert_eq!(resource.get_cost_variance(), Some(6.0));
 
-        // 依赖字段变更后缓存被清理，重新计算得到新值
+        // After a dependent field changes the cache is cleared, and recomputation produces the new value
         resource.set_cost(Some(20.0));
         assert_eq!(resource.get_cost_variance(), Some(16.0));
     }
@@ -3911,7 +3911,7 @@ mod tests {
         assert!(resource.get_flag_at(2));
         assert_eq!(resource.get_outline_code_at(1), Some("OC".to_owned()));
 
-        // 越界索引不 panic
+        // An out-of-bounds index does not panic
         assert_eq!(resource.get_text_at(0), None);
         assert_eq!(resource.get_text_at(31), None);
         assert!(!resource.get_flag_at(21));
@@ -3968,7 +3968,7 @@ mod tests {
         assert_eq!(assignments.len(), 1);
         assert_eq!(assignments[0].1, SkillLevel::Expert);
 
-        // 同一角色重复分配会替换
+        // Assigning the same role repeatedly replaces the previous assignment
         resource.add_role_assignment(&role, SkillLevel::Master);
         assert_eq!(resource.get_role_assignments()[0].1, SkillLevel::Master);
 
@@ -4015,7 +4015,7 @@ mod tests {
         assert!(resource.add_resource().is_none());
         assert!(resource.add_calendar().is_err());
 
-        // remove() 在没有自身弱引用时为空操作
+        // remove() is a no-op without a self weak reference
         resource.remove();
     }
 
@@ -4036,18 +4036,18 @@ mod tests {
                 .add_resource_entry(Rc::clone(&child));
         }
 
-        // 资源已关联上下文；未关联日历时 get_calendar 返回 None
+        // The resource is associated with a context; when no calendar is associated, get_calendar returns None
         assert!(resource.borrow().get_project_context().is_some());
         assert!(resource.borrow().get_calendar().is_none());
 
-        // unique ID 变化会同步到容器的 unique ID 索引
+        // A unique ID change is synchronized to the container's unique ID index
         resource.borrow_mut().set_unique_id(Some(5));
         child.borrow_mut().set_unique_id(Some(6));
 
-        // 父资源通过上下文的资源容器按 unique ID 解析
+        // The parent resource is resolved by unique ID through the context's resource container
         child.borrow_mut().set_parent_resource(Some(&resource));
         assert!(Rc::ptr_eq(
-            &child.borrow().get_parent_resource().expect("父资源已注册"),
+            &child.borrow().get_parent_resource().expect("parent resource registered"),
             &resource
         ));
     }

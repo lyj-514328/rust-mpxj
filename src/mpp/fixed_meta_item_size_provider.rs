@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/mpp/FixedMetaItemSizeProvider.java`
+//! Corresponds to Java: `org/mpxj/mpp/FixedMetaItemSizeProvider.java`
 //!
-//! 该策略接口用于决定 `FixedMeta` 结构中每条记录应使用的记录大小。
+//! This strategy interface determines the record size to use for each record in a `FixedMeta` structure.
 //!
-//! 移植取舍：
-//! - Java 的 `interface` 对应 Rust 的 `pub trait`（Java 侧是包级可见，Rust 侧为 public，
-//!   便于其它模块提供自定义实现）。
-//! - Java 的实现全部是 lambda（`FixedMeta` 的两个构造方法里的内联实现）；Rust 侧为
-//!   `Fn(i32, i32) -> i32` 提供 blanket impl，使闭包可以直接当作 provider 传入，
-//!   从而保持 `FixedMeta::new(data, &|file_size, item_count| ...)` 的写法。
-//! - Java 的 `int` 参数与返回值一律保留为 `i32`。
-//! - 未涉及反射、JDBC、XML/JAXB、GUI、`javax.*`、`Serializable`。
+//! Porting trade-offs:
+//! - Java's `interface` corresponds to Rust's `pub trait` (it is package-visible in Java and public in Rust,
+//! making it easier for other modules to provide custom implementations).
+//! - All Java implementations are lambdas (inline implementations in the two constructors of `FixedMeta`); the Rust side provides
+//! a blanket impl for `Fn(i32, i32) -> i32`, so closures can be passed directly as a provider,
+//! preserving the `FixedMeta::new(data, &|file_size, item_count| ...)` form.
+//! - Java's `int` parameters and return values are all kept as `i32`.
+//! - Does not involve reflection, JDBC, XML/JAXB, GUI, `javax.*`, or `Serializable`.
 
-/// 提供 `FixedMeta` 结构中使用的记录大小。
+/// Provide the record size used in a `FixedMeta` structure.
 ///
-/// 对应 Java: `interface FixedMetaItemSizeProvider`
+/// Corresponds to Java: `interface FixedMetaItemSizeProvider`
 pub trait FixedMetaItemSizeProvider {
-    /// 取得 `FixedMeta` 结构要使用的记录大小。
+/// Obtain the record size to use for a `FixedMeta` structure.
     ///
-    /// 对应 Java: `int getItemSize(int fileSize, int itemCount)`
+    /// Corresponds to Java: `int getItemSize(int fileSize, int itemCount)`
     ///
-    /// - `file_size`：包含 `FixedMeta` 数据的整块数据大小（Java 侧为 `is.available()`）
-    /// - `item_count`：块头报告的记录条数
+/// - `file_size`: the size of the whole block containing the `FixedMeta` data (in Java this is `is.available()`)
+/// - `item_count`: the number of records reported by the block header
     fn get_item_size(&self, file_size: i32, item_count: i32) -> i32;
 }
 
-/// 让闭包也能作为 item size provider 使用（对应 Java 的内联 lambda 实现）。
+/// Allow closures to be used as an item size provider (corresponding to Java's inline lambda implementations).
 impl<F> FixedMetaItemSizeProvider for F
 where
     F: Fn(i32, i32) -> i32,
 {
-    /// 对应 Java: lambda 形式的 `FixedMetaItemSizeProvider#getItemSize`
+/// Corresponds to Java: the lambda form of `FixedMetaItemSizeProvider#getItemSize`
     fn get_item_size(&self, file_size: i32, item_count: i32) -> i32 {
         self(file_size, item_count)
     }
@@ -39,14 +39,14 @@ where
 mod tests {
     use super::*;
 
-    /// 闭包可以当作 provider 使用，且参数原样传递。
+/// A closure can be used as a provider, and the arguments are passed through unchanged.
     #[test]
     fn closure_implements_provider() {
         let provider = |file_size: i32, item_count: i32| file_size + item_count;
         assert_eq!(provider.get_item_size(16, 2), 18);
     }
 
-    /// 也可以作为 `&dyn` 传递。
+/// It can also be passed as `&dyn`.
     #[test]
     fn provider_as_dyn() {
         let provider = |_file_size: i32, _item_count: i32| 8;

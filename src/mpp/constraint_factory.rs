@@ -1,29 +1,29 @@
-//! 对应 Java: `org/mpxj/mpp/ConstraintFactory.java`
+//! Corresponds to Java: `org/mpxj/mpp/ConstraintFactory.java`
 //!
-//! 从 MPP9 / MPP12 / MPP14 文件的 `TBkndCons` 存储中读出任务之间的「关系」
-//! （Java 侧把这种记录称为 constraint，实际表示的是 predecessor/successor 关系），
-//! 写入后继任务并触发关系读取事件。
+//! Read the "relations" between tasks from the `TBkndCons` storage of MPP9 / MPP12 / MPP14 files
+//! (Java calls such a record a constraint, but it actually represents a predecessor/successor relation),
+//! write them into the successor task, and fire the relation read event.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `class ConstraintFactory`（包级可见） | `pub struct ConstraintFactory` | Rust 没有包级可见性（本 crate 的约定是公开类型） |
-//! | `process(DirectoryEntry projectDir, ProjectFile file, DocumentInputStreamFactory inputStreamFactory) throws IOException` | [`ConstraintFactory::process`] 返回 `MpxjResult<()>` | Java 用 `IOException` 表示「流读取失败」；Rust 侧统一用 [`MpxjError`]（`io::Error` 可经 `?` 自动转换） |
-//! | `new FixedMeta(new DocumentInputStream((DocumentEntry) consDir.getEntry("FixedMeta")), 10)` | `FixedMeta::with_item_size(&document.get_data(), 10)` | 按项目约定 `InputStream` 一律换成 `&[u8]`；条目不存在时 Java 抛 `FileNotFoundException`，Rust 返回 `Err` |
-//! | `new FixedData(consFixedMeta, 20, inputStreamFactory.getInstance(consDir, "FixedData"))` | `FixedData::with_item_size(&meta, 20, &stream.to_bytes())` | 同上 |
-//! | `eventManager.fireRelationReadEvent(relation)` | 经 `ProjectFile::get_project_context()` 取 `EventManager` 的可变引用后触发 | `ProjectFile::get_event_manager()` 只返回不可变 `Ref`，无法调用 `&mut self` 的事件方法 |
-//! | `ByteArrayHelper.getShort/getInt` 越界 | 先判长度再取，不足则 `continue` | Java 会抛 `ArrayIndexOutOfBoundsException` |
-//! | `file.getTaskByUniqueID(...)` 返回 `null` | `Option<Rc<RefCell<Task>>>` | 「`null` → `Option<T>`」约定 |
+//! | `class ConstraintFactory` (package-visible) | `pub struct ConstraintFactory` | Rust has no package visibility (this crate's convention is public types) |
+//! | `process(DirectoryEntry projectDir, ProjectFile file, DocumentInputStreamFactory inputStreamFactory) throws IOException` | [`ConstraintFactory::process`] returns `MpxjResult<()>` | Java uses `IOException` for "stream read failure"; the Rust side uniformly uses [`MpxjError`] (`io::Error` converts automatically via `?`) |
+//! | `new FixedMeta(new DocumentInputStream((DocumentEntry) consDir.getEntry("FixedMeta")), 10)` | `FixedMeta::with_item_size(&document.get_data(), 10)` | Per project convention `InputStream` is always replaced by `&[u8]`; when the entry does not exist Java throws `FileNotFoundException` and Rust returns `Err` |
+//! | `new FixedData(consFixedMeta, 20, inputStreamFactory.getInstance(consDir, "FixedData"))` | `FixedData::with_item_size(&meta, 20, &stream.to_bytes())` | same as above |
+//! | `eventManager.fireRelationReadEvent(relation)` | fired after obtaining a mutable reference to `EventManager` via `ProjectFile::get_project_context()` | `ProjectFile::get_event_manager()` only returns an immutable `Ref`, so it cannot call event methods taking `&mut self` |
+//! | `ByteArrayHelper.getShort/getInt` out of bounds | check the length first, then read, and `continue` when insufficient | Java throws `ArrayIndexOutOfBoundsException` |
+//! | `file.getTaskByUniqueID(...)` returns `null` | `Option<Rc<RefCell<Task>>>` | the "`null` → `Option<T>`" convention |
 //!
-//! 跳过的 Java 代码及原因：
+//! Skipped Java code and the reason:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | 被注释掉的 `consFixed2Meta` / `consFixed2Data` 相关代码（Java 源码中已注释） | Java 源码中即为注释，不参与运行 |
-//! | `task2.addPredecessor(...)` 的 unique ID 自动分配 | 见 `crate::relation::Builder` 的文件头说明（自动分配依赖 `ProjectConfig` 的序号生成器，Rust 侧改由调用方提供 `uniqueID`；此处 Java 本来就显式传入了 unique ID） |
+//! | the commented-out `consFixed2Meta` / `consFixed2Data` code (already commented out in the Java source) | it is a comment in the Java source and does not run |
+//! | the automatic unique ID allocation of `task2.addPredecessor(...)` | see the file header of `crate::relation::Builder` (automatic allocation relies on `ProjectConfig`'s sequence generator; on the Rust side the caller provides `uniqueID`; here Java already passes the unique ID explicitly) |
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -41,25 +41,25 @@ use crate::relation::Builder as RelationBuilder;
 use crate::relation_type::RelationType;
 use crate::task::Task;
 
-/// `TBkndCons` 存储名。
+/// The `TBkndCons` storage name.
 ///
-/// 对应 Java: `projectDir.getEntry("TBkndCons")`
+/// Corresponds to Java: `projectDir.getEntry("TBkndCons")`
 const CONS_DIRECTORY: &str = "TBkndCons";
 
-/// 关系数据块的最小长度。
+/// Minimum length of the relation data block.
 ///
-/// 对应 Java: `if (data.length < 14) { continue; }`
+/// Corresponds to Java: `if (data.length < 14) { continue; }`
 const MINIMUM_DATA_LENGTH: usize = 14;
 
-/// 公共的关系数据读取逻辑。
+/// Common relation data reading logic.
 ///
-/// 对应 Java: `class ConstraintFactory`
+/// Corresponds to Java: `class ConstraintFactory`
 pub struct ConstraintFactory;
 
 impl ConstraintFactory {
-    /// 处理关系数据的主入口。
+/// Main entry point for processing relation data.
     ///
-    /// 对应 Java: `public void process(DirectoryEntry projectDir, ProjectFile file, DocumentInputStreamFactory inputStreamFactory) throws IOException`
+    /// Corresponds to Java: `public void process(DirectoryEntry projectDir, ProjectFile file, DocumentInputStreamFactory inputStreamFactory) throws IOException`
     pub fn process(
         &self,
         project_dir: &DirectoryEntry,
@@ -91,7 +91,7 @@ impl ConstraintFactory {
         let count = cons_fixed_meta.get_item_count();
 
         // Java: ProjectProperties properties = file.getProjectProperties();
-        // Java 在循环前一次性取得属性；Rust 侧此处只为计算下面两个标志借用一次。
+// Java obtains the properties once before the loop; on the Rust side this borrows once only to compute the two flags below.
         let (mpp_file_type, application_version) = {
             let file_ref = file.borrow();
             let properties = file_ref.get_project_properties();
@@ -116,8 +116,8 @@ impl ConstraintFactory {
             };
 
             //
-            // SourceForge bug 2209477: Java 注释 —— 这里读的其实是 short，
-            // 删除标志只是半个整数。
+// SourceForge bug 2209477: Java comment — what is read here is actually a short,
+// and the deletion flag is only half an integer.
             //
             // Java: if (ByteArrayHelper.getShort(metaData, 0) != 0) { continue; }
             if meta_data.len() < 2 {
@@ -137,7 +137,7 @@ impl ConstraintFactory {
             }
 
             //
-            // 数据是否足够？
+// Is there enough data?
             //
             // Java: byte[] data = consFixedData.getByteArrayValue(index);
             //       if (data.length < 14) { continue; }
@@ -154,14 +154,14 @@ impl ConstraintFactory {
             let task_id2 = ByteArrayHelper::get_int(data, 8);
 
             //
-            // 与项目摘要任务之间的关系无效
+// a relation with the project summary task is invalid
             //
             if task_id1 == 0 || task_id2 == 0 {
                 continue;
             }
 
             //
-            // 循环关系无效
+// a circular relation is invalid
             //
             if task_id1 == task_id2 {
                 continue;
@@ -184,7 +184,7 @@ impl ConstraintFactory {
                 let time_units =
                     MPPUtility::get_duration_time_units(ByteArrayHelper::get_short(data, duration_units_offset));
 
-                // 属性对象由 `ProjectFile` 持有，这里临时借用一次（Java 持有稳定引用）
+// the property object is held by `ProjectFile`; this borrows it temporarily once (Java holds a stable reference)
                 let lag = {
                     let file_ref = file.borrow();
                     MPPUtility::get_adjusted_duration(
@@ -231,16 +231,16 @@ mod tests {
 
     use cfb::CompoundFile;
 
-    /// 关系读取事件日志（与监听器共享同一 `Rc`）。
+/// Relation read event log (shares the same `Rc` as the listener).
     type RelationLog = Rc<RefCell<Vec<Rc<RefCell<Relation>>>>>;
 
-    /// 记录关系读取事件的监听器（与 `crate::event_manager` 测试中的 `Recorder` 同构）。
+/// A listener that records relation read events (isomorphic to `Recorder` in the `crate::event_manager` test).
     struct RelationRecorder {
         log: RelationLog,
     }
 
     impl RelationRecorder {
-        /// 返回监听器与其事件日志。
+/// Return the listener and its event log.
         fn shared() -> (Self, RelationLog) {
             let log: RelationLog = Rc::new(RefCell::new(Vec::new()));
             (Self { log: log.clone() }, log)
@@ -271,12 +271,12 @@ mod tests {
         fn relation_written(&mut self, _relation: &Rc<RefCell<Relation>>) {}
     }
 
-    /// `TBkndCons` 数据：与 Java 的读取偏移一致。
+/// `TBkndCons` data: consistent with Java's read offsets.
     ///
-    /// - FixedMeta：16 字节块头 + 每条 10 字节记录（第 0..2 字节为删除标志、
-    ///   第 4..8 字节为该条数据在 FixedData 中的偏移）
-    /// - FixedData：每条 20 字节（偏移 0 处为关系 unique ID、4 处为前驱任务 unique ID、
-    ///   8 处为后继任务 unique ID、12 处为关系类型、14/16 处为 lag、18 处为 lag 单位）
+/// - FixedMeta: 16-byte block header + a 10-byte record each (bytes 0..2 are the deletion flag,
+/// bytes 4..8 are the offset of that record in FixedData)
+/// - FixedData: 20 bytes each (offset 0 is the relation unique ID, 4 is the predecessor task unique ID,
+/// 8 is the successor task unique ID, 12 is the relation type, 14/16 is the lag, 18 is the lag unit)
     fn build_cons_streams() -> (Vec<u8>, Vec<u8>) {
         let mut meta = Vec::new();
         meta.extend_from_slice(&0xFADFADBAu32.to_le_bytes());
@@ -284,30 +284,30 @@ mod tests {
         meta.extend_from_slice(&2i32.to_le_bytes());
         meta.extend_from_slice(&0i32.to_le_bytes());
 
-        // 第 1 条：已删除（保留标志非 0）
+// record 1: deleted (the reserved flag is non-zero)
         let mut deleted = vec![0u8; 10];
         deleted[0..2].copy_from_slice(&1u16.to_le_bytes());
         deleted[4..8].copy_from_slice(&0i32.to_le_bytes());
         meta.extend_from_slice(&deleted);
 
-        // 第 2 条：指向偏移 0
+// record 2: points to offset 0
         let mut item = vec![0u8; 10];
         item[4..8].copy_from_slice(&0i32.to_le_bytes());
         meta.extend_from_slice(&item);
 
         let mut data = vec![0u8; 20];
-        data[0..4].copy_from_slice(&77i32.to_le_bytes()); // 关系 unique ID
-        data[4..8].copy_from_slice(&1i32.to_le_bytes()); // 前驱任务 unique ID
-        data[8..12].copy_from_slice(&2i32.to_le_bytes()); // 后继任务 unique ID
+        data[0..4].copy_from_slice(&77i32.to_le_bytes()); // relation unique ID
+        data[4..8].copy_from_slice(&1i32.to_le_bytes()); // predecessor task unique ID
+        data[8..12].copy_from_slice(&2i32.to_le_bytes()); // successor task unique ID
         data[12..14].copy_from_slice(&3u16.to_le_bytes()); // StartStart
-        // 非 2013 布局：单位在偏移 14（2 字节），lag 在偏移 16（4 字节）
+// non-2013 layout: the unit is at offset 14 (2 bytes) and the lag is at offset 16 (4 bytes)
         data[14..16].copy_from_slice(&7u16.to_le_bytes()); // DAYS
-        data[16..20].copy_from_slice(&4800i32.to_le_bytes()); // 1 天（480 分钟/天）
+        data[16..20].copy_from_slice(&4800i32.to_le_bytes()); // 1 day (480 minutes/day)
 
         (meta, data)
     }
 
-    /// 构造一个含 `TBkndCons` 存储的复合文档，并返回其项目存储。
+/// Build a compound document containing `TBkndCons` storage and return its project storage.
     fn project_directory(meta: &[u8], data: &[u8]) -> (PoifsFileSystem, DirectoryEntry) {
         let mut file = CompoundFile::create(Cursor::new(Vec::new())).unwrap();
         file.create_storage("/   114").unwrap();
@@ -323,11 +323,11 @@ mod tests {
         let bytes = file.into_inner().into_inner();
 
         let fs = PoifsFileSystem::new(Cursor::new(bytes)).unwrap();
-        let directory = fs.get_root().get_directory("   114").expect("项目存储");
+        let directory = fs.get_root().get_directory("   114").expect("project store");
         (fs, directory)
     }
 
-    /// 建两个任务（unique ID 1 / 2）并把它们放进项目文件。
+/// Create two tasks (unique ID 1 / 2) and put them into the project file.
     fn file_with_two_tasks() -> Rc<RefCell<ProjectFile>> {
         let file = ProjectFile::new();
 
@@ -339,7 +339,7 @@ mod tests {
         file
     }
 
-    /// 读取关系：类型、lag、unique ID 与任务引用都正确，并触发了事件。
+/// Read the relation: the type, lag, unique ID, and task references are all correct, and the event is fired.
     #[test]
     fn reads_relations_and_fires_events() {
         let (meta, data) = build_cons_streams();
@@ -356,10 +356,10 @@ mod tests {
         let factory = DocumentInputStreamFactory::new(&Props::new());
         ConstraintFactory
             .process(&directory, &file, &factory)
-            .expect("关系读取成功");
+            .expect("relation read successfully");
 
-        let task1 = file.borrow().get_task_by_unique_id(Some(1)).expect("任务 1");
-        let task2 = file.borrow().get_task_by_unique_id(Some(2)).expect("任务 2");
+        let task1 = file.borrow().get_task_by_unique_id(Some(1)).expect("task 1");
+        let task2 = file.borrow().get_task_by_unique_id(Some(2)).expect("task 2");
 
         let predecessors = task2.borrow().get_predecessors();
         assert_eq!(predecessors.len(), 1);
@@ -373,11 +373,11 @@ mod tests {
             Some((1.0, TimeUnit::Days))
         );
         assert!(Rc::ptr_eq(
-            &relation.get_predecessor_task().expect("前驱任务"),
+            &relation.get_predecessor_task().expect("predecessor task"),
             &task1
         ));
         assert!(Rc::ptr_eq(
-            &relation.get_successor_task().expect("后继任务"),
+            &relation.get_successor_task().expect("successor task"),
             &task2
         ));
         drop(relation);
@@ -386,25 +386,25 @@ mod tests {
         assert_eq!(log.borrow().len(), 1);
     }
 
-    /// 缺少 `TBkndCons` 存储时记录「忽略错误」并正常返回（与 Java 一致）。
+/// When the `TBkndCons` storage is missing, logs "ignore error" and returns normally (consistent with Java).
     #[test]
     fn missing_directory_is_recorded_as_ignored_error() {
         let mut compound = CompoundFile::create(Cursor::new(Vec::new())).unwrap();
         compound.create_storage("/   114").unwrap();
         let bytes = compound.into_inner().into_inner();
         let fs = PoifsFileSystem::new(Cursor::new(bytes)).unwrap();
-        let directory = fs.get_root().get_directory("   114").expect("项目存储");
+        let directory = fs.get_root().get_directory("   114").expect("project store");
 
         let file = ProjectFile::new();
         let factory = DocumentInputStreamFactory::new(&Props::new());
         ConstraintFactory
             .process(&directory, &file, &factory)
-            .expect("缺少存储不算错误");
+            .expect("missing store is not an error");
 
         assert_eq!(file.borrow().get_ignored_errors().len(), 1);
     }
 
-    /// 缺少 `FixedMeta` 流时返回错误（Java 抛 FileNotFoundException）。
+/// Returns an error when the `FixedMeta` stream is missing (Java throws FileNotFoundException).
     #[test]
     fn missing_fixed_meta_returns_error() {
         let mut compound = CompoundFile::create(Cursor::new(Vec::new())).unwrap();
@@ -412,7 +412,7 @@ mod tests {
         compound.create_storage("/   114/TBkndCons").unwrap();
         let bytes = compound.into_inner().into_inner();
         let fs = PoifsFileSystem::new(Cursor::new(bytes)).unwrap();
-        let directory = fs.get_root().get_directory("   114").expect("项目存储");
+        let directory = fs.get_root().get_directory("   114").expect("project store");
 
         let file = ProjectFile::new();
         let factory = DocumentInputStreamFactory::new(&Props::new());
@@ -423,7 +423,7 @@ mod tests {
         );
     }
 
-    /// 坏 magic 的 FixedMeta 返回错误（Java 抛 IOException），不 panic。
+/// A FixedMeta with bad magic returns an error (Java throws IOException) without panicking.
     #[test]
     fn bad_fixed_meta_magic_returns_error() {
         let (mut meta, data) = build_cons_streams();

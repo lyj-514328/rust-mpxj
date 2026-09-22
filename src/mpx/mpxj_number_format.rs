@@ -1,106 +1,108 @@
-//! 对应 Java: `org/mpxj/mpx/MPXJNumberFormat.java`
+//! Corresponds to Java: `org/mpxj/mpx/MPXJNumberFormat.java`
 //!
-//! # 移植取舍（`DecimalFormat` / `DecimalFormatSymbols` / `ParsePosition`）
+//! # Porting trade-offs (`DecimalFormat` / `DecimalFormatSymbols` / `ParsePosition`)
 //!
-//! Java 侧 `MPXJNumberFormat extends DecimalFormat`，依赖 `java.text` 的数字格式化能力
-//! （模式串、区域设置符号、`BigDecimal` 精确十进制运算）。Rust 标准库没有对应物，
-//! 本模块的处理方式：
+//! Java's `MPXJNumberFormat extends DecimalFormat` and relies on `java.text` number formatting
+//! (pattern strings, locale symbols, exact decimal arithmetic via `BigDecimal`). The Rust standard
+//! library has no equivalent, so this module handles it as follows:
 //!
-//! - 用本模块私有的 [`NumberPattern`] 承载 `DecimalFormat` 模式串中本类真正用到的部分：
-//!   正 / 负子模式的前后缀、最少整数位、最少 / 最多小数位、分组（千分位）分隔符与百分号。
-//!   模式中未用到的能力做如下降级并在 [`compile_number_pattern`] 处注明：指数记法（`E`）
-//!   解析后忽略；无法解析的模式（Java 抛 `IllegalArgumentException`）记为「无模式」而不 panic。
-//! - `DecimalFormatSymbols` → 本结构自行保存小数分隔符与分组分隔符（等价于 Java 侧的
-//!   `setDecimalFormatSymbols`），默认值取英文区域（`.` 与 `,`）。
-//! - 继承自 `DecimalFormat` 的方法只用到 `parse(String)` 与 `format(double)`：
-//!   `parse` → [`MPXJNumberFormat::parse`]（返回 `Option<f64>`），
-//!   `format` → [`MPXJNumberFormat::format`]。Java 用 `BigDecimal` 保证十进制精确，
-//!   这里改用 `f64`（`str::parse` / `format!`），仅在极端精度场景有差异。
-//! - `ParsePosition` → Rust 侧用 `Option<f64>` 表达 Java 的「解析成功（index 前进）」与
-//!   「解析失败（index 保持 / 置 -1）」，内部私有函数 [`MPXJNumberFormat::parse_at`]
-//!   返回「值 + 已消费字符数」以复现替代模式的尝试逻辑。
-//! - 分组分隔符：Java 的 `DecimalFormat.isGroupingUsed()` 默认为 `true`，因此解析时
-//!   始终接受分组分隔符（MPXJ 额外准备 `#,#` 形式的替代模式是为了覆盖**打印**与
-//!   货币符号有无的差异），这里同样始终接受。
-//! - `equals` / `hashCode` → `PartialEq` / `Eq` / `Hash`：Java 的 `equals` 先调用
-//!   `super.equals(obj)`，而 `DecimalFormat` 未覆写 `equals`，实际退化为**引用相等**；
-//!   Rust 侧按字段做结构化比较（更符合直觉，差异在此注明）。
+//! - A module-private [`NumberPattern`] carries the parts of the `DecimalFormat` pattern string that
+//!   this class actually uses: positive / negative sub-pattern prefixes and suffixes, minimum integer
+//!   digits, minimum / maximum fraction digits, the grouping (thousands) separator, and the percent
+//!   sign. Unused pattern features are degraded as noted at [`compile_number_pattern`]: exponent
+//!   notation (`E`) is ignored after parsing, and an unparsable pattern (Java throws
+//!   `IllegalArgumentException`) is recorded as "no pattern" instead of panicking.
+//! - `DecimalFormatSymbols` → this struct stores the decimal and grouping separators itself
+//!   (equivalent to Java's `setDecimalFormatSymbols`), defaulting to the English locale (`.` and `,`).
+//! - Only `parse(String)` and `format(double)` of the methods inherited from `DecimalFormat` are used:
+//!   `parse` → [`MPXJNumberFormat::parse`] (returns `Option<f64>`),
+//!   `format` → [`MPXJNumberFormat::format`]. Java uses `BigDecimal` for exact decimal arithmetic;
+//!   this uses `f64` (`str::parse` / `format!`) instead, differing only in extreme-precision cases.
+//! - `ParsePosition` → Rust uses `Option<f64>` to express Java's "parse succeeded (index advanced)" and
+//!   "parse failed (index kept / set to -1)"; the private function [`MPXJNumberFormat::parse_at`]
+//!   returns "value + consumed character count" to reproduce the alternative-pattern attempt logic.
+//! - Grouping separator: Java's `DecimalFormat.isGroupingUsed()` defaults to `true`, so parsing always
+//!   accepts the grouping separator (MPXJ additionally prepares `#,#` alternative patterns to cover
+//!   differences in **printing** and in the presence of a currency symbol); this also always accepts it.
+//! - `equals` / `hashCode` → `PartialEq` / `Eq` / `Hash`: Java's `equals` first calls
+//!   `super.equals(obj)`, and since `DecimalFormat` does not override `equals`, it effectively degrades
+//!   to **reference equality**; Rust does a structural per-field comparison (more intuitive, noted here).
 //!
-//! 未移植的成员：`hashCode()` / `equals(Object)`（改用 `PartialEq` / `Eq` / `Hash` 派生）。
+//! Skipped Java members: `hashCode()` / `equals(Object)` (replaced by deriving `PartialEq` / `Eq` / `Hash`).
 
-/// 数字格式模式（`DecimalFormat` 模式串中本类用到的部分）。
+/// Number format pattern (the parts of the `DecimalFormat` pattern string used by this class).
 ///
-/// 对应 Java: `DecimalFormat` 内部由 `applyPattern(String)` 解析出的模式。
+/// Corresponds to Java: the pattern parsed from `applyPattern(String)` inside `DecimalFormat`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct NumberPattern {
-    /// 正数前缀（字面量）
+    /// Positive prefix (literal)
     positive_prefix: String,
-    /// 正数后缀（字面量）
+    /// Positive suffix (literal)
     positive_suffix: String,
-    /// 负数前缀（未显式给出负子模式时为 `-` + 正数前缀）
+    /// Negative prefix (when no negative sub-pattern is given, `-` + the positive prefix)
     negative_prefix: String,
-    /// 负数后缀（未显式给出负子模式时同正数后缀）
+    /// Negative suffix (same as the positive suffix when no negative sub-pattern is given)
     negative_suffix: String,
-    /// 最少整数位（模式中整数部分的 `0` 个数）
+    /// Minimum integer digits (number of `0`s in the integer part of the pattern)
     min_integer_digits: usize,
-    /// 最少小数位（小数部分 `0` 的个数）
+    /// Minimum fraction digits (number of `0`s in the fraction part)
     min_fraction_digits: usize,
-    /// 最多小数位（小数部分 `0` 与 `#` 的个数之和）
+    /// Maximum fraction digits (sum of the `0`s and `#`s in the fraction part)
     max_fraction_digits: usize,
-    /// 是否使用分组（千分位）分隔符
+    /// Whether to use the grouping (thousands) separator
     grouping: bool,
-    /// 分组长度（最后一个分组分隔符之后的数字位数；Java 默认 3）
+    /// Grouping size (number of digits after the last grouping separator; Java defaults to 3)
     grouping_size: usize,
-    /// 模式中是否出现 `%`（解析时除以 100，打印时乘以 100）
+    /// Whether `%` appears in the pattern (divide by 100 when parsing, multiply by 100 when printing)
     percent: bool,
 }
 
-/// 单个子模式（正或负）的解析结果。
+/// Parse result for a single sub-pattern (positive or negative).
 #[derive(Debug, Clone)]
 struct SubPattern {
-    /// 前缀字面量
+    /// Prefix literal
     prefix: String,
-    /// 后缀字面量
+    /// Suffix literal
     suffix: String,
-    /// 最少整数位
+    /// Minimum integer digits
     min_integer_digits: usize,
-    /// 最少小数位
+    /// Minimum fraction digits
     min_fraction_digits: usize,
-    /// 最多小数位
+    /// Maximum fraction digits
     max_fraction_digits: usize,
-    /// 是否使用分组分隔符
+    /// Whether to use the grouping separator
     grouping: bool,
-    /// 分组长度
+    /// Grouping size
     grouping_size: usize,
-    /// 是否出现 `%`
+    /// Whether `%` appears
     percent: bool,
 }
 
-/// MPX 专用的数字格式。
+/// Number format specific to MPX.
 ///
-/// 对应 Java: `public final class MPXJNumberFormat extends DecimalFormat`
+/// Corresponds to Java: `public final class MPXJNumberFormat extends DecimalFormat`
 ///
-/// Java 侧继承 `DecimalFormat` 获得 `parse` / `format` / `applyPattern`；
-/// Rust 侧以本结构自持模式与分隔符（见文件头）。
+/// Java inherits `DecimalFormat` to get `parse` / `format` / `applyPattern`;
+/// Rust has this struct own the pattern and separators (see the file header).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MPXJNumberFormat {
-    /// 主模式（对应 Java `DecimalFormat` 的主模式）
+    /// Primary pattern (corresponds to Java `DecimalFormat`'s primary pattern)
     pattern: Option<NumberPattern>,
-    /// 替代模式列表（对应 Java 的 `m_alternativeFormats`）
+    /// Alternative pattern list (corresponds to Java's `m_alternativeFormats`)
     alternative_formats: Vec<MPXJNumberFormat>,
-    /// 小数分隔符（对应 Java `m_symbols.getDecimalSeparator()`）
+    /// Decimal separator (corresponds to Java `m_symbols.getDecimalSeparator()`)
     decimal_separator: char,
-    /// 分组分隔符（对应 Java `m_symbols.getGroupingSeparator()`）
+    /// Grouping separator (corresponds to Java `m_symbols.getGroupingSeparator()`)
     grouping_separator: char,
 }
 
 impl MPXJNumberFormat {
-    /// 构造一个数字格式。
+    /// Construct a number format.
     ///
-    /// 对应 Java: `new DecimalFormat()`（隐式构造方法）
+    /// Corresponds to Java: `new DecimalFormat()` (implicit constructor)
     ///
-    /// Java 使用 JVM 默认区域设置的数字模式（英文下为 `#,##0.###`）；Rust 侧固定使用
-    /// 英文默认值与分隔符，`apply_pattern` 会按项目属性覆盖它们。
+    /// Java uses the JVM default locale's number pattern (under English, `#,##0.###`); Rust always uses
+    /// the English defaults and separators, which `apply_pattern` overrides from the project properties.
     pub fn new() -> MPXJNumberFormat {
         MPXJNumberFormat {
             pattern: compile_number_pattern("#,##0.###"),
@@ -110,14 +112,15 @@ impl MPXJNumberFormat {
         }
     }
 
-    /// 设置主模式与替代模式，并更新区域设置相关的分隔符。
+    /// Set the primary and alternative patterns and update the locale-related separators.
     ///
-    /// 对应 Java:
+    /// Corresponds to Java:
     /// `public void applyPattern(String primaryPattern, String[] alternativePatterns, char decimalSeparator, char groupingSeparator)`
     ///
-    /// Java 的 `String[]` 可传 `null`（表示不更新替代模式），Rust 侧用 `Option<&[String]>`
-    /// 表达；替代模式数量变化时 Java 会重建数组，这里同样重建（长度不变时保留已有对象，
-    /// 逐个覆盖模式与分隔符，与 Java 逐项 `applyPattern` 等价）。
+    /// Java's `String[]` may be `null` (meaning the alternative patterns are not updated); Rust uses
+    /// `Option<&[String]>` to express this. When the number of alternative patterns changes, Java rebuilds
+    /// the array; this also rebuilds it (when the length is unchanged it keeps the existing objects and
+    /// overwrites the pattern and separators one by one, equivalent to Java's per-item `applyPattern`).
     pub fn apply_pattern(
         &mut self,
         primary_pattern: &str,
@@ -153,23 +156,24 @@ impl MPXJNumberFormat {
         }
     }
 
-    /// 设置主模式。
+    /// Set the primary pattern.
     ///
-    /// 对应 Java: 继承自 `DecimalFormat` 的 `public void applyPattern(String pattern)`
+    /// Corresponds to Java: `public void applyPattern(String pattern)` inherited from `DecimalFormat`
     ///
-    /// Java 对非法模式抛 `IllegalArgumentException`；Rust 侧记为主模式缺失
-    /// （后续 [`MPXJNumberFormat::parse`] 返回 `None`、[`MPXJNumberFormat::format`] 回落）。
+    /// Java throws `IllegalArgumentException` for an invalid pattern; Rust records the primary pattern as
+    /// missing (subsequent [`MPXJNumberFormat::parse`] returns `None` and [`MPXJNumberFormat::format`] falls back).
     fn apply_primary_pattern(&mut self, pattern: &str) {
         self.pattern = compile_number_pattern(pattern);
     }
 
-    /// 解析文本为数值。
+    /// Parse text into a number.
     ///
-    /// 对应 Java: `@Override public Number parse(String str, ParsePosition parsePosition)`
+    /// Corresponds to Java: `@Override public Number parse(String str, ParsePosition parsePosition)`
     ///
-    /// 行为与 Java 一致：`null` / 空串不解析；先按主模式解析，主模式未匹配时依次尝试
-    /// 替代模式；全部失败返回 `None`（Java 侧对应 `parsePosition` 保持 0 并返回 `null`）。
-    /// 与 Java 相同，解析不要求消费完整个字符串（例如 `"12abc"` 解析为 `12`）。
+    /// Behavior matches Java: `null` / empty text is not parsed; the primary pattern is tried first, and
+    /// when it does not match the alternative patterns are tried in turn; if all fail, returns `None`
+    /// (Java keeps `parsePosition` at 0 and returns `null`). As in Java, parsing does not require consuming
+    /// the whole string (e.g. `"12abc"` parses as `12`).
     pub fn parse(&self, text: Option<&str>) -> Option<f64> {
         let text = text?.trim();
         if text.is_empty() {
@@ -187,19 +191,20 @@ impl MPXJNumberFormat {
             }
         }
 
-        // Java: 所有替代模式都以 index == 0 结束后返回 null
+        // Java: returns null after all alternative patterns end with index == 0
         None
     }
 
-    /// 按主模式格式化数值。
+    /// Format a number using the primary pattern.
     ///
-    /// 对应 Java: 继承自 `DecimalFormat` 的 `public String format(double number)`
+    /// Corresponds to Java: `public String format(double number)` inherited from `DecimalFormat`
     ///
-    /// 最小整数位 / 最少小数位补零，最多小数位之外的位数按 `HALF_EVEN` 舍入
-    /// （Java 的 `DecimalFormat` 默认舍入模式也是 `HALF_EVEN`，Rust 的 `{:.N}` 同样如此）。
+    /// Minimum integer digits / minimum fraction digits are zero-padded, and digits beyond the maximum
+    /// fraction digits are rounded `HALF_EVEN` (Java's `DecimalFormat` also defaults to `HALF_EVEN`, and
+    /// Rust's `{:.N}` does the same).
     pub fn format(&self, value: f64) -> String {
         let Some(pattern) = self.pattern.as_ref() else {
-            // Java: 无模式时使用区域默认模式；Rust 侧回落为普通十进制表示
+            // Java: uses the locale default pattern when there is no pattern; Rust falls back to a plain decimal representation
             return format_fallback(value);
         };
 
@@ -248,21 +253,21 @@ impl MPXJNumberFormat {
         result
     }
 
-    /// 从 `text` 的位置 0 开始按本模式解析，返回「值 + 已消费的字符数」。
+    /// Parse `text` from position 0 using this pattern, returning "value + consumed character count".
     ///
-    /// 对应 Java: `DecimalFormat.parse(String, ParsePosition)` 的 `subparse` 部分；
-    /// 返回 `None` 对应 Java 的「`ParsePosition.getIndex() == 0`」。
+    /// Corresponds to Java: the `subparse` part of `DecimalFormat.parse(String, ParsePosition)`;
+    /// returning `None` corresponds to Java's "`ParsePosition.getIndex() == 0`".
     fn parse_at(&self, text: &str) -> Option<(f64, usize)> {
         let pattern = self.pattern.as_ref()?;
         let chars: Vec<char> = text.chars().collect();
         let mut pos = 0;
 
-        // Java: NumberFormat.parse 允许前导空白
+        // Java: NumberFormat.parse allows leading whitespace
         while pos < chars.len() && chars[pos].is_whitespace() {
             pos += 1;
         }
 
-        // 正 / 负前缀；Java 在前缀不匹配时仍会继续尝试解析数字，这里保持一致
+        // Positive / negative prefix; Java still tries to parse digits when the prefix does not match, kept consistent here
         let mut negative = false;
         if let Some(end) = match_text(&chars, pos, &pattern.negative_prefix) {
             pos = end;
@@ -271,7 +276,7 @@ impl MPXJNumberFormat {
             pos = end;
         }
 
-        // 无前缀时的正负号
+        // Sign when there is no prefix
         if let Some(&sign) = chars.get(pos) {
             if sign == '-' {
                 negative = true;
@@ -290,7 +295,7 @@ impl MPXJNumberFormat {
                 has_digit = true;
                 pos += 1;
             } else if current == self.grouping_separator {
-                // Java: DecimalFormat.isGroupingUsed() 默认为 true，解析时始终接受分组分隔符
+                // Java: DecimalFormat.isGroupingUsed() defaults to true, so parsing always accepts the grouping separator
                 pos += 1;
             } else {
                 break;
@@ -339,19 +344,20 @@ impl Default for MPXJNumberFormat {
     }
 }
 
-/// 把 `DecimalFormat` 模式串编译为 [`NumberPattern`]。
+/// Compile a `DecimalFormat` pattern string into a [`NumberPattern`].
 ///
-/// 对应 Java: `java.text.DecimalFormat.applyPattern(String)`（含 `Pattern` 校验）
+/// Corresponds to Java: `java.text.DecimalFormat.applyPattern(String)` (including `Pattern` validation)
 ///
-/// 与 Java 的差异：
-/// - 模式非法（没有数字占位符、引号未闭合等）时 Java 抛 `IllegalArgumentException`，
-///   这里返回 `None`；
-/// - 指数记法（`E`）与负子模式的位数差异按 Java 解析后忽略（MPX 用不到）。
+/// Differences from Java:
+/// - For an invalid pattern (no digit placeholder, unclosed quote, etc.) Java throws `IllegalArgumentException`,
+///   while this returns `None`;
+/// - Exponent notation (`E`) and digit-count differences in the negative sub-pattern are ignored after
+///   parsing as in Java (MPX does not use them).
 fn compile_number_pattern(pattern: &str) -> Option<NumberPattern> {
     let sub_patterns = split_sub_patterns(pattern);
     let positive = split_sub_pattern(sub_patterns.first()?)?;
 
-    // Java: 没有负子模式时，负数前缀为 "-" + 正数前缀，后缀同正数后缀
+    // Java: when there is no negative sub-pattern, the negative prefix is "-" + the positive prefix and the suffix is the positive suffix
     let negative = match sub_patterns.get(1) {
         Some(text) => split_sub_pattern(text)?,
         None => SubPattern {
@@ -375,9 +381,9 @@ fn compile_number_pattern(pattern: &str) -> Option<NumberPattern> {
     })
 }
 
-/// 按**未被引号包裹**的 `;` 把模式拆成正 / 负子模式。
+/// Split the pattern into positive / negative sub-patterns on **unquoted** `;`.
 ///
-/// 对应 Java: `DecimalFormat` 对 `;` 作为子模式分隔符的处理。
+/// Corresponds to Java: `DecimalFormat`'s handling of `;` as a sub-pattern separator.
 fn split_sub_patterns(pattern: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
@@ -386,7 +392,7 @@ fn split_sub_patterns(pattern: &str) -> Vec<String> {
     while let Some(character) = chars.next() {
         match character {
             '\'' => {
-                // 引号段整体保留，段内的 ';' 不是分隔符
+                // The quoted section is kept as a whole; a ';' inside it is not a separator
                 current.push(character);
                 for quoted in chars.by_ref() {
                     current.push(quoted);
@@ -404,11 +410,11 @@ fn split_sub_patterns(pattern: &str) -> Vec<String> {
     result
 }
 
-/// 解析单个子模式：分离前缀 / 后缀 / 数字占位符。
+/// Parse a single sub-pattern: separate the prefix / suffix / digit placeholders.
 ///
-/// 对应 Java: `DecimalFormat` 的子模式解析（`Pattern` 语法）。
+/// Corresponds to Java: `DecimalFormat`'s sub-pattern parsing (`Pattern` syntax).
 fn split_sub_pattern(text: &str) -> Option<SubPattern> {
-    // 逐字符展开：`(字符, 是否为模式语法字符)`，引号段内一律为字面量
+    // Expand character by character: `(character, is-pattern-syntax-character)`; everything inside a quoted section is a literal
     let mut items: Vec<(char, bool)> = Vec::new();
     let mut percent = false;
     let mut chars = text.chars();
@@ -416,7 +422,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
     while let Some(character) = chars.next() {
         if character == '\'' {
             if chars.as_str().starts_with('\'') {
-                // `''` → 一个字面单引号
+                // `''` → a single literal quote
                 chars.next();
                 items.push(('\'', false));
                 continue;
@@ -432,7 +438,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
         }
 
         if character == '%' || character == '\u{2030}' {
-            // 百分号 / 千分号：保留在前后缀中，同时记录倍增标记
+            // Percent / per-mille sign: kept in the prefix or suffix while recording the scaling flag
             percent = true;
         }
 
@@ -444,7 +450,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
 
     let core = &items[first..=last];
     if !core.iter().any(|(character, _)| *character == '#' || *character == '0') {
-        // Java: 模式必须至少包含一个数字占位符
+        // Java: the pattern must contain at least one digit placeholder
         return None;
     }
 
@@ -460,7 +466,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
 
     for (character, syntax) in core {
         if !syntax {
-            // 引号包裹的字符即使落在数字核心区间内也只是字面量（MPX 的模式不会出现该情形）
+            // Quoted characters are literals even if they fall inside the digit core range (MPX patterns never do this)
             continue;
         }
 
@@ -486,7 +492,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
                     digits_after_grouping += 1;
                 }
             }
-            // 'E'：指数记法，本移植忽略（MPX 不使用）
+            // 'E': exponent notation, ignored by this port (MPX does not use it)
             _ => {}
         }
     }
@@ -498,7 +504,7 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
         min_fraction_digits,
         max_fraction_digits,
         grouping,
-        // Java: 分组长度取最后一个分组分隔符之后的数字位数，缺省为 3
+        // Java: grouping size is the number of digits after the last grouping separator, defaulting to 3
         grouping_size: if digits_after_grouping == 0 {
             3
         } else {
@@ -508,9 +514,9 @@ fn split_sub_pattern(text: &str) -> Option<SubPattern> {
     })
 }
 
-/// 从 `pos` 起匹配字面量文本，成功返回新的位置。
+/// Match literal text starting at `pos`; returns the new position on success.
 ///
-/// 对应 Java: `String.regionMatches` / `DecimalFormat.parse` 的前后缀匹配。
+/// Corresponds to Java: `String.regionMatches` / prefix-suffix matching in `DecimalFormat.parse`.
 fn match_text(chars: &[char], pos: usize, text: &str) -> Option<usize> {
     let mut index = pos;
     for expected in text.chars() {
@@ -522,7 +528,7 @@ fn match_text(chars: &[char], pos: usize, text: &str) -> Option<usize> {
     Some(index)
 }
 
-/// 截断小数部分末尾多余的 `0`，但至少保留 `min_digits` 位。
+/// Trim trailing `0`s from the fraction part, keeping at least `min_digits` digits.
 fn trim_fraction(fraction: &str, min_digits: usize) -> String {
     let mut end = fraction.len();
     while end > min_digits && fraction[..end].ends_with('0') {
@@ -531,10 +537,10 @@ fn trim_fraction(fraction: &str, min_digits: usize) -> String {
     fraction[..end].to_owned()
 }
 
-/// 按最少整数位补前导零。
+/// Pad the integer part with leading zeros to the minimum integer digits.
 ///
-/// 对应 Java 的 `#` 语义：最少整数位为 0 且存在小数部分时，整数部分的 `0` 也被省略
-/// （例如模式 `#.##` 格式化 `0.5` 得到 `.5`）。
+/// Corresponds to Java's `#` semantics: when the minimum integer digits is 0 and a fraction part exists,
+/// the integer part's `0` is also omitted (e.g. pattern `#.##` formatting `0.5` yields `.5`).
 fn pad_integer(integer: &str, min_digits: usize, has_fraction: bool) -> String {
     if min_digits == 0 && integer == "0" && has_fraction {
         return String::new();
@@ -552,7 +558,7 @@ fn pad_integer(integer: &str, min_digits: usize, has_fraction: bool) -> String {
     result
 }
 
-/// 按分组长度插入分组分隔符（仅整数部分）。
+/// Insert grouping separators by grouping size (integer part only).
 fn group_digits(integer: &str, grouping_size: usize, separator: char) -> String {
     if grouping_size == 0 || integer.len() <= grouping_size {
         return integer.to_owned();
@@ -569,7 +575,7 @@ fn group_digits(integer: &str, grouping_size: usize, separator: char) -> String 
     result
 }
 
-/// 无模式时的数值表示（Java 使用区域默认数字模式，这里用普通十进制表示）。
+/// Number representation when there is no pattern (Java uses the locale default number pattern; this uses a plain decimal representation).
 fn format_fallback(value: f64) -> String {
     format!("{value}")
 }
@@ -578,7 +584,7 @@ fn format_fallback(value: f64) -> String {
 mod tests {
     use super::*;
 
-    /// 构造一个应用了给定模式的数字格式。
+    /// Construct a number format with the given pattern applied.
     fn format_with(pattern: &str, decimal_separator: char, grouping_separator: char) -> MPXJNumberFormat {
         let mut format = MPXJNumberFormat::new();
         format.apply_pattern(pattern, None, decimal_separator, grouping_separator);
@@ -599,21 +605,21 @@ mod tests {
         let format = format_with("0.00#", '.', ',');
         assert_eq!(format.parse(Some("12.5")), Some(12.5));
         assert_eq!(format.parse(Some("12.50")), Some(12.5));
-        // Java: NumberFormat.parse 允许前导空白，且不要求消费完整个字符串
+        // Java: NumberFormat.parse allows leading whitespace and does not require consuming the whole string
         assert_eq!(format.parse(Some("  12.5 kilograms")), Some(12.5));
         assert_eq!(format.parse(Some("-12.5")), Some(-12.5));
     }
 
     #[test]
     fn parse_accepts_grouping_separators() {
-        // Java 的 DecimalFormat.isGroupingUsed() 默认为 true
+        // Java's DecimalFormat.isGroupingUsed() defaults to true
         let format = format_with("#0.00", '.', ',');
         assert_eq!(format.parse(Some("1,234.50")), Some(1234.5));
     }
 
     #[test]
     fn parse_uses_alternative_patterns() {
-        // 货币格式：主模式带符号，替代模式不带符号
+        // Currency format: the primary pattern has the symbol, the alternative patterns do not
         let alternatives = vec![
             "$#0.00;($#0.00)".to_owned(),
             "$#,#0.00".to_owned(),
@@ -627,16 +633,16 @@ mod tests {
         format.apply_pattern("$#0.00", Some(&alternatives), '.', ',');
 
         assert_eq!(format.parse(Some("$1,234.50")), Some(1234.5));
-        // 无符号 → 走替代模式
+        // No symbol → uses an alternative pattern
         assert_eq!(format.parse(Some("1,234.50")), Some(1234.5));
-        // 括号表示负数 → 走替代模式
+        // Parentheses denote a negative → uses an alternative pattern
         assert_eq!(format.parse(Some("($1,234.50)")), Some(-1234.5));
         assert_eq!(format.parse(Some("(1,234.50)")), Some(-1234.5));
     }
 
     #[test]
     fn parse_uses_locale_separators() {
-        // 德语等区域：小数分隔符 ','、分组分隔符 '.'
+        // German and similar locales: decimal separator ',' and grouping separator '.'
         let format = format_with("#.##", ',', '.');
         assert_eq!(format.parse(Some("1.234,5")), Some(1234.5));
         assert_eq!(format.parse(Some("0,5")), Some(0.5));
@@ -644,13 +650,13 @@ mod tests {
 
     #[test]
     fn format_pads_and_trims_fraction_digits() {
-        // 模式 "0.00#"：至少两位小数，最多三位
+        // Pattern "0.00#": at least two fraction digits, at most three
         let format = format_with("0.00#", '.', ',');
         assert_eq!(format.format(12.5), "12.50");
         assert_eq!(format.format(12.567), "12.567");
         assert_eq!(format.format(12.5678), "12.568");
 
-        // 模式 "#.##"：无小数时省略小数点，"#" 不补零
+        // Pattern "#.##": the decimal point is omitted when there is no fraction, and "#" is not zero-padded
         let format = format_with("#.##", '.', ',');
         assert_eq!(format.format(12.5), "12.5");
         assert_eq!(format.format(100.0), "100");
@@ -662,7 +668,7 @@ mod tests {
         let format = format_with("#,##0.00", ',', '.');
         assert_eq!(format.format(1234.5), "1.234,50");
 
-        // 主货币模式没有分组分隔符 → 不分组
+        // The primary currency pattern has no grouping separator → no grouping
         let format = format_with("$#0.00", '.', ',');
         assert_eq!(format.format(1234.5), "$1234.50");
         assert_eq!(format.format(-1234.5), "-$1234.50");
@@ -685,10 +691,10 @@ mod tests {
                 let text = format.format(value);
                 let parsed = format
                     .parse(Some(text.as_str()))
-                    .unwrap_or_else(|| panic!("模式 {pattern} 的输出 {text} 应可解析"));
+                    .unwrap_or_else(|| panic!("output {text} of pattern {pattern} should parse"));
                 assert!(
                     (parsed - value).abs() < 0.005,
-                    "模式 {pattern}：{value} → {text} → {parsed}"
+                    "pattern {pattern}：{value} → {text} → {parsed}"
                 );
             }
         }
@@ -698,15 +704,15 @@ mod tests {
     fn invalid_pattern_is_reported_as_missing_pattern() {
         let mut format = MPXJNumberFormat::new();
         format.apply_pattern("abc", None, '.', ',');
-        // Java 抛 IllegalArgumentException；Rust 侧不 panic，解析失败、格式化回落
+        // Java throws IllegalArgumentException; Rust does not panic, parsing fails and formatting falls back
         assert_eq!(format.parse(Some("12")), None);
         assert_eq!(format.format(12.5), "12.5");
     }
 
     #[test]
     fn quoted_characters_are_literals() {
-        // 对应 MPXJFormats.quoteFormatCharacters 的产出：货币符号 "." 会被引号包裹，
-        // 避免被当作小数分隔符（quoteFormatCharacters(".") == "'.'"）
+        // Corresponds to the output of MPXJFormats.quoteFormatCharacters: the currency symbol "." is wrapped in quotes
+        // so it is not treated as a decimal separator (quoteFormatCharacters(".") == "'.'")
         let mut format = MPXJNumberFormat::new();
         format.apply_pattern("'.'#0.00", None, '.', ',');
         assert_eq!(format.format(12.5), ".12.50");

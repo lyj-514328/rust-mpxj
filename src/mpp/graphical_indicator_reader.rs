@@ -1,40 +1,40 @@
-//! 对应 Java: `org/mpxj/mpp/GraphicalIndicatorReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/GraphicalIndicatorReader.java`
 //!
-//! 从 `Props` 的 `TASK_FIELD_ATTRIBUTES` 数据块里读出「图形化指标」（graphical indicator）
-//! 定义：每个字段一段「标志 + 三段行类型各自的判定条件列表」，条件里的左值固定为该字段，
-//! 运算符与右值来自数据块。
+//! Reads "graphical indicators" from the `TASK_FIELD_ATTRIBUTES` data block of `Props`
+//! Definitions: one entry per field consisting of "a flag + a list of criteria for each of the three row types"; the left-hand value of each criterion is fixed to that field,
+//! while the operator and right-hand value come from the data block.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | 项目文件在本 crate 中以 `Rc<RefCell<..>>` 共享 |
-//! | `private byte[] m_data` | 私有方法入参 `data: &[u8]` | 数据只在一次 `process` 内使用；Java 的方法都是私有方法，改成传参不改变公开 API |
-//! | `private CustomFieldContainer m_container` | 不保存引用，写回时按需 `file.get_custom_fields()` | 与 Java 一致地写入自定义字段容器（见下） |
-//! | `private ProjectProperties m_properties` | 不保存引用，构造 [`GraphicalIndicatorCriteria`](crate::graphical_indicator_criteria::GraphicalIndicatorCriteria) 时用 `Rc::downgrade(file)` | `GenericCriteria` 在本 crate 里以父文件的弱引用做工期换算，见 `crate::generic_criteria` |
-//! | `m_data[m_dataOffset]` | `data.get(offset).copied().unwrap_or(0)` | 越界时 Java 抛 `ArrayIndexOutOfBoundsException`，Rust 侧按 0 处理 |
-//! | `ByteArrayHelper.getInt/getShort` 越界抛异常 | [`get_int_safe`] / [`get_short_safe`] 返回 0 | 遵循「不 panic」约定 |
-//! | `type.getDataType() != null` | `FieldTypeHelper::get_instance(...)` 为 `Some` 时处理 | 本 crate 的 [`MppFieldType::get_data_type`](crate::common::mpp_field_type::MppFieldType::get_data_type) 恒有值（未识别的字段号得到 `None`，与 Java 的占位对象 / `null` 对应） |
-//! | `Object` 右值 | [`Operand`]（标量 → `Operand::Value`，字段引用 → `Operand::Field`） | 与 [`GraphicalIndicatorCriteria`](crate::graphical_indicator_criteria::GraphicalIndicatorCriteria) 的右值表示一致 |
-//! | `MPPUtility.getAdjustedDuration(...)` 返回 `null` 的情形 | `Option<Duration>` → 右值为 `None` | 见 [`crate::mpp::mpp_utility::MPPUtility::get_adjusted_duration`] |
+//! | `ProjectFile file` | `&Rc<RefCell<ProjectFile>>` | the project file is shared as `Rc<RefCell<..>>` in this crate |
+//! | `private byte[] m_data` | private method parameter `data: &[u8]` | the data is used only within a single `process` call; Java's methods are all private, so passing it as a parameter does not change the public API |
+//! | `private CustomFieldContainer m_container` | no reference is stored; `file.get_custom_fields()` is called on demand when writing back | writes to the custom field container consistently with Java (see below) |
+//! | `private ProjectProperties m_properties` | no reference is stored; `Rc::downgrade(file)` is used when constructing [`GraphicalIndicatorCriteria`](crate::graphical_indicator_criteria::GraphicalIndicatorCriteria) | in this crate `GenericCriteria` uses a weak reference to the parent file for duration conversion, see `crate::generic_criteria` |
+//! | `m_data[m_dataOffset]` | `data.get(offset).copied().unwrap_or(0)` | on out-of-bounds Java throws `ArrayIndexOutOfBoundsException`; the Rust side treats it as 0 |
+//! | `ByteArrayHelper.getInt/getShort` throws on out-of-bounds | [`get_int_safe`] / [`get_short_safe`] return 0 | follows the "never panic" convention |
+//! | `type.getDataType() != null` | processed when `FieldTypeHelper::get_instance(...)` is `Some` | this crate's [`MppFieldType::get_data_type`](crate::common::mpp_field_type::MppFieldType::get_data_type) always has a value (an unrecognised field number yields `None`, corresponding to Java's placeholder object / `null`) |
+//! | `Object` right-hand value | [`Operand`] (scalar → `Operand::Value`, field reference → `Operand::Field`) | consistent with the right-hand value representation of [`GraphicalIndicatorCriteria`](crate::graphical_indicator_criteria::GraphicalIndicatorCriteria) |
+//! | the case where `MPPUtility.getAdjustedDuration(...)` returns `null` | `Option<Duration>` → the right-hand value is `None` | see [`crate::mpp::mpp_utility::MPPUtility::get_adjusted_duration`] |
 //!
-//! # 解析结果的写回
+//! # Writing back the parsed results
 //!
-//! Java 的 `processKnownType` 用
-//! `GraphicalIndicator indicator = m_container.getOrCreate(type).getGraphicalIndicator();` 取出
-//! **自定义字段容器中已有的那个实例**再往里面填条件，读取器自身不保存任何结果。Rust 侧同样如此：
-//! [`crate::custom_field::CustomField`] 已移植 `m_indicator` / `get_graphical_indicator()`，读取器
-//! 通过 `file.get_custom_fields()` → [`CustomFieldContainer::get_or_create`] 取到
-//! `Rc<RefCell<CustomField>>`，再经
+//! Java's `processKnownType` uses
+//! `GraphicalIndicator indicator = m_container.getOrCreate(type).getGraphicalIndicator();` to retrieve
+//! **the existing instance in the custom field container** and fills criteria into it; the reader itself stores no results. The Rust side does the same:
+//! [`crate::custom_field::CustomField`] already ports `m_indicator` / `get_graphical_indicator()`; the reader
+//! obtains, via `file.get_custom_fields()` → [`CustomFieldContainer::get_or_create`],
+//! the `Rc<RefCell<CustomField>>`, then
 //! [`CustomField::get_graphical_indicator_mut`](crate::custom_field::CustomField::get_graphical_indicator_mut)
-//! 写入（同一字段多次出现时沿用同一个实例，与 Java 的 `getOrCreate` 一致）。
+//! writes into it (the same instance is reused when a field appears multiple times, consistent with Java's `getOrCreate`).
 //!
-//! 唯一的多余分支：父文件正被可变借用时无法取容器，Rust 侧跳过该列的指标定义（Java 无此情形），
-//! 与 `crate::mpp::group_reader` 的同类取舍一致。
+//! The only extra branch: when the parent file is currently mutably borrowed the container cannot be obtained, so the Rust side skips that column's indicator definitions (no such case in Java),
+//! consistent with the same kind of trade-off in `crate::mpp::group_reader`.
 //!
-//! 跳过的 Java 成员：无（全部方法均已翻译）。
+//! Skipped Java members: none (all methods have been translated).
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -54,25 +54,25 @@ use crate::mpp::props_key::PropsKey;
 use crate::project_file::ProjectFile;
 use crate::test_operator::{Operand, TestOperator};
 
-/// 图形化指标定义读取器。
+/// Graphical indicator definition reader.
 ///
-/// 对应 Java: `final class GraphicalIndicatorReader`
+/// Corresponds to Java: `final class GraphicalIndicatorReader`
 pub struct GraphicalIndicatorReader {
-    /// 列头部的读取位置。
+/// Read position of the column header.
     ///
-    /// 对应 Java 字段: `private int m_headerOffset;`
+    /// Corresponds to Java field: `private int m_headerOffset;`
     header_offset: i32,
 
-    /// 当前字段数据块的读取位置。
+/// Read position of the current field data block.
     ///
-    /// 对应 Java 字段: `private int m_dataOffset;`
+    /// Corresponds to Java field: `private int m_dataOffset;`
     data_offset: i32,
 }
 
 impl GraphicalIndicatorReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: implicit default constructor (Java does not declare a constructor explicitly).
     pub fn new() -> Self {
         Self {
             header_offset: 0,
@@ -80,13 +80,13 @@ impl GraphicalIndicatorReader {
         }
     }
 
-    /// 主入口：解析全部图形化指标定义。
+/// Main entry point: parse all graphical indicator definitions.
     ///
-    /// 对应 Java: `public void process(ProjectFile file, Props props)`
+    /// Corresponds to Java: `public void process(ProjectFile file, Props props)`
     pub fn process(&mut self, file: &Rc<RefCell<ProjectFile>>, props: &Props) {
         // Java: m_file = file; m_container = file.getCustomFields(); m_properties = file.getProjectProperties();
         //       m_data = props.getByteArray(PropsKey.TASK_FIELD_ATTRIBUTES);
-        // Rust 侧的项目文件 / 数据块都以参数形式使用（见文件头差异表）
+// On the Rust side the project file / data block are used as parameters (see the differences table in the file header)
         let Some(data) = props.get_byte_array(PropsKey::TaskFieldAttributes) else {
             return;
         };
@@ -101,9 +101,9 @@ impl GraphicalIndicatorReader {
         }
     }
 
-    /// 处理单个列的指标定义。
+/// Process the indicator definitions of a single column.
     ///
-    /// 对应 Java: `private void processColumns()`
+    /// Corresponds to Java: `private void processColumns()`
     fn process_columns(&mut self, file: &Rc<RefCell<ProjectFile>>, data: &[u8]) {
         // Java: int fieldID = ByteArrayHelper.getInt(m_data, m_headerOffset); m_headerOffset += 4;
         let field_id = get_int_safe(data, offset(self.header_offset));
@@ -115,16 +115,16 @@ impl GraphicalIndicatorReader {
 
         // Java: FieldType type = FieldTypeHelper.getInstance(m_file, fieldID);
         //       if (type.getDataType() != null) { processKnownType(type); }
-        //（未识别的字段号在 Java 里是占位对象、`getDataType()` 为 `null` ⇒ 跳过；
-        //  Rust 侧 `getInstance` 返回 `None` ⇒ 同样跳过）
+// (an unrecognised field number is a placeholder object in Java with `getDataType()` equal to `null` ⇒ skip;
+// the Rust side's `getInstance` returns `None` ⇒ likewise skip)
         if let Some(type_) = FieldTypeHelper::get_instance(file, field_id) {
             self.process_known_type(file, data, &type_);
         }
     }
 
-    /// 处理已知字段类型的指标定义。
+/// Process the indicator definitions of a known field type.
     ///
-    /// 对应 Java: `private void processKnownType(FieldType type)`
+    /// Corresponds to Java: `private void processKnownType(FieldType type)`
     fn process_known_type(
         &mut self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -145,13 +145,13 @@ impl GraphicalIndicatorReader {
         //       indicator.setShowDataValuesInToolTips((flags & 0x01) != 0);
         let field_key = type_.to_field_key();
         let Some(custom_field) = self.custom_field(file, field_key) else {
-            // Rust 特有：父文件正被可变借用时取不到容器（Java 无此情形）⇒ 跳过该列
+// Rust-specific: when the parent file is currently mutably borrowed the container cannot be obtained (no such case in Java) ⇒ skip that column
             return;
         };
 
         {
-            // Java 的 `getOrCreate` 语义：同一字段取出的是同一个 `CustomField`，
-            // 因此填写的也正是它构造时创建的那个 `GraphicalIndicator` 实例
+// Java's `getOrCreate` semantics: the same field yields the same `CustomField`,
+// so what is filled in is exactly the `GraphicalIndicator` instance created when it was constructed
             let mut field = custom_field.borrow_mut();
             let indicator = field.get_graphical_indicator_mut();
             indicator.set_project_summary_inherits_from_summary_rows((flags & 0x08) != 0);
@@ -216,13 +216,13 @@ impl GraphicalIndicatorReader {
         }
     }
 
-    /// 取（不存在时创建）指定字段的自定义字段配置。
+/// Get (creating if absent) the custom field configuration for the specified field.
     ///
-    /// 对应 Java: `m_container.getOrCreate(type)`，其中
-    /// `m_container = file.getCustomFields()`（Java 在 `process` 开头保存该引用，Rust 侧
-    /// 不保存、按需借用）。
+/// Corresponds to Java: `m_container.getOrCreate(type)`, where
+/// `m_container = file.getCustomFields()` (Java stores this reference at the start of `process`; the Rust side
+/// does not store it and borrows it on demand).
     ///
-    /// 父文件正被可变借用时返回 `None`（Java 无此情形），由调用方跳过该列。
+/// Returns `None` when the parent file is currently mutably borrowed (no such case in Java); the caller skips that column.
     fn custom_field(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -233,9 +233,9 @@ impl GraphicalIndicatorReader {
         Some(CustomFieldContainer::get_or_create(&container, field))
     }
 
-    /// 处理单条指标判定条件。
+/// Process a single indicator criterion.
     ///
-    /// 对应 Java: `private GraphicalIndicatorCriteria processCriteria(FieldType type)`
+    /// Corresponds to Java: `private GraphicalIndicatorCriteria processCriteria(FieldType type)`
     fn process_criteria(
         &mut self,
         file: &Rc<RefCell<ProjectFile>>,
@@ -279,9 +279,9 @@ impl GraphicalIndicatorReader {
         criteria
     }
 
-    /// 处理条件中的一个操作数取值。
+/// Process one operand value in a criterion.
     ///
-    /// 对应 Java: `private void processOperandValue(int index, FieldType type, GraphicalIndicatorCriteria criteria)`
+    /// Corresponds to Java: `private void processOperandValue(int index, FieldType type, GraphicalIndicatorCriteria criteria)`
     fn process_operand_value(
         &mut self,
         index: usize,
@@ -308,7 +308,7 @@ impl GraphicalIndicatorReader {
             return;
         }
 
-        // Java: m_dataOffset += 2;（跳过数据类型值，Java 中已注释掉读取）
+// Java: m_dataOffset += 2; (skip the data type value; the read is commented out in Java)
         self.data_offset += 2;
 
         match type_.get_data_type() {
@@ -325,7 +325,7 @@ impl GraphicalIndicatorReader {
                 self.data_offset += 6;
 
                 let duration = {
-                    // Java: m_properties = file.getProjectProperties()；Rust 侧按需借用
+// Java: m_properties = file.getProjectProperties(); the Rust side borrows on demand
                     match file.try_borrow() {
                         Ok(project) => MPPUtility::get_adjusted_duration(
                             project.get_project_properties(),
@@ -358,7 +358,7 @@ impl GraphicalIndicatorReader {
             // Java: case STRING: String value = MPPUtility.getUnicodeString(m_data, m_dataOffset); m_dataOffset += ((value.length() + 1) * 2);
             DataType::String => {
                 let value = MPPUtility::get_unicode_string(data, offset(self.data_offset));
-                // Java 的 `String.length()` 是 UTF-16 码元数
+// Java's `String.length()` is the number of UTF-16 code units
                 let units = value.encode_utf16().count() + 1;
                 self.data_offset += (units * 2) as i32;
                 criteria.set_right_value(index, Some(Operand::Value(FieldValue::String(value))));
@@ -385,20 +385,20 @@ impl GraphicalIndicatorReader {
                 );
             }
 
-            // Java: default: break;（不读取任何数据）
+// Java: default: break; (does not read any data)
             _ => {}
         }
     }
 }
 
 impl Default for GraphicalIndicatorReader {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`GraphicalIndicatorReader::new`]。
+/// Corresponds to Java: implicit default constructor, equivalent to [`GraphicalIndicatorReader::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// 把 Java 的 `int` 偏移转成切片下标（负数按 0 处理）。
+/// Convert a Java `int` offset to a slice index (negative values are treated as 0).
 fn offset(value: i32) -> usize {
     usize::try_from(value).unwrap_or(0)
 }
@@ -410,25 +410,25 @@ mod tests {
     use crate::task_field::TaskField;
     use crate::time_unit::TimeUnit;
 
-    /// 字段号。
+/// Field number.
     fn field_id(field: TaskField) -> i32 {
         FieldTypeHelper::get_field_id(Some(&MppFieldType::Builtin(FieldKey::Task(field))))
     }
 
-    /// 构造 `TASK_FIELD_ATTRIBUTES` 数据块：
+/// Construct a `TASK_FIELD_ATTRIBUTES` data block:
     ///
     /// ```text
-    /// [0..4)   保留
-    /// [4..8)   列数
-    /// [8..12)  字段号
-    /// [12..16) 字段数据块的绝对偏移（16）
-    /// 16       标志字节
-    /// 36..52   四段区间的偏移（Java 侧各自减 36）
-    /// 52..     条件记录
+/// [0..4)   reserved
+/// [4..8)   column count
+/// [8..12)  field number
+/// [12..16) absolute offset of the field data block (16)
+/// 16       flag byte
+/// 36..52   offsets of the four ranges (Java subtracts 36 from each)
+/// 52..     criteria records
     /// ```
     ///
-    /// `criteria` 为条件区的内容；三段行类型的区间依次为
-    /// `[0, criteria.len())`、`[len, len)`、`[len, len)`（即只有非摘要行有条件）。
+/// `criteria` is the content of the criteria area; the ranges of the three row types are, in order,
+/// `[0, criteria.len())`, `[len, len)`, `[len, len)` (i.e. only non-summary rows have criteria).
     fn field_attributes(flags: u8, field: TaskField, criteria: &[u8]) -> Vec<u8> {
         let base = 52usize;
         let mut data = vec![0u8; base + criteria.len()];
@@ -438,7 +438,7 @@ mod tests {
         data[12..16].copy_from_slice(&16i32.to_le_bytes());
 
         data[16] = flags;
-        // 36 起：非摘要行起点（相对）为 0；摘要行 / 项目摘要行的终点都等于条件区长度
+// From 36: the start (relative) of non-summary rows is 0; the end of both summary rows and project summary rows equals the criteria area length
         data[36..40].copy_from_slice(&(36i32).to_le_bytes());
         data[40..44].copy_from_slice(&(36i32 + criteria.len() as i32).to_le_bytes());
         data[44..48].copy_from_slice(&(36i32 + criteria.len() as i32).to_le_bytes());
@@ -448,9 +448,9 @@ mod tests {
         data
     }
 
-    /// 取文件中某字段的自定义字段配置（未创建时返回 `None`）。
+/// Get the custom field configuration for a field in the file (returns `None` if not created).
     ///
-    /// 对应 Java: `file.getCustomFields().get(field)`。
+    /// Corresponds to Java: `file.getCustomFields().get(field)`.
     fn custom_field(
         file: &Rc<RefCell<ProjectFile>>,
         field: FieldKey,
@@ -458,31 +458,31 @@ mod tests {
         file.borrow().get_custom_fields().borrow().get(field)
     }
 
-    /// 文件中已登记的自定义字段数量。
+/// The number of custom fields registered in the file.
     ///
-    /// 对应 Java: `file.getCustomFields().size()`。
+    /// Corresponds to Java: `file.getCustomFields().size()`.
     fn custom_field_count(file: &Rc<RefCell<ProjectFile>>) -> usize {
         file.borrow().get_custom_fields().borrow().size()
     }
 
-    /// 一条「工期 > 8 小时」的条件记录。
+/// A criterion record for "duration > 8 hours".
     fn duration_criteria() -> Vec<u8> {
         let mut data = Vec::new();
-        // 指标号
+// indicator number
         data.extend_from_slice(&7i32.to_le_bytes());
-        // 运算符：EQUALS（0x3E7 + 6）
+// operator: EQUALS (0x3E7 + 6)
         data.extend_from_slice(&(0x3E7 + 6i32).to_le_bytes());
-        // 操作数：常量标志
+// operand: constant flag
         data.extend_from_slice(&1i32.to_le_bytes());
-        // 跳过的数据类型值
+// skipped data type value
         data.extend_from_slice(&3i16.to_le_bytes());
-        // 工期：4800 个十分之一分钟 = 8 小时；单位 5 = Hours
+// duration: 4800 tenths of a minute = 8 hours; unit 5 = Hours
         data.extend_from_slice(&4800i32.to_le_bytes());
         data.extend_from_slice(&5i16.to_le_bytes());
         data
     }
 
-    /// 指标定义被完整读出（四个标志 + 非摘要行条件）。
+/// The indicator definition is read out in full (four flags + non-summary row criteria).
     #[test]
     fn process_reads_indicator_definition() {
         let mut props = Props::new();
@@ -494,7 +494,7 @@ mod tests {
         let file = ProjectFile::new();
         let field = FieldKey::Task(TaskField::Duration);
 
-        // Java: m_container.getOrCreate(type) —— 先登记配置，读取器应填充同一个实例
+// Java: m_container.getOrCreate(type) — first register the configuration; the reader should fill the same instance
         let container = file.borrow().get_custom_fields();
         let existing = CustomFieldContainer::get_or_create(&container, field);
         drop(container);
@@ -504,8 +504,8 @@ mod tests {
 
         assert_eq!(custom_field_count(&file), 1);
 
-        let populated = custom_field(&file, field).expect("应有自定义字段配置");
-        assert!(Rc::ptr_eq(&existing, &populated), "应填充同一个 CustomField 实例");
+        let populated = custom_field(&file, field).expect("should have custom field configuration");
+        assert!(Rc::ptr_eq(&existing, &populated), "should populate the same CustomField instance");
 
         let indicator = populated.borrow();
         let indicator = indicator.get_graphical_indicator();
@@ -514,7 +514,7 @@ mod tests {
         assert!(indicator.get_display_graphical_indicators());
         assert!(indicator.get_show_data_values_in_tool_tips());
 
-        // 只有非摘要行有条件
+// only non-summary rows have criteria
         assert_eq!(indicator.get_non_summary_row_criteria().len(), 1);
         assert!(indicator.get_summary_row_criteria().is_empty());
         assert!(indicator.get_project_summary_criteria().is_empty());
@@ -530,14 +530,14 @@ mod tests {
                 TimeUnit::Hours
             ))))
         );
-        // 非 IS_WITHIN 运算符不读取第二个操作数
+// operators other than IS_WITHIN do not read a second operand
         assert_eq!(criteria.get_value(1), None);
 
-        // 未知字段没有指标定义
+// unknown fields have no indicator definition
         assert!(custom_field(&file, FieldKey::Task(TaskField::Name)).is_none());
     }
 
-    /// 标志位为 0 / 不含 0x02 时不建立指标定义。
+/// No indicator definition is created when the flags are 0 / do not contain 0x02.
     #[test]
     fn flags_without_indicator_are_skipped() {
         let mut props = Props::new();
@@ -550,18 +550,18 @@ mod tests {
         let mut reader = GraphicalIndicatorReader::new();
         reader.process(&file, &props);
 
-        // Java: 标志位不含 0x02 时在 getOrCreate 之前就返回，容器不被触碰
+// Java: when the flags do not contain 0x02 it returns before getOrCreate, so the container is not touched
         assert_eq!(custom_field_count(&file), 0);
     }
 
-    /// IS_ANY_VALUE（运算符值为 0）不读取任何操作数。
+/// IS_ANY_VALUE (operator value 0) does not read any operand.
     #[test]
     fn any_value_operator_has_no_operand() {
         let mut criteria = Vec::new();
         criteria.extend_from_slice(&3i32.to_le_bytes());
         criteria.extend_from_slice(&0i32.to_le_bytes());
-        // Java 判定是否读取运算符的条件是 `m_dataOffset + 4 < m_data.length`，
-        // 故在其后补一个字节，保证运算符能被读到（数据块尾部通常还有别的列数据）
+// Java's condition for deciding whether to read the operator is `m_dataOffset + 4 < m_data.length`,
+// so one extra byte is appended afterwards to ensure the operator can be read (the end of the data block usually has other column data)
         criteria.push(0);
 
         let mut props = Props::new();
@@ -575,7 +575,7 @@ mod tests {
         reader.process(&file, &props);
 
         let populated = custom_field(&file, FieldKey::Task(TaskField::Duration))
-            .expect("应有自定义字段配置");
+            .expect("should have custom field configuration");
         let indicator = populated.borrow();
         let indicator = indicator.get_graphical_indicator();
         assert!(indicator.get_display_graphical_indicators());
@@ -586,13 +586,13 @@ mod tests {
         assert_eq!(criteria.get_value(0), None);
     }
 
-    /// 操作数为字段引用时不读取内联取值。
+/// When the operand is a field reference, no inline value is read.
     #[test]
     fn field_reference_operand() {
         let mut criteria = Vec::new();
         criteria.extend_from_slice(&1i32.to_le_bytes());
         criteria.extend_from_slice(&(0x3E7 + 6i32).to_le_bytes());
-        // 常量标志为 0 ⇒ 字段引用
+// constant flag 0 ⇒ field reference
         criteria.extend_from_slice(&0i32.to_le_bytes());
         criteria.extend_from_slice(&field_id(TaskField::Duration).to_le_bytes());
 
@@ -607,7 +607,7 @@ mod tests {
         reader.process(&file, &props);
 
         let populated = custom_field(&file, FieldKey::Task(TaskField::Duration))
-            .expect("应有自定义字段配置");
+            .expect("should have custom field configuration");
         let indicator = populated.borrow();
         assert_eq!(
             indicator
@@ -618,24 +618,24 @@ mod tests {
         );
     }
 
-    /// 数据缺失 / 截断 / 无该属性时不 panic。
+/// Does not panic when data is missing / truncated / the attribute is absent.
     #[test]
     fn malformed_data_is_tolerated() {
         let file = ProjectFile::new();
 
-        // 完全没有 TASK_FIELD_ATTRIBUTES
+// no TASK_FIELD_ATTRIBUTES at all
         let mut reader = GraphicalIndicatorReader::new();
         reader.process(&file, &Props::new());
         assert_eq!(custom_field_count(&file), 0);
 
-        // 只有 4 字节（读不出列数）
+// only 4 bytes (the column count cannot be read)
         let mut props = Props::new();
         props.put(PropsKey::TaskFieldAttributes.get_value(), vec![0u8; 4]);
         let mut reader = GraphicalIndicatorReader::new();
         reader.process(&file, &props);
         assert_eq!(custom_field_count(&file), 0);
 
-        // 列数为 0
+// column count is 0
         let mut block = vec![0u8; 8];
         block[4..8].copy_from_slice(&0i32.to_le_bytes());
         let mut props = Props::new();
@@ -644,7 +644,7 @@ mod tests {
         reader.process(&file, &props);
         assert_eq!(custom_field_count(&file), 0);
 
-        // 列数据偏移越界：标志字节按 0 处理 ⇒ 跳过
+// column data offset out of bounds: the flag byte is treated as 0 ⇒ skip
         let mut block = vec![0u8; 16];
         block[4..8].copy_from_slice(&1i32.to_le_bytes());
         block[8..12].copy_from_slice(&field_id(TaskField::Duration).to_le_bytes());
@@ -655,7 +655,7 @@ mod tests {
         reader.process(&file, &props);
         assert_eq!(custom_field_count(&file), 0);
 
-        // 未识别的字段号 ⇒ 跳过
+// unrecognised field number ⇒ skip
         let mut block = field_attributes(0x0F, TaskField::Duration, &duration_criteria());
         block[8..12].copy_from_slice(&0x1234_0005i32.to_le_bytes());
         let mut props = Props::new();
@@ -664,7 +664,7 @@ mod tests {
         reader.process(&file, &props);
         assert_eq!(custom_field_count(&file), 0);
 
-        // 条件区被截断（区间声明长于实际数据）⇒ 循环按 +2 收敛，不 panic
+// criteria area truncated (declared range longer than actual data) ⇒ the loop converges by +2 and does not panic
         let mut props = Props::new();
         props.put(
             PropsKey::TaskFieldAttributes.get_value(),
@@ -673,7 +673,7 @@ mod tests {
         let mut reader = GraphicalIndicatorReader::new();
         reader.process(&file, &props);
         let populated = custom_field(&file, FieldKey::Task(TaskField::Duration))
-            .expect("应有自定义字段配置");
+            .expect("should have custom field configuration");
         assert_eq!(
             populated
                 .borrow()
@@ -684,7 +684,7 @@ mod tests {
         );
     }
 
-    /// 默认构造与 `new` 等价。
+/// Default construction is equivalent to `new`.
     #[test]
     fn default_matches_new() {
         let file = ProjectFile::new();

@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/mpp/StringVarDataFieldReader.java`
+//! Corresponds to Java: `org/mpxj/mpp/StringVarDataFieldReader.java`
 //!
-//! [`VarDataFieldReader`] 的实现：从变长数据块中读一个字符串字段（UTF-16LE，NUL 结尾）。
+//! Implementation of [`VarDataFieldReader`]: reads a string field from a variable data block (UTF-16LE, NUL-terminated).
 //!
-//! # 继承的还原
+//! # Restoring inheritance
 //!
-//! Java: `class StringVarDataFieldReader extends VarDataFieldReader`。
-//! Rust 侧按约定：接口（抽象类）→ trait，实现类 → 独立结构体 + `impl`。
+//! Java: `class StringVarDataFieldReader extends VarDataFieldReader`.
+//! Per convention on the Rust side: interface (abstract class) → trait, implementation class → standalone struct + `impl`.
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `StringVarDataFieldReader extends VarDataFieldReader` | [`StringVarDataFieldReader`] 实现 [`VarDataFieldReader`] |
-//! | `private final CustomFieldContainer m_customFields`（继承自基类） | 结构体自持 `custom_fields` 字段，经 [`VarDataFieldReader::get_custom_fields`] 暴露 |
+//! | `StringVarDataFieldReader extends VarDataFieldReader` | [`StringVarDataFieldReader`] implements [`VarDataFieldReader`] |
+//! | `private final CustomFieldContainer m_customFields` (inherited from the base class) | the struct holds a `custom_fields` field itself, exposed via [`VarDataFieldReader::get_custom_fields`] |
 //! | `public StringVarDataFieldReader(CustomFieldContainer)` | [`StringVarDataFieldReader::new`] |
 //! | `protected Object readValue(...)` | [`VarDataFieldReader::read_value`] |
 //! | `protected Object coerceValue(Object)` | [`VarDataFieldReader::coerce_value`] |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `varData.getUnicodeString(id, type)`（可为 null） | `Option<String>` | `Var2Data::get_unicode_string` 在数据项不存在时返回 `None`，与 Java 的 null 对应 |
-//! | `Object` 返回值 | `Option<FieldValue>` | 读到的值恒为 `FieldValue::String`；null → `None` |
-//! | `value instanceof String` | 匹配 `FieldValue::String` | 其余变体（含 `Duration` / `Rate` / `DateTime`）与 Java 一样返回 null → `None` |
+//! | `varData.getUnicodeString(id, type)` (may be null) | `Option<String>` | `Var2Data::get_unicode_string` returns `None` when the data item does not exist, corresponding to Java's null |
+//! | `Object` return value | `Option<FieldValue>` | the value read is always `FieldValue::String`; null → `None` |
+//! | `value instanceof String` | matches `FieldValue::String` | the remaining variants (including `Duration` / `Rate` / `DateTime`) return null → `None`, just like Java |
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class uses none of these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -35,34 +35,34 @@ use crate::field_value::FieldValue;
 use crate::mpp::var2_data::Var2Data;
 use crate::mpp::var_data_field_reader::VarDataFieldReader;
 
-/// 从变长数据块中读字符串字段。
+/// Read a string field from a variable data block.
 ///
-/// 对应 Java: `class StringVarDataFieldReader extends VarDataFieldReader`
+/// Corresponds to Java: `class StringVarDataFieldReader extends VarDataFieldReader`
 pub struct StringVarDataFieldReader {
-    /// 自定义字段容器。
+/// Custom field container.
     ///
-    /// 对应 Java 字段（继承自基类）: `private final CustomFieldContainer m_customFields`
+/// Corresponds to Java field (inherited from the base class): `private final CustomFieldContainer m_customFields`
     custom_fields: Rc<RefCell<CustomFieldContainer>>,
 }
 
 impl StringVarDataFieldReader {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public StringVarDataFieldReader(CustomFieldContainer customFields)`
+    /// Corresponds to Java: `public StringVarDataFieldReader(CustomFieldContainer customFields)`
     pub fn new(custom_fields: Rc<RefCell<CustomFieldContainer>>) -> Self {
         Self { custom_fields }
     }
 }
 
 impl VarDataFieldReader for StringVarDataFieldReader {
-    /// 对应 Java: `public CustomFieldContainer getCustomFields()`（Rust 特有访问器，见 trait 说明）
+/// Corresponds to Java: `public CustomFieldContainer getCustomFields()` (a Rust-specific accessor; see the trait notes)
     fn get_custom_fields(&self) -> &Rc<RefCell<CustomFieldContainer>> {
         &self.custom_fields
     }
 
-    /// 按 UTF-16LE 字符串读取数据项；数据项不存在时返回 `None`（Java 返回 null）。
+/// Read the data item as a UTF-16LE string; returns `None` when the data item does not exist (Java returns null).
     ///
-    /// 对应 Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
+    /// Corresponds to Java: `@Override protected Object readValue(Var2Data varData, Integer id, Integer type)`
     fn read_value(
         &self,
         var_data: &Var2Data,
@@ -75,9 +75,9 @@ impl VarDataFieldReader for StringVarDataFieldReader {
             .map(FieldValue::String)
     }
 
-    /// 原样保留字符串取值；其他类型返回 `None`（Java 返回 null）。
+/// Keeps a string value as-is; other types return `None` (Java returns null).
     ///
-    /// 对应 Java: `@Override protected Object coerceValue(Object value)`
+    /// Corresponds to Java: `@Override protected Object coerceValue(Object value)`
     fn coerce_value(&self, value: Option<&FieldValue>) -> Option<FieldValue> {
         // Java: if (value instanceof String) { return value; } return null;
         match value? {
@@ -93,13 +93,13 @@ mod tests {
     use super::*;
     use crate::custom_field_lookup_table::CustomFieldValueItem;
 
-    /// 数据项类型（测试里统一使用）。
+/// Data item type (used uniformly in the tests).
     const TYPE: i32 = 0x12;
 
-    /// 读取 UTF-16LE（NUL 结尾）字符串数据项。
+/// Read a UTF-16LE (NUL-terminated) string data item.
     #[test]
     fn reads_unicode_string() {
-        // "AB" 的 UTF-16LE 表示 + 结尾 NUL
+// the UTF-16LE representation of "AB" + trailing NUL
         let var_data = var_data(&[(1, TYPE, vec![0x41, 0x00, 0x42, 0x00, 0x00, 0x00])]);
         let reader = StringVarDataFieldReader::new(container_with_item(
             CustomFieldValueItem::new(1),
@@ -111,7 +111,7 @@ mod tests {
         );
     }
 
-    /// 数据项缺失时返回 `None`（Java 的 `getUnicodeString` 返回 null）。
+/// Returns `None` when the data item is missing (Java's `getUnicodeString` returns null).
     #[test]
     fn missing_entry_returns_none() {
         let var_data = var_data(&[(1, TYPE, vec![0x41, 0x00, 0x00, 0x00])]);
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(reader.read_value(&var_data, None, None), None);
     }
 
-    /// 空数据项（0 字节）解码为空串（Java 的 `getUnicodeString` 返回 `""`）。
+/// An empty data item (0 bytes) decodes to an empty string (Java's `getUnicodeString` returns `""`).
     #[test]
     fn empty_entry_reads_empty_string() {
         let var_data = var_data(&[(1, TYPE, Vec::new())]);
@@ -137,7 +137,7 @@ mod tests {
         );
     }
 
-    /// 数据项越界（未登记的 id / type）返回 `None` 而不 panic。
+/// An out-of-bounds data item (unregistered id / type) returns `None` without panicking.
     #[test]
     fn out_of_range_entry_returns_none() {
         let var_data = var_data(&[(1, TYPE, vec![0x41, 0x00, 0x00, 0x00])]);
@@ -145,11 +145,11 @@ mod tests {
             CustomFieldValueItem::new(1),
         ));
 
-        // 数据类型不匹配
+// data type mismatch
         assert_eq!(reader.read_value(&var_data, Some(1), Some(0x99)), None);
     }
 
-    /// `coerce_value`：仅字符串取值通过。
+/// `coerce_value`: only string values pass.
     #[test]
     fn coerce_value_accepts_strings_only() {
         let reader = StringVarDataFieldReader::new(container_with_item(

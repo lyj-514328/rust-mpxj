@@ -1,23 +1,24 @@
-//! 对应 Java: `org/mpxj/listener/FieldListener.java`
+//! Corresponds to Java: `org/mpxj/listener/FieldListener.java`
 
 use crate::field_key::FieldKey;
 use crate::field_value::FieldValue;
 
-/// 接收 Task / Resource 字段变更通知的接口。
+/// Interface for receiving notification of Task / Resource field changes.
 ///
-/// 对应 Java: `public interface FieldListener`
+/// Corresponds to Java: `public interface FieldListener`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 的签名是
-/// `void fieldChange(FieldContainer container, FieldType type, Object oldValue, Object newValue)`，
-/// 会把源容器自身传进来。Rust 侧 `set` 期间持有容器的 `&mut` 借用，无法再把
-/// `&self` 交给监听器（别名借用不合法），因此省略 `container` 参数。
-/// reader 链路不会注册字段监听器，此差异不影响读取行为。
+/// The Java signature is
+/// `void fieldChange(FieldContainer container, FieldType type, Object oldValue, Object newValue)`,
+/// which passes the source container itself. On the Rust side, `set` holds a `&mut` borrow of
+/// the container, so `&self` can no longer be handed to the listener (an aliasing borrow is not
+/// allowed); therefore the `container` parameter is omitted.
+/// The reader path never registers a field listener, so this difference does not affect read behavior.
 pub trait FieldListener {
-    /// 字段值发生变化时被调用。
+    /// Called when a field value changes.
     ///
-    /// 对应 Java: `void fieldChange(FieldContainer container, FieldType type, Object oldValue, Object newValue)`
+    /// Corresponds to Java: `void fieldChange(FieldContainer container, FieldType type, Object oldValue, Object newValue)`
     fn field_change(
         &mut self,
         field: FieldKey,

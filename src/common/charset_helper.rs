@@ -1,72 +1,76 @@
-//! 对应 Java: `org/mpxj/common/CharsetHelper.java`
+//! Corresponds to Java: `org/mpxj/common/CharsetHelper.java`
 //!
-//! 常用字符集常量。Java 侧每个常量都是 `java.nio.charset.Charset`；Rust 侧统一用
-//! `encoding_rs::Encoding`（与 [`crate::CodePage::get_charset`] 保持一致）。
+//! Common charset constants. In Java each constant is a `java.nio.charset.Charset`; the Rust
+//! side uniformly uses `encoding_rs::Encoding` (consistent with [`crate::CodePage::get_charset`]).
 //!
-//! 移植取舍：
-//! - Java 侧常量不可能为 null（`Charset.forName` 对未知名字抛异常）；Rust 的 `encoding_rs`
-//!   只实现 WHATWG Encoding 标准内的编码，缺少 CP437、CP850，也没有「BOM 感知」的 UTF-16，
-//!   因此常量类型为 `Option<&'static Encoding>`：无法映射的常量取 `None`（其 Java 名字仍可
-//!   通过 [`CharsetHelper::get_charset`] 判定）。
-//! - Java 的 `StandardCharsets.UTF_16` 会按 BOM 决定字节序（无 BOM 时按 BE）；`encoding_rs`
-//!   没有对应编码，`UTF16` 返回 `None`，调用方探测 BOM 后改用 `UTF16LE` 或
-//!   `encoding_rs::UTF_16BE`。
-//! - `GB2312` 在 WHATWG 标准中由 `GBK` 承担，故映射到 [`encoding_rs::GBK`]
-//!   （与 `CodePage::get_charset` 一致）。
-//! - Java 的 `Charset.forName(String)` 在 Rust 中由 [`CharsetHelper::get_charset`] 承担，
-//!   无法识别或无法映射时返回 `None`（不抛异常）。
+//! Porting trade-offs:
+//! - Java's constants can never be null (`Charset.forName` throws for unknown names); Rust's
+//!   `encoding_rs` only implements the encodings in the WHATWG Encoding standard, lacks CP437
+//!   and CP850, and has no BOM-aware UTF-16, so the constant type is
+//!   `Option<&'static Encoding>`: constants that cannot be mapped take `None` (their Java names
+//!   can still be recognized via [`CharsetHelper::get_charset`]).
+//! - Java's `StandardCharsets.UTF_16` determines byte order from the BOM (BE when there is no
+//!   BOM); `encoding_rs` has no equivalent encoding, so `UTF16` returns `None`, and callers
+//!   probe the BOM and then use `UTF16LE` or `encoding_rs::UTF_16BE`.
+//! - `GB2312` is covered by `GBK` in the WHATWG standard, so it maps to [`encoding_rs::GBK`]
+//!   (consistent with `CodePage::get_charset`).
+//! - Java's `Charset.forName(String)` is handled on the Rust side by
+//!   [`CharsetHelper::get_charset`], returning `None` (never throwing) when it cannot recognize
+//!   or map a name.
 //!
-//! 未移植的方法：无。
+//! Unported methods: none.
 
 use encoding_rs::Encoding;
 
-/// 常用字符集常量。
+/// Common charset constants.
 ///
-/// 对应 Java: `public class CharsetHelper`
+/// Corresponds to Java: `public class CharsetHelper`
 pub struct CharsetHelper;
 
 impl CharsetHelper {
-    /// 对应 Java: `public static final Charset UTF8 = StandardCharsets.UTF_8`
+    /// Corresponds to Java: `public static final Charset UTF8 = StandardCharsets.UTF_8`
     pub const UTF8: Option<&'static Encoding> = Some(encoding_rs::UTF_8);
 
-    /// 对应 Java: `public static final Charset UTF16 = StandardCharsets.UTF_16`
+    /// Corresponds to Java: `public static final Charset UTF16 = StandardCharsets.UTF_16`
     ///
-    /// Java 侧按 BOM 判定字节序，`encoding_rs` 无对应编码，故为 `None`。
+    /// Java determines byte order from the BOM; `encoding_rs` has no equivalent encoding, so
+    /// this is `None`.
     pub const UTF16: Option<&'static Encoding> = None;
 
-    /// 对应 Java: `public static final Charset UTF16LE = StandardCharsets.UTF_16LE`
+    /// Corresponds to Java: `public static final Charset UTF16LE = StandardCharsets.UTF_16LE`
     pub const UTF16LE: Option<&'static Encoding> = Some(encoding_rs::UTF_16LE);
 
-    /// 对应 Java: `public static final Charset CP1252 = Charset.forName("Cp1252")`
+    /// Corresponds to Java: `public static final Charset CP1252 = Charset.forName("Cp1252")`
     pub const CP1252: Option<&'static Encoding> = Some(encoding_rs::WINDOWS_1252);
 
-    /// 对应 Java: `public static final Charset MAC_ROMAN = Charset.forName("MacRoman")`
+    /// Corresponds to Java: `public static final Charset MAC_ROMAN = Charset.forName("MacRoman")`
     pub const MAC_ROMAN: Option<&'static Encoding> = Some(encoding_rs::MACINTOSH);
 
-    /// 对应 Java: `public static final Charset CP850 = Charset.forName("Cp850")`
+    /// Corresponds to Java: `public static final Charset CP850 = Charset.forName("Cp850")`
     ///
-    /// `encoding_rs` 未实现 CP850，故为 `None`。
+    /// `encoding_rs` does not implement CP850, so this is `None`.
     pub const CP850: Option<&'static Encoding> = None;
 
-    /// 对应 Java: `public static final Charset CP437 = Charset.forName("Cp437")`
+    /// Corresponds to Java: `public static final Charset CP437 = Charset.forName("Cp437")`
     ///
-    /// `encoding_rs` 未实现 CP437，故为 `None`。
+    /// `encoding_rs` does not implement CP437, so this is `None`.
     pub const CP437: Option<&'static Encoding> = None;
 
-    /// 对应 Java: `public static final Charset GB2312 = Charset.forName("GB2312")`
+    /// Corresponds to Java: `public static final Charset GB2312 = Charset.forName("GB2312")`
     pub const GB2312: Option<&'static Encoding> = Some(encoding_rs::GBK);
 
-    /// 对应 Java: `public static final Charset CP1251 = Charset.forName("Cp1251")`
+    /// Corresponds to Java: `public static final Charset CP1251 = Charset.forName("Cp1251")`
     pub const CP1251: Option<&'static Encoding> = Some(encoding_rs::WINDOWS_1251);
 
-    /// 按字符集名取字符集，大小写不敏感，无法识别或无法映射时返回 `None`。
+    /// Get a charset by name, case-insensitively; returns `None` when it cannot be recognized
+    /// or mapped.
     ///
-    /// 对应 Java: `Charset.forName(String)`（Java 对未知名字抛
-    /// `UnsupportedCharsetException`，Rust 侧改为返回 `None`）。
+    /// Corresponds to Java: `Charset.forName(String)` (Java throws
+    /// `UnsupportedCharsetException` for unknown names; the Rust side returns `None` instead).
     ///
-    /// 名字沿用 Java / MPX 文件中的写法（如 `Cp1252`、`GB2312`，见
-    /// [`crate::CodePage::get_charset_name`]）。`Cp437`、`Cp850` 与 BOM 感知的 `UTF-16`
-    /// 在 `encoding_rs` 中无实现，同样返回 `None`。
+    /// Names follow the spelling used in Java / MPX files (e.g. `Cp1252`, `GB2312`, see
+    /// [`crate::CodePage::get_charset_name`]). `Cp437`, `Cp850` and BOM-aware `UTF-16`
+    /// have no implementation in `encoding_rs` and also return `None`.
     pub fn get_charset(name: &str) -> Option<&'static Encoding> {
         match name.to_ascii_lowercase().as_str() {
             "utf-8" | "utf8" => Some(encoding_rs::UTF_8),
@@ -97,10 +101,10 @@ mod tests {
 
     #[test]
     fn encodings_missing_from_encoding_rs_are_none() {
-        // CP437 / CP850 在 encoding_rs 中无实现
+        // CP437 / CP850 are not implemented in encoding_rs
         assert_eq!(CharsetHelper::CP437, None);
         assert_eq!(CharsetHelper::CP850, None);
-        // Java 的 UTF_16 按 BOM 判定字节序，encoding_rs 无对应编码
+        // Java's UTF_16 determines byte order from the BOM; encoding_rs has no equivalent encoding
         assert_eq!(CharsetHelper::UTF16, None);
     }
 
@@ -125,12 +129,12 @@ mod tests {
 
     #[test]
     fn get_charset_matches_code_page_charsets() {
-        // `CodePage::get_charset_name` 产出的名字应能被 `CharsetHelper` 还原为同一字符集
+        // Names produced by `CodePage::get_charset_name` should round-trip to the same charset via `CharsetHelper`
         for page in CodePage::ALL {
             assert_eq!(
                 CharsetHelper::get_charset(page.get_charset_name()),
                 page.get_charset(),
-                "代码页 {:?} 的字符集映射不一致",
+                "charset mapping for code page {:?} is inconsistent",
                 page
             );
         }
@@ -138,11 +142,11 @@ mod tests {
 
     #[test]
     fn constants_can_decode_bytes() {
-        let encoding = CharsetHelper::CP1252.expect("CP1252 有实现");
+        let encoding = CharsetHelper::CP1252.expect("CP1252 has implementation");
         let (decoded, _, _) = encoding.decode(&[0xE9]);
         assert_eq!(decoded, "é");
 
-        let encoding = CharsetHelper::GB2312.expect("GB2312 有实现");
+        let encoding = CharsetHelper::GB2312.expect("GB2312 has implementation");
         let (decoded, _, _) = encoding.decode(&[0xD6, 0xD0]);
         assert_eq!(decoded, "中");
     }

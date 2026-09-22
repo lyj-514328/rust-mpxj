@@ -1,12 +1,12 @@
-//! 对应 Java: `org/mpxj/ProjectCalendarException.java`
+//! Corresponds to Java: `org/mpxj/ProjectCalendarException.java`
 //!
-//! 跳过的 Java 方法：无。
+//! Skipped Java methods: none.
 //!
-//! # 用到的 `RecurringData` 接口
+//! # The `RecurringData` interface used
 //!
-//! 本文件依赖 `org.mpxj.RecurringData`（对应已落地的 [`crate::recurring_data::RecurringData`]；
-//! `src/lib.rs` 已声明 `pub mod recurring_data;`）。
-//! 本文件按下列（由 Java getter/setter 一一对应的）签名使用 `RecurringData`：
+//! This file depends on `org.mpxj.RecurringData` (corresponding to the already-ported [`crate::recurring_data::RecurringData`];
+//! `src/lib.rs` already declares `pub mod recurring_data;`).
+//! This file uses `RecurringData` through the following signatures (each mapping one-to-one to Java getters/setters):
 //!
 //! ```text
 //! RecurringData::new() -> RecurringData
@@ -19,18 +19,18 @@
 //! impl Display                             // Java: toString()
 //! ```
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - Java 的 `ProjectCalendarException extends ProjectCalendarHours`（进而 `AbstractList`），
-//!   Rust 无继承：[`ProjectCalendarException`] 以字段组合持有 [`ProjectCalendarHours`]，
-//!   并把基类的集合方法逐个转发出来（`add` / `set` / `get` / `iter` / `size` / `clear` / `add_all`）。
-//! - `equals` / `hashCode` 在 Java 侧来自 `AbstractList`（只比较列表内容），
-//!   而 `compareTo` 比较的是起始日期。Java 本身即存在这种 `equals` 与 `compareTo`
-//!   不一致：Rust 侧保持同样语义 —— `PartialEq` / `Hash` 只看工作时段内容，
-//!   `Ord` 只看起始日期。
-//! - Java 的 `contains(LocalDateTime)` / `contains(LocalDate)` 在入参为 `null` 时返回
-//!   `false`；Rust 侧参数不可为 `null`，该分支不可达。若起止日期为 `null`（Java 会抛
-//!   NPE），Rust 侧返回 `false`。
+//! - Java's `ProjectCalendarException extends ProjectCalendarHours` (and thus `AbstractList`),
+//! Rust has no inheritance: [`ProjectCalendarException`] holds a [`ProjectCalendarHours`] by composition,
+//! and forwards the base class's collection methods one by one (`add` / `set` / `get` / `iter` / `size` / `clear` / `add_all`).
+//! - On the Java side `equals` / `hashCode` come from `AbstractList` (comparing only list contents),
+//! whereas `compareTo` compares the start date. Java itself has this `equals` and `compareTo`
+//! inconsistency: the Rust side keeps the same semantics — `PartialEq` / `Hash` look only at working time contents,
+//! while `Ord` looks only at the start date.
+//! - Java's `contains(LocalDateTime)` / `contains(LocalDate)` return
+//! `false` when the argument is `null`; Rust arguments cannot be `null`, so that branch is unreachable. If the start/end dates are `null` (Java throws
+//! an NPE), the Rust side returns `false`.
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -45,43 +45,43 @@ use crate::project_calendar_hours::ProjectCalendarHours;
 use crate::recurrence_type::RecurrenceType;
 use crate::recurring_data::RecurringData;
 
-/// 日历例外日期（可含重复规则），用于描述基日历/资源日历中的例外。
+/// A calendar exception date (which may include recurrence), describing exceptions in a base calendar/resource calendar.
 ///
-/// 对应 Java: `public final class ProjectCalendarException extends ProjectCalendarHours implements Comparable<ProjectCalendarException>`
+/// Corresponds to Java: `public final class ProjectCalendarException extends ProjectCalendarHours implements Comparable<ProjectCalendarException>`
 #[derive(Debug, Clone)]
 pub struct ProjectCalendarException {
-    /// 对应 Java 的继承关系 `extends ProjectCalendarHours`
+/// Corresponds to Java's inheritance relationship `extends ProjectCalendarHours`
     hours: ProjectCalendarHours,
-    /// 对应 Java 字段 `private final LocalDate m_fromDate`
+    /// Corresponds to Java field `private final LocalDate m_fromDate`
     from_date: Option<NaiveDate>,
-    /// 对应 Java 字段 `private final LocalDate m_toDate`
+    /// Corresponds to Java field `private final LocalDate m_toDate`
     to_date: Option<NaiveDate>,
-    /// 对应 Java 字段 `private final RecurringData m_recurring`
+    /// Corresponds to Java field `private final RecurringData m_recurring`
     recurring: Option<RecurringData>,
-    /// 对应 Java 字段 `private String m_name`
+    /// Corresponds to Java field `private String m_name`
     name: Option<String>,
 }
 
 impl ProjectCalendarException {
-    /// 构造方法（仅日期区间）。
+/// Constructor (date range only).
     ///
-    /// 对应 Java: `ProjectCalendarException(LocalDate fromDate, LocalDate toDate)`
+    /// Corresponds to Java: `ProjectCalendarException(LocalDate fromDate, LocalDate toDate)`
     pub fn new(from_date: Option<NaiveDate>, to_date: Option<NaiveDate>) -> Self {
         Self::new_with_recurring(from_date, to_date, None)
     }
 
-    /// 构造方法（仅重复规则）。
+/// Constructor (recurrence only).
     ///
-    /// 对应 Java: `ProjectCalendarException(RecurringData recurringData)`
+    /// Corresponds to Java: `ProjectCalendarException(RecurringData recurringData)`
     ///
-    /// Java 通过构造方法重载表达，Rust 无法重载，故加 `_from_recurring` 后缀区分。
+/// Java expresses this through constructor overloads; Rust cannot overload, so a `_from_recurring` suffix distinguishes it.
     pub fn new_from_recurring(recurring: RecurringData) -> Self {
         Self::new_with_recurring(None, None, Some(recurring))
     }
 
-    /// 构造方法（日期区间 + 重复规则）。
+/// Constructor (date range + recurrence).
     ///
-    /// 对应 Java: `ProjectCalendarException(LocalDate fromDate, LocalDate toDate, RecurringData recurringData)`
+    /// Corresponds to Java: `ProjectCalendarException(LocalDate fromDate, LocalDate toDate, RecurringData recurringData)`
     pub fn new_with_recurring(
         from_date: Option<NaiveDate>,
         to_date: Option<NaiveDate>,
@@ -96,23 +96,23 @@ impl ProjectCalendarException {
         }
     }
 
-    /// 取例外名称。
+/// Get the exception name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    /// 设置例外名称。
+/// Set the exception name.
     ///
-    /// 对应 Java: `public void setName(String name)`
+    /// Corresponds to Java: `public void setName(String name)`
     pub fn set_name(&mut self, name: Option<String>) {
         self.name = name;
     }
 
-    /// 取起始日期，重复例外时取计算出的首次发生日期。
+/// Get the start date; for recurring exceptions, the computed first occurrence date.
     ///
-    /// 对应 Java: `public LocalDate getFromDate()`
+    /// Corresponds to Java: `public LocalDate getFromDate()`
     pub fn get_from_date(&self) -> Option<NaiveDate> {
         match &self.recurring {
             None => self.from_date,
@@ -120,9 +120,9 @@ impl ProjectCalendarException {
         }
     }
 
-    /// 取结束日期，重复例外时取计算出的最后一次发生日期。
+/// Get the end date; for recurring exceptions, the computed last occurrence date.
     ///
-    /// 对应 Java: `public LocalDate getToDate()`
+    /// Corresponds to Java: `public LocalDate getToDate()`
     pub fn get_to_date(&self) -> Option<NaiveDate> {
         match &self.recurring {
             None => self.to_date,
@@ -130,26 +130,26 @@ impl ProjectCalendarException {
         }
     }
 
-    /// 取重复规则数据（非重复例外时为 `None`）。
+/// Get the recurrence data (`None` for non-recurring exceptions).
     ///
-    /// 对应 Java: `public RecurringData getRecurring()`
+    /// Corresponds to Java: `public RecurringData getRecurring()`
     pub fn get_recurring(&self) -> Option<&RecurringData> {
         self.recurring.as_ref()
     }
 
-    /// 是否有工作时段（即 `size() != 0`）。
+/// Whether there are working times (i.e. `size() != 0`).
     ///
-    /// 对应 Java: `public boolean getWorking()`
+    /// Corresponds to Java: `public boolean getWorking()`
     pub fn get_working(&self) -> bool {
         self.hours.size() != 0
     }
 
-    /// 把本例外展开为例外列表。
+/// Expand this exception into a list of exceptions.
     ///
-    /// 对应 Java: `public List<ProjectCalendarException> getExpandedExceptions()`
+    /// Corresponds to Java: `public List<ProjectCalendarException> getExpandedExceptions()`
     ///
-    /// 非重复例外、或「每日重复且频率为 1」的例外只返回自身；其余重复例外按
-    /// 计算出的每个日期各生成一个单日例外，并复制全部工作时段。
+/// A non-recurring exception, or one that recurs daily with a frequency of 1, returns only itself; other recurring exceptions are expanded
+/// into one single-day exception per computed date, copying all working times.
     pub fn get_expanded_exceptions(&self) -> Vec<ProjectCalendarException> {
         let mut result = Vec::new();
 
@@ -182,82 +182,82 @@ impl ProjectCalendarException {
         result
     }
 
-    /// 判断给定日期时间是否落在本例外覆盖的日期区间内。
+/// Determine whether the given date-time falls within the date range covered by this exception.
     ///
-    /// 对应 Java: `public boolean contains(LocalDateTime date)`
+    /// Corresponds to Java: `public boolean contains(LocalDateTime date)`
     ///
-    /// Java 侧与 `contains(LocalDate)` 实现相同（先取 `LocalDate` 再比较），此处直接复用。
+/// Java implements this identically to `contains(LocalDate)` (take the `LocalDate` first, then compare); it is reused directly here.
     pub fn contains_date_time(&self, date: NaiveDateTime) -> bool {
         self.contains_date(date.date())
     }
 
-    /// 判断给定日期是否落在本例外覆盖的日期区间内。
+/// Determine whether the given date falls within the date range covered by this exception.
     ///
-    /// 对应 Java: `public boolean contains(LocalDate date)`
+    /// Corresponds to Java: `public boolean contains(LocalDate date)`
     pub fn contains_date(&self, date: NaiveDate) -> bool {
         match (self.get_from_date(), self.get_to_date()) {
             (Some(from_date), Some(to_date)) => {
                 LocalDateHelper::compare_with_range(from_date, to_date, date) == 0
             }
-            // Java: 起止日期为 null 时会抛 NPE，Rust 侧退化为 false
+// Java: throws an NPE when the start/end dates are null; the Rust side degrades gracefully to false
             _ => false,
         }
     }
 
-    /// 判断给定例外是否与本例外有任何日期重叠。
+/// Determine whether the given exception overlaps this exception on any date.
     ///
-    /// 对应 Java: `public boolean contains(ProjectCalendarException exception)`
+    /// Corresponds to Java: `public boolean contains(ProjectCalendarException exception)`
     ///
-    /// Java 通过重载提供三种 `contains`，Rust 无重载，故分别命名为
-    /// `contains_date_time` / `contains_date` / `contains_exception`。
-    /// 空值语义与 Java `LocalDateHelper.compare` 一致（`null` 视为更大）。
+/// Java provides three `contains` overloads; Rust has no overloading, so they are named separately
+    /// `contains_date_time` / `contains_date` / `contains_exception`.
+/// The null semantics match Java's `LocalDateHelper.compare` (`null` is treated as greater).
     pub fn contains_exception(&self, exception: &ProjectCalendarException) -> bool {
         !(LocalDateHelper::compare(self.get_to_date(), exception.get_from_date()) < 0
             || LocalDateHelper::compare(exception.get_to_date(), self.get_from_date()) < 0)
     }
 
-    /// 取本例外内部的工作时段集合（对应 Java 的 `extends ProjectCalendarHours` 关系）。
+/// Get the collection of working times inside this exception (corresponds to Java's `extends ProjectCalendarHours` relationship).
     ///
-    /// 对应 Java: `this`（Rust 侧以访问器表达被拍平的继承关系）
+/// Corresponds to Java: `this` (on the Rust side an accessor expresses the flattened inheritance relationship)
     pub fn get_hours(&self) -> &ProjectCalendarHours {
         &self.hours
     }
 
     //
-    // 以下方法对应 Java 从 ProjectCalendarHours 继承而来的集合操作
+// The following methods correspond to the collection operations Java inherits from ProjectCalendarHours
     //
 
-    /// 对应 Java: `add(LocalTimeRange range)`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `add(LocalTimeRange range)` (inherited from `ProjectCalendarHours`)
     pub fn add(&mut self, range: LocalTimeRange) -> bool {
         self.hours.add(range)
     }
 
-    /// 对应 Java: `set(int index, LocalTimeRange value)`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `set(int index, LocalTimeRange value)` (inherited from `ProjectCalendarHours`)
     pub fn set(&mut self, index: usize, value: LocalTimeRange) -> Option<LocalTimeRange> {
         self.hours.set(index, value)
     }
 
-    /// 对应 Java: `get(int index)`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `get(int index)` (inherited from `ProjectCalendarHours`)
     pub fn get(&self, index: usize) -> LocalTimeRange {
         self.hours.get(index)
     }
 
-    /// 对应 Java: `iterator()`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `iterator()` (inherited from `ProjectCalendarHours`)
     pub fn iter(&self) -> Iter<'_, LocalTimeRange> {
         self.hours.iter()
     }
 
-    /// 对应 Java: `size()`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `size()` (inherited from `ProjectCalendarHours`)
     pub fn size(&self) -> usize {
         self.hours.size()
     }
 
-    /// 对应 Java: `clear()`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `clear()` (inherited from `ProjectCalendarHours`)
     pub fn clear(&mut self) {
         self.hours.clear();
     }
 
-    /// 对应 Java: `addAll(Collection)`（继承自 `ProjectCalendarHours`）
+/// Corresponds to Java: `addAll(Collection)` (inherited from `ProjectCalendarHours`)
     pub fn add_all(&mut self, other: &ProjectCalendarHours) -> bool {
         self.hours.add_all(other)
     }
@@ -273,7 +273,7 @@ impl<'a> IntoIterator for &'a ProjectCalendarException {
 }
 
 impl PartialEq for ProjectCalendarException {
-    /// 对应 Java: `AbstractList.equals(Object)`：只比较工作时段内容。
+/// Corresponds to Java: `AbstractList.equals(Object)`: compares only working time contents.
     fn eq(&self, other: &Self) -> bool {
         self.hours == other.hours
     }
@@ -282,15 +282,15 @@ impl PartialEq for ProjectCalendarException {
 impl Eq for ProjectCalendarException {}
 
 impl Hash for ProjectCalendarException {
-    /// 对应 Java: `AbstractList.hashCode()`：只按工作时段内容计算哈希。
+/// Corresponds to Java: `AbstractList.hashCode()`: computes the hash only from working time contents.
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.hours.hash(state);
     }
 }
 
 impl Ord for ProjectCalendarException {
-    /// 对应 Java: `@Override public int compareTo(ProjectCalendarException o)`：
-    /// 按起始日期比较（`null` 视为更大）。
+    /// Corresponds to Java: `@Override public int compareTo(ProjectCalendarException o)`:
+/// Compare by start date (`null` is treated as greater).
     fn cmp(&self, other: &Self) -> Ordering {
         match LocalDateHelper::compare(self.get_from_date(), other.get_from_date()) {
             value if value < 0 => Ordering::Less,
@@ -307,7 +307,7 @@ impl PartialOrd for ProjectCalendarException {
 }
 
 impl Display for ProjectCalendarException {
-    /// 对应 Java: `@Override public String toString()`
+    /// Corresponds to Java: `@Override public String toString()`
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[ProjectCalendarException")?;
 
@@ -335,7 +335,7 @@ impl Display for ProjectCalendarException {
     }
 }
 
-/// 按 Java 习惯输出可空日期（`null` → `null`）。
+/// Output a nullable date following Java convention (`null` → `null`).
 fn optional_date(date: Option<NaiveDate>) -> String {
     date.map_or_else(|| "null".to_string(), |date| date.to_string())
 }
@@ -347,7 +347,7 @@ mod tests {
     use super::*;
 
     fn date(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).expect("合法日期")
+        NaiveDate::from_ymd_opt(year, month, day).expect("valid date")
     }
 
     fn range(from: u32, to: u32) -> LocalTimeRange {
@@ -384,15 +384,15 @@ mod tests {
 
         let date_time = date(2024, 1, 10)
             .and_hms_opt(9, 30, 0)
-            .expect("合法日期时间");
+            .expect("valid date-time");
         assert!(exception.contains_date_time(date_time));
         assert!(!exception.contains_date_time(
             date(2024, 1, 20)
                 .and_hms_opt(9, 30, 0)
-                .expect("合法日期时间")
+                .expect("valid date-time")
         ));
 
-        // 起止日期缺失时（Java 抛 NPE）Rust 返回 false
+// When the start/end dates are missing (Java throws an NPE), Rust returns false
         let empty = ProjectCalendarException::new(None, None);
         assert!(!empty.contains_date(date(2024, 1, 8)));
     }
@@ -451,11 +451,11 @@ mod tests {
             "[ProjectCalendarException working=false fromDate=2024-01-01 toDate=2024-01-01]"
         );
 
-        exception.set_name(Some("春节".to_string()));
+        exception.set_name(Some("Spring Festival".to_string()));
         exception.add(range(8, 12));
         assert_eq!(
             exception.to_string(),
-            "[ProjectCalendarException name=春节 working=true fromDate=2024-01-01 toDate=2024-01-01[LocalTimeRange start=08:00:00 end=12:00:00]]"
+            "[ProjectCalendarException name=Spring Festival working=true fromDate=2024-01-01 toDate=2024-01-01[LocalTimeRange start=08:00:00 end=12:00:00]]"
         );
     }
 
@@ -467,7 +467,7 @@ mod tests {
         let mut rhs = ProjectCalendarException::new(Some(date(2024, 2, 1)), Some(date(2024, 2, 1)));
         rhs.add(range(9, 12));
 
-        // Java: equals 来自 AbstractList，只比较列表内容
+// Java: equals comes from AbstractList, comparing only list contents
         assert_eq!(lhs, rhs);
 
         rhs.clear();

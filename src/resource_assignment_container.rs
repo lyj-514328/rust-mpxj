@@ -1,47 +1,47 @@
-//! 对应 Java: `org/mpxj/ResourceAssignmentContainer.java`
+//! Corresponds to Java: `org/mpxj/ResourceAssignmentContainer.java`
 //!
-//! 管理项目中的资源分配集合。
+//! Manages the collection of resource assignments in a project.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends ProjectEntityContainer<ResourceAssignment>` | 不组合 [`crate::project_entity_container::ProjectEntityContainer`]，改为内部 `Vec<Rc<RefCell<ResourceAssignment>>>` + 线性查找（见下） |
-//! | `ResourceAssignmentContainer(ProjectFile projectFile)` | [`ResourceAssignmentContainer::new`] + [`ResourceAssignmentContainer::set_context`]（父文件由 [`crate::resource_assignment::ResourceAssignment`] 自行持有弱引用） |
-//! | `@Override protected void added(ResourceAssignment assignment)` | 私有方法 `added`（由 [`ResourceAssignmentContainer::add`] 调用） |
-//! | `@Override public void removed(ResourceAssignment assignment)` | 私有方法 `removed`（由 `remove` / `remove_by_unique_id` 调用） |
-//! | `public Set<FieldType> getPopulatedFields()` | [`ResourceAssignmentContainer::get_populated_fields`]（由父文件传入默认值与自定义字段） |
-//! | `public List<CustomField> getCustomFields()` | [`ResourceAssignmentContainer::get_custom_fields`]（经上下文的自定义字段容器） |
-//! | `public FieldType getFieldTypeByAlias(String alias)` | [`ResourceAssignmentContainer::get_field_type_by_alias`]（返回 `Option<FieldKey>`） |
+//! | `extends ProjectEntityContainer<ResourceAssignment>` | Does not compose [`crate::project_entity_container::ProjectEntityContainer`]; instead uses an internal `Vec<Rc<RefCell<ResourceAssignment>>>` + linear lookup (see below) |
+//! | `ResourceAssignmentContainer(ProjectFile projectFile)` | [`ResourceAssignmentContainer::new`] + [`ResourceAssignmentContainer::set_context`] (the parent file is held as a weak reference by [`crate::resource_assignment::ResourceAssignment`] itself) |
+//! | `@Override protected void added(ResourceAssignment assignment)` | Private method `added` (called by [`ResourceAssignmentContainer::add`]) |
+//! | `@Override public void removed(ResourceAssignment assignment)` | Private method `removed` (called by `remove` / `remove_by_unique_id`) |
+//! | `public Set<FieldType> getPopulatedFields()` | [`ResourceAssignmentContainer::get_populated_fields`] (the parent file passes in the defaults and custom fields) |
+//! | `public List<CustomField> getCustomFields()` | [`ResourceAssignmentContainer::get_custom_fields`] (via the context's custom field container) |
+//! | `public FieldType getFieldTypeByAlias(String alias)` | [`ResourceAssignmentContainer::get_field_type_by_alias`] (returns `Option<FieldKey>`) |
 //! | `public List<ResourceAssignment> getByTaskUniqueID(Integer)` | [`ResourceAssignmentContainer::get_by_task_unique_id`] |
 //! | `public List<ResourceAssignment> getByResourceUniqueID(Integer)` | [`ResourceAssignmentContainer::get_by_resource_unique_id`] |
-//! | 继承自 `ProjectEntityContainer` 的 `getByUniqueID` / `add` / `size` / `isEmpty` / `iterator` / `get` | [`ResourceAssignmentContainer::get_by_unique_id`] / [`ResourceAssignmentContainer::add`] / [`ResourceAssignmentContainer::len`] / [`ResourceAssignmentContainer::is_empty`] / [`ResourceAssignmentContainer::iter`] / [`ResourceAssignmentContainer::get`] |
-//! | 继承自 `ProjectEntityContainer` 的 `updateUniqueID(T element, Integer old, Integer new)` | [`ResourceAssignmentContainer::update_unique_id`]（Rust 无元素参数，见下） |
-//! | 继承自 `ProjectEntityContainer` 的 `fixUniqueIdClashes` / `firstUniqueID` / `getSequenceProvider` | 未移植：见下「未组合基类」 |
+//! | Inherited from `ProjectEntityContainer`: `getByUniqueID` / `add` / `size` / `isEmpty` / `iterator` / `get` | [`ResourceAssignmentContainer::get_by_unique_id`] / [`ResourceAssignmentContainer::add`] / [`ResourceAssignmentContainer::len`] / [`ResourceAssignmentContainer::is_empty`] / [`ResourceAssignmentContainer::iter`] / [`ResourceAssignmentContainer::get`] |
+//! | Inherited from `ProjectEntityContainer`: `updateUniqueID(T element, Integer old, Integer new)` | [`ResourceAssignmentContainer::update_unique_id`] (no element argument in Rust, see below) |
+//! | Inherited from `ProjectEntityContainer`: `fixUniqueIdClashes` / `firstUniqueID` / `getSequenceProvider` | Not ported: see "Base class not composed" below |
 //!
-//! ## 未组合 `ProjectEntityContainer`
+//! ## `ProjectEntityContainer` not composed
 //!
-//! Java 的 unique ID 索引（`m_uniqueIDMap`）与冲突列表来自基类。Rust 侧本容器改为
-//! **按当前 unique ID 线性查找**：`ResourceAssignment::set_unique_id` 在更新自身字段后
-//! 回调 [`ResourceAssignmentContainer::update_unique_id`] 同步序号生成器，而线性查找
-//! 天然不会因 unique ID 变化而失效，因此无需维护索引与冲突列表，`fixUniqueIdClashes`
-//! 一族方法也一并跳过（与
-//! [`crate::project_calendar_container::ProjectCalendarContainer`] 的处理一致）。
+//! Java's unique ID index (`m_uniqueIDMap`) and clash list come from the base class. On the Rust side this container instead uses
+//! **linear lookup by current unique ID**: `ResourceAssignment::set_unique_id` updates its own field and then
+//! calls back into [`ResourceAssignmentContainer::update_unique_id`] to synchronize the sequence generator, and linear lookup
+//! by nature does not become stale when the unique ID changes, so there is no need to maintain an index and clash list, and the
+//! `fixUniqueIdClashes` family of methods is skipped as well (consistent with
+//! the handling in [`crate::project_calendar_container::ProjectCalendarContainer`]).
 //!
-//! ## 其它差异
+//! ## Other differences
 //!
-//! * **元素形态**：Java 存 `ResourceAssignment` 引用；Rust 侧存
-//!   `Rc<RefCell<ResourceAssignment>>`（符合「共享实体用 `Rc<RefCell<T>>`」的约定）。
-//! * **`remove` 的元素参数**：Java 为 `ListWithCallbacks.remove(Object)`（引用相等）。
-//!   Rust 侧接收 `&Rc<RefCell<ResourceAssignment>>`，用 [`Rc::ptr_eq`] 做指针同一性比较；
-//!   另提供 [`ResourceAssignmentContainer::remove_by_unique_id`]（Rust 特有），供
-//!   [`crate::resource_assignment::ResourceAssignment::remove`] 在拿不到自身 `Rc` 时使用。
-//! * **上下文反向引用**：Java 字段 `m_projectFile` 是强引用；Rust 侧改为
-//!   `Weak<RefCell<ProjectContext>>`，避免 `ProjectContext ↔ 容器` 形成 `Rc` 循环。
-//! * **重入借用**：容器内部对上下文一律使用 `try_borrow_mut`，失败时退化为「不同步序号
-//!   生成器」，不会 panic（Java 无此情形）。
-//! * `getCustomFields` / `getFieldTypeByAlias` 在 Java 中经 `m_projectFile` 访问；Rust 侧
-//!   经上下文（`ProjectFile.getCustomFields()` 在 Java 中即委托给上下文）访问。
+//! * **Element shape**: Java stores a `ResourceAssignment` reference; the Rust side stores
+//! `Rc<RefCell<ResourceAssignment>>` (consistent with the "shared entities use `Rc<RefCell<T>>`" convention).
+//! * **The element argument of `remove`**: Java's is `ListWithCallbacks.remove(Object)` (reference equality).
+//! The Rust side accepts `&Rc<RefCell<ResourceAssignment>>` and uses [`Rc::ptr_eq`] for pointer identity comparison;
+//! it also provides [`ResourceAssignmentContainer::remove_by_unique_id`] (Rust-specific) for
+//! [`crate::resource_assignment::ResourceAssignment::remove`] to use when it cannot obtain its own `Rc`.
+//! * **Context back-reference**: the Java field `m_projectFile` is a strong reference; the Rust side changes it to
+//! `Weak<RefCell<ProjectContext>>` to avoid `ProjectContext ↔ container` forming an `Rc` cycle.
+//! * **Re-entrant borrowing**: internally the container always uses `try_borrow_mut` on the context; on failure it degrades to "not synchronizing the sequence
+//! generator" and does not panic (Java has no such case).
+//! * In Java, `getCustomFields` / `getFieldTypeByAlias` are accessed via `m_projectFile`; the Rust side
+//! accesses them via the context (in Java `ProjectFile.getCustomFields()` itself delegates to the context).
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -56,37 +56,37 @@ use crate::project_context::ProjectContext;
 use crate::resource_assignment::ResourceAssignment;
 use crate::unique_id_object_sequence_provider::UniqueIdObjectSequenceProvider;
 
-/// 项目中的资源分配集合。
+/// The collection of resource assignments in a project.
 ///
-/// 对应 Java: `public class ResourceAssignmentContainer extends ProjectEntityContainer<ResourceAssignment>`
+/// Corresponds to Java: `public class ResourceAssignmentContainer extends ProjectEntityContainer<ResourceAssignment>`
 pub struct ResourceAssignmentContainer {
-    /// 容器内的资源分配。
+/// The resource assignments in the container.
     ///
-    /// 对应 Java: `ProjectEntityContainer` / `ListWithCallbacks` 内部的列表存储。
+/// Corresponds to Java: the internal list storage of `ProjectEntityContainer` / `ListWithCallbacks`.
     items: Vec<Rc<RefCell<ResourceAssignment>>>,
 
-    /// 按资源 unique ID 建立的索引。
+/// Index built by resource unique ID.
     ///
-    /// 对应 Java 字段 `private final HashMap<Integer, List<ResourceAssignment>> m_resourceIndex = new HashMap<>();`
+    /// Corresponds to Java field `private final HashMap<Integer, List<ResourceAssignment>> m_resourceIndex = new HashMap<>();`
     resource_index: HashMap<i32, Vec<Rc<RefCell<ResourceAssignment>>>>,
 
-    /// 按任务 unique ID 建立的索引。
+/// Index built by task unique ID.
     ///
-    /// 对应 Java 字段 `private final HashMap<Integer, List<ResourceAssignment>> m_taskIndex = new HashMap<>();`
+    /// Corresponds to Java field `private final HashMap<Integer, List<ResourceAssignment>> m_taskIndex = new HashMap<>();`
     task_index: HashMap<i32, Vec<Rc<RefCell<ResourceAssignment>>>>,
 
-    /// 所属上下文（弱引用，避免 `Rc` 循环）。
+/// Owning context (weak reference to avoid an `Rc` cycle).
     ///
-    /// 对应 Java 字段 `private final ProjectFile m_projectFile;`（Rust 侧改持上下文，
-    /// 见文件头说明）。
+/// Corresponds to Java field `private final ProjectFile m_projectFile;` (the Rust side holds the context instead,
+/// see the file header).
     context: Weak<RefCell<ProjectContext>>,
 }
 
 impl ResourceAssignmentContainer {
-    /// 返回资源分配中至少有一个非默认缓存值的字段。
+/// Returns the fields for which at least one resource assignment has a non-default cached value.
     ///
-    /// 对应 Java: `public Set<FieldType> getPopulatedFields()`；项目默认值及自定义
-    /// 字段由父文件调用者传入，以免在父文件已有借用时再次借用。
+/// Corresponds to Java: `public Set<FieldType> getPopulatedFields()`; project defaults and custom
+/// fields are passed in by the parent file caller, to avoid borrowing the parent file again while it is already borrowed.
     pub fn get_populated_fields(
         &self,
         custom: impl IntoIterator<Item = FieldKey>,
@@ -101,11 +101,11 @@ impl ResourceAssignmentContainer {
         )
     }
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ResourceAssignmentContainer(ProjectFile projectFile)`
+    /// Corresponds to Java: `public ResourceAssignmentContainer(ProjectFile projectFile)`
     ///
-    /// Rust 侧先以空上下文弱引用构造，由 [`ResourceAssignmentContainer::set_context`] 接线。
+/// The Rust side first constructs with an empty context weak reference, then [`ResourceAssignmentContainer::set_context`] wires it up.
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -115,35 +115,35 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 接线所属上下文（Rust 特有：Java 在构造方法中直接接收父文件）。
+/// Wires up the owning context (Rust-specific: Java receives the parent file directly in the constructor).
     ///
-    /// 对应 Java: 构造方法中的 `m_projectFile = projectFile;`
+/// Corresponds to Java: `m_projectFile = projectFile;` in the constructor
     pub fn set_context(&mut self, context: &Rc<RefCell<ProjectContext>>) {
         self.context = Rc::downgrade(context);
     }
 
-    /// 取所属上下文。
+/// Returns the owning context.
     ///
-    /// Rust 特有访问器（Java 无对应方法，字段为父文件）。
+/// Rust-specific accessor (Java has no corresponding method; the field is the parent file).
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectContext>>> {
         self.context.upgrade()
     }
 
-    /// 向容器加入一个资源分配。
+/// Adds a resource assignment to the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.add(E element)`（进而触发
-    /// `ProjectEntityContainer.added` 与 `ResourceAssignmentContainer.added`）
+/// Corresponds to Java: `ListWithCallbacks.add(E element)` (which in turn triggers
+/// `ProjectEntityContainer.added` and `ResourceAssignmentContainer.added`)
     pub fn add(&mut self, assignment: Rc<RefCell<ResourceAssignment>>) {
         self.added(&assignment);
         self.items.push(assignment);
     }
 
-    /// 分配被加入后的钩子：更新任务/资源索引。
+/// Hook called after an assignment is added: updates the task/resource indexes.
     ///
-    /// 对应 Java: `@Override protected void added(ResourceAssignment assignment)`
+    /// Corresponds to Java: `@Override protected void added(ResourceAssignment assignment)`
     fn added(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
-        // Java: super.added(assignment); —— 基类维护 unique ID 索引，
-        // Rust 侧改为线性查找，没有需要维护的索引。
+// Java: super.added(assignment); -- the base class maintains the unique ID index,
+// the Rust side uses linear lookup instead, so there is no index to maintain.
 
         let (task_unique_id, resource_unique_id) = match assignment.try_borrow() {
             Ok(assignment) => (
@@ -168,11 +168,11 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 按 `Rc` 指针同一性移除资源分配。
+/// Removes a resource assignment by `Rc` pointer identity.
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(Object o)`（内部会调用 `removed(T element)`）
+/// Corresponds to Java: `ListWithCallbacks.remove(Object o)` (internally calls `removed(T element)`)
     ///
-    /// Java 用引用相等定位元素，Rust 侧用 [`Rc::ptr_eq`] 表达同一语义。
+/// Java locates the element by reference equality; the Rust side expresses the same semantics with [`Rc::ptr_eq`].
     pub fn remove(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) -> bool {
         let index = self
             .items
@@ -188,11 +188,11 @@ impl ResourceAssignmentContainer {
         true
     }
 
-    /// 按 unique ID 移除资源分配（Rust 特有，见文件头说明）。
+/// Removes a resource assignment by unique ID (Rust-specific, see the file header).
     ///
-    /// 对应 Java: `ListWithCallbacks.remove(Object o)` 的一种退化实现
-    /// （供 [`crate::resource_assignment::ResourceAssignment::remove`] 使用，
-    /// unique ID 为 `None` 时不做任何事并返回 `false`）。
+/// Corresponds to Java: a degraded implementation of `ListWithCallbacks.remove(Object o)`
+/// (used by [`crate::resource_assignment::ResourceAssignment::remove`];
+/// when the unique ID is `None` it does nothing and returns `false`).
     pub fn remove_by_unique_id(&mut self, unique_id: Option<i32>) -> bool {
         let unique_id = match unique_id {
             Some(unique_id) => unique_id,
@@ -213,11 +213,11 @@ impl ResourceAssignmentContainer {
         true
     }
 
-    /// 删除某个资源名下的全部资源分配（Rust 特有：供
-    /// [`crate::resource_container::ResourceContainer`] 的 `removeAssignments` 调用）。
+/// Deletes all resource assignments under a given resource (Rust-specific: used by
+/// [`crate::resource_container::ResourceContainer`]'s `removeAssignments` call).
     ///
-    /// 对应 Java: `ResourceContainer.removeAssignments(ProjectFile project, Resource resource)`
-    /// 中对资源分配的遍历删除。返回被删除的条数。
+    /// Corresponds to Java: `ResourceContainer.removeAssignments(ProjectFile project, Resource resource)`
+/// the iterative deletion of resource assignments. Returns the number of deleted entries.
     pub fn remove_by_resource_unique_id(&mut self, resource_unique_id: Option<i32>) -> usize {
         let Some(resource_unique_id) = resource_unique_id else {
             return 0;
@@ -246,12 +246,12 @@ impl ResourceAssignmentContainer {
         removed
     }
 
-    /// 分配被移除后的钩子：从任务/资源索引中删除。
+/// Hook called after an assignment is removed: removes it from the task/resource indexes.
     ///
-    /// 对应 Java: `@Override public void removed(ResourceAssignment assignment)`
+    /// Corresponds to Java: `@Override public void removed(ResourceAssignment assignment)`
     fn removed(&mut self, assignment: &Rc<RefCell<ResourceAssignment>>) {
-        // Java: super.removed(assignment); —— 基类维护 unique ID 索引，
-        // Rust 侧改为线性查找，没有需要维护的索引。
+// Java: super.removed(assignment); -- the base class maintains the unique ID index,
+// the Rust side uses linear lookup instead, so there is no index to maintain.
 
         let (task_unique_id, resource_unique_id) = match assignment.try_borrow() {
             Ok(assignment) => (
@@ -270,14 +270,14 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 更新 unique ID 变更后的状态。
+/// Updates the state after a unique ID change.
     ///
-    /// 对应 Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
-    /// 的末尾一步 `m_sequenceProvider.getUniqueIdObjectSequence(element.getClass()).sync(newUniqueID)`
+    /// Corresponds to Java: `ProjectEntityContainer.updateUniqueID(T element, Integer oldUniqueID, Integer newUniqueID)`
+/// the final step `m_sequenceProvider.getUniqueIdObjectSequence(element.getClass()).sync(newUniqueID)`
     ///
-    /// Rust 侧容器按当前 unique ID 线性查找（无索引与冲突列表，见文件头），因此只需要把
-    /// 序号生成器同步到新的 unique ID。调用时机见
-    /// [`crate::resource_assignment::ResourceAssignment::set_unique_id`]。
+/// The Rust container looks up linearly by current unique ID (no index or clash list, see the file header), so it only needs to
+/// synchronize the sequence generator to the new unique ID. See
+    /// [`crate::resource_assignment::ResourceAssignment::set_unique_id`].
     pub fn update_unique_id(&mut self, old_unique_id: Option<i32>, new_unique_id: Option<i32>) {
         let _ = old_unique_id;
         let Some(new_unique_id) = new_unique_id else {
@@ -294,9 +294,9 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 取资源分配的自定义字段。
+/// Returns the custom fields of resource assignments.
     ///
-    /// 对应 Java: `public List<CustomField> getCustomFields()`
+    /// Corresponds to Java: `public List<CustomField> getCustomFields()`
     pub fn get_custom_fields(&self) -> Vec<Rc<RefCell<CustomField>>> {
         let Some(context) = self.context.upgrade() else {
             return Vec::new();
@@ -315,11 +315,11 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 按别名取字段标识。
+/// Returns the field key by alias.
     ///
-    /// 对应 Java: `public FieldType getFieldTypeByAlias(String alias)`
+    /// Corresponds to Java: `public FieldType getFieldTypeByAlias(String alias)`
     ///
-    /// Rust 侧返回 `Option<FieldKey>`（找不到时为 `None`）。
+/// The Rust side returns `Option<FieldKey>` (`None` if not found).
     pub fn get_field_type_by_alias(&self, alias: &str) -> Option<FieldKey> {
         let context = self.context.upgrade()?;
         let custom_fields = match context.try_borrow() {
@@ -335,9 +335,9 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 按任务 unique ID 取资源分配；无匹配时返回空列表。
+/// Returns the resource assignments for a task unique ID; returns an empty list when there is no match.
     ///
-    /// 对应 Java: `public List<ResourceAssignment> getByTaskUniqueID(Integer taskUniqueID)`
+    /// Corresponds to Java: `public List<ResourceAssignment> getByTaskUniqueID(Integer taskUniqueID)`
     pub fn get_by_task_unique_id(&self, task_unique_id: Option<i32>) -> Vec<Rc<RefCell<ResourceAssignment>>> {
         match task_unique_id.and_then(|id| self.task_index.get(&id)) {
             Some(assignments) => assignments.clone(),
@@ -345,9 +345,9 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 按资源 unique ID 取资源分配；无匹配时返回空列表。
+/// Returns the resource assignments for a resource unique ID; returns an empty list when there is no match.
     ///
-    /// 对应 Java: `public List<ResourceAssignment> getByResourceUniqueID(Integer resourceUniqueID)`
+    /// Corresponds to Java: `public List<ResourceAssignment> getByResourceUniqueID(Integer resourceUniqueID)`
     pub fn get_by_resource_unique_id(
         &self,
         resource_unique_id: Option<i32>,
@@ -358,9 +358,9 @@ impl ResourceAssignmentContainer {
         }
     }
 
-    /// 按 unique ID 查找资源分配，找不到时返回 `None`。
+/// Looks up a resource assignment by unique ID, returning `None` if not found.
     ///
-    /// 对应 Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
+    /// Corresponds to Java: `ProjectEntityContainer.getByUniqueID(Integer id)`
     pub fn get_by_unique_id(&self, id: Option<i32>) -> Option<Rc<RefCell<ResourceAssignment>>> {
         let id = id?;
         self.items
@@ -369,53 +369,53 @@ impl ResourceAssignmentContainer {
             .map(Rc::clone)
     }
 
-    /// 按下标取资源分配；越界返回 `None`。
+/// Returns the resource assignment at the given index; returns `None` if out of bounds.
     ///
-    /// 对应 Java: `ListWithCallbacks.get(int index)`
+    /// Corresponds to Java: `ListWithCallbacks.get(int index)`
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<ResourceAssignment>>> {
         self.items.get(index).map(Rc::clone)
     }
 
-    /// 资源分配个数。
+/// Number of resource assignments.
     ///
-    /// 对应 Java: `ListWithCallbacks.size()`
+    /// Corresponds to Java: `ListWithCallbacks.size()`
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 容器是否为空。
+/// Whether the container is empty.
     ///
-    /// 对应 Java: `ListWithCallbacks.isEmpty()`
+    /// Corresponds to Java: `ListWithCallbacks.isEmpty()`
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// 迭代容器内的资源分配。
+/// Iterates over the resource assignments in the container.
     ///
-    /// 对应 Java: `ListWithCallbacks.iterator()`
+    /// Corresponds to Java: `ListWithCallbacks.iterator()`
     pub fn iter(&self) -> std::slice::Iter<'_, Rc<RefCell<ResourceAssignment>>> {
         self.items.iter()
     }
 
-    /// 以切片形式访问容器内的资源分配。
+/// Accesses the resource assignments in the container as a slice.
     ///
-    /// 对应 Java: `ListWithCallbacks` 的列表视图。
+/// Corresponds to Java: the list view of `ListWithCallbacks`.
     pub fn as_slice(&self) -> &[Rc<RefCell<ResourceAssignment>>] {
         self.items.as_slice()
     }
 }
 
 impl Default for ResourceAssignmentContainer {
-    /// 对应 Java: 显式声明的 `ResourceAssignmentContainer(ProjectFile)`，
-    /// Rust 侧等价于 [`ResourceAssignmentContainer::new`]。
+/// Corresponds to Java: the explicitly declared `ResourceAssignmentContainer(ProjectFile)`,
+/// which on the Rust side is equivalent to [`ResourceAssignmentContainer::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for ResourceAssignmentContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出容器规模、索引规模与上下文接线情况
-    /// （[`crate::resource_assignment::ResourceAssignment`] 未实现 `Debug`，故不输出元素内容）。
+/// Java does not override `toString()`; the Rust side outputs the container size, index size and context wiring state
+/// ([`crate::resource_assignment::ResourceAssignment`] does not implement `Debug`, so element contents are not output).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResourceAssignmentContainer")
             .field("size", &self.items.len())
@@ -426,7 +426,7 @@ impl Debug for ResourceAssignmentContainer {
     }
 }
 
-/// 按 `Rc` 指针同一性从索引中删除一项。
+/// Removes an entry from the index by `Rc` pointer identity.
 fn remove_from_index(
     index: &mut HashMap<i32, Vec<Rc<RefCell<ResourceAssignment>>>>,
     key: i32,
@@ -437,7 +437,7 @@ fn remove_from_index(
     }
 }
 
-/// 读取资源分配的 unique ID，已被借用时返回 `None`。
+/// Reads the unique ID of a resource assignment, returning `None` if already borrowed.
 fn read_unique_id(assignment: &Rc<RefCell<ResourceAssignment>>) -> Option<i32> {
     assignment
         .try_borrow()
@@ -451,7 +451,7 @@ mod tests {
     use crate::duration::Duration;
     use crate::time_unit::TimeUnit;
 
-    /// 构造一个带上下文接线、已设置 unique ID 的资源分配。
+/// Constructs a resource assignment with the context wired up and the unique ID already set.
     fn assignment(
         container: &mut ResourceAssignmentContainer,
         unique_id: i32,
@@ -497,11 +497,11 @@ mod tests {
         assert!(container.get_by_unique_id(Some(3)).is_none());
         assert!(container.get_by_unique_id(None).is_none());
 
-        // 按任务 unique ID 取到两条
+// Two entries retrieved by task unique ID
         let by_task = container.get_by_task_unique_id(Some(10));
         assert_eq!(by_task.len(), 2);
 
-        // 按资源 unique ID 各取到一条
+// One entry retrieved by each resource unique ID
         let by_resource = container.get_by_resource_unique_id(Some(20));
         assert_eq!(by_resource.len(), 1);
         assert!(Rc::ptr_eq(&by_resource[0], &first));
@@ -509,7 +509,7 @@ mod tests {
         assert!(container.get_by_resource_unique_id(Some(99)).is_empty());
         assert!(container.get_by_task_unique_id(None).is_empty());
 
-        // second 未被资源索引命中
+// second is not hit by the resource index
         assert!(container
             .get_by_resource_unique_id(Some(21))
             .first()
@@ -532,10 +532,10 @@ mod tests {
         assert_eq!(container.get_by_resource_unique_id(Some(20)).len(), 1);
         assert!(container.get_by_unique_id(Some(1)).is_none());
 
-        // 再次移除同一元素返回 false
+// Removing the same element again returns false
         assert!(!container.remove(&first));
 
-        // 用 Rc 指针同一性定位：另一个 Rc 指向同一对象时也应命中
+// Located by Rc pointer identity: another Rc pointing to the same object should also hit
         assert!(container.remove(&Rc::clone(&second)));
         assert!(container.is_empty());
         assert!(container.get_by_resource_unique_id(Some(20)).is_empty());
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn resource_assignment_has_no_parent_file() {
-        // 未接线的分配无法自我移除（Java 的 remove() 依赖父文件）
+// An unwired assignment cannot remove itself (Java's remove() depends on the parent file)
         let mut assignment = ResourceAssignment::new();
         assignment.set_unique_id(Some(1));
         assignment.set_work(Some(Duration::get_instance(1.0, TimeUnit::Hours)));

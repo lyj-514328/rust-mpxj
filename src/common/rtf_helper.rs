@@ -1,41 +1,44 @@
-//! 对应 Java: `org/mpxj/common/RtfHelper.java`
+//! Corresponds to Java: `org/mpxj/common/RtfHelper.java`
 //!
-//! # 与 Java 的差异（重要）
+//! # Differences from Java (important)
 //!
-//! Java 侧用 [rtfparserkit](https://github.com/tim-ocallaghan/rtfparserkit) 的
-//! `StringTextConverter` 把 RTF 转成纯文本。本仓库不引入新依赖，Rust 侧用一个
-//! **轻量 RTF 文本抽取器**近似实现：
+//! Java uses [rtfparserkit](https://github.com/tim-ocallaghan/rtfparserkit)'s
+//! `StringTextConverter` to convert RTF to plain text. This repository does not introduce new
+//! dependencies, so the Rust side approximates it with a **lightweight RTF text extractor**:
 //!
-//! - 输出正文文本，处理 `\par` / `\line`（换行）、`\tab`（制表符）、
-//!   `\\` / `\{` / `\}`（转义字符）、`\'hh`（ANSI 十六进制转义，按 Windows-1252 近似解码）、
-//!   `\uN`（Unicode 转义，配合 `\ucN` 指定的回退字符数）以及若干常用符号控制字
-//!   （`\emdash` / `\endash` / `\bullet` / `\lquote` 等）；
-//! - 跳过字体表、颜色表、样式表、图片、页眉页脚等目的（destination）组，
-//!   以及 `{\*\...}` 形式的可忽略组；
-//! - RTF 源文本中的裸 `\r` / `\n` 按规范视为无意义，直接丢弃；
-//! - Java 的 `IOException` 分支（`result = ""`）在 Rust 实现中不可达，因此不保留该分支。
+//! - Outputs body text, handling `\par` / `\line` (newlines), `\tab` (tab), `\\` / `\{` / `\}`
+//!   (escaped characters), `\'hh` (ANSI hex escapes, approximated as Windows-1252), `\uN`
+//!   (Unicode escapes, with the fallback character count given by `\ucN`) and several common
+//!   symbol control words (`\emdash` / `\endash` / `\bullet` / `\lquote`, etc.);
+//! - Skips destination groups such as the font table, color table, stylesheet, pictures,
+//!   headers and footers, as well as ignorable groups in the `{\*\...}` form;
+//! - Bare `\r` / `\n` in the RTF source text are treated as meaningless per the spec and
+//!   discarded directly;
+//! - Java's `IOException` branch (`result = ""`) is unreachable in the Rust implementation, so
+//!   that branch is not kept.
 //!
-//! 与 rtfparserkit 相比，本实现对畸形输入、嵌入对象、表格/列表等复杂结构的处理更粗略，
-//! 仅保证常见 RTF 笔记文本的抽取结果一致。
+//! Compared with rtfparserkit, this implementation handles malformed input, embedded objects,
+//! tables/lists and other complex structures more coarsely, and only guarantees matching
+//! extraction results for common RTF note text.
 
-/// RTF 编码文本的处理工具。
+/// A utility for handling RTF-encoded text.
 ///
-/// 对应 Java: `public final class RtfHelper`
+/// Corresponds to Java: `public final class RtfHelper`
 pub struct RtfHelper;
 
 impl RtfHelper {
-    /// 简单启发式：判断字符串是否为正式 RTF（以 `{\rtf` 开头）。
+    /// Simple heuristic: determine whether the string is formal RTF (starts with `{\rtf`).
     ///
-    /// 对应 Java: `private static boolean isFormalRTF(String text)`
+    /// Corresponds to Java: `private static boolean isFormalRTF(String text)`
     fn is_formal_rtf(text: &str) -> bool {
         text.starts_with("{\\rtf")
     }
 
-    /// 去掉文本中的 RTF 格式信息，返回纯文本。
+    /// Remove RTF formatting information from the text and return plain text.
     ///
-    /// 对应 Java: `public static String strip(String text)`
+    /// Corresponds to Java: `public static String strip(String text)`
     ///
-    /// `None` 返回 `None`，空串返回空串。
+    /// `None` returns `None`, an empty string returns an empty string.
     pub fn strip(text: Option<&str>) -> Option<String> {
         let text = text?;
 
@@ -48,9 +51,9 @@ impl RtfHelper {
         Some(Self::strip_extra_line_end(converted, formal_rtf))
     }
 
-    /// 去掉正式 RTF 块结果末尾的换行。
+    /// Remove the trailing newline from the result of a formal RTF block.
     ///
-    /// 对应 Java: `private static String stripExtraLineEnd(String text, boolean formalRTF)`
+    /// Corresponds to Java: `private static String stripExtraLineEnd(String text, boolean formalRTF)`
     fn strip_extra_line_end(text: String, formal_rtf: bool) -> String {
         if formal_rtf && text.ends_with('\n') {
             return text[..text.len() - 1].to_owned();
@@ -60,16 +63,16 @@ impl RtfHelper {
     }
 }
 
-/// 解析器状态：一个组（group）。
+/// Parser state: a group.
 #[derive(Clone, Copy)]
 struct GroupState {
-    /// 当前组内容是否整体跳过。
+    /// Whether the current group's content is skipped entirely.
     skip: bool,
-    /// `\ucN` 指定的 `\uN` 回退字符数（默认 1）。
+    /// The number of `\uN` fallback characters given by `\ucN` (default 1).
     fallback_count: usize,
 }
 
-/// 对应 Java 的 `StringTextConverter`：把 RTF 文本抽取为纯文本。
+/// Corresponds to Java's `StringTextConverter`: extract RTF text into plain text.
 fn convert(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut result = String::new();
@@ -100,7 +103,7 @@ fn convert(text: &str) -> String {
                 }
                 index += 1;
             }
-            // 组内的裸换行按 RTF 规范忽略。
+            // Bare newlines inside a group are ignored per the RTF spec.
             '\r' | '\n' if !is_skipping(&stack) => {
                 index += 1;
             }
@@ -129,12 +132,12 @@ fn convert(text: &str) -> String {
     result
 }
 
-/// 当前组是否需要整体跳过。
+/// Whether the current group needs to be skipped entirely.
 fn is_skipping(stack: &[GroupState]) -> bool {
     stack.last().map(|state| state.skip).unwrap_or(false)
 }
 
-/// 处理一个 `\` 起始的控制字 / 控制符号，返回下一个待处理的下标。
+/// Handle a control word / control symbol starting with `\`, returning the next index to process.
 fn handle_control(
     chars: &[char],
     index: usize,
@@ -149,12 +152,12 @@ fn handle_control(
     };
 
     match next {
-        // 转义字符
+        // Escape character
         '\\' | '{' | '}' => {
             push_controlled(result, fallback_remaining, skipping, next);
             index + 2
         }
-        // `\'hh` ANSI 十六进制转义
+        // `\'hh` ANSI hex escape
         '\'' => {
             let digits: String = chars.iter().skip(index + 2).take(2).collect();
             if digits.len() == 2 {
@@ -166,20 +169,20 @@ fn handle_control(
                 index + 2
             }
         }
-        // `\*` 可忽略目的：把当前组整体标记为跳过
+        // `\*` ignorable destination: mark the current group as skipped entirely
         '*' => {
             if let Some(state) = stack.last_mut() {
                 state.skip = true;
             }
             index + 2
         }
-        // 其它控制符号
+        // Other control symbols
         _ if !next.is_ascii_alphabetic() => {
             if !skipping {
                 let symbol = match next {
                     '~' => Some('\u{A0}'),
                     '_' => Some('\u{2011}'),
-                    // `\-` 为可选连字符，连同其它未知符号一并忽略
+                    // `\-` is an optional hyphen; ignored along with other unknown symbols
                     _ => None,
                 };
 
@@ -189,7 +192,7 @@ fn handle_control(
             }
             index + 2
         }
-        // 控制字
+        // Control word
         _ => {
             let mut word_end = index + 1;
             while word_end < chars.len() && chars[word_end].is_ascii_alphabetic() {
@@ -218,7 +221,7 @@ fn handle_control(
                 None
             };
 
-            // 控制字后的单个空格是分隔符，不输出
+            // A single space after a control word is a delimiter and is not output
             let mut next_index = param_end;
             if next_index < chars.len() && chars[next_index] == ' ' {
                 next_index += 1;
@@ -270,7 +273,7 @@ fn handle_control(
     }
 }
 
-/// 按「回退字符」计数决定是输出字符还是丢弃。
+/// Decide whether to output a character or discard it based on the "fallback character" count.
 fn push_controlled(
     result: &mut String,
     fallback_remaining: &mut usize,
@@ -288,9 +291,9 @@ fn push_controlled(
     }
 }
 
-/// 判断一个组的首个控制字是否为需要跳过的目的（destination）。
+/// Determine whether the first control word of a group is a destination that must be skipped.
 ///
-/// 返回 `(是否跳过, 是否可忽略目的)`。
+/// Returns `(whether to skip, whether it is an ignorable destination)`.
 fn group_destination(chars: &[char], start: usize) -> (bool, bool) {
     let Some(first) = chars.get(start).copied() else {
         return (false, false);
@@ -300,7 +303,7 @@ fn group_destination(chars: &[char], start: usize) -> (bool, bool) {
         return (false, false);
     }
 
-    // `{\*\...}` 形式的可忽略目的
+    // Ignorable destination in the `{\*\...}` form
     if chars.get(start + 1).copied() == Some('*') {
         return (false, true);
     }
@@ -318,7 +321,7 @@ fn group_destination(chars: &[char], start: usize) -> (bool, bool) {
     (is_skippable_destination(&word), false)
 }
 
-/// 需要整体跳过的 RTF 目的（destination）控制字。
+/// RTF destinations whose control words require skipping the whole group.
 fn is_skippable_destination(word: &str) -> bool {
     matches!(
         word,
@@ -357,9 +360,9 @@ fn is_skippable_destination(word: &str) -> bool {
     )
 }
 
-/// 把 ANSI（Windows-1252）字节近似解码为字符。
+/// Approximately decode an ANSI (Windows-1252) byte to a character.
 ///
-/// 0x80-0x9F 段按 Windows-1252 映射，其余按 Latin-1 处理。
+/// The 0x80-0x9F range is mapped per Windows-1252, and the rest is treated as Latin-1.
 fn decode_ansi(value: u8) -> char {
     let mapped = match value {
         0x80 => '\u{20AC}',
@@ -422,7 +425,7 @@ mod tests {
 
     #[test]
     fn strip_handles_paragraphs_and_escapes() {
-        // 控制字后的单个空格是分隔符，不进入输出
+        // A single space after a control word is a delimiter and does not enter the output
         assert_eq!(
             RtfHelper::strip(Some("{\\rtf1 Hello\\par World}")),
             Some("Hello\nWorld".to_owned())
@@ -436,13 +439,13 @@ mod tests {
 
     #[test]
     fn strip_removes_trailing_line_end_for_formal_rtf() {
-        // `\par` 产生末尾换行，正式 RTF 会把它去掉
+        // \par produces a trailing newline, which formal RTF removes
         assert_eq!(
             RtfHelper::strip(Some("{\\rtf1 Hello\\par}")),
             Some("Hello".to_owned())
         );
 
-        // 非正式 RTF：不做末尾换行处理
+        // Non-formal RTF: no trailing-newline handling
         assert_eq!(
             RtfHelper::strip(Some("Hello\\par")),
             Some("Hello\n".to_owned())

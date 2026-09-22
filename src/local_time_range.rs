@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/LocalTimeRange.java`
+//! Corresponds to Java: `org/mpxj/LocalTimeRange.java`
 
 use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
@@ -6,39 +6,39 @@ use std::hash::{Hash, Hasher};
 
 use chrono::{NaiveTime, Timelike};
 
-/// 每天的毫秒数，对应 Java `LocalTimeHelper.MS_PER_DAY`。
+/// Milliseconds per day, corresponding to Java `LocalTimeHelper.MS_PER_DAY`.
 const MS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
-/// 表示一段时间区间。
+/// Represents a time range.
 ///
-/// 对应 Java: `public final class LocalTimeRange implements Comparable<LocalTimeRange>`
+/// Corresponds to Java: `public final class LocalTimeRange implements Comparable<LocalTimeRange>`
 ///
-/// Java 侧的 `m_start`/`m_end` 允许为 `null`（见 `EMPTY_RANGE`），Rust 侧统一用
-/// [`Option`] 表示。
+/// On the Java side `m_start`/`m_end` may be `null` (see `EMPTY_RANGE`); the Rust side
+/// uniformly represents them with [`Option`].
 #[derive(Debug, Clone, Copy)]
 pub struct LocalTimeRange {
-    /// 对应 Java 字段 `m_start`
+    /// Corresponds to Java field `m_start`
     start: Option<NaiveTime>,
-    /// 对应 Java 字段 `m_end`
+    /// Corresponds to Java field `m_end`
     end: Option<NaiveTime>,
-    /// 对应 Java 字段 `m_durationAsMilliseconds`，构造时由
-    /// `LocalTimeHelper.getMillisecondsInRange` 计算得到
+    /// Corresponds to Java field `m_durationAsMilliseconds`; computed at construction time by
+    /// `LocalTimeHelper.getMillisecondsInRange`
     duration_as_milliseconds: i64,
 }
 
 impl LocalTimeRange {
-    /// 空区间。
+    /// Empty range.
     ///
-    /// 对应 Java: `public static final LocalTimeRange EMPTY_RANGE = new LocalTimeRange(null, null)`
+    /// Corresponds to Java: `public static final LocalTimeRange EMPTY_RANGE = new LocalTimeRange(null, null)`
     pub const EMPTY_RANGE: LocalTimeRange = LocalTimeRange {
         start: None,
         end: None,
         duration_as_milliseconds: 0,
     };
 
-    /// 构造方法，同时计算区间时长。
+    /// Constructor that also computes the range duration.
     ///
-    /// 对应 Java: `LocalTimeRange(LocalTime start, LocalTime end)`
+    /// Corresponds to Java: `LocalTimeRange(LocalTime start, LocalTime end)`
     pub fn new(start: Option<NaiveTime>, end: Option<NaiveTime>) -> Self {
         Self {
             start,
@@ -47,33 +47,33 @@ impl LocalTimeRange {
         }
     }
 
-    /// 取区间起始时间。
+    /// Return the range start time.
     ///
-    /// 对应 Java: `getStart()`
+    /// Corresponds to Java: `getStart()`
     pub fn get_start(&self) -> Option<NaiveTime> {
         self.start
     }
 
-    /// 取区间结束时间。
+    /// Return the range end time.
     ///
-    /// 对应 Java: `getEnd()`
+    /// Corresponds to Java: `getEnd()`
     pub fn get_end(&self) -> Option<NaiveTime> {
         self.end
     }
 
-    /// 取区间时长（毫秒）。
+    /// Return the range duration (in milliseconds).
     ///
-    /// 对应 Java: `getDurationAsMilliseconds()`
+    /// Corresponds to Java: `getDurationAsMilliseconds()`
     pub fn get_duration_as_milliseconds(&self) -> i64 {
         self.duration_as_milliseconds
     }
 }
 
-/// 计算两个时间之间的毫秒数，保留 Java 侧的 null 处理。
+/// Compute the number of milliseconds between two times, preserving Java's null handling.
 ///
-/// 对应 Java: `LocalTimeHelper.getMillisecondsInRange(LocalTime rangeStart, LocalTime rangeEnd)`
+/// Corresponds to Java: `LocalTimeHelper.getMillisecondsInRange(LocalTime rangeStart, LocalTime rangeEnd)`
 ///
-/// Java 用 `rangeEnd == LocalTime.MIDNIGHT` 判断跨零点，Rust 侧按值等价处理。
+/// Java uses `rangeEnd == LocalTime.MIDNIGHT` to detect crossing midnight; the Rust side handles it by value equivalence.
 fn get_milliseconds_in_range(range_start: Option<NaiveTime>, range_end: Option<NaiveTime>) -> i64 {
     match (range_start, range_end) {
         (Some(start), Some(end)) => {
@@ -89,9 +89,9 @@ fn get_milliseconds_in_range(range_start: Option<NaiveTime>, range_end: Option<N
     }
 }
 
-/// 对应 Java: `LocalTimeHelper.compare(LocalTime, LocalTime)`。
+/// Corresponds to Java: `LocalTimeHelper.compare(LocalTime, LocalTime)`.
 ///
-/// 保留 Java 的 null 语义：`null` 视为「更大」，即排在非 null 时间之后。
+/// Preserves Java's null semantics: `null` is treated as "greater", i.e. sorted after non-null times.
 fn compare_optional_time(lhs: Option<NaiveTime>, rhs: Option<NaiveTime>) -> Ordering {
     match (lhs, rhs) {
         (None, None) => Ordering::Equal,
@@ -101,7 +101,7 @@ fn compare_optional_time(lhs: Option<NaiveTime>, rhs: Option<NaiveTime>) -> Orde
     }
 }
 
-/// 对应 Java: `LocalTime.toNanoOfDay()`：`null` 视为 0。
+/// Corresponds to Java: `LocalTime.toNanoOfDay()`: `null` is treated as 0.
 fn to_nano_of_day(time: Option<NaiveTime>) -> i64 {
     time.map_or(0, |time| {
         time.num_seconds_from_midnight() as i64 * 1_000_000_000 + time.nanosecond() as i64
@@ -109,8 +109,8 @@ fn to_nano_of_day(time: Option<NaiveTime>) -> i64 {
 }
 
 impl Ord for LocalTimeRange {
-    /// 对应 Java: `compareTo(LocalTimeRange o)`：先比较起始时间，
-    /// 起始时间相同时用 `Long.compare` 比较时长。
+    /// Corresponds to Java: `compareTo(LocalTimeRange o)`: first compares the start time, and when
+    /// the start times are equal compares the duration with `Long.compare`.
     fn cmp(&self, other: &Self) -> Ordering {
         let result = compare_optional_time(self.start, other.start);
         if result == Ordering::Equal {
@@ -129,7 +129,7 @@ impl PartialOrd for LocalTimeRange {
 }
 
 impl PartialEq for LocalTimeRange {
-    /// 对应 Java: `equals(Object o)`：以 `compareTo` 的结果是否为 0 判定。
+    /// Corresponds to Java: `equals(Object o)`: determined by whether the result of `compareTo` is 0.
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
@@ -138,7 +138,7 @@ impl PartialEq for LocalTimeRange {
 impl Eq for LocalTimeRange {}
 
 impl Hash for LocalTimeRange {
-    /// 对应 Java: `hashCode()`：使用起始/结束时间的 nanoOfDay 异或。
+    /// Corresponds to Java: `hashCode()`: XORs the nanoOfDay of the start/end times.
     fn hash<H: Hasher>(&self, state: &mut H) {
         let start = to_nano_of_day(self.start);
         let end = to_nano_of_day(self.end);
@@ -148,8 +148,8 @@ impl Hash for LocalTimeRange {
 }
 
 impl Display for LocalTimeRange {
-    /// 对应 Java: `toString()`：`[LocalTimeRange start=... end=...]`，
-    /// `null` 字段按 Java 的习惯输出为 `null`。
+    /// Corresponds to Java: `toString()`: `[LocalTimeRange start=... end=...]`, with `null` fields
+    /// output as `null` following Java's convention.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,

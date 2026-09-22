@@ -1,10 +1,10 @@
-//! 对应 Java: `org/mpxj/FilterContainer.java`
+//! Corresponds to Java: `org/mpxj/FilterContainer.java`
 //!
-//! 跳过/未移植的 Java 方法与原因：
+//! Skipped/unported Java methods and the reasons:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | 隐式默认构造方法 | [`FilterContainer::new`] |
+//! | implicit default constructor | [`FilterContainer::new`] |
 //! | `public void addFilter(Filter filter)` | [`FilterContainer::add_filter`] |
 //! | `public void removeFilter(String filterName)` | [`FilterContainer::remove_filter`] |
 //! | `public List<Filter> getResourceFilters()` | [`FilterContainer::get_resource_filters`] |
@@ -12,21 +12,21 @@
 //! | `public Filter getFilterByName(String name)` | [`FilterContainer::get_filter_by_name`] |
 //! | `public Filter getFilterByID(Integer id)` | [`FilterContainer::get_filter_by_id`] |
 //!
-//! 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`：本类未使用，无跳过。
+//! Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable`: not used by this class, nothing skipped.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **元素形态**：Java 的四个集合存 `Filter` 引用；Rust 侧统一存
-//!   `Rc<RefCell<Filter>>`（与本 crate 其它容器一致），使列表与两张索引共享同一批实例。
-//! - **按引用相等移除**：Java 的 `List.remove(Object)` 用 `equals` 定位元素，而 `Filter`
-//!   未覆写 `equals`（对象同一性）；Rust 侧用 `Rc::ptr_eq` 复刻同一性语义。
-//! - **`null` 键**：Java 的 `HashMap` 允许 `null` 键，未命名的筛选器也会进入
-//!   `m_filtersByName`；Rust 的键类型是 `String` / `i32`，因此名称或 ID 为 `None` 的
-//!   筛选器**不入索引**（仍会按其任务/资源标志进入对应列表）。
-//! - **`getFilterByName` / `getFilterByID` 的入参**：Java 接受可为 `null` 的参数，
-//!   Rust 侧用 `Option<&str>` / `Option<i32>`。
-//! - **列表访问**：Java 返回可变列表；Rust 侧返回只读切片，如需修改请用
-//!   [`FilterContainer::add_filter`] / [`FilterContainer::remove_filter`]。
+//! - **Element form**: Java's four collections store `Filter` references; the Rust side uniformly stores
+//! `Rc<RefCell<Filter>>` (consistent with the other containers in this crate), so the lists and the two indexes share the same instances.
+//! - **Removal by reference equality**: Java's `List.remove(Object)` locates the element using `equals`, but `Filter`
+//! does not override `equals` (object identity); the Rust side replicates the identity semantics with `Rc::ptr_eq`.
+//! - **`null` keys**: Java's `HashMap` allows `null` keys, so unnamed filters also enter
+//! `m_filtersByName`; the Rust key types are `String` / `i32`, so filters with a `None` name or ID
+//! are **not indexed** (they still enter the corresponding list according to their task/resource flag).
+//! - **Parameters of `getFilterByName` / `getFilterByID`**: Java accepts parameters that may be `null`,
+//! and the Rust side uses `Option<&str>` / `Option<i32>`.
+//! - **List access**: Java returns a mutable list; the Rust side returns a read-only slice, and to modify use
+//!   [`FilterContainer::add_filter`] / [`FilterContainer::remove_filter`].
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -35,35 +35,35 @@ use std::rc::Rc;
 
 use crate::filter::Filter;
 
-/// 项目下的筛选器定义集合。
+/// The collection of filter definitions under a project.
 ///
-/// 对应 Java: `public class FilterContainer`
+/// Corresponds to Java: `public class FilterContainer`
 pub struct FilterContainer {
-    /// 全部任务筛选器。
+/// All task filters.
     ///
-    /// 对应 Java: `private final List<Filter> m_taskFilters = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<Filter> m_taskFilters = new ArrayList<>();`
     m_task_filters: Vec<Rc<RefCell<Filter>>>,
 
-    /// 全部资源筛选器。
+/// All resource filters.
     ///
-    /// 对应 Java: `private final List<Filter> m_resourceFilters = new ArrayList<>();`
+    /// Corresponds to Java: `private final List<Filter> m_resourceFilters = new ArrayList<>();`
     m_resource_filters: Vec<Rc<RefCell<Filter>>>,
 
-    /// 按名称索引的筛选器。
+/// Filters indexed by name.
     ///
-    /// 对应 Java: `private final Map<String, Filter> m_filtersByName = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<String, Filter> m_filtersByName = new HashMap<>();`
     m_filters_by_name: HashMap<String, Rc<RefCell<Filter>>>,
 
-    /// 按 ID 索引的筛选器。
+/// Filters indexed by ID.
     ///
-    /// 对应 Java: `private final Map<Integer, Filter> m_filtersByID = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, Filter> m_filtersByID = new HashMap<>();`
     m_filters_by_id: HashMap<i32, Rc<RefCell<Filter>>>,
 }
 
 impl FilterContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: the implicit default constructor (the Java side does not declare a constructor explicitly).
     pub fn new() -> Self {
         Self {
             m_task_filters: Vec::new(),
@@ -73,11 +73,11 @@ impl FilterContainer {
         }
     }
 
-    /// 向项目文件加入一个筛选器定义（按标志分别进入任务/资源列表，并建立名称与 ID 索引）。
+/// Add a filter definition to the project file (it enters the task/resource list according to its flag, and name and ID indexes are built).
     ///
-    /// 对应 Java: `public void addFilter(Filter filter)`
+    /// Corresponds to Java: `public void addFilter(Filter filter)`
     pub fn add_filter(&mut self, filter: Rc<RefCell<Filter>>) {
-        // 读取标志 / 名称 / ID；已被可变借用时退化为「不入任何集合」。
+// Read the flag / name / ID; when already mutably borrowed, degrade gracefully to "not added to any collection".
         let Ok(filter_ref) = filter.try_borrow() else {
             return;
         };
@@ -96,7 +96,7 @@ impl FilterContainer {
             self.m_resource_filters.push(Rc::clone(&filter));
         }
 
-        // Java 的 HashMap 允许 null 键；Rust 侧跳过（见文件头说明）
+// Java's HashMap allows null keys; the Rust side skips this (see the file header note)
         if let Some(name) = name {
             self.m_filters_by_name.insert(name, Rc::clone(&filter));
         }
@@ -106,9 +106,9 @@ impl FilterContainer {
         }
     }
 
-    /// 按名称移除一个筛选器。
+/// Remove a filter by name.
     ///
-    /// 对应 Java: `public void removeFilter(String filterName)`
+    /// Corresponds to Java: `public void removeFilter(String filterName)`
     pub fn remove_filter(&mut self, filter_name: Option<&str>) {
         let Some(filter) = self.get_filter_by_name(filter_name) else {
             return;
@@ -140,31 +140,31 @@ impl FilterContainer {
         }
     }
 
-    /// 取全部资源筛选器。
+/// Get all resource filters.
     ///
-    /// 对应 Java: `public List<Filter> getResourceFilters()`
+    /// Corresponds to Java: `public List<Filter> getResourceFilters()`
     pub fn get_resource_filters(&self) -> &[Rc<RefCell<Filter>>] {
         &self.m_resource_filters
     }
 
-    /// 取全部任务筛选器。
+/// Get all task filters.
     ///
-    /// 对应 Java: `public List<Filter> getTaskFilters()`
+    /// Corresponds to Java: `public List<Filter> getTaskFilters()`
     pub fn get_task_filters(&self) -> &[Rc<RefCell<Filter>>] {
         &self.m_task_filters
     }
 
-    /// 按名称取筛选器。
+/// Get a filter by name.
     ///
-    /// 对应 Java: `public Filter getFilterByName(String name)`
+    /// Corresponds to Java: `public Filter getFilterByName(String name)`
     pub fn get_filter_by_name(&self, name: Option<&str>) -> Option<Rc<RefCell<Filter>>> {
         let name = name?;
         self.m_filters_by_name.get(name).map(Rc::clone)
     }
 
-    /// 按 ID 取筛选器。
+/// Get a filter by ID.
     ///
-    /// 对应 Java: `public Filter getFilterByID(Integer id)`
+    /// Corresponds to Java: `public Filter getFilterByID(Integer id)`
     pub fn get_filter_by_id(&self, id: Option<i32>) -> Option<Rc<RefCell<Filter>>> {
         let id = id?;
         self.m_filters_by_id.get(&id).map(Rc::clone)
@@ -172,14 +172,14 @@ impl FilterContainer {
 }
 
 impl Default for FilterContainer {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`FilterContainer::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`FilterContainer::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Debug for FilterContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出各集合规模，便于诊断。
+/// The Java side does not override `toString()`; the Rust side outputs the sizes of the collections to aid diagnosis.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilterContainer")
             .field("task_filters", &self.m_task_filters.len())
@@ -190,7 +190,7 @@ impl Debug for FilterContainer {
     }
 }
 
-/// 按 `Rc` 同一性从列表中移除元素（Java 的 `List.remove(Object)`）。
+/// Remove an element from a list by `Rc` identity (Java's `List.remove(Object)`).
 fn remove_by_identity(filters: &mut Vec<Rc<RefCell<Filter>>>, filter: &Rc<RefCell<Filter>>) {
     if let Some(index) = filters
         .iter()
@@ -204,7 +204,7 @@ fn remove_by_identity(filters: &mut Vec<Rc<RefCell<Filter>>>, filter: &Rc<RefCel
 mod tests {
     use super::*;
 
-    /// 创建一个筛选器。
+/// Create a filter.
     fn filter(id: i32, name: &str, task: bool, resource: bool) -> Rc<RefCell<Filter>> {
         let mut value = Filter::new();
         value.set_id(Some(id));
@@ -256,7 +256,7 @@ mod tests {
             .map(|found| Rc::ptr_eq(&found, &entry))
             .unwrap_or(false));
 
-        // 同名筛选器以最后加入者为准（Java 的 HashMap.put）
+// Filters with the same name keep the last one added (Java's HashMap.put)
         let replacement = filter(5, "Entry", true, false);
         container.add_filter(Rc::clone(&replacement));
         assert!(container

@@ -1,31 +1,31 @@
-//! 对应 Java: `org/mpxj/HasCharset.java`
+//! Corresponds to Java: `org/mpxj/HasCharset.java`
 
 use encoding_rs::Encoding;
 
-/// 允许在读取之前指定字符集的 reader 类所实现的接口。
+/// Interface implemented by reader classes that allow the charset to be specified before reading.
 ///
-/// 对应 Java: `public interface HasCharset`
+/// Corresponds to Java: `public interface HasCharset`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// Java 使用 `java.nio.charset.Charset` 表示字符集；Rust 侧改用 `encoding_rs`
-/// 的 [`encoding_rs::Encoding`]。`Encoding` 的实例全部是全局静态对象，因此统一以
-/// `&'static Encoding` 传递，不涉及所有权问题。
+/// Java uses `java.nio.charset.Charset` to represent a charset; the Rust side uses
+/// `encoding_rs`'s [`encoding_rs::Encoding`] instead. Instances of `Encoding` are all global static objects, so they are always
+/// passed as `&'static Encoding`, with no ownership concerns.
 ///
-/// Java 的 `Charset` 引用允许为 `null`，故 [`HasCharset::get_charset`] 返回 `Option`。
+/// Java's `Charset` reference may be `null`, so [`HasCharset::get_charset`] returns `Option`.
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub trait HasCharset {
-    /// 设置读取时使用的字符集。
+    /// Sets the charset used when reading.
     ///
-    /// 对应 Java: `void setCharset(Charset charset)`
+    /// Corresponds to Java: `void setCharset(Charset charset)`
     fn set_charset(&mut self, charset: &'static Encoding);
 
-    /// 返回读取时使用的字符集。
+    /// Returns the charset used when reading.
     ///
-    /// 对应 Java: `Charset getCharset()`
+    /// Corresponds to Java: `Charset getCharset()`
     fn get_charset(&self) -> Option<&'static Encoding>;
 }
 
@@ -33,10 +33,10 @@ pub trait HasCharset {
 mod tests {
     use super::*;
 
-    /// 用于验证 trait 行为的最小实现。
+    /// Minimal implementation used to verify the trait behavior.
     #[derive(Default)]
     struct TestReader {
-        /// 对应 Java 中实现类持有的 `Charset` 字段。
+        /// Corresponds to the `Charset` field held by the implementing class in Java.
         charset: Option<&'static Encoding>,
     }
 
@@ -60,7 +60,7 @@ mod tests {
     fn charset_round_trips() {
         let mut reader = TestReader::default();
         reader.set_charset(encoding_rs::UTF_8);
-        // 用字符集名称比较，避免依赖 `Encoding` 是否实现 `PartialEq`。
+        // Compare by charset name to avoid depending on whether `Encoding` implements `PartialEq`.
         assert_eq!(reader.get_charset().map(Encoding::name), Some("UTF-8"));
     }
 }

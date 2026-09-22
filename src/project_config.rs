@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/ProjectConfig.java`
+//! Corresponds to Java: `org/mpxj/ProjectConfig.java`
 
 use crate::baseline_strategy::BaselineStrategy;
 use crate::cpm::microsoft_slack_calculator::MicrosoftSlackCalculator;
@@ -6,99 +6,99 @@ use crate::default_baseline_strategy::DefaultBaselineStrategy;
 use crate::slack_calculator::SlackCalculator;
 use std::path::{Path, PathBuf};
 
-/// 用于控制 `ProjectFile` 行为的配置容器。
+/// Configuration container used to control `ProjectFile` behavior.
 ///
-/// 对应 Java: `public class ProjectConfig`
+/// Corresponds to Java: `public class ProjectConfig`
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
-/// - Java 的 `java.io.File m_subprojectWorkingDirectory` 对应 Rust 的
-///   [`std::path::PathBuf`]，`null` 对应 `None`。
-/// - Java 的 `BaselineStrategy` / `SlackCalculator` 两个字段的 setter 允许传入
-///   `null`，故 Rust 侧以 `Option<Box<dyn ...>>` 承载；默认值与 Java 一致，
-///   分别是 `DefaultBaselineStrategy.INSTANCE` 与 `new MicrosoftSlackCalculator()`。
-/// - Java 的 `setSlackClaculator` 方法名拼写有误（原文如此），Rust 为保持 1:1
-///   沿用该拼写：[`ProjectConfig::set_slack_claculator`]。
+/// - Java's `java.io.File m_subprojectWorkingDirectory` corresponds to Rust's
+/// [`std::path::PathBuf`], and `null` corresponds to `None`.
+/// - The setters for Java's `BaselineStrategy` / `SlackCalculator` fields allow passing
+/// `null`, so the Rust side carries them as `Option<Box<dyn ...>>`; the defaults match Java,
+/// namely `DefaultBaselineStrategy.INSTANCE` and `new MicrosoftSlackCalculator()`.
+/// - Java's `setSlackClaculator` method name is misspelled (as in the original); Rust keeps it 1:1
+/// and retains that spelling: [`ProjectConfig::set_slack_claculator`].
 ///
-/// # 跳过的 Java 方法
+/// # Skipped Java Methods
 ///
-/// 无。
+/// None.
 pub struct ProjectConfig {
-    /// 是否自动生成 WBS。
+/// Whether to automatically generate WBS.
     ///
-    /// 对应 Java: `private boolean m_autoWBS = true;`
+    /// Corresponds to Java: `private boolean m_autoWBS = true;`
     m_auto_wbs: bool,
 
-    /// 是否自动生成大纲级别。
+/// Whether to automatically generate outline levels.
     ///
-    /// 对应 Java: `private boolean m_autoOutlineLevel = true;`
+    /// Corresponds to Java: `private boolean m_autoOutlineLevel = true;`
     m_auto_outline_level: bool,
 
-    /// 是否自动生成大纲编号。
+/// Whether to automatically generate outline numbers.
     ///
-    /// 对应 Java: `private boolean m_autoOutlineNumber = true;`
+    /// Corresponds to Java: `private boolean m_autoOutlineNumber = true;`
     m_auto_outline_number: bool,
 
-    /// 是否自动填充任务唯一 ID。
+/// Whether to automatically populate task unique IDs.
     ///
-    /// 对应 Java: `private boolean m_autoTaskUniqueID = true;`
+    /// Corresponds to Java: `private boolean m_autoTaskUniqueID = true;`
     m_auto_task_unique_id: bool,
 
-    /// 是否自动填充日历唯一 ID。
+/// Whether to automatically populate calendar unique IDs.
     ///
-    /// 对应 Java: `private boolean m_autoCalendarUniqueID = true;`
+    /// Corresponds to Java: `private boolean m_autoCalendarUniqueID = true;`
     m_auto_calendar_unique_id: bool,
 
-    /// 是否自动填充分配唯一 ID。
+/// Whether to automatically populate assignment unique IDs.
     ///
-    /// 对应 Java: `private boolean m_autoAssignmentUniqueID = true;`
+    /// Corresponds to Java: `private boolean m_autoAssignmentUniqueID = true;`
     m_auto_assignment_unique_id: bool,
 
-    /// 是否自动填充任务 ID。
+/// Whether to automatically populate task IDs.
     ///
-    /// 对应 Java: `private boolean m_autoTaskID = true;`
+    /// Corresponds to Java: `private boolean m_autoTaskID = true;`
     m_auto_task_id: bool,
 
-    /// 是否自动填充资源唯一 ID。
+/// Whether to automatically populate resource unique IDs.
     ///
-    /// 对应 Java: `private boolean m_autoResourceUniqueID = true;`
+    /// Corresponds to Java: `private boolean m_autoResourceUniqueID = true;`
     m_auto_resource_unique_id: bool,
 
-    /// 是否自动填充资源 ID。
+/// Whether to automatically populate resource IDs.
     ///
-    /// 对应 Java: `private boolean m_autoResourceID = true;`
+    /// Corresponds to Java: `private boolean m_autoResourceID = true;`
     m_auto_resource_id: bool,
 
-    /// 是否自动填充关系唯一 ID。
+/// Whether to automatically populate relation unique IDs.
     ///
-    /// 对应 Java: `private boolean m_autoRelationUniqueID = true;`
+    /// Corresponds to Java: `private boolean m_autoRelationUniqueID = true;`
     m_auto_relation_unique_id: bool,
 
-    /// 为 `true` 时与 2007 之前的 MS Project 行为兼容。
+/// When `true`, compatible with pre-2007 MS Project behavior.
     ///
-    /// 对应 Java: `private boolean m_completeThroughIsNextWorkStart;`（默认 `false`）
+/// Corresponds to Java: `private boolean m_completeThroughIsNextWorkStart;` (default `false`)
     m_complete_through_is_next_work_start: bool,
 
-    /// 从其他进度计划填充基线属性的策略。
+/// Strategy for populating baseline properties from other schedules.
     ///
-    /// 对应 Java: `private BaselineStrategy m_baselineStrategy = DefaultBaselineStrategy.INSTANCE;`
+    /// Corresponds to Java: `private BaselineStrategy m_baselineStrategy = DefaultBaselineStrategy.INSTANCE;`
     m_baseline_strategy: Option<Box<dyn BaselineStrategy>>,
 
-    /// 搜索子项目文件时使用的目录。
+/// Directory used when searching for subproject files.
     ///
-    /// 对应 Java: `private File m_subprojectWorkingDirectory;`
+    /// Corresponds to Java: `private File m_subprojectWorkingDirectory;`
     m_subproject_working_directory: Option<PathBuf>,
 
-    /// 本项目的 slack 计算器。
+/// Slack calculator for this project.
     ///
-    /// 对应 Java: `private SlackCalculator m_slackCalculator = new MicrosoftSlackCalculator();`
+    /// Corresponds to Java: `private SlackCalculator m_slackCalculator = new MicrosoftSlackCalculator();`
     m_slack_calculator: Option<Box<dyn SlackCalculator>>,
 }
 
 impl ProjectConfig {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: Java 未显式声明构造方法，使用各字段的默认值。
+/// Corresponds to Java: Java does not explicitly declare a constructor; uses each field's default value.
     pub fn new() -> ProjectConfig {
         ProjectConfig {
             m_auto_wbs: true,
@@ -118,157 +118,157 @@ impl ProjectConfig {
         }
     }
 
-    /// 设置是否自动创建 WBS 编号。
+/// Set whether to automatically create WBS numbers.
     ///
-    /// 对应 Java: `public void setAutoWBS(boolean flag)`
+    /// Corresponds to Java: `public void setAutoWBS(boolean flag)`
     pub fn set_auto_wbs(&mut self, flag: bool) {
         self.m_auto_wbs = flag;
     }
 
-    /// 设置是否自动创建大纲级别编号。
+/// Set whether to automatically create outline level numbers.
     ///
-    /// 对应 Java: `public void setAutoOutlineLevel(boolean flag)`
+    /// Corresponds to Java: `public void setAutoOutlineLevel(boolean flag)`
     pub fn set_auto_outline_level(&mut self, flag: bool) {
         self.m_auto_outline_level = flag;
     }
 
-    /// 设置是否自动创建大纲编号。
+/// Set whether to automatically create outline numbers.
     ///
-    /// 对应 Java: `public void setAutoOutlineNumber(boolean flag)`
+    /// Corresponds to Java: `public void setAutoOutlineNumber(boolean flag)`
     pub fn set_auto_outline_number(&mut self, flag: bool) {
         self.m_auto_outline_number = flag;
     }
 
-    /// 设置是否自动填充任务唯一 ID。
+/// Set whether to automatically populate task unique IDs.
     ///
-    /// 对应 Java: `public void setAutoTaskUniqueID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoTaskUniqueID(boolean flag)`
     pub fn set_auto_task_unique_id(&mut self, flag: bool) {
         self.m_auto_task_unique_id = flag;
     }
 
-    /// 设置是否自动填充日历唯一 ID。
+/// Set whether to automatically populate calendar unique IDs.
     ///
-    /// 对应 Java: `public void setAutoCalendarUniqueID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoCalendarUniqueID(boolean flag)`
     pub fn set_auto_calendar_unique_id(&mut self, flag: bool) {
         self.m_auto_calendar_unique_id = flag;
     }
 
-    /// 设置是否自动填充分配唯一 ID。
+/// Set whether to automatically populate assignment unique IDs.
     ///
-    /// 对应 Java: `public void setAutoAssignmentUniqueID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoAssignmentUniqueID(boolean flag)`
     pub fn set_auto_assignment_unique_id(&mut self, flag: bool) {
         self.m_auto_assignment_unique_id = flag;
     }
 
-    /// 设置是否自动填充任务 ID。
+/// Set whether to automatically populate task IDs.
     ///
-    /// 对应 Java: `public void setAutoTaskID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoTaskID(boolean flag)`
     pub fn set_auto_task_id(&mut self, flag: bool) {
         self.m_auto_task_id = flag;
     }
 
-    /// 返回是否自动生成 WBS 编号。默认 `true`。
+/// Return whether to automatically generate WBS numbers. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoWBS()`
+    /// Corresponds to Java: `public boolean getAutoWBS()`
     pub fn get_auto_wbs(&self) -> bool {
         self.m_auto_wbs
     }
 
-    /// 返回是否自动生成大纲级别编号。默认 `true`。
+/// Return whether to automatically generate outline level numbers. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoOutlineLevel()`
+    /// Corresponds to Java: `public boolean getAutoOutlineLevel()`
     pub fn get_auto_outline_level(&self) -> bool {
         self.m_auto_outline_level
     }
 
-    /// 返回是否自动生成大纲编号。默认 `true`。
+/// Return whether to automatically generate outline numbers. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoOutlineNumber()`
+    /// Corresponds to Java: `public boolean getAutoOutlineNumber()`
     pub fn get_auto_outline_number(&self) -> bool {
         self.m_auto_outline_number
     }
 
-    /// 返回是否自动生成任务唯一 ID。默认 `true`。
+/// Return whether to automatically generate task unique IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoTaskUniqueID()`
+    /// Corresponds to Java: `public boolean getAutoTaskUniqueID()`
     pub fn get_auto_task_unique_id(&self) -> bool {
         self.m_auto_task_unique_id
     }
 
-    /// 返回是否自动生成日历唯一 ID。默认 `true`。
+/// Return whether to automatically generate calendar unique IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoCalendarUniqueID()`
+    /// Corresponds to Java: `public boolean getAutoCalendarUniqueID()`
     pub fn get_auto_calendar_unique_id(&self) -> bool {
         self.m_auto_calendar_unique_id
     }
 
-    /// 返回是否自动生成分配唯一 ID。默认 `true`。
+/// Return whether to automatically generate assignment unique IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoAssignmentUniqueID()`
+    /// Corresponds to Java: `public boolean getAutoAssignmentUniqueID()`
     pub fn get_auto_assignment_unique_id(&self) -> bool {
         self.m_auto_assignment_unique_id
     }
 
-    /// 返回是否自动生成任务 ID。默认 `true`。
+/// Return whether to automatically generate task IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoTaskID()`
+    /// Corresponds to Java: `public boolean getAutoTaskID()`
     pub fn get_auto_task_id(&self) -> bool {
         self.m_auto_task_id
     }
 
-    /// 设置是否自动填充资源唯一 ID。
+/// Set whether to automatically populate resource unique IDs.
     ///
-    /// 对应 Java: `public void setAutoResourceUniqueID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoResourceUniqueID(boolean flag)`
     pub fn set_auto_resource_unique_id(&mut self, flag: bool) {
         self.m_auto_resource_unique_id = flag;
     }
 
-    /// 设置是否自动填充资源 ID。
+/// Set whether to automatically populate resource IDs.
     ///
-    /// 对应 Java: `public void setAutoResourceID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoResourceID(boolean flag)`
     pub fn set_auto_resource_id(&mut self, flag: bool) {
         self.m_auto_resource_id = flag;
     }
 
-    /// 返回是否自动生成资源唯一 ID。默认 `true`。
+/// Return whether to automatically generate resource unique IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoResourceUniqueID()`
+    /// Corresponds to Java: `public boolean getAutoResourceUniqueID()`
     pub fn get_auto_resource_unique_id(&self) -> bool {
         self.m_auto_resource_unique_id
     }
 
-    /// 返回是否自动生成资源 ID。默认 `true`。
+/// Return whether to automatically generate resource IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoResourceID()`
+    /// Corresponds to Java: `public boolean getAutoResourceID()`
     pub fn get_auto_resource_id(&self) -> bool {
         self.m_auto_resource_id
     }
 
-    /// 设置是否自动填充关系唯一 ID。
+/// Set whether to automatically populate relation unique IDs.
     ///
-    /// 对应 Java: `public void setAutoRelationUniqueID(boolean flag)`
+    /// Corresponds to Java: `public void setAutoRelationUniqueID(boolean flag)`
     pub fn set_auto_relation_unique_id(&mut self, flag: bool) {
         self.m_auto_relation_unique_id = flag;
     }
 
-    /// 返回是否自动生成关系唯一 ID。默认 `true`。
+/// Return whether to automatically generate relation unique IDs. Default `true`.
     ///
-    /// 对应 Java: `public boolean getAutoRelationUniqueID()`
+    /// Corresponds to Java: `public boolean getAutoRelationUniqueID()`
     pub fn get_auto_relation_unique_id(&self) -> bool {
         self.m_auto_relation_unique_id
     }
 
-    /// 返回任务的 Complete Through 属性是否报告为下次开工时间。默认 `false`。
+/// Return whether the task's Complete Through property is reported as the next work start. Default `false`.
     ///
-    /// 对应 Java: `public boolean getCompleteThroughIsNextWorkStart()`
+    /// Corresponds to Java: `public boolean getCompleteThroughIsNextWorkStart()`
     pub fn get_complete_through_is_next_work_start(&self) -> bool {
         self.m_complete_through_is_next_work_start
     }
 
-    /// 设置任务的 Complete Through 属性是否报告为下次开工时间。置为 `true` 时
-    /// 与 2007 之前的 MS Project 行为一致。
+/// Set whether the task's Complete Through property is reported as the next work start. When set to `true`
+/// it matches pre-2007 MS Project behavior.
     ///
-    /// 对应 Java: `public void setCompleteThroughIsNextWorkStart(boolean completeThroughIsNextWorkStart)`
+    /// Corresponds to Java: `public void setCompleteThroughIsNextWorkStart(boolean completeThroughIsNextWorkStart)`
     pub fn set_complete_through_is_next_work_start(
         &mut self,
         complete_through_is_next_work_start: bool,
@@ -276,53 +276,53 @@ impl ProjectConfig {
         self.m_complete_through_is_next_work_start = complete_through_is_next_work_start;
     }
 
-    /// 返回从其他进度计划填充基线属性的策略。
+/// Return the strategy for populating baseline properties from other schedules.
     ///
-    /// 对应 Java: `public BaselineStrategy getBaselineStrategy()`
+    /// Corresponds to Java: `public BaselineStrategy getBaselineStrategy()`
     pub fn get_baseline_strategy(&self) -> Option<&dyn BaselineStrategy> {
         self.m_baseline_strategy.as_deref()
     }
 
-    /// 设置从其他进度计划填充基线属性的策略。
+/// Set the strategy for populating baseline properties from other schedules.
     ///
-    /// 对应 Java: `public void setBaselineStrategy(BaselineStrategy strategy)`
+    /// Corresponds to Java: `public void setBaselineStrategy(BaselineStrategy strategy)`
     pub fn set_baseline_strategy(&mut self, strategy: Option<Box<dyn BaselineStrategy>>) {
         self.m_baseline_strategy = strategy;
     }
 
-    /// 设置展开子项目文件时搜索的目录。若提供该目录，将优先于完整路径与进程
-    /// 工作目录。
+/// Set the directory searched when expanding subproject files. If provided, it takes precedence over the full path and the process
+/// working directory.
     ///
-    /// 对应 Java: `public void setSubprojectWorkingDirectory(File workingDirectory)`
+    /// Corresponds to Java: `public void setSubprojectWorkingDirectory(File workingDirectory)`
     pub fn set_subproject_working_directory(&mut self, working_directory: Option<PathBuf>) {
         self.m_subproject_working_directory = working_directory;
     }
 
-    /// 返回搜索子项目文件时使用的目录。
+/// Return the directory used when searching for subproject files.
     ///
-    /// 对应 Java: `public File getSubprojectWorkingDirectory()`
+    /// Corresponds to Java: `public File getSubprojectWorkingDirectory()`
     pub fn get_subproject_working_directory(&self) -> Option<&Path> {
         self.m_subproject_working_directory.as_deref()
     }
 
-    /// 返回本项目的 slack 计算器，默认为 `MicrosoftSlackCalculator`。
+/// Return this project's slack calculator; defaults to `MicrosoftSlackCalculator`.
     ///
-    /// 对应 Java: `public SlackCalculator getSlackCalculator()`
+    /// Corresponds to Java: `public SlackCalculator getSlackCalculator()`
     pub fn get_slack_calculator(&self) -> Option<&dyn SlackCalculator> {
         self.m_slack_calculator.as_deref()
     }
 
-    /// 设置本项目的 slack 计算器。
+/// Set this project's slack calculator.
     ///
-    /// 对应 Java: `public void setSlackClaculator(SlackCalculator slackCalculator)`
-    /// （Java 方法名拼写如此，Rust 为保持 1:1 沿用）
+    /// Corresponds to Java: `public void setSlackClaculator(SlackCalculator slackCalculator)`
+/// (The Java method name is spelled this way; Rust keeps it 1:1)
     pub fn set_slack_claculator(&mut self, slack_calculator: Option<Box<dyn SlackCalculator>>) {
         self.m_slack_calculator = slack_calculator;
     }
 }
 
 impl Default for ProjectConfig {
-    /// 对应 Java: 隐式默认构造方法。
+/// Corresponds to Java: implicit default constructor.
     fn default() -> Self {
         ProjectConfig::new()
     }

@@ -1,23 +1,23 @@
-//! 对应 Java: `org/mpxj/mpp/ViewStateReader12.java`
+//! Corresponds to Java: `org/mpxj/mpp/ViewStateReader12.java`
 //!
-//! MPP12（以及 MPP14，二者共用本读取器）文件的视图状态读取器：属性块来自 var data 的
-//! `(1, 6)` 数据项，用 [`Props12`] 解析。
+//! View state reader for MPP12 (and MPP14, which shares this reader) files: the property block comes from the
+//! `(1, 6)` data item in var data and is parsed with [`Props12`].
 //!
-//! 跳过的 Java 机制与原因：
+//! Skipped Java mechanisms and the reasons:
 //!
-//! | Java | 原因 |
+//! | Java | Reason |
 //! |---|---|
-//! | `InputStream` / `ByteArrayInputStream` | 按本工程约定，Java 的流读取改为直接接收 `&[u8]` |
-//! | 反射 / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | 本类未使用 |
+//! | `InputStream` / `ByteArrayInputStream` | per this project's convention, Java stream reading is changed to take `&[u8]` directly |
+//! | Reflection / JDBC / XML(JAXB) / GUI / `javax.*` / `Serializable` | not used by this class |
 //!
-//! # 继承的还原方式：组合 + 转发
+//! # Approach to restoring inheritance: composition + forwarding
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `ViewStateReader12 extends ViewStateReader` | [`ViewStateReader12`] **持有**一个 [`ViewStateReader`] 并转发 `process` |
-//! | `@Override protected Props getProps(Var2Data varData) throws IOException` | 实现 [`ViewStateReaderMethods::get_props`]（返回 `Props`，见 `view_state_reader.rs` 的取舍说明） |
+//! | `ViewStateReader12 extends ViewStateReader` | [`ViewStateReader12`] **holds** a [`ViewStateReader`] and forwards `process` |
+//! | `@Override protected Props getProps(Var2Data varData) throws IOException` | implements [`ViewStateReaderMethods::get_props`] (returns `Props`, see the trade-off note in `view_state_reader.rs`) |
 //! | `private static final Integer PROPS_ID / PROPS_TYPE` | [`ViewStateReader12::PROPS_ID`] / [`ViewStateReader12::PROPS_TYPE`] |
-//! | `throws IOException` | `MpxjResult`（`Props12` 解析失败时 `Err`） |
+//! | `throws IOException` | `MpxjResult` (`Err` when `Props12` parsing fails) |
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -29,69 +29,69 @@ use crate::mpp::view_state_reader::{ViewStateReader, ViewStateReaderMethods};
 use crate::mpxj_exception::MpxjResult;
 use crate::project_file::ProjectFile;
 
-/// MPP12 / MPP14 视图状态读取器。
+/// MPP12 / MPP14 view state reader.
 ///
-/// 对应 Java: `final class ViewStateReader12 extends ViewStateReader`
+/// Corresponds to Java: `final class ViewStateReader12 extends ViewStateReader`
 pub struct ViewStateReader12 {
-    /// 对应 Java: `extends ViewStateReader`（Rust 用组合代替继承）
+/// Corresponds to Java: `extends ViewStateReader` (Rust uses composition instead of inheritance)
     reader: ViewStateReader,
 }
 
 impl ViewStateReader12 {
-    /// 属性块在 var data 中的 ID。
+/// ID of the property block in var data.
     ///
-    /// 对应 Java: `private static final Integer PROPS_ID = Integer.valueOf(1);`
+    /// Corresponds to Java: `private static final Integer PROPS_ID = Integer.valueOf(1);`
     pub const PROPS_ID: i32 = 1;
 
-    /// 属性块在 var data 中的数据类型。
+/// Data type of the property block in var data.
     ///
-    /// 对应 Java: `private static final Integer PROPS_TYPE = Integer.valueOf(6);`
+    /// Corresponds to Java: `private static final Integer PROPS_TYPE = Integer.valueOf(6);`
     pub const PROPS_TYPE: i32 = 6;
 
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: 隐式默认构造方法（Java 侧未显式声明构造方法）。
+/// Corresponds to Java: the implicit default constructor (the Java side does not declare a constructor explicitly).
     pub fn new() -> Self {
         Self {
             reader: ViewStateReader::new(),
         }
     }
 
-    /// 处理已保存的视图状态。
+/// Process the saved view state.
     ///
-    /// 对应 Java: `ViewStateReader.process(ProjectFile file, Var2Data varData, byte[] fixedData) throws IOException`
+    /// Corresponds to Java: `ViewStateReader.process(ProjectFile file, Var2Data varData, byte[] fixedData) throws IOException`
     pub fn process(
         &self,
         file: &Rc<RefCell<ProjectFile>>,
         var_data: &Var2Data,
         fixed_data: &[u8],
     ) -> MpxjResult<()> {
-        // Java: 继承自 ViewStateReader 的 process 由 getProps（本类覆写）提供属性块
+// Java: the process inherited from ViewStateReader gets the property block from getProps (overridden by this class)
         self.reader.process(self, file, var_data, fixed_data)
     }
 
-    /// 取内部持有的 `ViewStateReader` 实例。
+/// Get the internally held `ViewStateReader` instance.
     ///
-    /// Rust 特有：Java 的继承在 Rust 侧由组合表达。
+/// Rust-specific: Java's inheritance is expressed via composition on the Rust side.
     pub fn as_view_state_reader(&self) -> &ViewStateReader {
         &self.reader
     }
 }
 
 impl Default for ViewStateReader12 {
-    /// 对应 Java: 隐式默认构造方法，等价于 [`ViewStateReader12::new`]。
+/// Corresponds to Java: the implicit default constructor, equivalent to [`ViewStateReader12::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ViewStateReaderMethods for ViewStateReader12 {
-    /// 用 `Props12` 解析 `(1, 6)` 数据项；数据项不存在时返回 `Ok(None)`（Java 返回 `null`）。
+/// Parse the `(1, 6)` data item with `Props12`; returns `Ok(None)` when the data item is absent (Java returns `null`).
     ///
-    /// 对应 Java: `@Override protected Props getProps(Var2Data varData) throws IOException`
+    /// Corresponds to Java: `@Override protected Props getProps(Var2Data varData) throws IOException`
     ///
-    /// Java 返回的是 `Props12` 实例本身（后续按基类 `Props` 使用）；Rust 侧因返回类型需要拥有
-    /// 所有权，故用 [`Props::copied_from`] 按解析结果重建一份等价的 [`Props`]。
+/// Java returns the `Props12` instance itself (later used as the base class `Props`); the Rust side, because the return type needs to own
+/// ownership, uses [`Props::copied_from`] to rebuild an equivalent [`Props`] from the parse result.
     fn get_props(&self, var_data: &Var2Data) -> MpxjResult<Option<Props>> {
         // Java: byte[] propsData = varData.getByteArray(PROPS_ID, PROPS_TYPE);
         match var_data.get_byte_array(Some(Self::PROPS_ID), Some(Self::PROPS_TYPE)) {
@@ -111,7 +111,7 @@ mod tests {
     use crate::mpp::props_key::PropsKey;
     use crate::mpp::var_meta9::VarMeta9;
 
-    /// 构造 UTF-16LE 字符串（含结尾 NUL）。
+/// Build a UTF-16LE string (including the trailing NUL).
     fn utf16(value: &str) -> Vec<u8> {
         let mut data = Vec::new();
         for unit in value.encode_utf16() {
@@ -121,7 +121,7 @@ mod tests {
         data
     }
 
-    /// 按属性块布局构造数据（MPP12 的 `Props12` 与 MPP9 的 `Props9` 布局一致）。
+/// Build data according to the property block layout (MPP12's `Props12` has the same layout as MPP9's `Props9`).
     fn props(entries: &[(i32, Vec<u8>)]) -> Vec<u8> {
         let mut data = vec![0u8; 16];
         data[12..14].copy_from_slice(&(entries.len() as i16).to_le_bytes());
@@ -139,7 +139,7 @@ mod tests {
         data
     }
 
-    /// 用 `(id, type) → 数据项` 的映射构造 var data 块。
+/// Build a var data block from a `(id, type) -> data item` mapping.
     fn var_data(file: &Rc<RefCell<ProjectFile>>, items: &[(i32, i32, Vec<u8>)]) -> Var2Data {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
@@ -164,11 +164,11 @@ mod tests {
             meta.extend_from_slice(&offsets[index].to_le_bytes());
         }
 
-        let meta = VarMeta9::new(&meta).expect("元数据合法");
+        let meta = VarMeta9::new(&meta).expect("valid metadata");
         Var2Data::new(file, Rc::new(meta), &data)
     }
 
-    /// 按 MPP12 的 `(1, 6)` 数据项解析属性块并写入视图状态。
+/// Parse the property block from the MPP12 `(1, 6)` data item and write it into the view state.
     #[test]
     fn process_reads_props12_block() {
         let file = ProjectFile::new();
@@ -187,20 +187,20 @@ mod tests {
             &[(ViewStateReader12::PROPS_ID, ViewStateReader12::PROPS_TYPE, props)],
         );
 
-        // 固定数据块：偏移 128 处的筛选器 ID 为 0（块本身为零填充）
+// fixed data block: the filter ID at offset 128 is 0 (the block itself is zero-filled)
         let fixed_data = vec![0u8; 138];
 
         ViewStateReader12::new()
             .process(&file, &var_data, &fixed_data)
-            .expect("应能处理");
+            .expect("should handle");
 
         let file_ref = file.borrow();
-        let state = file_ref.get_views().get_view_state().expect("应写入视图状态");
+        let state = file_ref.get_views().get_view_state().expect("should write view state");
         assert_eq!(state.get_view_name(), Some("Resource Sheet"));
         assert_eq!(state.get_unique_id_list(), &[2]);
     }
 
-    /// 数据类型 1（MPP9 的属性块）不应被本读取器采用。
+/// Data type 1 (the MPP9 property block) should not be used by this reader.
     #[test]
     fn props9_type_is_ignored() {
         let file = ProjectFile::new();
@@ -209,11 +209,11 @@ mod tests {
 
         assert!(ViewStateReader12::new()
             .get_props(&var_data)
-            .expect("应能取属性")
+            .expect("should get properties")
             .is_none());
     }
 
-    /// 属性块缺失时 `process` 不改动视图状态。
+/// When the property block is absent, `process` leaves the view state unchanged.
     #[test]
     fn missing_props_block_is_ignored() {
         let file = ProjectFile::new();
@@ -221,16 +221,16 @@ mod tests {
 
         ViewStateReader12::new()
             .process(&file, &var_data, &[])
-            .expect("应能处理");
+            .expect("should handle");
 
         assert!(file.borrow().get_views().get_view_state().is_none());
     }
 
-    /// 属性块损坏时返回 `Err`，不 panic。
+/// Returns `Err` when the property block is corrupt, without panicking.
     #[test]
     fn corrupt_props_block_returns_error() {
         let file = ProjectFile::new();
-        // 声明 2 条但只给 1 条
+// declares 2 entries but provides only 1
         let mut props = vec![0u8; 16];
         props[12..14].copy_from_slice(&2i16.to_le_bytes());
         props.extend_from_slice(&4i32.to_le_bytes());

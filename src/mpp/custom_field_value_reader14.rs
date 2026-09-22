@@ -1,23 +1,23 @@
-//! 对应 Java: `org/mpxj/mpp/CustomFieldValueReader14.java`
+//! Corresponds to Java: `org/mpxj/mpp/CustomFieldValueReader14.java`
 //!
-//! MPP14 的取值列表读取器：按项目文件版本（Project 2010 前后）选择两套偏移布局。
+//! Value list reader for MPP14: selects between two offset layouts based on the project file version (before/after Project 2010).
 //!
-//! # 继承的还原（组合 + 转发）
+//! # Reproducing inheritance (composition + forwarding)
 //!
-//! Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`。Rust 无继承，按约定
-//! 改为**组合 + 转发**：
+//! Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`. Rust has no inheritance, so by convention
+//! it is changed to **composition + forwarding**:
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `extends CustomFieldValueReader` | 结构体持有私有字段 `base: CustomFieldValueReader` |
-//! | 继承来的 `process()` / `getTypedValue(...)` / `protected` 字段 | 逐一转发到 `base`（见各方法说明） |
-//! | 构造方法中按 `m_properties.getApplicationVersion()` 分支赋值的三个偏移 | 构造后调用 `base.set_*_offset`，判定逻辑同 Java |
-//! | `NumberHelper.getInt(m_properties.getApplicationVersion())` | [`ProjectProperties::get_application_version`]（`Option<i32>`）+ `unwrap_or(0)`，与 Java 把 `null` 视为 0 一致 |
-//! | `ApplicationVersion.PROJECT_2010` | [`crate::mpp::application_version::ApplicationVersion::PROJECT_2010`] | 直接引用该常量（早期并行开发期曾在本文件重复定义同值常量，现已删除） |
+//! | `extends CustomFieldValueReader` | The struct holds a private field `base: CustomFieldValueReader` |
+//! | Inherited `process()` / `getTypedValue(...)` / `protected` fields | Forwarded one by one to `base` (see each method's docs) |
+//! | The three offsets assigned in the constructor based on `m_properties.getApplicationVersion()` | Call `base.set_*_offset` after construction; the decision logic is the same as Java |
+//! | `NumberHelper.getInt(m_properties.getApplicationVersion())` | [`ProjectProperties::get_application_version`] (`Option<i32>`) + `unwrap_or(0)`, consistent with Java treating `null` as 0 |
+//! | `ApplicationVersion.PROJECT_2010` | [`crate::mpp::application_version::ApplicationVersion::PROJECT_2010`] | References this constant directly (during early parallel development a duplicate constant with the same value was defined in this file; it has since been removed) |
 //!
-//! 跳过的 Java 方法：无（本类只有 1 个构造方法，无其它方法）。
+//! Skipped Java methods: none (this class has only 1 constructor and no other methods).
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -35,20 +35,20 @@ use crate::mpp::var2_data::Var2Data;
 use crate::mpp::var_meta::VarMeta;
 use crate::project_file::ProjectFile;
 
-/// MPP14 取值列表读取器。
+/// MPP14 value list reader.
 ///
-/// 对应 Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`
+/// Corresponds to Java: `class CustomFieldValueReader14 extends CustomFieldValueReader`
 pub struct CustomFieldValueReader14 {
-    /// 组合进来的基类实例。
+/// The composed base class instance.
     ///
-    /// 对应 Java: `extends CustomFieldValueReader`
+    /// Corresponds to Java: `extends CustomFieldValueReader`
     base: CustomFieldValueReader,
 }
 
 impl CustomFieldValueReader14 {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldValueReader14(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
+    /// Corresponds to Java: `public CustomFieldValueReader14(ProjectFile file, Map<UUID, FieldType> lookupTableMap, VarMeta outlineCodeVarMeta, Var2Data outlineCodeVarData, FixedData outlineCodeFixedData, FixedData outlineCodeFixedData2)`
     pub fn new(
         file: &Rc<RefCell<ProjectFile>>,
         lookup_table_map: HashMap<Uuid, MppFieldType>,
@@ -68,8 +68,8 @@ impl CustomFieldValueReader14 {
         );
 
         // Java: if (NumberHelper.getInt(m_properties.getApplicationVersion()) > ApplicationVersion.PROJECT_2010)
-        // `NumberHelper.getInt(null)` 返回 0，Rust 侧同理用 `unwrap_or(0)`；
-        // 项目文件正被可变借用时同样退化为 0（Java 不存在该情形）。
+// `NumberHelper.getInt(null)` returns 0, and the Rust side likewise uses `unwrap_or(0)`;
+// when the project file is mutably borrowed it likewise degrades to 0 (this case does not exist in Java).
         let application_version = file
             .try_borrow()
             .ok()
@@ -91,16 +91,16 @@ impl CustomFieldValueReader14 {
         Self { base }
     }
 
-    /// 读取全部取值项。
+/// Read all value items.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.process()`
+/// Corresponds to Java: inherited from `CustomFieldValueReader.process()`
     pub fn process(&self) {
         self.base.process();
     }
 
-    /// 把原始字节转换成 Java 类型的取值。
+/// Convert raw bytes into a Java-typed value.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.getTypedValue(...)`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.getTypedValue(...)` (`protected`)
     pub fn get_typed_value(
         &self,
         type_: Option<CustomFieldValueDataType>,
@@ -109,44 +109,44 @@ impl CustomFieldValueReader14 {
         self.base.get_typed_value(type_, value)
     }
 
-    /// 取「父级 unique ID」的偏移。
+/// Get the "parent unique ID" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_parentOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_parentOffset` (`protected`)
     pub fn get_parent_offset(&self) -> usize {
         self.base.get_parent_offset()
     }
 
-    /// 设置「父级 unique ID」的偏移。
+/// Set the "parent unique ID" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_parentOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_parentOffset` (`protected`)
     pub fn set_parent_offset(&mut self, offset: usize) {
         self.base.set_parent_offset(offset);
     }
 
-    /// 取「取值类型」的偏移。
+/// Get the "value type" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_typeOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_typeOffset` (`protected`)
     pub fn get_type_offset(&self) -> usize {
         self.base.get_type_offset()
     }
 
-    /// 设置「取值类型」的偏移。
+/// Set the "value type" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_typeOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_typeOffset` (`protected`)
     pub fn set_type_offset(&mut self, offset: usize) {
         self.base.set_type_offset(offset);
     }
 
-    /// 取「查找表 GUID」的偏移。
+/// Get the "lookup table GUID" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_fieldOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_fieldOffset` (`protected`)
     pub fn get_field_offset(&self) -> usize {
         self.base.get_field_offset()
     }
 
-    /// 设置「查找表 GUID」的偏移。
+/// Set the "lookup table GUID" offset.
     ///
-    /// 对应 Java: 继承自 `CustomFieldValueReader.m_fieldOffset`（`protected`）
+/// Corresponds to Java: inherited from `CustomFieldValueReader.m_fieldOffset` (`protected`)
     pub fn set_field_offset(&mut self, offset: usize) {
         self.base.set_field_offset(offset);
     }
@@ -159,7 +159,7 @@ mod tests {
         empty_fixed_data, var_data_with_meta,
     };
 
-    /// 构造一个指定应用程序版本的读取器。
+/// Construct a reader for the specified application version.
     fn reader(application_version: Option<i32>) -> CustomFieldValueReader14 {
         let (meta, var_data) = var_data_with_meta(&[]);
         let file = ProjectFile::new();
@@ -177,10 +177,10 @@ mod tests {
         )
     }
 
-    /// Project 2010 之前（含 2010 本身）：`fieldOffset = 16 / typeOffset = 32 / parentOffset = 8`。
+/// Before Project 2010 (including 2010 itself): `fieldOffset = 16 / typeOffset = 32 / parentOffset = 8`.
     #[test]
     fn constructor_uses_pre_2013_offsets() {
-        // 版本号取自 Java 的 ApplicationVersion：14 = Project 2010（不满足 `> 14`）
+// The version number comes from Java's ApplicationVersion: 14 = Project 2010 (does not satisfy `> 14`)
         for version in [None, Some(0), Some(14)] {
             let reader = reader(version);
             assert_eq!(reader.get_field_offset(), 16);
@@ -189,7 +189,7 @@ mod tests {
         }
     }
 
-    /// Project 2013 及之后：`typeOffset = 16 / fieldOffset = 18 / parentOffset = 10`。
+/// Project 2013 and later: `typeOffset = 16 / fieldOffset = 18 / parentOffset = 10`.
     #[test]
     fn constructor_uses_post_2010_offsets() {
         for version in [Some(15), Some(16)] {
@@ -200,7 +200,7 @@ mod tests {
         }
     }
 
-    /// 构造方法写入的偏移可被转发访问器改写，`process` 转发到基类。
+/// The offsets written by the constructor can be overwritten via the forwarding accessors, and `process` forwards to the base class.
     #[test]
     fn forwards_to_base_reader() {
         let mut reader = reader(Some(16));
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(reader.get_type_offset(), 2);
         assert_eq!(reader.get_field_offset(), 3);
 
-        // 空数据：不 panic，也不产生取值项
+// Empty data: does not panic and produces no value items
         reader.process();
 
         assert_eq!(

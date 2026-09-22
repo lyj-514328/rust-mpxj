@@ -1,16 +1,16 @@
-//! 对应 Java: `org/mpxj/TaskField.java`
+//! Corresponds to Java: `org/mpxj/TaskField.java`
 
 use crate::data_type::DataType;
 use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 use crate::mpxj_enum::MpxjEnum;
 
-/// Task（任务）上的字段。
+/// A field on a Task.
 ///
-/// 对应 Java: `public enum TaskField implements FieldType`
+/// Corresponds to Java: `public enum TaskField implements FieldType`
 ///
-/// 变体顺序与 Java 的声明顺序完全一致；Java 在静态初始化块中按声明顺序依次
-/// 写入 `m_value`，因此 `*self as i32` 等价于 Java 的 `getValue()`。
+/// The variant order is exactly the same as the Java declaration order; Java writes
+/// `m_value` in declaration order in the static initializer block, so `*self as i32` is equivalent to Java's `getValue()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskField {
     Start,
@@ -1024,10 +1024,10 @@ pub enum TaskField {
     RemainingCostExpense,
 }
 
-/// 各字段的英文显示名，下标即 [`TaskField`] 的 value。
+/// The English display name of each field; the index is the value of [`TaskField`].
 ///
-/// 对应 Java: `LocaleData.TASK_COLUMNS_ARRAY` 中针对 `TaskField` 的赋值；
-/// Java 中没有赋值的下标在这里是空字符串。
+/// Corresponds to Java: the assignments for `TaskField` in `LocaleData.TASK_COLUMNS_ARRAY`;
+/// indices not assigned in Java are empty strings here.
 const TASK_COLUMN_NAMES: [&str; TaskField::MAX_VALUE] = [
     "Start",
     "Duration Units",
@@ -2041,12 +2041,12 @@ const TASK_COLUMN_NAMES: [&str; TaskField::MAX_VALUE] = [
 ];
 
 impl TaskField {
-    /// 枚举取值个数。
+    /// Number of enum values.
     ///
-    /// 对应 Java: `public static final int MAX_VALUE`
+    /// Corresponds to Java: `public static final int MAX_VALUE`
     pub const MAX_VALUE: usize = 1009;
 
-    /// 全部取值，按 Java 声明顺序（即 value 升序）排列。
+    /// All values, in Java declaration order (i.e. ascending value).
     pub const ALL: [TaskField; TaskField::MAX_VALUE] = [
         TaskField::Start,
         TaskField::DurationUnits,
@@ -3059,9 +3059,9 @@ impl TaskField {
         TaskField::RemainingCostExpense,
     ];
 
-    /// 根据 int 值取枚举实例，越界返回 `None`。
+    /// Returns the enum instance for the given int value, returning `None` when out of bounds.
     ///
-    /// 对应 Java: `public static TaskField getInstance(int type)`
+    /// Corresponds to Java: `public static TaskField getInstance(int type)`
     pub fn get_instance(value: i32) -> Option<TaskField> {
         if value >= 0 && value < Self::MAX_VALUE as i32 {
             Some(Self::ALL[value as usize])
@@ -3072,12 +3072,12 @@ impl TaskField {
 }
 
 impl FieldType for TaskField {
-    /// 对应 Java: `public FieldTypeClass getFieldTypeClass()`
+    /// Corresponds to Java: `public FieldTypeClass getFieldTypeClass()`
     fn get_field_type_class(&self) -> FieldTypeClass {
         FieldTypeClass::Task
     }
 
-    /// 对应 Java 枚举自带的 `name()`，返回 Java 枚举常量名。
+    /// Corresponds to the `name()` provided by the Java enum, returning the Java enum constant name.
     fn name(&self) -> &'static str {
         match self {
             TaskField::Start => "START",
@@ -4092,12 +4092,12 @@ impl FieldType for TaskField {
         }
     }
 
-    /// 对应 Java: `public String getName()`（英文列名）
+    /// Corresponds to Java: `public String getName()` (English column name)
     fn get_name(&self) -> &'static str {
         TASK_COLUMN_NAMES[*self as usize]
     }
 
-    /// 对应 Java: `public DataType getDataType()`
+    /// Corresponds to Java: `public DataType getDataType()`
     fn get_data_type(&self) -> DataType {
         match self {
             TaskField::Start => DataType::Date,
@@ -5112,7 +5112,7 @@ impl FieldType for TaskField {
         }
     }
 
-    /// 对应 Java: `public FieldType getUnitsType()`
+    /// Corresponds to Java: `public FieldType getUnitsType()`
     fn get_units_type(&self) -> Option<Self> {
         match self {
             TaskField::LevelingDelay => Some(TaskField::LevelingDelayUnits),
@@ -5172,13 +5172,13 @@ impl FieldType for TaskField {
 }
 
 impl MpxjEnum for TaskField {
-    /// 对应 Java: `public int getValue()`
+    /// Corresponds to Java: `public int getValue()`
     fn value(&self) -> i32 {
         *self as i32
     }
 }
 
-/// 对应 Java: `public String toString()`，输出 [`FieldType::get_name`]。
+/// Corresponds to Java: `public String toString()`, outputting [`FieldType::get_name`].
 impl std::fmt::Display for TaskField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.get_name())

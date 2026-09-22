@@ -1,29 +1,29 @@
-//! 对应 Java: `org/mpxj/mpp/TaskTypeHelper.java`
+//! Corresponds to Java: `org/mpxj/mpp/TaskTypeHelper.java`
 //!
-//! 在「Microsoft Project 文件里的任务类型整数」与 `org.mpxj.TaskType` 之间互相转换。
+//! Convert between "the task type integer in a Microsoft Project file" and `org.mpxj.TaskType`.
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `public final class TaskTypeHelper`（私有构造方法） | 无字段结构体 [`TaskTypeHelper`] + 关联函数 | Rust 用关联函数表达静态方法 |
-//! | `private static final Map<TaskType, Integer> TYPE_MAP` | `match` 分支 | Java 的映射表实际是「枚举 → 整数」的查表，Rust 侧直接写成分支更直观；表内容逐项保留（注意 `FIXED_DURATION_AND_UNITS` 与 `FIXED_DURATION` 取同一个值 1） |
-//! | `getValue(TaskType type)` 的参数可为 `null` | `Option<TaskType>` | 遵循「`null` → `Option<T>`」约定：`None` 等价于 Java 的 `null`，按 `FIXED_UNITS` 取值 |
+//! | `public final class TaskTypeHelper` (private constructor) | Field-less struct [`TaskTypeHelper`] + associated functions | Rust expresses static methods with associated functions |
+//! | `private static final Map<TaskType, Integer> TYPE_MAP` | `match` arms | Java's map is actually an "enum → integer" lookup, and writing it directly as arms is more intuitive on the Rust side; the table contents are preserved item by item (note that `FIXED_DURATION_AND_UNITS` and `FIXED_DURATION` take the same value 1) |
+//! | The parameter of `getValue(TaskType type)` may be `null` | `Option<TaskType>` | Follows the "`null` → `Option<T>`" convention: `None` is equivalent to Java's `null` and takes the `FIXED_UNITS` value |
 //!
-//! 跳过的 Java 成员：无。
+//! Skipped Java members: none.
 //!
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use crate::task_type::TaskType;
 
-/// 任务类型的整数表示转换。
+/// Conversion of the integer representation of a task type.
 ///
-/// 对应 Java: `public final class TaskTypeHelper`
+/// Corresponds to Java: `public final class TaskTypeHelper`
 pub struct TaskTypeHelper;
 
-/// Java 中「整数 → 任务类型」的查找表。
+/// Java's "integer → task type" lookup table.
 ///
-/// 对应 Java: `private static final TaskType[] TYPE_VALUES`
+/// Corresponds to Java: `private static final TaskType[] TYPE_VALUES`
 const TYPE_VALUES: [TaskType; 3] = [
     TaskType::FixedUnits,
     TaskType::FixedDuration,
@@ -31,9 +31,9 @@ const TYPE_VALUES: [TaskType; 3] = [
 ];
 
 impl TaskTypeHelper {
-    /// 按整数取任务类型；越界（含负数）时返回 `FIXED_WORK`。
+/// Return the task type for an integer; out-of-bounds values (including negatives) return `FIXED_WORK`.
     ///
-    /// 对应 Java: `public static TaskType getInstance(int type)`
+    /// Corresponds to Java: `public static TaskType getInstance(int type)`
     pub fn get_instance(r#type: i32) -> TaskType {
         // Java: if (type < 0 || type >= TYPE_VALUES.length) { return TaskType.FIXED_WORK; }
         let index = usize::try_from(r#type).ok();
@@ -43,16 +43,16 @@ impl TaskTypeHelper {
         }
     }
 
-    /// 取任务类型对应的整数；`None`（Java 的 `null`）按 `FIXED_UNITS` 处理。
+/// Return the integer corresponding to a task type; `None` (Java's `null`) is handled as `FIXED_UNITS`.
     ///
-    /// 对应 Java: `public static int getValue(TaskType type)`
+    /// Corresponds to Java: `public static int getValue(TaskType type)`
     pub fn get_value(r#type: Option<TaskType>) -> i32 {
         // Java: if (type == null) { type = TaskType.FIXED_UNITS; }
         //       return TYPE_MAP.get(type).intValue();
         match r#type {
             // TYPE_MAP: FIXED_UNITS -> 0
             None | Some(TaskType::FixedUnits) => 0,
-            // TYPE_MAP: FIXED_DURATION -> 1，FIXED_DURATION_AND_UNITS -> 1（两条表项取同一个值）
+// TYPE_MAP: FIXED_DURATION -> 1, FIXED_DURATION_AND_UNITS -> 1 (both entries take the same value)
             Some(TaskType::FixedDuration) | Some(TaskType::FixedDurationAndUnits) => 1,
             // TYPE_MAP: FIXED_WORK -> 2
             Some(TaskType::FixedWork) => 2,
@@ -64,7 +64,7 @@ impl TaskTypeHelper {
 mod tests {
     use super::*;
 
-    /// 三个有效值逐一映射；越界值一律回落到 `FIXED_WORK`（与 Java 一致）。
+/// The three valid values are mapped one by one; out-of-bounds values always fall back to `FIXED_WORK` (matching Java).
     #[test]
     fn get_instance_follows_java_type_values() {
         assert_eq!(TaskTypeHelper::get_instance(0), TaskType::FixedUnits);
@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(TaskTypeHelper::get_instance(i32::MIN), TaskType::FixedWork);
     }
 
-    /// `getValue` 的取值与 Java 的 `TYPE_MAP` 一致，`null` 等价于 `FIXED_UNITS`。
+/// The values of `getValue` match Java's `TYPE_MAP`, and `null` is equivalent to `FIXED_UNITS`.
     #[test]
     fn get_value_follows_java_type_map() {
         assert_eq!(TaskTypeHelper::get_value(Some(TaskType::FixedUnits)), 0);

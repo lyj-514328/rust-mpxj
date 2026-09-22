@@ -1,35 +1,35 @@
-//! 对应 Java: `org/mpxj/mpp/FieldMap14.java`
+//! Corresponds to Java: `org/mpxj/mpp/FieldMap14.java`
 //!
-//! MPP14 的字段布局表。Java 的 `FieldMap14` 是 `FieldMap` 的子类，只做两件事：
-//! 覆写 `useTypeAsVarDataKey()` 返回 `true`，并覆写 4 个 `getDefault*Data()`
-//! 给出「`Props` 里缺少字段布局表时使用的默认布局」。本文件逐项照搬这些默认表。
+//! MPP14 field layout table. Java's `FieldMap14` is a subclass of `FieldMap` and does only two things:
+//! it overrides `useTypeAsVarDataKey()` to return `true`, and overrides the 4 `getDefault*Data()`
+//! to provide "the default layouts used when the field layout table is missing from `Props`". This file copies these default tables item by item.
 //!
-//! # 与 Java 的差异（还原方式）
+//! # Differences from Java (reconstruction approach)
 //!
-//! Rust 的 [`FieldMap`] **没有继承**，改成了可配置状态（见 `src/mpp/field_map.rs`
-//! 文件头差异表第 1 条）。因此本文件把 Java 里「子类覆写」的 5 个方法改写成
-//! 「配置一个 `FieldMap`」的 5 行赋值：
+//! Rust's [`FieldMap`] **has no inheritance** and was changed to configurable state (see
+//! item 1 of the difference table in the file header of `src/mpp/field_map.rs`). Therefore this file rewrites the 5 "subclass override" methods from Java as
+//! 5 lines assigning "configure a `FieldMap`":
 //!
-//! | Java | Rust | 说明 |
+//! | Java | Rust | Notes |
 //! |---|---|---|
-//! | `class FieldMap14 extends FieldMap` | 单位结构体 [`FieldMap14`] | Rust 无继承，类只作为关联函数的命名空间 |
-//! | `public FieldMap14(ProjectFile file)` | [`FieldMap14::new`] | 先在 [`FieldMap::new`] 建好基类状态，再调用 [`FieldMap14::configure`]；返回的是配置好的 [`FieldMap`]（不是 `FieldMap14`） |
-//! | `@Override protected boolean useTypeAsVarDataKey()`（`return true;`） | [`FieldMap14::configure`] 中的 `set_use_type_as_var_data_key(true)` | Java 覆写返回值 → Rust 配置状态 |
-//! | `@Override protected FieldItem[] getDefaultTaskData()` | [`FieldMap14::configure`] 中的 `set_default_task_data(default_task_data())` | 表数据在私有函数 `default_task_data()`，共 **636** 项 |
-//! | `@Override protected FieldItem[] getDefaultResourceData()` | [`FieldMap14::configure`] 中的 `set_default_resource_data(default_resource_data())` | 私有函数 `default_resource_data()`，共 **356** 项 |
-//! | `@Override protected FieldItem[] getDefaultAssignmentData()` | [`FieldMap14::configure`] 中的 `set_default_assignment_data(default_assignment_data())` | 私有函数 `default_assignment_data()`，共 **331** 项 |
-//! | `@Override protected FieldItem[] getDefaultRelationData()` | [`FieldMap14::configure`] 中的 `set_default_relation_data(default_relation_data())` | Java 返回 `new FieldItem[0]`，Rust 返回空 `Vec`（**0** 项） |
-//! | `TaskField` / `ResourceField` / `AssignmentField` 常量 | `crate::task_field` 等 Rust 枚举的同名变体 | 三张表的每一项都按 Java 的 `new FieldItem(...)` 逐参数照搬 |
-//! | 4 个 `getDefault*Data()` 是 `protected` | 私有函数 + [`FieldMap::set_default_*_data`] | 配置后可用 `FieldMap::get_default_task_data()` 等读回，语义等价 |
+//! | `class FieldMap14 extends FieldMap` | unit struct [`FieldMap14`] | Rust has no inheritance; the class serves only as a namespace for associated functions |
+//! | `public FieldMap14(ProjectFile file)` | [`FieldMap14::new`] | First builds the base class state with [`FieldMap::new`], then calls [`FieldMap14::configure`]; returns the configured [`FieldMap`] (not a `FieldMap14`) |
+//! | `@Override protected boolean useTypeAsVarDataKey()` (`return true;`) | `set_use_type_as_var_data_key(true)` in [`FieldMap14::configure`] | Java overrides the return value -> Rust configures state |
+//! | `@Override protected FieldItem[] getDefaultTaskData()` | `set_default_task_data(default_task_data())` in [`FieldMap14::configure`] | The table data is in the private function `default_task_data()`, **636** items in total |
+//! | `@Override protected FieldItem[] getDefaultResourceData()` | `set_default_resource_data(default_resource_data())` in [`FieldMap14::configure`] | Private function `default_resource_data()`, **356** items in total |
+//! | `@Override protected FieldItem[] getDefaultAssignmentData()` | `set_default_assignment_data(default_assignment_data())` in [`FieldMap14::configure`] | Private function `default_assignment_data()`, **331** items in total |
+//! | `@Override protected FieldItem[] getDefaultRelationData()` | `set_default_relation_data(default_relation_data())` in [`FieldMap14::configure`] | Java returns `new FieldItem[0]`, Rust returns an empty `Vec` (**0** items) |
+//! | `TaskField` / `ResourceField` / `AssignmentField` constants | same-named variants of Rust enums such as `crate::task_field` | Every item in the three tables is copied parameter by parameter from Java's `new FieldItem(...)` |
+//! | The 4 `getDefault*Data()` are `protected` | private functions + [`FieldMap::set_default_*_data`] | After configuration they can be read back with `FieldMap::get_default_task_data()` etc., semantically equivalent |
 //!
-//! **表的规模**：任务 636 项、资源 356 项、分派 331 项、关系 0 项，合计 1323 项
-//! （生成方式为解析 Java 源码，逐参数照搬，未做任何裁剪或合并；Java 中的
-//! 反常项——例如 `TaskField.EARNED_VALUE_METHOD` 的 `fixedDataBlockIndex = 26`
-//! ——也原样保留）。每个字段在定长/变长数据块里的偏移与键都来自这些表，
-//! 错一项就会读错数据，故**修改前务必与 Java 源码核对**。
+//! **Table sizes**: 636 task items, 356 resource items, 331 assignment items, 0 relation items, 1323 items in total
+//! (generated by parsing the Java source and copying parameter by parameter, with no trimming or merging; anomalous items in Java --
+//! for example `TaskField.EARNED_VALUE_METHOD`'s `fixedDataBlockIndex = 26`
+//! -- are also kept as-is). Each field's offset and key in the fixed/variable-length data blocks come from these tables,
+//! and one wrong item will read the wrong data, so **always verify against the Java source before modifying**.
 //!
-//! 跳过的 Java 方法：无（本类只有构造方法与 5 个覆写方法，全部翻译）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! Skipped Java methods: none (this class has only a constructor and 5 override methods, all translated).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -42,31 +42,31 @@ use crate::project_file::ProjectFile;
 use crate::resource_field::ResourceField;
 use crate::task_field::TaskField;
 
-/// MPP14 字段布局表。
+/// MPP14 field layout table.
 ///
-/// 对应 Java: `class FieldMap14 extends FieldMap`
+/// Corresponds to Java: `class FieldMap14 extends FieldMap`
 ///
-/// Rust 侧不保存状态（Java 的实例状态全部在基类里），故为单位结构体，
-/// 只提供 [`FieldMap14::new`] 与 [`FieldMap14::configure`] 两个关联函数。
+/// The Rust side holds no state (all of Java's instance state is in the base class), so it is a unit struct that
+/// provides only two associated functions, [`FieldMap14::new`] and [`FieldMap14::configure`].
 pub struct FieldMap14;
 
 impl FieldMap14 {
-    /// 构造方法：建立一个按 MPP14 规则配置好的字段映射。
+/// Constructor: builds a field map configured according to MPP14 rules.
     ///
-    /// 对应 Java: `public FieldMap14(ProjectFile file)`
+    /// Corresponds to Java: `public FieldMap14(ProjectFile file)`
     ///
-    /// Rust 侧返回配置好的 [`FieldMap`]（`FieldMap14` 本身无状态）。
+/// The Rust side returns the configured [`FieldMap`] (`FieldMap14` itself is stateless).
     pub fn new(file: &Rc<RefCell<ProjectFile>>) -> FieldMap {
         let mut field_map = FieldMap::new(file);
         FieldMap14::configure(&mut field_map);
         field_map
     }
 
-    /// 把 Java 中 `FieldMap14` 覆写的 5 项灌进 `FieldMap`。
+/// Populates the 5 items that `FieldMap14` overrides in Java into the `FieldMap`.
     ///
-    /// 对应 Java: `useTypeAsVarDataKey()` / `getDefaultTaskData()` /
+    /// Corresponds to Java: `useTypeAsVarDataKey()` / `getDefaultTaskData()` /
     /// `getDefaultResourceData()` / `getDefaultAssignmentData()` /
-    /// `getDefaultRelationData()`（前者的返回值与后四者返回的数组）
+/// `getDefaultRelationData()` (the former's return value and the arrays returned by the latter four)
     pub fn configure(field_map: &mut FieldMap) {
         // Java: @Override protected boolean useTypeAsVarDataKey() { return true; }
         field_map.set_use_type_as_var_data_key(true);
@@ -85,11 +85,11 @@ impl FieldMap14 {
     }
 }
 
-/// 按 Java `new FieldItem(...)` 的参数顺序构造一个表项。
+/// Construct a table item in the parameter order of Java's `new FieldItem(...)`.
 ///
-/// Rust 特有：Java 的每个表项都是 `new FieldItem(TaskField.X, FieldLocation.Y, a, b, c, d, e)`，
-/// 这里用泛型收口三种字段枚举（`Into<FieldKey>` 由 `crate::field_key` 的 `From` 实现提供），
-/// 让下面 1323 行表数据与 Java 源码逐参数一一对应、便于核对。
+/// Rust-specific: each table item in Java is `new FieldItem(TaskField.X, FieldLocation.Y, a, b, c, d, e)`,
+/// here a generic unifies the three field enums (`Into<FieldKey>` is provided by the `From` implementations in `crate::field_key`),
+/// so that the 1323 lines of table data below correspond one-to-one parameter by parameter with the Java source, making verification easier.
 fn item<F: Into<FieldKey>>(
     field: F,
     location: FieldLocation,
@@ -110,11 +110,11 @@ fn item<F: Into<FieldKey>>(
     )
 }
 
-/// Java `getDefaultTaskData()` 对应的默认表。
+/// The default table corresponding to Java's `getDefaultTaskData()`.
 ///
-/// 对应 Java: `@Override protected FieldItem[] getDefaultTaskData()`
+/// Corresponds to Java: `@Override protected FieldItem[] getDefaultTaskData()`
 ///
-/// 共 636 项，顺序与 Java 源码完全一致。
+/// 636 items in total, in exactly the same order as the Java source.
 fn default_task_data() -> Vec<FieldItem> {
     vec![
         item(TaskField::UniqueId, FieldLocation::FixedData, 0, 0, 86, 0, 0),
@@ -756,11 +756,11 @@ fn default_task_data() -> Vec<FieldItem> {
     ]
 }
 
-/// Java `getDefaultResourceData()` 对应的默认表。
+/// The default table corresponding to Java's `getDefaultResourceData()`.
 ///
-/// 对应 Java: `@Override protected FieldItem[] getDefaultResourceData()`
+/// Corresponds to Java: `@Override protected FieldItem[] getDefaultResourceData()`
 ///
-/// 共 356 项，顺序与 Java 源码完全一致。
+/// 356 items in total, in exactly the same order as the Java source.
 fn default_resource_data() -> Vec<FieldItem> {
     vec![
         item(ResourceField::UniqueId, FieldLocation::FixedData, 0, 0, 27, 0, 0),
@@ -1122,11 +1122,11 @@ fn default_resource_data() -> Vec<FieldItem> {
     ]
 }
 
-/// Java `getDefaultAssignmentData()` 对应的默认表。
+/// The default table corresponding to Java's `getDefaultAssignmentData()`.
 ///
-/// 对应 Java: `@Override protected FieldItem[] getDefaultAssignmentData()`
+/// Corresponds to Java: `@Override protected FieldItem[] getDefaultAssignmentData()`
 ///
-/// 共 331 项，顺序与 Java 源码完全一致。
+/// 331 items in total, in exactly the same order as the Java source.
 fn default_assignment_data() -> Vec<FieldItem> {
     vec![
         item(AssignmentField::UniqueId, FieldLocation::FixedData, 0, 0, 0, 0, 0),
@@ -1463,11 +1463,11 @@ fn default_assignment_data() -> Vec<FieldItem> {
     ]
 }
 
-/// Java `getDefaultRelationData()` 对应的默认表。
+/// The default table corresponding to Java's `getDefaultRelationData()`.
 ///
-/// 对应 Java: `@Override protected FieldItem[] getDefaultRelationData()`
+/// Corresponds to Java: `@Override protected FieldItem[] getDefaultRelationData()`
 ///
-/// 共 0 项，顺序与 Java 源码完全一致。
+/// 0 items in total, in exactly the same order as the Java source.
 fn default_relation_data() -> Vec<FieldItem> {
     Vec::new()
 }
@@ -1479,41 +1479,41 @@ mod tests {
     use crate::mpp::props::Props;
     use crate::mpp::props_key::PropsKey;
 
-    /// 构造一个按 MPP14 规则配置好的字段映射。
+/// Build a field map configured according to MPP14 rules.
     fn field_map() -> FieldMap {
         FieldMap14::new(&ProjectFile::new())
     }
 
-    /// 任务字段的等价键。
+/// Equivalent keys for task fields.
     fn task_key(field: TaskField) -> MppFieldKey {
         MppFieldKey::Builtin(FieldKey::Task(field))
     }
 
-    /// 资源字段的等价键。
+/// Equivalent keys for resource fields.
     fn resource_key(field: ResourceField) -> MppFieldKey {
         MppFieldKey::Builtin(FieldKey::Resource(field))
     }
 
-    /// 分派字段的等价键。
+/// Equivalent keys for assignment fields.
     fn assignment_key(field: AssignmentField) -> MppFieldKey {
         MppFieldKey::Builtin(FieldKey::Assignment(field))
     }
 
-    /// 在表中按字段查找表项。
+/// Look up a table item by field in the table.
     fn find<'a>(items: &'a [FieldItem], key: MppFieldKey) -> &'a FieldItem {
         items
             .iter()
             .find(|item| item.get_type().to_key() == key)
-            .expect("字段应在默认表中")
+            .expect("field should be in the default table")
     }
 
-    /// Java 的 `useTypeAsVarDataKey()` 返回 `true`。
+/// Java's `useTypeAsVarDataKey()` returns `true`.
     #[test]
     fn configure_enables_type_as_var_data_key() {
         assert!(field_map().use_type_as_var_data_key());
     }
 
-    /// 四张默认表的规模与 Java 源码一致。
+/// The sizes of the four default tables match the Java source.
     #[test]
     fn default_tables_have_the_java_size() {
         let field_map = field_map();
@@ -1523,7 +1523,7 @@ mod tests {
         assert_eq!(field_map.get_default_relation_data().len(), 0);
     }
 
-    /// 任务默认表的代表项：两个定长数据块的偏移与变长数据键。
+/// Representative items from the task default table: the offsets of two fixed-length data blocks and the variable-length data key.
     #[test]
     fn task_default_data_matches_java() {
         let field_map = field_map();
@@ -1561,13 +1561,13 @@ mod tests {
             assert_eq!(item.get_var_data_key(), Some(key));
         }
 
-        // Java 中的反常项：EARNED_VALUE_METHOD 的定长数据块序号是 26
+// Anomalous item in Java: EARNED_VALUE_METHOD's fixed data block index is 26
         let earned_value = find(items, task_key(TaskField::EarnedValueMethod));
         assert_eq!(earned_value.get_fixed_data_block_index(), 26);
         assert_eq!(earned_value.get_var_data_key(), Some(1122));
     }
 
-    /// 资源默认表的代表项。
+/// Representative items from the resource default table.
     #[test]
     fn resource_default_data_matches_java() {
         let field_map = field_map();
@@ -1598,7 +1598,7 @@ mod tests {
         }
     }
 
-    /// 分派默认表的代表项。
+/// Representative items from the assignment default table.
     #[test]
     fn assignment_default_data_matches_java() {
         let field_map = field_map();
@@ -1629,13 +1629,13 @@ mod tests {
         }
     }
 
-    /// `Props` 中缺少字段布局表时，`FieldMap` 会灌入 MPP14 的默认表。
+/// When the field layout table is missing from `Props`, `FieldMap` populates the MPP14 default tables.
     #[test]
     fn default_data_is_used_when_props_are_missing() {
         let mut field_map = field_map();
         field_map.create_task_field_map(&Props::new());
 
-        // 默认表无重复字段，636 项全部写入映射
+// The default table has no duplicate fields; all 636 items are written into the map
         assert_eq!(field_map.get_field_types().len(), 636);
         assert_eq!(
             field_map.get_fixed_data_offset(&MppFieldType::from(FieldKey::Task(TaskField::UniqueId))),
@@ -1645,14 +1645,14 @@ mod tests {
             field_map.get_var_data_key(&MppFieldType::from(FieldKey::Task(TaskField::Name))),
             Some(14)
         );
-        // Java 的 populateDefaultData 不更新 m_maxFixedDataSize
+// Java's populateDefaultData does not update m_maxFixedDataSize
         assert_eq!(field_map.get_max_fixed_data_size(0), Some(0));
     }
 
-    /// `Props` 中带有字段布局表时，布局表优先于默认表。
+/// When `Props` contains a field layout table, the layout table takes precedence over the default tables.
     #[test]
     fn props_layout_wins_over_default_data() {
-        // 一条记录：任务字段 14（NAME），定长数据块 0 偏移 4
+// One record: task field 14 (NAME), fixed data block 0 offset 4
         let mut record = vec![0u8; 28];
         record[4..6].copy_from_slice(&4u16.to_le_bytes());
         record[12..16].copy_from_slice(
@@ -1666,7 +1666,7 @@ mod tests {
         let mut field_map = field_map();
         field_map.create_task_field_map(&props);
 
-        // 只使用布局表里的那一条，默认表未被使用
+// Only the one entry from the layout table is used; the default table is not used
         assert_eq!(field_map.get_field_types().len(), 1);
         assert_eq!(
             field_map.get_fixed_data_offset(&MppFieldType::from(FieldKey::Task(TaskField::Name))),

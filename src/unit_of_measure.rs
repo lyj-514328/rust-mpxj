@@ -1,105 +1,105 @@
-//! 对应 Java: `org/mpxj/UnitOfMeasure.java`
+//! Corresponds to Java: `org/mpxj/UnitOfMeasure.java`
 
-/// 计量单位（unit of measure）。
+/// Unit of measure.
 ///
-/// 对应 Java: `public final class UnitOfMeasure implements ProjectEntityWithUniqueID`
+/// Corresponds to Java: `public final class UnitOfMeasure implements ProjectEntityWithUniqueID`
 ///
-/// 移植说明：
-/// - Java 侧实现 `ProjectEntityWithUniqueID` 接口；该接口**已落地**
-///   （[`crate::project_entity_with_unique_id`]），但本类型尚未 `impl`，仍只保留同名的
-///   [`UnitOfMeasure::get_unique_id`] 方法。
-/// - Java 的构造方法是私有的，实例一律通过 [`Builder`] 构建，Rust 侧保持不变。
+/// Porting notes:
+/// - The Java side implements the `ProjectEntityWithUniqueID` interface; that interface **has been ported**
+/// ([`crate::project_entity_with_unique_id`]), but this type does not yet `impl` it and still only keeps the method of the same name
+/// [`UnitOfMeasure::get_unique_id`].
+/// - Java's constructor is private and instances are always built via [`Builder`]; the Rust side stays the same.
 ///
-/// 被跳过的 Java 代码：
-/// - `Builder(UniqueIdObjectSequenceProvider sequenceProvider)` 构造方法中的
-///   `sequenceProvider` 参数，以及私有构造方法里的
-///   `m_sequenceProvider.getUniqueIdObjectSequence(UnitOfMeasure.class).syncOrGetNext(m_uniqueID)`：
-///   `UniqueIdObjectSequenceProvider` / `ObjectSequence` **均已落地**
-///   （见 [`crate::unique_id_object_sequence_provider`] / [`crate::common::object_sequence`]），
-///   但本类型尚未接线，Rust 侧仍由外部直接把 unique ID 交给 [`Builder::unique_id`]。
+/// Skipped Java code:
+/// - the `Builder(UniqueIdObjectSequenceProvider sequenceProvider)` constructor's
+/// `sequenceProvider` parameter, and the one in the private constructor
+///   `m_sequenceProvider.getUniqueIdObjectSequence(UnitOfMeasure.class).syncOrGetNext(m_uniqueID)`:
+/// `UniqueIdObjectSequenceProvider` / `ObjectSequence` **have both been ported**
+/// (see [`crate::unique_id_object_sequence_provider`] / [`crate::common::object_sequence`]),
+/// but this type is not yet wired up; on the Rust side the unique ID is still handed directly to [`Builder::unique_id`] from outside.
 ///
-/// 未移植的 Java 方法：无（`getUniqueID()` 见上，已映射为 [`UnitOfMeasure::get_unique_id`]）。
+/// Skipped Java methods: none (`getUniqueID()` is covered above and mapped to [`UnitOfMeasure::get_unique_id`]).
 #[derive(Debug, Clone)]
 pub struct UnitOfMeasure {
-    /// 唯一 ID。
+/// Unique ID.
     ///
-    /// 对应 Java: `private final Integer m_uniqueID;`
+    /// Corresponds to Java: `private final Integer m_uniqueID;`
     m_unique_id: Option<i32>,
-    /// 计量单位名称。
+/// Unit of measure name.
     ///
-    /// 对应 Java: `private final String m_name;`
+    /// Corresponds to Java: `private final String m_name;`
     m_name: Option<String>,
-    /// 计量单位缩写。
+/// Unit of measure abbreviation.
     ///
-    /// 对应 Java: `private final String m_abbreviation;`
+    /// Corresponds to Java: `private final String m_abbreviation;`
     m_abbreviation: Option<String>,
-    /// 计量单位序号。
+/// Unit of measure sequence number.
     ///
-    /// 对应 Java: `private final Integer m_sequenceNumber;`
+    /// Corresponds to Java: `private final Integer m_sequenceNumber;`
     m_sequence_number: Option<i32>,
 }
 
 impl UnitOfMeasure {
-    /// 取唯一 ID。
+/// Get the unique ID.
     ///
-    /// 对应 Java: `@Override public Integer getUniqueID()`
+    /// Corresponds to Java: `@Override public Integer getUniqueID()`
     pub fn get_unique_id(&self) -> Option<i32> {
         self.m_unique_id
     }
 
-    /// 取计量单位名称。
+/// Get the unit of measure name.
     ///
-    /// 对应 Java: `public String getName()`
+    /// Corresponds to Java: `public String getName()`
     pub fn get_name(&self) -> Option<&str> {
         self.m_name.as_deref()
     }
 
-    /// 取计量单位缩写。
+/// Get the unit of measure abbreviation.
     ///
-    /// 对应 Java: `public String getAbbreviation()`
+    /// Corresponds to Java: `public String getAbbreviation()`
     pub fn get_abbreviation(&self) -> Option<&str> {
         self.m_abbreviation.as_deref()
     }
 
-    /// 取计量单位序号。
+/// Get the unit of measure sequence number.
     ///
-    /// 对应 Java: `public Integer getSequenceNumber()`
+    /// Corresponds to Java: `public Integer getSequenceNumber()`
     pub fn get_sequence_number(&self) -> Option<i32> {
         self.m_sequence_number
     }
 }
 
-/// 计量单位构建器。
+/// Unit of measure builder.
 ///
-/// 对应 Java: `public static class Builder`
+/// Corresponds to Java: `public static class Builder`
 ///
-/// Rust 侧沿用 Java 的链式调用风格，但按 Rust 习惯以「消耗自身并返回 `Self`」的方式实现。
+/// The Rust side follows Java's chained-call style but implements it in the Rust idiom of "consume self and return `Self`".
 #[derive(Debug, Clone, Default)]
 pub struct Builder {
-    /// 对应 Java: `private Integer m_uniqueID;`
+    /// Corresponds to Java: `private Integer m_uniqueID;`
     m_unique_id: Option<i32>,
-    /// 对应 Java: `private String m_name;`
+    /// Corresponds to Java: `private String m_name;`
     m_name: Option<String>,
-    /// 对应 Java: `private String m_abbreviation;`
+    /// Corresponds to Java: `private String m_abbreviation;`
     m_abbreviation: Option<String>,
-    /// 对应 Java: `private Integer m_sequenceNumber;`
+    /// Corresponds to Java: `private Integer m_sequenceNumber;`
     m_sequence_number: Option<i32>,
 }
 
 impl Builder {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
+    /// Corresponds to Java: `public Builder(UniqueIdObjectSequenceProvider sequenceProvider)`
     ///
-    /// `UniqueIdObjectSequenceProvider` 已落地（见类型说明），但本类型尚未接收该参数，
-    /// Rust 侧构造方法无参数。
+/// `UniqueIdObjectSequenceProvider` has been ported (see the type documentation), but this type does not yet accept that parameter,
+/// so the Rust constructor takes no arguments.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 由已有 [`UnitOfMeasure`] 实例初始化构建器。
+/// Initialize the builder from an existing [`UnitOfMeasure`] instance.
     ///
-    /// 对应 Java: `public Builder from(UnitOfMeasure value)`
+    /// Corresponds to Java: `public Builder from(UnitOfMeasure value)`
     pub fn from(mut self, value: &UnitOfMeasure) -> Self {
         self.m_unique_id = value.m_unique_id;
         self.m_name = value.m_name.clone();
@@ -108,41 +108,41 @@ impl Builder {
         self
     }
 
-    /// 设置唯一 ID。
+/// Set the unique ID.
     ///
-    /// 对应 Java: `public Builder uniqueID(Integer uniqueID)`
+    /// Corresponds to Java: `public Builder uniqueID(Integer uniqueID)`
     pub fn unique_id(mut self, unique_id: Option<i32>) -> Self {
         self.m_unique_id = unique_id;
         self
     }
 
-    /// 设置名称。
+/// Set the name.
     ///
-    /// 对应 Java: `public Builder name(String name)`
+    /// Corresponds to Java: `public Builder name(String name)`
     pub fn name(mut self, name: Option<String>) -> Self {
         self.m_name = name;
         self
     }
 
-    /// 设置缩写。
+/// Set the abbreviation.
     ///
-    /// 对应 Java: `public Builder abbreviation(String abbreviation)`
+    /// Corresponds to Java: `public Builder abbreviation(String abbreviation)`
     pub fn abbreviation(mut self, abbreviation: Option<String>) -> Self {
         self.m_abbreviation = abbreviation;
         self
     }
 
-    /// 设置序号。
+/// Set the sequence number.
     ///
-    /// 对应 Java: `public Builder sequenceNumber(Integer sequenceNumber)`
+    /// Corresponds to Java: `public Builder sequenceNumber(Integer sequenceNumber)`
     pub fn sequence_number(mut self, sequence_number: Option<i32>) -> Self {
         self.m_sequence_number = sequence_number;
         self
     }
 
-    /// 构建 [`UnitOfMeasure`] 实例。
+/// Build a [`UnitOfMeasure`] instance.
     ///
-    /// 对应 Java: `public UnitOfMeasure build()`
+    /// Corresponds to Java: `public UnitOfMeasure build()`
     pub fn build(self) -> UnitOfMeasure {
         UnitOfMeasure {
             m_unique_id: self.m_unique_id,
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(copy.get_abbreviation(), Some("h"));
         assert_eq!(copy.get_sequence_number(), Some(4));
 
-        // 在已有值基础上覆盖部分字段
+// Overwrite some fields on top of the existing values
         let renamed = Builder::new()
             .from(&original)
             .name(Some("Hours2".to_owned()))

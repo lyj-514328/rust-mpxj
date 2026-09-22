@@ -1,4 +1,4 @@
-//! 对应 Java: `org/mpxj/CustomFieldContainer.java`
+//! Corresponds to Java: `org/mpxj/CustomFieldContainer.java`
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -12,70 +12,70 @@ use crate::field_key::FieldKey;
 use crate::field_type::FieldType;
 use crate::field_type_class::FieldTypeClass;
 
-/// 保存全部自定义字段配置的容器。
+/// Container holding all custom field configurations.
 ///
-/// 对应 Java: `public class CustomFieldContainer implements Iterable<CustomField>`
+/// Corresponds to Java: `public class CustomFieldContainer implements Iterable<CustomField>`
 ///
-/// # 结构取舍：`CustomField` 用 `Weak` 回指父容器
+/// # Design trade-off: `CustomField` refers back to the parent container with `Weak`
 ///
-/// Java 的 `CustomField` 持有父容器引用（`m_parent`）并在 `setAlias` 时调用
-/// `m_parent.registerAlias(...)`。Rust 侧若用 `Rc` 强引用会形成
-/// 「容器 → 字段 → 容器」的循环导致内存泄漏，因此 `CustomField` 用
-/// `Weak<RefCell<CustomFieldContainer>>` 回指父容器（符合「反向引用用 `Weak`」的约定）。
+/// Java's `CustomField` holds a parent container reference (`m_parent`) and calls
+/// `m_parent.registerAlias(...)` in `setAlias`. On the Rust side a strong `Rc` reference would form
+/// a "container → field → container" cycle causing a memory leak, so `CustomField` uses
+/// `Weak<RefCell<CustomFieldContainer>>` to refer back to the parent container (following the "back-references use `Weak`" convention).
 ///
-/// 由此带来一个 API 差异：从 `&mut self` 无法取得自身的 `Rc`，所以
-/// - [`new`](CustomFieldContainer::new) 直接返回 `Rc<RefCell<Self>>`；
-/// - 「创建字段」的 [`add`](CustomFieldContainer::add) /
-///   [`get_or_create`](CustomFieldContainer::get_or_create) 是接收
-///   `&Rc<RefCell<Self>>` 的关联函数（Java 中是实例方法）。
+/// This introduces an API difference: the `Rc` for `self` cannot be obtained from `&mut self`, so
+/// - [`new`](CustomFieldContainer::new) returns `Rc<RefCell<Self>>` directly;
+/// - the "create field" methods [`add`](CustomFieldContainer::add) /
+/// [`get_or_create`](CustomFieldContainer::get_or_create) are associated functions taking
+/// `&Rc<RefCell<Self>>` (in Java they are instance methods).
 ///
-/// 另外：调用这两个方法时**不能**同时持有该容器的 `borrow()` / `borrow_mut()`，
-/// 否则会在运行时 panic（`RefCell` 借用冲突）。
+/// Also: when calling these two methods you must **not** simultaneously hold a `borrow()` / `borrow_mut()` on the container,
+/// otherwise it panics at runtime (a `RefCell` borrow conflict).
 ///
-/// # 与 Java 的差异
+/// # Differences from Java
 ///
 /// - `Map<FieldType, CustomField>` → `HashMap<FieldKey, Rc<RefCell<CustomField>>>`
-///   （`FieldKey` 是本 crate 对 `FieldType` 接口的运行时擦除，但**不包含**
-///   `UserDefinedField`，因此本容器目前只能保存内置字段的配置）。
+/// (`FieldKey` is this crate's runtime erasure of the `FieldType` interface, but it **does not include**
+/// `UserDefinedField`, so this container can currently only store configurations for built-in fields).
 /// - `Map<Integer, CustomFieldValueItem>` / `Map<UUID, CustomFieldValueItem>` →
-///   值为 `Rc<RefCell<CustomFieldValueItem>>`；元素类型取自
-///   [`crate::custom_field_lookup_table::CustomFieldValueItem`]，即
-///   `org.mpxj.mpp.CustomFieldValueItem` 在 Rust 侧的字段载体
-///   （`mpp` 侧的 [`crate::mpp::custom_field_value_item::CustomFieldValueItem`] 是它的
-///   共享句柄，两者读写同一份字段）。
-/// - `Map<Pair<FieldTypeClass, String>, FieldType>` → `HashMap<(FieldTypeClass, String), FieldKey>`。
-/// - Java 的 `stream()`（`Stream<CustomField>`）未移植：Rust 侧由
-///   [`iter`](CustomFieldContainer::iter) 提供等价能力。
+/// The value is `Rc<RefCell<CustomFieldValueItem>>`; the element type comes from
+/// [`crate::custom_field_lookup_table::CustomFieldValueItem`], which is
+/// the Rust-side field carrier for `org.mpxj.mpp.CustomFieldValueItem`
+/// (the `mpp`-side [`crate::mpp::custom_field_value_item::CustomFieldValueItem`] is its
+/// shared handle; both read and write the same field).
+/// - `Map<Pair<FieldTypeClass, String>, FieldType>` → `HashMap<(FieldTypeClass, String), FieldKey>`.
+/// - Java's `stream()` (`Stream<CustomField>`) is not ported: on the Rust side
+/// [`iter`](CustomFieldContainer::iter) provides the equivalent capability.
 ///
-/// 被跳过的 Java 机制：`Stream` / `StreamSupport`（见上）。
+/// Skipped Java mechanisms: `Stream` / `StreamSupport` (see above).
 ///
-/// 未移植的 Java 方法：`stream()`（见上）。
+/// Unported Java methods: `stream()` (see above).
 pub struct CustomFieldContainer {
-    /// 字段类型 → 配置。
+/// Field type → configuration.
     ///
-    /// 对应 Java: `private final Map<FieldType, CustomField> m_configMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<FieldType, CustomField> m_configMap = new HashMap<>();`
     config_map: HashMap<FieldKey, Rc<RefCell<CustomField>>>,
-    /// 取值项 unique ID → 取值项。
+/// Value item unique ID → value item.
     ///
-    /// 对应 Java: `private final Map<Integer, CustomFieldValueItem> m_valueMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Integer, CustomFieldValueItem> m_valueMap = new HashMap<>();`
     value_map: HashMap<i32, Rc<RefCell<CustomFieldValueItem>>>,
-    /// 取值项 GUID → 取值项。
+/// Value item GUID → value item.
     ///
-    /// 对应 Java: `private final Map<UUID, CustomFieldValueItem> m_guidMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<UUID, CustomFieldValueItem> m_guidMap = new HashMap<>();`
     guid_map: HashMap<Uuid, Rc<RefCell<CustomFieldValueItem>>>,
-    /// 别名索引：`(实体类型, 别名)` → 字段类型。
+/// Alias index: `(entity type, alias)` → field type.
     ///
-    /// 对应 Java: `private final Map<Pair<FieldTypeClass, String>, FieldType> m_aliasMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<Pair<FieldTypeClass, String>, FieldType> m_aliasMap = new HashMap<>();`
     alias_map: HashMap<(FieldTypeClass, String), FieldKey>,
 }
 
 impl CustomFieldContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public CustomFieldContainer()`
+    /// Corresponds to Java: `public CustomFieldContainer()`
     ///
-    /// Rust 侧返回 `Rc<RefCell<Self>>`，因为创建字段时需要把父容器的 `Weak` 交给
-    /// [`CustomField`]（见类型说明）。
+/// The Rust side returns `Rc<RefCell<Self>>`, because creating a field requires handing the parent container's `Weak` to
+/// [`CustomField`] (see the type documentation).
     pub fn new() -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             config_map: HashMap::new(),
@@ -85,16 +85,16 @@ impl CustomFieldContainer {
         }))
     }
 
-    /// 按字段类型取配置；未配置时返回 `None`。
+/// Get the configuration by field type; returns `None` when not configured.
     ///
-    /// 对应 Java: `public CustomField get(FieldType field)`
+    /// Corresponds to Java: `public CustomField get(FieldType field)`
     pub fn get(&self, field: FieldKey) -> Option<Rc<RefCell<CustomField>>> {
         self.config_map.get(&field).cloned()
     }
 
-    /// 按字段类型取配置，不存在时新建。
+/// Get the configuration by field type, creating it when absent.
     ///
-    /// 对应 Java: `public CustomField getOrCreate(FieldType field)`
+    /// Corresponds to Java: `public CustomField getOrCreate(FieldType field)`
     pub fn get_or_create(
         container: &Rc<RefCell<Self>>,
         field: FieldKey,
@@ -106,11 +106,11 @@ impl CustomFieldContainer {
         Self::add(container, field)
     }
 
-    /// 新建并登记一个字段配置（覆盖已有配置）。
+/// Create and register a field configuration (overwriting an existing configuration).
     ///
-    /// 对应 Java: `public CustomField add(FieldType field)`
+    /// Corresponds to Java: `public CustomField add(FieldType field)`
     ///
-    /// 见类型说明：Rust 侧是关联函数，需要传入父容器自身。
+/// See the type documentation: on the Rust side this is an associated function and requires passing the parent container itself.
     pub fn add(
         container: &Rc<RefCell<Self>>,
         field: FieldKey,
@@ -123,16 +123,16 @@ impl CustomFieldContainer {
         custom_field
     }
 
-    /// 移除字段配置。
+/// Remove a field configuration.
     ///
-    /// 对应 Java: `public void remove(FieldType field)`
+    /// Corresponds to Java: `public void remove(FieldType field)`
     pub fn remove(&mut self, field: FieldKey) {
         self.config_map.remove(&field);
     }
 
-    /// 按别名查找字段类型，找不到时返回 `None`。
+/// Look up a field type by alias; returns `None` when not found.
     ///
-    /// 对应 Java: `public FieldType getFieldTypeByAlias(FieldTypeClass typeClass, String alias)`
+    /// Corresponds to Java: `public FieldType getFieldTypeByAlias(FieldTypeClass typeClass, String alias)`
     pub fn get_field_type_by_alias(
         &self,
         type_class: FieldTypeClass,
@@ -143,12 +143,12 @@ impl CustomFieldContainer {
             .copied()
     }
 
-    /// 取某一实体类型下的全部字段配置。
+/// Get all field configurations for a given entity type.
     ///
-    /// 对应 Java: `public List<CustomField> getCustomFieldsByFieldTypeClass(FieldTypeClass typeClass)`
+    /// Corresponds to Java: `public List<CustomField> getCustomFieldsByFieldTypeClass(FieldTypeClass typeClass)`
     ///
-    /// Java 侧经 `stream()` 收集；Rust 侧直接筛选 `iter()`。返回顺序继承 `HashMap`
-    /// 的迭代顺序（Java 的 `HashMap` 同样不保证顺序）。
+/// Java collects them via `stream()`; the Rust side filters `iter()` directly. The return order inherits
+/// the iteration order of `HashMap` (Java's `HashMap` likewise does not guarantee order).
     pub fn get_custom_fields_by_field_type_class(
         &self,
         type_class: FieldTypeClass,
@@ -161,32 +161,32 @@ impl CustomFieldContainer {
             .collect()
     }
 
-    /// 字段配置个数。
+/// The number of field configurations.
     ///
-    /// 对应 Java: `public int size()`
+    /// Corresponds to Java: `public int size()`
     pub fn size(&self) -> usize {
         self.config_map.len()
     }
 
-    /// 是否没有任何字段配置。
+/// Whether there are no field configurations.
     ///
-    /// Rust 侧新增的便捷方法（Java 由调用方用 `size() == 0` 判断）。
+/// A convenience method added on the Rust side (Java leaves this to the caller with `size() == 0`).
     pub fn is_empty(&self) -> bool {
         self.config_map.is_empty()
     }
 
-    /// 迭代全部字段配置。
+/// Iterate over all field configurations.
     ///
-    /// 对应 Java: `@Override public Iterator<CustomField> iterator()`
+    /// Corresponds to Java: `@Override public Iterator<CustomField> iterator()`
     pub fn iter(&self) -> impl Iterator<Item = &Rc<RefCell<CustomField>>> {
         self.config_map.values()
     }
 
-    /// 按 unique ID 取自定义字段取值项。
+/// Get a custom field value item by unique ID.
     ///
-    /// 对应 Java: `public CustomFieldValueItem getCustomFieldValueItemByUniqueID(int uniqueID)`
+    /// Corresponds to Java: `public CustomFieldValueItem getCustomFieldValueItemByUniqueID(int uniqueID)`
     ///
-    /// Java 注释标注「只用于读取 MPP 文件」。
+/// The Java comment notes "used only when reading MPP files".
     pub fn get_custom_field_value_item_by_unique_id(
         &self,
         unique_id: i32,
@@ -194,11 +194,11 @@ impl CustomFieldContainer {
         self.value_map.get(&unique_id).cloned()
     }
 
-    /// 按 GUID 取自定义字段取值项。
+/// Get a custom field value item by GUID.
     ///
-    /// 对应 Java: `public CustomFieldValueItem getCustomFieldValueItemByGuid(UUID guid)`
+    /// Corresponds to Java: `public CustomFieldValueItem getCustomFieldValueItemByGuid(UUID guid)`
     ///
-    /// Java 注释标注「只用于读取 MPP 文件」。
+/// The Java comment notes "used only when reading MPP files".
     pub fn get_custom_field_value_item_by_guid(
         &self,
         guid: Uuid,
@@ -206,11 +206,11 @@ impl CustomFieldContainer {
         self.guid_map.get(&guid).cloned()
     }
 
-    /// 把取值项登记进索引。
+/// Register a value item in the index.
     ///
-    /// 对应 Java: `public void registerValue(CustomFieldValueItem item)`
+    /// Corresponds to Java: `public void registerValue(CustomFieldValueItem item)`
     ///
-    /// Java 注释标注「只用于读取 MPP 文件」。
+/// The Java comment notes "used only when reading MPP files".
     pub fn register_value(&mut self, item: Rc<RefCell<CustomFieldValueItem>>) {
         let unique_id = item.borrow().get_unique_id();
         let guid = item.borrow().get_guid();
@@ -222,11 +222,11 @@ impl CustomFieldContainer {
         }
     }
 
-    /// 把取值项从索引中移除。
+/// Remove a value item from the index.
     ///
-    /// 对应 Java: `public void deregisterValue(CustomFieldValueItem item)`
+    /// Corresponds to Java: `public void deregisterValue(CustomFieldValueItem item)`
     ///
-    /// Java 注释标注「只用于读取 MPP 文件」。
+/// The Java comment notes "used only when reading MPP files".
     pub fn deregister_value(&mut self, item: &Rc<RefCell<CustomFieldValueItem>>) {
         self.value_map.remove(&item.borrow().get_unique_id());
 
@@ -235,12 +235,12 @@ impl CustomFieldContainer {
         }
     }
 
-    /// 登记字段别名索引。
+/// Register the field alias index.
     ///
-    /// 对应 Java: `void registerAlias(FieldType type, String alias)`（包级可见）
+/// Corresponds to Java: `void registerAlias(FieldType type, String alias)` (package-private)
     ///
-    /// 由 [`CustomField::set_alias`] 回调触发；Rust 侧可见性为 `pub(crate)`，与 Java 的
-    /// 包级可见性对应。
+/// Triggered by the [`CustomField::set_alias`] callback; the Rust visibility is `pub(crate)`, matching Java's
+/// package-private visibility.
     pub(crate) fn register_alias(&mut self, field_type: FieldKey, alias: &str) {
         self.alias_map.insert(
             (field_type.get_field_type_class(), alias.to_owned()),
@@ -250,8 +250,8 @@ impl CustomFieldContainer {
 }
 
 impl Debug for CustomFieldContainer {
-    /// Java 侧未覆写 `toString()`；Rust 侧输出各索引（`CustomField` 的 `Debug` 不会递归
-    /// 到父容器，见 [`CustomField`] 的说明）。
+/// Java does not override `toString()`; the Rust side prints the individual indexes (`CustomField`'s `Debug` does not recurse
+/// into the parent container, see the documentation of [`CustomField`]).
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("CustomFieldContainer")
             .field("config_map", &self.config_map)
@@ -283,11 +283,11 @@ mod tests {
             &container
                 .borrow()
                 .get(FieldKey::Task(TaskField::Text1))
-                .expect("已登记"),
+                .expect("registered"),
             &field
         ));
 
-        // add 覆盖已有配置
+// add overwrites an existing configuration
         let replacement = CustomFieldContainer::add(&container, FieldKey::Task(TaskField::Text1));
         assert_eq!(container.borrow().size(), 1);
         assert!(!Rc::ptr_eq(&replacement, &field));
@@ -325,7 +325,7 @@ mod tests {
             Some(FieldKey::Task(TaskField::Text1))
         );
 
-        // 实体类型不匹配时查不到
+// Not found when the entity type does not match
         assert_eq!(
             container
                 .borrow()
@@ -387,14 +387,14 @@ mod tests {
             &container
                 .borrow()
                 .get_custom_field_value_item_by_unique_id(11)
-                .expect("已登记"),
+                .expect("registered"),
             &item
         ));
         assert!(Rc::ptr_eq(
             &container
                 .borrow()
                 .get_custom_field_value_item_by_guid(guid)
-                .expect("已登记"),
+                .expect("registered"),
             &item
         ));
         assert!(container
@@ -406,7 +406,7 @@ mod tests {
             .get_custom_field_value_item_by_guid(Uuid::from_u128(8))
             .is_none());
 
-        // 注销后两个索引都不再命中
+// After unregistering, neither index matches anymore
         container.borrow_mut().deregister_value(&item);
         assert!(container
             .borrow()

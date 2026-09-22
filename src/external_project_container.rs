@@ -1,55 +1,55 @@
-//! 对应 Java: `org/mpxj/ExternalProjectContainer.java`
+//! Corresponds to Java: `org/mpxj/ExternalProjectContainer.java`
 //!
-//! 包级私有工具类：负责定位并读取外部（子）项目文件，并缓存结果，使同一文件的
-//! 多次读取直接从缓存返回。
+//! Package-private utility class: locates and reads external (sub)project files and caches the results, so repeated reads of the same file
+//! return directly from the cache.
 //!
-//! # Java → Rust 方法对照
+//! # Java → Rust method mapping
 //!
 //! | Java | Rust |
 //! |---|---|
-//! | `public ExternalProjectContainer(ProjectFile file)` | [`ExternalProjectContainer::new`] + [`ExternalProjectContainer::set_context`]（Java 在构造时拿到父文件，Rust 侧拆成两步，见下） |
+//! | `public ExternalProjectContainer(ProjectFile file)` | [`ExternalProjectContainer::new`] + [`ExternalProjectContainer::set_context`] (Java receives the parent file at construction; the Rust side splits this into two steps, see below) |
 //! | `public void add(String fileName, ProjectFile projectFile)` | [`ExternalProjectContainer::add`] |
 //! | `public ProjectFile read(String fileName)` | [`ExternalProjectContainer::read`] |
 //! | `private File findFile(String fileName)` | [`ExternalProjectContainer::find_file`] |
-//! | `private ProjectFile readFile(File file)` | [`ExternalProjectContainer::read_file`]（读取动作改为经由可插拔回调，见下） |
+//! | `private ProjectFile readFile(File file)` | [`ExternalProjectContainer::read_file`] (reading is done via a pluggable callback, see below) |
 //!
-//! # 与 Java 的差异
+//! # Differences from Java
 //!
-//! - **父文件的反向引用**：Java 的构造方法接收 `ProjectFile` 并以强引用保存
-//!   （`m_file`）；Rust 侧若强引用会与 `ProjectFile → ExternalProjectContainer`
-//!   形成 `Rc` 循环，故改为 `Weak<RefCell<ProjectFile>>`，先以空弱引用构造，
-//!   再由 [`ExternalProjectContainer::set_context`] 接线（由
-//!   [`crate::project_file::ProjectFile`] 的构造流程完成）。
-//! - **`java.io.File` → [`std::path::PathBuf`]**：`File` 的相等性是路径相等，
-//!   `PathBuf` 一致；`File.exists()` 对应 [`Path::exists`]，`new File(dir, name)`
-//!   对应 [`Path::join`]。Java 的 `fileName.lastIndexOf("\\")` 对应
-//!   `str::rfind('\\')`（Java 侧注释已说明「路径始终使用 Windows 分隔符」）。
-//! - **缓存的空值**：Java 的 `m_fileMap` / `m_projectMap` 都会把 `null` 也缓存下来
-//!   （`containsKey` 命中后直接返回 `null`，不再重试）。Rust 侧用
-//!   `HashMap<String, Option<PathBuf>>` / `HashMap<PathBuf, Option<Rc<..>>>` 表达同样的语义。
-//! - **`readFile` 中的读取动作（A 类硬限制）**：Java 直接
-//!   `new UniversalProjectReader().read(file)`。本 crate **没有** `UniversalProjectReader`
-//!   —— Java 靠 `Class.forName` 遍历 `org.mpxj.reader` 包下的候选 reader 并按
-//!   `getFileFormat()` 试读分发，Rust 无反射；本工程把这归为类别性跳过项。
-//!   已落地的具体 reader 是 [`crate::mpp::mpp_reader::MPPReader`] 与
+//! - **Back-reference to the parent file**: Java's constructor receives a `ProjectFile` and stores it as a strong reference
+//! (`m_file`); a strong reference on the Rust side would form an `Rc` cycle with `ProjectFile → ExternalProjectContainer`
+//! so it is changed to `Weak<RefCell<ProjectFile>>`, constructed first with an empty weak reference
+//! and then wired up by [`ExternalProjectContainer::set_context`] (performed by
+//! the construction flow of [`crate::project_file::ProjectFile`]).
+//! - **`java.io.File` → [`std::path::PathBuf`]**: `File` equality is path equality,
+//! and `PathBuf` matches; `File.exists()` corresponds to [`Path::exists`], and `new File(dir, name)`
+//! corresponds to [`Path::join`]. Java's `fileName.lastIndexOf("\\")` corresponds to
+//! `str::rfind('\\')` (the Java-side comment already states that "paths always use Windows separators").
+//! - **Cached nulls**: Java's `m_fileMap` / `m_projectMap` cache `null` as well
+//! (after a `containsKey` hit they return `null` directly without retrying). The Rust side uses
+//! `HashMap<String, Option<PathBuf>>` / `HashMap<PathBuf, Option<Rc<..>>>` to express the same semantics.
+//! - **The read action in `readFile` (a category A hard limitation)**: Java directly does
+//! `new UniversalProjectReader().read(file)`. This crate does **not** have `UniversalProjectReader`
+//! — Java relies on `Class.forName` to iterate over candidate readers under the `org.mpxj.reader` package and
+//! dispatch by trial reading via `getFileFormat()`; Rust has no reflection, so this project classifies it as a categorical skip.
+//! The concrete readers already implemented are [`crate::mpp::mpp_reader::MPPReader`] and
 //!   [`crate::mpx::mpx_reader::MPXReader`]
-//!   （均实现 [`crate::reader::project_reader::ProjectReader`]），因此 Rust 侧把
-//!   「读取」抽成可插拔回调 [`ExternalProjectContainer::set_project_reader`]（Rust 特有）：
-//!   调用方按扩展名自行分派到上述 reader 即可等价还原 Java 的分发结果；
-//!   未接线时 `read_file` 返回 `None`（等价于 Java 读取失败的情形）。
-//!   `read_file` 的其余逻辑（子项目继承搜索目录）与 Java 一致。
-//! - **异常处理**：Java 用 `catch (MPXJException ex) { project = null; }`；Rust 侧的
-//!   回调以 `Option` 表达读取失败，无需 `catch`。
-//! - **重入借用**：`find_file` 需要读取父文件的 `ProjectConfig`（子项目工作目录）。
-//!   父文件已被借用（例如调用方正持有 `ProjectFile` 的可变借用）时 Rust 侧退化为
-//!   「未配置搜索目录」，不 panic（Java 无此情形）。
+//! (both implement [`crate::reader::project_reader::ProjectReader`]), so the Rust side abstracts
+//! "reading" into a pluggable callback [`ExternalProjectContainer::set_project_reader`] (Rust-specific):
+//! callers can dispatch by extension to the above readers themselves to equivalently reproduce Java's dispatch result;
+//! when not wired up, `read_file` returns `None` (equivalent to the case where Java fails to read).
+//! The rest of `read_file`'s logic (inheriting the subproject search directory) matches Java.
+//! - **Exception handling**: Java uses `catch (MPXJException ex) { project = null; }`; the Rust side's
+//! callback expresses read failure with `Option`, so no `catch` is needed.
+//! - **Reentrant borrow**: `find_file` needs to read the parent file's `ProjectConfig` (the subproject working directory).
+//! When the parent file is already borrowed (for example, the caller holds a mutable borrow of `ProjectFile`), the Rust side degrades to
+//! "no search directories configured", without panicking (this case does not occur in Java).
 //!
-//! # 跳过的 Java 机制
+//! # Skipped Java mechanisms
 //!
-//! `org.mpxj.reader.UniversalProjectReader`（反射分发，见上；`crate::reader` 与
-//! `crate::mpp::mpp_reader::MPPReader` / `crate::mpx::mpx_reader::MPXReader` 均已落地，
-//! 缺的只是这层反射分发）。
-//! 反射 / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`：本类未使用这些机制。
+//! `org.mpxj.reader.UniversalProjectReader` (reflection dispatch, see above; `crate::reader` and
+//! `crate::mpp::mpp_reader::MPPReader` / `crate::mpx::mpx_reader::MPXReader` are all implemented,
+//! only this reflection dispatch layer is missing).
+//! Reflection / JDBC / XML-JAXB / GUI / `javax.*` / `Serializable`: this class does not use these mechanisms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -58,39 +58,39 @@ use std::rc::{Rc, Weak};
 
 use crate::project_file::ProjectFile;
 
-/// 读取项目文件的回调类型（Rust 特有，替代 Java 的
-/// `new UniversalProjectReader().read(file)`）。
+/// The callback type for reading project files (Rust-specific, replacing Java's
+/// `new UniversalProjectReader().read(file)`).
 pub type ProjectReader = Box<dyn FnMut(&Path) -> Option<Rc<RefCell<ProjectFile>>>>;
 
-/// 外部（子）项目文件的定位与缓存容器。
+/// Container for locating and caching external (sub)project files.
 ///
-/// 对应 Java: `class ExternalProjectContainer`
+/// Corresponds to Java: `class ExternalProjectContainer`
 pub struct ExternalProjectContainer {
-    /// 父项目文件（弱引用，避免 `Rc` 循环）。
+/// The parent project file (weak reference, avoiding an `Rc` cycle).
     ///
-    /// 对应 Java: `private final ProjectFile m_file;`
+    /// Corresponds to Java: `private final ProjectFile m_file;`
     file: Weak<RefCell<ProjectFile>>,
 
-    /// 原始路径 → 解析后的文件路径（命中过但找不到文件时缓存 `None`）。
+/// Original path → resolved file path (caches `None` when it was probed but no file was found).
     ///
-    /// 对应 Java: `private final Map<String, File> m_fileMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<String, File> m_fileMap = new HashMap<>();`
     file_map: HashMap<String, Option<PathBuf>>,
 
-    /// 文件路径 → 项目文件（读取失败时缓存 `None`）。
+/// File path → project file (caches `None` when reading fails).
     ///
-    /// 对应 Java: `private final Map<File, ProjectFile> m_projectMap = new HashMap<>();`
+    /// Corresponds to Java: `private final Map<File, ProjectFile> m_projectMap = new HashMap<>();`
     project_map: HashMap<PathBuf, Option<Rc<RefCell<ProjectFile>>>>,
 
-    /// 读取项目文件的回调（Rust 特有，见文件头说明）。
+/// Callback for reading project files (Rust-specific, see the file header).
     project_reader: Option<ProjectReader>,
 }
 
 impl ExternalProjectContainer {
-    /// 构造方法。
+/// Constructor.
     ///
-    /// 对应 Java: `public ExternalProjectContainer(ProjectFile file)`
+    /// Corresponds to Java: `public ExternalProjectContainer(ProjectFile file)`
     ///
-    /// Rust 侧先以空父文件弱引用构造，由 [`ExternalProjectContainer::set_context`] 接线。
+/// On the Rust side the object is first constructed with an empty weak parent-file reference and wired up by [`ExternalProjectContainer::set_context`].
     pub fn new() -> Self {
         Self {
             file: Weak::new(),
@@ -100,30 +100,30 @@ impl ExternalProjectContainer {
         }
     }
 
-    /// 接线父项目文件（Rust 特有：Java 在构造方法中直接接收 `ProjectFile`）。
+/// Wire up the parent project file (Rust-specific: Java receives `ProjectFile` directly in the constructor).
     ///
-    /// 对应 Java: 构造方法中的 `m_file = file;`
+/// Corresponds to Java: `m_file = file;` in the constructor
     pub(crate) fn set_context(&mut self, file: &Rc<RefCell<ProjectFile>>) {
         self.file = Rc::downgrade(file);
     }
 
-    /// 取父项目文件（未接线时返回 `None`）。
+/// Get the parent project file (returns `None` when not wired up).
     ///
-    /// Rust 特有访问器（Java 侧 `m_file` 为私有字段，无对应方法）。
+/// Rust-specific accessor (on the Java side `m_file` is a private field with no corresponding method).
     pub fn get_context(&self) -> Option<Rc<RefCell<ProjectFile>>> {
         self.file.upgrade()
     }
 
-    /// 接线读取项目文件的回调（Rust 特有，见文件头说明）。
+/// Wire up the callback for reading project files (Rust-specific, see the file header).
     ///
-    /// 对应 Java: `readFile` 中的 `new UniversalProjectReader().read(file)`
+/// Corresponds to Java: `new UniversalProjectReader().read(file)` in `readFile`
     pub fn set_project_reader(&mut self, reader: Option<ProjectReader>) {
         self.project_reader = reader;
     }
 
-    /// 登记一个已存在的项目文件实例。
+/// Register an already existing project file instance.
     ///
-    /// 对应 Java: `public void add(String fileName, ProjectFile projectFile)`
+    /// Corresponds to Java: `public void add(String fileName, ProjectFile projectFile)`
     pub fn add(&mut self, file_name: &str, project_file: Option<Rc<RefCell<ProjectFile>>>) {
         // Java: File file = new File(fileName);
         let file = PathBuf::from(file_name);
@@ -134,9 +134,9 @@ impl ExternalProjectContainer {
         self.project_map.insert(file, project_file);
     }
 
-    /// 读取指定路径的项目文件（结果会被缓存）。
+/// Read the project file at the given path (the result is cached).
     ///
-    /// 对应 Java: `public ProjectFile read(String fileName)`
+    /// Corresponds to Java: `public ProjectFile read(String fileName)`
     pub fn read(&mut self, file_name: Option<&str>) -> Option<Rc<RefCell<ProjectFile>>> {
         // Java: if (fileName == null || fileName.isEmpty()) { return null; }
         let file_name = match file_name {
@@ -171,9 +171,9 @@ impl ExternalProjectContainer {
         project
     }
 
-    /// 定位指定名称的文件：先按完整路径查找，再尝试进程工作目录或调用方指定的搜索目录。
+/// Locate a file with the given name: first search by the full path, then try the process working directory or the search directories specified by the caller.
     ///
-    /// 对应 Java: `private File findFile(String fileName)`
+    /// Corresponds to Java: `private File findFile(String fileName)`
     pub fn find_file(&self, file_name: &str) -> Option<PathBuf> {
         // Java: File file = new File(fileName); if (file.exists()) { ... }
         let file = PathBuf::from(file_name);
@@ -182,7 +182,7 @@ impl ExternalProjectContainer {
         }
 
         // Java: int index = fileName.lastIndexOf("\\"); if (index == -1) { return null; }
-        // （Java 注释说明：这里的路径始终使用 Windows 分隔符）
+// (The Java comment states: the path here always uses Windows separators)
         let index = file_name.rfind('\\')?;
 
         // Java: String name = fileName.substring(index + 1);
@@ -203,13 +203,13 @@ impl ExternalProjectContainer {
         }
     }
 
-    /// 读取一个项目文件。
+/// Read a project file.
     ///
-    /// 对应 Java: `private ProjectFile readFile(File file)`
+    /// Corresponds to Java: `private ProjectFile readFile(File file)`
     ///
-    /// Java 用 `new UniversalProjectReader().read(file)` 读取并以 `MPXJException` 表示失败；
-    /// Rust 侧由 [`ExternalProjectContainer::set_project_reader`] 接线的回调完成读取，
-    /// 未接线或回调返回 `None` 时返回 `None`（见文件头说明）。
+/// Java reads with `new UniversalProjectReader().read(file)` and signals failure with `MPXJException`;
+/// on the Rust side the read is performed by the callback wired up via [`ExternalProjectContainer::set_project_reader`],
+/// and when it is not wired up or the callback returns `None` it returns `None` (see the file header).
     fn read_file(&mut self, file: &Path) -> Option<Rc<RefCell<ProjectFile>>> {
         // Java: project = new UniversalProjectReader().read(file);
         let project = match self.project_reader.as_mut() {
@@ -236,9 +236,9 @@ impl ExternalProjectContainer {
         Some(project)
     }
 
-    /// 取父文件配置中的「子项目搜索目录」（父文件未接线、已被借用或未配置时返回 `None`）。
+/// Get the "subproject search directories" from the parent file's configuration (returns `None` when the parent file is not wired up, is already borrowed, or has none configured).
     ///
-    /// 对应 Java: `m_file.getProjectConfig().getSubprojectWorkingDirectory()`
+    /// Corresponds to Java: `m_file.getProjectConfig().getSubprojectWorkingDirectory()`
     fn subproject_working_directory(&self) -> Option<PathBuf> {
         let file = self.file.upgrade()?;
         let file_ref = file.try_borrow().ok()?;
@@ -248,8 +248,8 @@ impl ExternalProjectContainer {
 }
 
 impl Default for ExternalProjectContainer {
-    /// 对应 Java: 显式声明的 `ExternalProjectContainer(ProjectFile)`，
-    /// Rust 侧等价于 [`ExternalProjectContainer::new`]（父文件由 `set_context` 接线）。
+/// Corresponds to Java: the explicitly declared `ExternalProjectContainer(ProjectFile)`,
+/// the Rust side equivalent of [`ExternalProjectContainer::new`] (the parent file is wired up by `set_context`).
     fn default() -> Self {
         Self::new()
     }
@@ -260,7 +260,7 @@ mod tests {
     use super::*;
     use crate::project_file::ProjectFile;
 
-    /// 构造一个已接线父文件的容器。
+/// Construct a container with the parent file already wired up.
     fn container() -> (Rc<RefCell<ProjectFile>>, ExternalProjectContainer) {
         let file = ProjectFile::new();
         let mut container = ExternalProjectContainer::new();
@@ -283,13 +283,13 @@ mod tests {
 
         container.add("X:\\projects\\subproject.mpp", Some(Rc::clone(&project)));
 
-        // Java: m_fileMap / m_projectMap 命中后直接返回缓存
+// Java: m_fileMap / m_projectMap return the cache directly on a hit
         let found = container.read(Some("X:\\projects\\subproject.mpp"));
         assert!(found
             .map(|found| Rc::ptr_eq(&found, &project))
             .unwrap_or(false));
 
-        // 二次读取仍命中缓存
+// A second read still hits the cache
         let again = container.read(Some("X:\\projects\\subproject.mpp"));
         assert!(again.is_some());
     }
@@ -298,11 +298,11 @@ mod tests {
     fn read_missing_file_returns_none_and_caches_the_miss() {
         let (_, mut container) = container();
 
-        // 完整路径不存在，且路径中没有 Windows 分隔符 → Java 返回 null
+// The full path does not exist, and the path contains no Windows separator → Java returns null
         assert!(container.read(Some("no-such-file.mpp")).is_none());
         assert!(container.file_map.contains_key("no-such-file.mpp"));
 
-        // 再次读取：命中 fileMap 中的缓存 null
+// Read again: hits the cached null in fileMap
         assert!(container.read(Some("no-such-file.mpp")).is_none());
     }
 
@@ -310,7 +310,7 @@ mod tests {
     fn find_file_falls_back_to_file_name_when_directory_is_unknown() {
         let (_, container) = container();
 
-        // 路径中带分隔符，但文件不存在：依次尝试「原路径」与「文件名」后失败
+// The path contains a separator but the file does not exist: tries "original path" and then "file name" and fails
         assert!(container.find_file("X:\\projects\\missing.mpp").is_none());
     }
 
@@ -318,7 +318,7 @@ mod tests {
     fn read_file_uses_the_plugged_in_reader_and_inherits_search_directory() {
         let file = ProjectFile::new();
 
-        // 父文件配置搜索目录
+// Parent file configured search directories
         {
             let context = file.borrow().get_project_context();
             context
@@ -340,13 +340,13 @@ mod tests {
             }
         })));
 
-        // 直接驱动 read_file（Java 中由 read 在缓存未命中时调用）
+// Drives read_file directly (in Java it is called by read when the cache misses)
         let project = container
             .read_file(Path::new("X:\\projects\\child.mpp"))
-            .expect("回调返回项目文件");
+            .expect("callback returns project file");
         assert!(Rc::ptr_eq(&project, &subproject));
 
-        // Java: 子项目继承搜索目录
+// Java: subproject inherits the search directories
         assert_eq!(
             subproject
                 .borrow()
@@ -357,7 +357,7 @@ mod tests {
             Some(Path::new("X:\\projects"))
         );
 
-        // 回调未命中时返回 None
+// Returns None when the callback misses
         assert!(container.read_file(Path::new("X:\\other.mpp")).is_none());
     }
 
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn context_can_be_read_back() {
         let (file, container) = container();
-        assert!(Rc::ptr_eq(&container.get_context().expect("已接线"), &file));
+        assert!(Rc::ptr_eq(&container.get_context().expect("wired up"), &file));
         assert!(ExternalProjectContainer::new().get_context().is_none());
         assert!(ExternalProjectContainer::default().get_context().is_none());
     }
