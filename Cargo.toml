@@ -1,7 +1,28 @@
 [package]
-name = "mpxj"
+name = "mpxj-rs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Unofficial Rust port of the MPXJ reader: parse Microsoft Project MPP and MPX files into a unified ProjectFile model."
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/lyj-514328/rust-mpxj"
+readme = "README.md"
+keywords = ["microsoft-project", "mpp", "mpx", "project", "parser"]
+categories = ["parser-implementations"]
+exclude = [
+    "mpxj",
+    "tests",
+    "examples",
+    "tools",
+    "_tmp_*",
+    "TECH_DEBT.md",
+    "AGENTS.md",
+    ".gitmodules",
+]
+
+[lib]
+name = "mpxj"
+path = "src/lib.rs"
 
 [dependencies]
 byteorder = "1.5.0"
