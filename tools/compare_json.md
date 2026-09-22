@@ -1,60 +1,60 @@
-# ProjectFile JSON 对拍
+# ProjectFile JSON Comparison
 
-并发编排由 `tools/run_json_compare.py` 负责：Java 与 Rust 各启动**一个常驻 server 进程**，样本路径经 stdin 批量送入，快照按样本落盘，随后比较器在 Python 进程内并行比对。JSON 以 UTF-8 字节流保存，避免 Windows 控制台代码页改写非 ASCII 字符。
+Concurrency orchestration is handled by `tools/run_json_compare.py`: Java and Rust each start **a single long-lived server process**, sample paths are fed in bulk over stdin, snapshots are written to disk per sample, and the comparator then compares them in parallel inside the Python process. JSON is saved as a UTF-8 byte stream so the Windows console code page cannot rewrite non-ASCII characters.
 
-常驻 server 省掉了逐样本启动 JVM 的固定开销（本机小样本约 1.8 s/次，其中大部分是类加载）。server 模式：`--server <输出目录>`，stdin 每行 `<stem>\t<样本路径>`，结果写入 `<输出目录>/<stem>.json`，内容为 `{"path": <样本路径>, "result": <ProjectFile 快照>}`；读取失败时改为 `{"path": ..., "error": ...}`。`--threads N` 控制 server 内部线程池（默认 CPU 核数）。server 全程把 `System.out` 重定向到 stderr，避免上游诊断污染协议通道。`--parallelism` 现在表示 server 内部线程数，而不是并发进程数。
+The long-lived server removes the fixed cost of starting a JVM per sample (about 1.8 s per run for small samples on this machine, most of it class loading). Server mode: `--server <output-dir>`, one `<stem>\t<sample-path>` per stdin line, results written to `<output-dir>/<stem>.json` with the content `{"path": <sample-path>, "result": <ProjectFile snapshot>}`; on read failure it becomes `{"path": ..., "error": ...}`. `--threads N` controls the server's internal thread pool (default: number of CPU cores). Throughout its run the server redirects `System.out` to stderr so upstream diagnostics cannot pollute the protocol channel. `--parallelism` now means the number of threads inside the server, not the number of concurrent processes.
 
 ```powershell
 python -X utf8 -B tools/run_json_compare.py --all-fields --parallelism 8
 ```
 
-已有的 PowerShell 入口仍然保留，会把参数转发给 Python：
+The existing PowerShell entry point is still retained and forwards its arguments to Python:
 
 ```powershell
 ./tools/run_json_compare.ps1 -AllFields -Parallelism 8 -Quiet
 ```
 
-在仓库根目录执行：
+Run from the repository root:
 
 ```powershell
 ./tools/run_json_compare.ps1
 ./tools/run_json_compare.ps1 -Samples mpxj/junit/data/sample.de.mpx
 ```
 
-全量对拍（排除 3 份已知受密码保护的 MPP 文件，共 19 份 MPX + 606 份 MPP）：
+Full comparison (excluding the 3 known password-protected MPP files; 19 MPX + 606 MPP in total):
 
 ```powershell
 $mpxSamples = @(rg --files mpxj/junit/data -g '*.mpx')
 $mppSamples = @(rg --files mpxj/junit/data -g '*.mpp' |
     Where-Object { $_ -notmatch '(bothpassword9|readpassword9|password-protected-mpp9)\.mpp$' })
 $samples = @($mpxSamples) + @($mppSamples)
-if ($samples.Count -ne 625) { throw "样本总数不符: $($samples.Count)" }
+if ($samples.Count -ne 625) { throw "sample count mismatch: $($samples.Count)" }
 ./tools/run_json_compare.ps1 -Samples $samples
 ```
 
-字段级全量模式：
+Field-level full mode:
 
 ```powershell
 ./tools/run_json_compare.ps1 -AllFields
 ./tools/run_json_compare.ps1 -Samples mpxj/junit/data/sample.de.mpx -AllFields
-# 大样本集只保留最终汇总
+# For large sample sets keep only the final summary
 ./tools/run_json_compare.ps1 -Samples $samples -AllFields -Quiet
 ```
 
-`-AllFields` 会在两侧快照中附加四类实体的 `field_catalog`、明确的 `field_exclusions`，以及每个项目属性、任务、资源和分配的全部非空 `field_values`。目录来自 Java/Rust 各自的内置 `FieldType.values()` / `ALL`，并包含 `CUSTOM:<uniqueID>` 自定义字段；比较器会拒绝缺目录、缺实体字段列表、重复字段名、未登记字段和被排除字段，避免两侧同时漏值而误报一致。`CURRENT_DATE` 在未显式缓存时标记为 `<dynamic>`，避免读取时刻不同造成伪差异。
+`-AllFields` adds to both sides' snapshots the `field_catalog` and explicit `field_exclusions` for the four entity kinds, plus all non-null `field_values` of every project property, task, resource, and assignment. The catalog comes from each side's built-in Java/Rust `FieldType.values()` / `ALL` and includes `CUSTOM:<uniqueID>` custom fields; the comparator rejects a missing catalog, a missing entity field list, duplicate field names, unregistered fields, and excluded fields, so that both sides missing a value at once cannot be misreported as matching. `CURRENT_DATE` is marked `<dynamic>` when it is not explicitly cached, to avoid spurious differences caused by reading at different moments.
 
-当前排除项为 MPXJ 明确的 P6 专用字段：`PROJECT_CODE_VALUES`、`RESOURCE_CODE_VALUES`、`ROLE_CODE_VALUES`、`RESOURCE_ASSIGNMENT_CODE_VALUES`、`ACTIVITY_CODE_VALUES`、`EXPENSE_ITEMS`。本仓库 reader 不实现 P6/Primavera 数据，排除项会在快照中显式列出而不会静默跳过。
+The current exclusions are MPXJ's explicitly P6-specific fields: `PROJECT_CODE_VALUES`, `RESOURCE_CODE_VALUES`, `ROLE_CODE_VALUES`, `RESOURCE_ASSIGNMENT_CODE_VALUES`, `ACTIVITY_CODE_VALUES`, `EXPENSE_ITEMS`. This repository's reader does not implement P6/Primavera data, so the exclusions are listed explicitly in the snapshot rather than skipped silently.
 
-不传 `-Samples` 时使用 `tools/json_compare_samples.txt` 中的固定清单：全部 19 份 MPX 样本，加 13 份覆盖 MPP8/9/12/14 日历、关系、分配及可用性路径的 MPP 样本。`-Samples` 可只对拍指定文件；显式传入空列表会报错，不会产生虚假的通过结果。更新清单时应先核对 Java/Rust 快照的具体差异，再纳入默认集。
+When `-Samples` is not passed, the fixed list in `tools/json_compare_samples.txt` is used: all 19 MPX samples plus 13 MPP samples covering the MPP8/9/12/14 calendar, relation, assignment, and availability paths. `-Samples` can compare only the specified files; explicitly passing an empty list raises an error and does not produce a spurious pass. When updating the list, first verify the specific differences between the Java/Rust snapshots before adding anything to the default set.
 
-依赖 Java/Javac、Python 3、Cargo 和 Maven（PATH 中的 `mvn.cmd`，或 Scoop 的 `~/scoop/apps/maven/current/bin/mvn.cmd`）。脚本每次先用 Maven 对 `mpxj/` 执行 `package`（跳过测试与 Javadoc），再使用本次构建的 `mpxj/target/mpxj-16.7.0.jar` 与 `mpxj/lib/*.jar`。Maven 只生成子模块已忽略的构建产物；**对拍工具的源码没有写入子模块**。Java 快照工具留在仓库根目录的 `tools/JsonSnapshot.java`，其编译产物与两侧 JSON 均写入根目录下忽略版本控制的 `_tmp_json_compare/`（Java 与 Rust 快照分别落在 `_tmp_json_compare/java/`、`_tmp_json_compare/rust/`）。Rust 入口是 `examples/json_snapshot.rs`，两侧都支持单文件模式（stdout 输出 JSON）与 `--server` 常驻模式。也可以单独运行 `python -X utf8 -B tools/compare_json.py <java.json> <rust.json>`（单文件模式的两份快照仍可直接比较）。对拍一致返回码为 0，字段差异为 1，工具或快照错误为 2。
+Requires Java/Javac, Python 3, Cargo, and Maven (either `mvn.cmd` on PATH, or Scoop's `~/scoop/apps/maven/current/bin/mvn.cmd`). Each run first uses Maven to `package` `mpxj/` (skipping tests and Javadoc), then uses the jar built in that run, `mpxj/target/mpxj-16.7.0.jar`, together with `mpxj/lib/*.jar`. Maven only produces build artifacts that the submodule already ignores; **the comparison tool's source is not written into the submodule**. The Java snapshot tool lives at the repository root in `tools/JsonSnapshot.java`, and both its compiled output and the two sides' JSON are written under the version-control-ignored `_tmp_json_compare/` at the root (Java and Rust snapshots land in `_tmp_json_compare/java/` and `_tmp_json_compare/rust/` respectively). The Rust entry point is `examples/json_snapshot.rs`; both sides support a single-file mode (JSON to stdout) and the `--server` long-lived mode. You can also run `python -X utf8 -B tools/compare_json.py <java.json> <rust.json>` on its own (the two snapshots from single-file mode can still be compared directly). A comparison match returns exit code 0, field differences return 1, and tool or snapshot errors return 2.
 
-Java 参考实现取自本仓库固定的子模块提交 `c5e1320` 的**本地构建 jar**，而不是 Maven 仓库下载的同版本 jar。源码变动后，下一次对拍会自动重新构建，确保 jar 与源码版本一致。
+The Java reference implementation is taken from a **locally built jar** of this repository's pinned submodule commit `c5e1320`, not from a same-version jar downloaded from the Maven repository. After source changes, the next comparison rebuilds automatically, ensuring the jar matches the source version.
 
-默认模式仍保持精简的基础快照。`-AllFields` 覆盖四类实体的全部内置字段和已声明的自定义字段值，并附加日历工作周/例外/星期时段、资源可用性与五张费率表、视图/表格/列、筛选/分组、用户字段定义、数据链接等对象。关系及其它未列出的展示细节仍不属于 schema；MPXJ 的十个内置 `WorkContour` 是静态常量，不作为容器成员输出。该模式仍不是 MPXJ `JsonWriter` 的逐对象完全序列化，未覆盖的对象会继续列在本说明中。
+The default mode still keeps a lean basic snapshot. `-AllFields` covers all built-in fields and declared custom field values of the four entity kinds, and additionally attaches objects such as calendar work weeks/exceptions/weekday periods, resource availability and the five rate tables, views/tables/columns, filters/groups, user field definitions, and data links. Relations and other presentation details not listed still fall outside the schema; MPXJ's ten built-in `WorkContour`s are static constants and are not output as container members. This mode is still not a full per-object serialization like MPXJ's `JsonWriter`; objects not covered continue to be listed in this description.
 
-日期是本地时间并保留纳秒，不做时区变换；工期保存原始数值和单位枚举整数；JSON 的 `null` 与缺少键不同。对象键顺序不参与比较；实体列表用 unique ID（缺失时备用键和出现序号）匹配，重复 ID 不会被吞掉。所有差异均显示 JSON 路径；解析或工具出错时停止，不当作「一致」。
+Dates are local time and keep nanoseconds, with no time-zone conversion; durations store the raw value and the unit enum integer; JSON `null` differs from a missing key. Object key order does not participate in comparison; entity lists are matched by unique ID (falling back to a secondary key and an occurrence index when missing), and duplicate IDs are not swallowed. All differences show the JSON path; a parse or tool error stops the run and is not treated as a match.
 
-Java 快照将非 ASCII 字符写为 JSON Unicode 转义，避免 Windows 系统默认 GBK 编码把带重音的日历、资源名称替换为 `?`；比较器解析 JSON 后仍按原始字符串语义比较。
+Java snapshots write non-ASCII characters as JSON Unicode escapes, so the Windows default GBK encoding does not replace accented calendar and resource names with `?`; after parsing the JSON, the comparator still compares by original string semantics.
 
-首轮对拍发现 `legacy/sample.mpx` 和 `sample.de.mpx` 各有 11 处日历差异：日历创建时重入借用上下文，导致自动 unique ID 缺失，继而丢失资源日历的父 ID/类型及默认日历和资源的引用。后续对拍又发现 MPP 任务工期、超链接空值、FILETIME 时区/单位、自定义属性代码页与二进制值、备注终止符及计算字段默认值差异，均已按 Java 行为修复并补回归测试。最终使用 Maven 构建的本地 Java jar，在 `-AllFields` 模式下对拍 **19 份 MPX + 606 份可读 MPP**；另 3 份 MPP 受密码保护，未纳入对拍。结论只覆盖上段明确列出的字段集合。
+The first comparison round found 11 calendar differences each in `legacy/sample.mpx` and `sample.de.mpx`: creating a calendar re-entered the borrowed context, so the automatic unique ID was missing, which in turn lost the parent ID/type of resource calendars and the references to the default calendar and resources. Later comparison rounds found further differences in MPP task durations, hyperlink null values, FILETIME time zone/unit, custom property code page and binary values, notes terminators, and computed field default values; all were fixed to match Java behavior and covered by regression tests. In the end, using the locally built Maven Java jar, the `-AllFields` mode compared **19 MPX + 606 readable MPP** files; the other 3 MPP files are password-protected and were not included. The conclusions cover only the field set explicitly listed in the paragraph above.

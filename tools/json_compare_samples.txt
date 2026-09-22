@@ -1,4 +1,4 @@
-# MPX：子模块中全部 19 份样本，覆盖空文件、本地化、日历、周期任务和字段模型。
+# MPX: all 19 samples in the submodule, covering empty files, localization, calendars, recurring tasks, and the field model.
 mpxj/junit/data/empty.mpx
 mpxj/junit/data/mpxrecurring.mpx
 mpxj/junit/data/sample.de.mpx
@@ -19,7 +19,7 @@ mpxj/junit/data/generated/task-numbers/task-numbers-project98.mpx
 mpxj/junit/data/generated/task-starts/task-starts-project98.mpx
 mpxj/junit/data/generated/task-text/task-text-project98.mpx
 
-# MPP：按格式和数据路径选取稳定的对拍样本。
+# MPP: stable comparison samples selected by format and data path.
 mpxj/junit/data/legacy/sample.mpp
 mpxj/junit/data/assignment/assignment-deletion/assigned-resources-mpp8-project2003.mpp
 mpxj/junit/data/generated/assignment-assignments/assignment-assignments-project2000-mpp9.mpp

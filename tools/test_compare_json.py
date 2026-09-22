@@ -1,4 +1,4 @@
-"""快照比较器的结构、类型和实体对齐回归测试。"""
+"""Regression tests for the snapshot comparator's structure, types, and entity alignment."""
 
 import json
 import tempfile
@@ -16,7 +16,7 @@ class CompareJsonTest(unittest.TestCase):
                                         {"b": Decimal("1.50"), "a": Decimal("1.0")}), [])
 
     def test_order_independent_entities(self):
-        left = {"tasks": [{"unique_id": 1, "name": "甲"}, {"unique_id": 2, "name": "乙"}]}
+        left = {"tasks": [{"unique_id": 1, "name": "A"}, {"unique_id": 2, "name": "B"}]}
         right = {"tasks": list(reversed(left["tasks"]))}
         self.assertEqual(compare_values(left, right), [])
 
@@ -28,7 +28,7 @@ class CompareJsonTest(unittest.TestCase):
         self.assertEqual(len(compare_values({"a": True}, {"a": 1})), 1)
 
     def test_duplicate_ids_are_not_dropped(self):
-        left = {"tasks": [{"unique_id": 1, "name": "甲"}, {"unique_id": 1, "name": "乙"}]}
+        left = {"tasks": [{"unique_id": 1, "name": "A"}, {"unique_id": 1, "name": "B"}]}
         right = {"tasks": left["tasks"][:1]}
         self.assertIn("#2", compare_values(left, right)[0][0])
 
@@ -42,34 +42,34 @@ class CompareJsonTest(unittest.TestCase):
     def test_all_fields_requires_every_entity_value_list(self):
         snapshot = self.full_snapshot()
         del snapshot["tasks"][0]["field_values"]
-        with self.assertRaisesRegex(ValueError, "缺少字段值"):
+        with self.assertRaisesRegex(ValueError, "missing field values"):
             validate_snapshot(snapshot, "Java", True)
 
     def test_all_fields_requires_catalog_and_exclusions(self):
         snapshot = self.full_snapshot()
         del snapshot["field_catalog"]
-        with self.assertRaisesRegex(ValueError, "扩展容器"):
+        with self.assertRaisesRegex(ValueError, "extended containers"):
             validate_snapshot(snapshot, "Rust", True)
 
     def test_all_fields_requires_extended_containers(self):
         snapshot = self.full_snapshot()
         del snapshot["data_links"]
-        with self.assertRaisesRegex(ValueError, "扩展容器"):
+        with self.assertRaisesRegex(ValueError, "extended containers"):
             validate_snapshot(snapshot, "Java", True)
 
     def test_all_fields_rejects_duplicate_or_unlisted_values(self):
         snapshot = self.full_snapshot()
         snapshot["tasks"][0]["field_values"].append({"name": "UNLISTED", "value": 1})
-        with self.assertRaisesRegex(ValueError, "不在目录"):
+        with self.assertRaisesRegex(ValueError, "not in the catalog"):
             validate_snapshot(snapshot, "Rust", True)
         snapshot["tasks"][0]["field_values"] = [{"name": "ID", "value": 1}] * 2
-        with self.assertRaisesRegex(ValueError, "重复"):
+        with self.assertRaisesRegex(ValueError, "duplicated"):
             validate_snapshot(snapshot, "Rust", True)
 
     def test_all_fields_rejects_excluded_field_value(self):
         snapshot = self.full_snapshot()
         snapshot["field_exclusions"]["tasks"] = ["ID"]
-        with self.assertRaisesRegex(ValueError, "被排除"):
+        with self.assertRaisesRegex(ValueError, "excluded"):
             validate_snapshot(snapshot, "Java", True)
 
     def test_all_fields_requires_calendar_and_resource_details(self):
@@ -78,13 +78,13 @@ class CompareJsonTest(unittest.TestCase):
         snapshot["resources"].append({"details": {"availability": [], "cost_rate_tables": [None] * 5}, "field_values": []})
         validate_snapshot(snapshot, "Rust", True)
         del snapshot["calendars"][0]["details"]
-        with self.assertRaisesRegex(ValueError, "缺少对象详情"):
+        with self.assertRaisesRegex(ValueError, "missing object details"):
             validate_snapshot(snapshot, "Rust", True)
 
     def test_all_fields_requires_display_containers(self):
         snapshot = self.full_snapshot()
         del snapshot["tables"]
-        with self.assertRaisesRegex(ValueError, "扩展容器"):
+        with self.assertRaisesRegex(ValueError, "extended containers"):
             validate_snapshot(snapshot, "Java", True)
 
     @staticmethod
@@ -131,7 +131,7 @@ class RunnerTest(unittest.TestCase):
         self.assertIs(unwrap_snapshot(snapshot), snapshot)
         self.assertEqual(unwrap_snapshot({"path": "x.mpp", "result": snapshot}), snapshot)
         with self.assertRaisesRegex(ValueError, "boom"):
-            unwrap_snapshot({"path": "x.mpp", "error": "读取失败: boom"})
+            unwrap_snapshot({"path": "x.mpp", "error": "Failed to read: boom"})
 
     def test_same_file_normalizes_separators_and_case(self):
         self.assertTrue(same_file("D:/repo/a.mpp", "D:\\repo\\a.mpp"))
@@ -173,7 +173,7 @@ class RunnerTest(unittest.TestCase):
             (rust_dir / "s.json").write_text(json.dumps({"result": result}), encoding="utf-8")
             self.assertEqual(compare_sample("s", "x.mpp", java_dir, rust_dir, False).code, 2)
 
-            (rust_dir / "s.json").write_text(json.dumps({"path": "x.mpp", "error": "读取失败: boom"}), encoding="utf-8")
+            (rust_dir / "s.json").write_text(json.dumps({"path": "x.mpp", "error": "Failed to read: boom"}), encoding="utf-8")
             result = compare_sample("s", "x.mpp", java_dir, rust_dir, False)
             self.assertEqual(result.code, 2)
             self.assertIn("boom", result.message)

@@ -1,5 +1,5 @@
-// 对拍专用：与 examples/json_snapshot.rs 读取同一批 ProjectFile 字段。
-// 不修改 Java 上游源码；运行时使用子模块编译出的类与其 Maven 依赖。
+// Purpose-built for comparison: reads the same set of ProjectFile fields as examples/json_snapshot.rs.
+// Does not modify the Java upstream source; at runtime it uses the classes compiled from the submodule and their Maven dependencies.
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -73,7 +73,7 @@ public final class JsonSnapshot
 {
    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS");
 
-   // 即使字段值为 null 也写入，不能让缺失字段掩盖差异。
+   // Write the field even when its value is null, so a missing field cannot mask a difference.
    private static Map<String, Object> fields(Object... values)
    {
       Map<String, Object> result = new LinkedHashMap<>();
@@ -94,7 +94,7 @@ public final class JsonSnapshot
       return value == null ? null : fields("value", value.getDuration(), "unit", value.getUnits().getValue());
    }
 
-   // 保留数组顺序（星期日先于星期一），并区分不存在与空工作时段。
+   // Preserve array order (Sunday before Monday) and distinguish a missing entry from an empty work period.
    private static Object calendarDays(ProjectCalendarDays days)
    {
       List<Object> result = new ArrayList<>();
@@ -279,7 +279,7 @@ public final class JsonSnapshot
          "show_summary_tasks", value.getShowSummaryTasks(), "clauses", clauses);
    }
 
-   // 字段快照以枚举名为键；未知值不能悄悄变成字符串或 null。
+   // The field snapshot is keyed by enum name; an unknown value must not silently become a string or null.
    private static Object fieldValue(Object value)
    {
       if (value == null || value instanceof String || value instanceof Number || value instanceof Boolean)
@@ -355,7 +355,7 @@ public final class JsonSnapshot
          Map<String, Object> items = new TreeMap<>();
          for (Map.Entry<?, ?> item : ((Map<?, ?>) value).entrySet())
          {
-            if (!(item.getKey() instanceof String)) { throw new IllegalArgumentException("字段 Map 的键不是字符串"); }
+            if (!(item.getKey() instanceof String)) { throw new IllegalArgumentException("A key in the fields Map is not a string"); }
             items.put((String) item.getKey(), fieldValue(item.getValue()));
          }
          List<Object> result = new ArrayList<>();
@@ -401,7 +401,7 @@ public final class JsonSnapshot
          }
          return ((Enum<?>) value).ordinal();
       }
-      throw new IllegalArgumentException("未支持的字段值类型: " + value.getClass().getName());
+      throw new IllegalArgumentException("Unsupported field value type: " + value.getClass().getName());
    }
 
    private static List<Object> fieldValues(FieldContainer container, FieldType[] types)
@@ -506,7 +506,7 @@ public final class JsonSnapshot
          }
          return reader.read(path.toFile());
       }
-      throw new IllegalArgumentException("仅支持 .mpp 和 .mpx");
+      throw new IllegalArgumentException("Only .mpp and .mpx are supported");
    }
 
    private static Object snapshot(ProjectFile file, boolean allFields)
@@ -614,8 +614,8 @@ public final class JsonSnapshot
          List<Object> contours = new ArrayList<>();
          for (WorkContour contour : file.getWorkContours())
          {
-            // MPXJ 的十个内置曲线是静态 WorkContour 实例，不会出现在容器集合中；
-            // 只序列化真正由文件注册的扩展曲线。
+            // MPXJ's ten built-in contours are static WorkContour instances and never appear in the container collection;
+            // only serialize the extended contours actually registered by the file.
             if (contour.getUniqueID() != null && contour.getUniqueID() >= 0 && contour.getUniqueID() <= 9) { continue; }
             contours.add(fields("unique_id", contour.getUniqueID(), "name", contour.getName(),
                "curve", contour.getCurveValues()));
@@ -645,9 +645,9 @@ public final class JsonSnapshot
       return result;
    }
 
-   // 常驻模式：stdin 每行 "<stem>\t<sample-path>"，结果写入 <output-dir>/<stem>.json。
-   // 每个文件形如 {"path": "...", "result": {...}}，读失败时 result 换成 error。
-   // 全进程把 System.out 重定向到 stderr，避免上游诊断污染协议输出。
+   // Server mode: each stdin line is "<stem>\t<sample-path>"; the result is written to <output-dir>/<stem>.json.
+   // Each file looks like {"path": "...", "result": {...}}; on read failure "result" is replaced by "error".
+   // The whole process redirects System.out to stderr so upstream diagnostics cannot pollute the protocol output.
    private static void runServer(String[] args) throws Exception
    {
       Path outputDir = null;
@@ -661,20 +661,20 @@ public final class JsonSnapshot
                allFields = true;
                break;
             case "--threads":
-               if (++index >= args.length) { throw new IllegalArgumentException("--threads 缺少参数"); }
+               if (++index >= args.length) { throw new IllegalArgumentException("--threads is missing its argument"); }
                threads = Integer.parseInt(args[index]);
                break;
             default:
-               if (outputDir != null) { throw new IllegalArgumentException("多余的参数: " + args[index]); }
+               if (outputDir != null) { throw new IllegalArgumentException("Unexpected argument: " + args[index]); }
                outputDir = Path.of(args[index]);
          }
       }
-      if (outputDir == null) { throw new IllegalArgumentException("--server 需要输出目录"); }
-      if (threads < 1) { throw new IllegalArgumentException("--threads 必须为正整数"); }
+      if (outputDir == null) { throw new IllegalArgumentException("--server requires an output directory"); }
+      if (threads < 1) { throw new IllegalArgumentException("--threads must be a positive integer"); }
       Files.createDirectories(outputDir);
 
       PrintStream console = System.out;
-      // 在使用 GBK 等系统编码时转义非 ASCII 字符，避免项目名称被替换成 '?'。
+      // Escape non-ASCII characters when using a system encoding such as GBK, so project names are not replaced with '?'.
       final ObjectMapper mapper = new ObjectMapper();
       mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
       final Path targetDir = outputDir;
@@ -692,14 +692,14 @@ public final class JsonSnapshot
             int tab = entry.indexOf('\t');
             if (tab < 0)
             {
-               console.println("跳过缺少制表符的输入行: " + entry);
+               console.println("Skipping input line without a tab: " + entry);
                continue;
             }
             final String stem = entry.substring(0, tab).strip();
             final String sample = entry.substring(tab + 1).strip();
             if (!stem.matches("[A-Za-z0-9._-]+"))
             {
-               console.println("跳过非法输出名: " + stem);
+               console.println("Skipping invalid output name: " + stem);
                continue;
             }
             final boolean fields = allFields;
@@ -712,10 +712,10 @@ public final class JsonSnapshot
          pool.shutdown();
          pool.awaitTermination(1, TimeUnit.DAYS);
       }
-      console.println("server 完成: " + submitted + " 个样本，线程数 " + threads);
+      console.println("server finished: " + submitted + " samples, " + threads + " threads");
    }
 
-   // 单个样本：读取并序列化后一次性写入，避免半个 JSON 被读取。
+   // Single sample: read and serialize, then write in one shot so a half-written JSON is never read.
    private static void writeSnapshot(Path outputDir, String stem, String sample, boolean allFields, ObjectMapper mapper)
    {
       Map<String, Object> wrapper = new LinkedHashMap<>();
@@ -735,7 +735,7 @@ public final class JsonSnapshot
       }
       catch (Exception ex)
       {
-         System.err.println("写入快照失败 " + target + ": " + ex);
+         System.err.println("Failed to write snapshot " + target + ": " + ex);
       }
    }
 
@@ -749,18 +749,18 @@ public final class JsonSnapshot
          }
          catch (Exception ex)
          {
-            System.err.println("server 启动失败: " + ex.getMessage());
+            System.err.println("server failed to start: " + ex.getMessage());
             System.exit(2);
          }
          return;
       }
       if (args.length < 1 || args.length > 2 || (args.length == 2 && !"--all-fields".equals(args[1])))
       {
-         System.err.println("用法: JsonSnapshot <file.mpx|file.mpp> [--all-fields]");
+         System.err.println("Usage: JsonSnapshot <file.mpx|file.mpp> [--all-fields]");
          System.err.println("      JsonSnapshot --server <output-dir> [--all-fields] [--threads N]");
          System.exit(2);
       }
-      // 上游及其依赖可能向 stdout 打印诊断，快照通道只能包含一份 JSON。
+      // Upstream and its dependencies may print diagnostics to stdout; the snapshot channel may contain only one JSON document.
       var output = System.out;
       Object value;
       try
@@ -772,7 +772,7 @@ public final class JsonSnapshot
       {
          System.setOut(output);
       }
-      // 在使用 GBK 等系统编码时转义非 ASCII 字符，避免 stdout 将项目名称替换成 '?'。
+      // Escape non-ASCII characters when using a system encoding such as GBK, so stdout does not replace project names with '?'.
       ObjectMapper mapper = new ObjectMapper();
       mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
       output.println(mapper.writeValueAsString(value));
