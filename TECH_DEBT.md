@@ -32,7 +32,7 @@ Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或�
 | | `src/mpp/` + `src/common/` | 模型层 + `src/mpx/` | 合计 |
 |---|---|---|---|
 | B 类：没还的债 | 13 | 32 | **45** |
-| A 类：真硬限制 | 19 | 11 | **30**（A19 已还，见「修复进度」；A28 为本次新增） |
+| A 类：真硬限制 | 19 | 11 | **31**（A19 已还，见「修复进度」；A28、A29 为本次新增，其中 A29 为跨模块的格式范围缺失） |
 
 ---
 
@@ -270,6 +270,7 @@ P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，�
 | A26 | `mpp/gantt_chart_view14.rs:36`；`mpp/table_font_style.rs:23` | 未能派生 `Debug`（`MppFieldType` 无 `Debug`） | 需改 `common/mpp_field_type.rs`（可补，但属设计取舍） |
 | A27 | `mpx/mpxj_formats.rs:668` | `DurationUtility` 不带 `NumberFormat`（见「八、已确认但待接线」） | 零件已存在，属 **B** 而非 A |
 | A28 | `mpp/project_properties_reader.rs` 的 `codepage_to_encoding` | OLE 属性集里部分代码页无 `encoding_rs` 实现：EBCDIC `cp037`、Johab(1361)、MacArabic/MacHebrew/MacGreek/MacThai/MacCentralEurope/MacIceland/MacTurkish/MacCroatian、ISO-2022-KR、US-ASCII，退回默认代码页 Windows-1252 | `encoding_rs` 只实现 WHATWG Encoding 标准内编码；与 A15 同类。POI 侧这些代码页要么有 Java 字符集要么解析失败 |
+| A29 | 无 `mspdi/` / `mpd/` / `p6/` / `planner/` 等模块 | 其他格式的 reader 未移植：MSPDI（XML）、MPD（Access 数据库）、P6 / Primavera、Gnome Planner、Microsoft Planner（云 API）等 | 本工程明确「只做 MPP + MPX」。注意 MSPDI **有 reader**（`org.mpxj.mspdi.MSPDIReader`），此前误归入「写入路径」；它是**读取能力的范围裁剪**（若纳入需引入 XML 解析），不是技术做不到 |
 
 ---
 

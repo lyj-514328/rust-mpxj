@@ -13,9 +13,13 @@
 **Java 源码是唯一权威**。上游以子模块形式放在 `mpxj/`（`joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`，`v16.7.0-14-gc5e1320cde`）。
 每当 Rust 侧行为有疑问，就去读 `mpxj/src/main/java/org/mpxj/...` 的对应类与方法，按 Java 行为实现；**不要**凭直觉「更合理」地改写。
 
+本工程**只做 reader**：`src/` 下没有任何 writer（`MPXWriter` / `MSPDIWriter` / `MPPWriter` 均未移植）。
+
 明确**不做**的范围（已在 `TECH_DEBT.md` 第七节登记为 A 类硬限制）：
 
-- `MPXWriter` / MSPDI 等写入路径
+- 写入路径：`MPXWriter` / `MSPDIWriter` / `MPPWriter` 等（本工程只读文件）
+- 其他格式的 reader：MSPDI（XML）、MPD（Access 数据库）、P6 / Primavera、Gnome Planner、
+  Microsoft Planner（云 API）等 —— 本工程只做 MPP 与 MPX
 - CPM 排程（`src/cpm/` 只移植了 `MicrosoftSlackCalculator`）
 - P6 / Primavera 专用数据（`LocationContainer`、`ExpenseItem`、各类 `Code` …）
 - `UniversalProjectReader`（Java 靠 `Class.forName` 反射分发，Rust 无反射）
