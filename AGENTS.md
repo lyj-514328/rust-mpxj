@@ -1,141 +1,144 @@
 # AGENTS.md
 
-给在本仓库工作的 AI agent / 新贡献者的操作指南。**先读完本文件再动代码**。
+Operating guide for AI agents / new contributors working in this repository. **Read this entire file before touching the code.**
 
-## 1. 这是什么项目
+## 1. What Is This Project
 
-把 Java 库 [MPXJ](https://github.com/joniles/mpxj) 移植为 Rust。
+A Rust port of the Java library [MPXJ](https://github.com/joniles/mpxj).
 
-- **定位是 reader**：只读文件，不做 writer。
-- **只支持两种格式**：MPP（Microsoft Project 二进制）与 MPX（Microsoft Project Exchange 文本）。
-- **输出与 Java 一致**：复用同一套 `ProjectFile` 统一数据结构（`src/project_file.rs`）。
+- **Positioned as a reader**: it only reads files and does not implement a writer.
+- **Supports only two formats**: MPP (Microsoft Project binary) and MPX (Microsoft Project Exchange text).
+- **Output matches Java**: it reuses the same unified `ProjectFile` data structure (`src/project_file.rs`).
 
-**Java 源码是唯一权威**。上游以子模块形式放在 `mpxj/`（`joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`，`v16.7.0-14-gc5e1320cde`）。
-每当 Rust 侧行为有疑问，就去读 `mpxj/src/main/java/org/mpxj/...` 的对应类与方法，按 Java 行为实现；**不要**凭直觉「更合理」地改写。
+**The Java source is the sole authority.** The upstream is vendored as a submodule under `mpxj/` (`joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`, `v16.7.0-14-gc5e1320cde`).
+Whenever the Rust-side behavior is in question, read the corresponding class and methods under `mpxj/src/main/java/org/mpxj/...` and implement according to the Java behavior; **do not** rewrite it based on what you intuitively think is "more reasonable".
 
-本工程**只做 reader**：`src/` 下没有任何 writer（`MPXWriter` / `MSPDIWriter` / `MPPWriter` 均未移植）。
+This project is **reader-only**: no writer implementation exists under `src/` (`MPXWriter`, `MSPDIWriter`, and `MPPWriter` are not ported).
 
-明确**不做**的范围（已在 `TECH_DEBT.md` 第七节登记为 A 类硬限制）：
+Explicitly **out of scope** (already logged as Category A hard limitations in Section 7 of `TECH_DEBT.md`):
 
-- 写入路径：`MPXWriter` / `MSPDIWriter` / `MPPWriter` 等（本工程只读文件）
-- 其他格式的 reader：MSPDI（XML）、MPD（Access 数据库）、P6 / Primavera、Gnome Planner、
-  Microsoft Planner（云 API）等 —— 本工程只做 MPP 与 MPX
-- CPM 排程（`src/cpm/` 只移植了 `MicrosoftSlackCalculator`）
-- P6 / Primavera 专用数据（`LocationContainer`、`ExpenseItem`、各类 `Code` …）
-- `UniversalProjectReader`（Java 靠 `Class.forName` 反射分发，Rust 无反射）
+- Write paths: `MPXWriter` / `MSPDIWriter` / `MPPWriter` and other writers
+- Other reader formats: MSPDI (XML), MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API); this project supports only MPP and MPX
+- CPM scheduling (`src/cpm/` only ports `MicrosoftSlackCalculator`)
+- P6 / Primavera-specific data (`LocationContainer`, `ExpenseItem`, the various `Code` classes …)
+- `UniversalProjectReader` (Java dispatches via `Class.forName` reflection; Rust has no reflection)
 
-## 2. 环境与常用命令
+## 2. Environment and Common Commands
 
 ```bash
-# 首次克隆必须带子模块：tests/ 与示例都依赖 mpxj/junit/data 下的真实样本
+# The first clone must include submodules: both tests/ and the examples depend on real samples under mpxj/junit/data
 git clone --recurse-submodules <repo-url>
 
-cargo build --all-targets                 # 必须无错误、且无警告
-cargo test                                # 全部单元测试 + 集成测试
-cargo run --release --example sample_survey   # 遍历真实样本统计成功率
+cargo build --all-targets                 # Must compile with no errors and no warnings
+cargo test                                # All unit tests + integration tests
+cargo run --release --example sample_survey   # Iterate real samples and tally the success rate
 ```
 
-工具链：edition 2024（本地 rustc 1.97.1）。依赖只有 `byteorder` / `cfb` / `chrono` / `encoding_rs` / `thiserror` / `uuid`。
+Toolchain: edition 2024 (local rustc 1.97.1). The only dependencies are `byteorder` / `cfb` / `chrono` / `encoding_rs` / `thiserror` / `uuid`.
 
-## 3. 代码地图
+## 3. Code Map
 
-| 路径 | 内容 |
+| Path | Contents |
 |---|---|
-| `src/*.rs`（根目录，139 个文件） | 领域模型层：`ProjectFile`、`Task`、`Resource`、`ResourceAssignment`、`ProjectCalendar`、`Relation` … |
-| `src/common/`（30 个文件） | 移植 `org.mpxj.common`：`*Helper`、`*FieldLists`、Tokenizer 族、MPP 字段号映射表 |
-| `src/mpp/`（130 个文件） | MPP 读取链路：OLE 适配、`Props*`、`Fixed*`/`Var*` 块、`FieldMap*`、`MPP8/9/12/14Reader`、展示层类 |
-| `src/mpx/`（29 个文件） | MPX 读取链路：`MPXReader`、`LocaleData`、`MPXJNumberFormat` 等 |
-| `src/reader/`、`src/listener/`、`src/cpm/` | 读取器基类、监听器、CPM（仅 slack 计算） |
-| `tests/`、`examples/` | 端到端集成测试与样本统计工具 |
-| `TECH_DEBT.md` | **技术债权威清单**（见第 8 节） |
+| `src/*.rs` (root directory, 139 files) | Domain model layer: `ProjectFile`, `Task`, `Resource`, `ResourceAssignment`, `ProjectCalendar`, `Relation` … |
+| `src/common/` (30 files) | Port of `org.mpxj.common`: `*Helper`, `*FieldLists`, the Tokenizer family, MPP field-number mapping tables |
+| `src/mpp/` (130 files) | MPP read pipeline: OLE adaptation, `Props*`, `Fixed*`/`Var*` blocks, `FieldMap*`, `MPP8/9/12/14Reader`, presentation-layer classes |
+| `src/mpx/` (29 files) | MPX read pipeline: `MPXReader`, `LocaleData`, `MPXJNumberFormat`, etc. |
+| `src/reader/`, `src/listener/`, `src/cpm/` | Reader base classes, listeners, CPM (slack calculation only) |
+| `tests/`, `examples/` | End-to-end integration tests and the sample survey tool |
+| `TECH_DEBT.md` | **Authoritative technical debt inventory** (see Section 8) |
 
-## 4. 硬性约定（改代码前必读）
+## 4. Hard Conventions (Required Reading Before Changing Code)
 
-1. **注释与文档一律中文**。
-2. **每个文件头都有 `//!` 文档块**，其中「与 Java 的差异」用表格登记每一处不一致：
+1. **Comments and documentation are always in English** (for internationalization; the Chinese comments have been migrated to English in full).
+2. **Every file starts with a `//!` documentation block** in which "Differences from Java" records every inconsistency in a table:
    ```rust
-   //! | Java | Rust | 说明 |
+   //! | Java | Rust | Notes |
    //! |---|---|---|
    ```
-   还要有「跳过的 Java 成员 + 原因」。**任何新增差异都必须补进这张表**，否则后来者会以为这是 Java 的行为。
-3. **每个方法都带对应说明**：`/// 对应 Java: \`public void setXxx(int v)\``。
-4. **库代码绝不 panic**：
-   - Java 用异常做控制流（`ArrayIndexOutOfBoundsException` / NPE / `EOFException`）→ 返回 `None` / `0` / `Err`。
-   - 数组越界 → 返回 0 或跳过该条记录。
-   - `RefCell` 一律 `try_borrow` / `try_borrow_mut`，冲突时**退化处理**（返回 `None`/`Err`/跳过）并在注释里说明这是 Rust 特有分支。
-5. **Java 继承的还原**：默认「组合 + 逐方法转发」。
-   仅当子类**不覆写**父类任何方法时，才可以用 `Deref` / `DerefMut` 省掉转发样板（现有：`src/recurring_task.rs`、`src/mpp/props8/9/12/14.rs`；另 `src/mpp/gantt_chart_view{9,12,14}.rs` 用 `Deref` 表达另一层关系）。凡子类需要覆写父类行为的场景，一律显式转发，便于逐方法对照 Java。
-6. **共享与所有权**：
-   - 共享实体用 `Rc<RefCell<T>>`（与 Java 的引用语义对应）。
-   - 反向引用（子 → 父）一律 `Weak`，避免 `Rc` 循环泄漏。
-   - 需要还原 Java 的 `this` 语义（如 `setID` 里回调 `mapID(this)`）时，加 `self_ref: Weak<RefCell<T>>` 字段 + 由容器负责接线的方法。
-7. **不新增第三方 crate**。确有需要先与维护者确认（`TECH_DEBT.md` 第十节列了几处正取决于此的取舍）。
-8. **新增模块要在 `src/lib.rs` 声明**。
-9. **命名尽量对齐 Java**：保持文件结构与类名一致性。Rust 无法表达的（重载、trait 对象等）按仓库既有后缀约定处理（`_by_id` / `_at_offset` / `_with_data_type` / `_for_locale` …），并在注释里点明「Java 侧与 X 构成重载」。
+   It must also include "Skipped Java members + reason". **Any newly added difference must be recorded in this table**, otherwise later readers will assume it reflects the Java behavior.
+3. **Every method carries a corresponding note**: `/// Corresponds to Java: \`public void setXxx(int v)\``.
+4. **Library code never panics**:
+   - Java uses exceptions for control flow (`ArrayIndexOutOfBoundsException` / NPE / `EOFException`) → return `None` / `0` / `Err`.
+   - Array out of bounds → return 0 or skip that record.
+   - `RefCell` always uses `try_borrow` / `try_borrow_mut`; on a borrow conflict **degrade gracefully** (return `None`/`Err`/skip) and state in a comment that this is a Rust-specific branch.
+5. **Reproducing Java inheritance**: default to "composition + per-method forwarding".
+   Only when a subclass **overrides none** of the base class methods may you use `Deref` / `DerefMut` to eliminate the forwarding boilerplate (existing: `src/recurring_task.rs`, `src/mpp/props8/9/12/14.rs`; additionally `src/mpp/gantt_chart_view{9,12,14}.rs` uses `Deref` to express another kind of relationship). Whenever a subclass needs to override base class behavior, always forward explicitly so each method can be compared against Java.
+6. **Sharing and ownership**:
+   - Shared entities use `Rc<RefCell<T>>` (corresponding to Java's reference semantics).
+   - Back-references (child → parent) always use `Weak`, to avoid `Rc` reference cycles leaking.
+   - When Java's `this` semantics must be reproduced (e.g. the callback `mapID(this)` inside `setID`), add a `self_ref: Weak<RefCell<T>>` field plus a wiring method that the container is responsible for calling.
+7. **Do not add third-party crates**. If you truly need one, confirm with the maintainer first (`TECH_DEBT.md` Section 10 lists several trade-offs that hinge on this).
+8. **New modules must be declared in `src/lib.rs`**.
+9. **Name things to align with Java where possible**: keep the file structure and class names consistent. For constructs Rust cannot express (overloads, trait objects, etc.), follow the repository's existing suffix conventions (`_by_id` / `_at_offset` / `_with_data_type` / `_for_locale` …) and note in a comment that "the Java side forms an overload with X".
 
-## 5. 借用模型的坑（务必先看这几条）
+## 5. Borrow-Model Pitfalls (Must Read These First)
 
-这几类是过往真实故障的根因，写代码时逐条自问：
+These are the root causes of real past failures; ask yourself about each one while writing code:
 
-- **`if let` / `match` 的 scrutinee 临时量存活到语句结束**：
+- **The scrutinee temporary of an `if let` / `match` lives until the end of the statement**:
   ```rust
-  // ✗ 会 panic：RefCell already borrowed
+  // ✗ Will panic: RefCell already borrowed
   if let Some(id) = task.borrow().get_subproject_task_unique_id() {
       task.borrow_mut().set_subproject_task_unique_id(Some(id));
   }
-  // ✓ 先把值取出来，释放借用后再改
+  // ✓ Take the value out first, then mutate after the borrow is released
   let id = task.borrow().get_subproject_task_unique_id();
   if let Some(id) = id { task.borrow_mut().set_subproject_task_unique_id(Some(id)); }
   ```
-- **不要持有 `ProjectFile` 的借用去调用会反向借用同一文件的方法**。
-- **Java 的强引用 vs Rust 的 `Weak`**：Java 里 `m_context` 是强引用，随便访问；Rust 侧是 `Weak` + `RefCell`，**要问一句「这条路径上真的借得到吗」**。反面教材见 `src/project_calendar_container.rs` 的 `removed`：经上下文查询资源/任务在真实调用路径上必然失败（容器只能由 `ProjectContext::get_calendars_mut()` 取得），已改为直接扫描容器元素。
-- **不要用 `mem::take` 之类的手法绕过借用**：那会导致容器里的计数/子列表恒为空（历史上造成过「顶层任务 WBS 恒为 1」）。正确做法是**由掌握上下文的一方把数据传进来**，而不是让容器回调父文件。
+- **Do not hold a borrow of `ProjectFile` while calling a method that borrows the same file in turn**.
+- **Java strong references vs Rust `Weak`**: in Java, `m_context` is a strong reference and can be accessed freely; on the Rust side it is `Weak` + `RefCell`, so **ask yourself "can this borrow actually succeed on this path?"**. A cautionary example is `removed` in `src/project_calendar_container.rs`: querying resources/tasks through the context necessarily fails on the real call path (the container can only be obtained via `ProjectContext::get_calendars_mut()`), so it was changed to scan the container elements directly.
+- **Do not use tricks like `mem::take` to bypass borrowing**: doing so leaves the container's counts/sub-lists permanently empty (this historically caused "top-level task WBS always 1"). The correct approach is for **the party that owns the context to pass the data in**, rather than having the container call back into the parent file.
 
-## 6. 移植一处 Java 代码的标准流程
+## 6. Standard Process for Porting a Piece of Java Code
 
-1. 读 `mpxj/src/main/java/org/mpxj/...` 里对应的**整个类**（不只目标方法）。
-2. 翻译：方法名 snake_case，字段名去掉 `m_` 前缀，保持调用顺序。
-3. 逐字段/逐分支核对，特别注意容易漏的：
-   - `x == null ? A : B` 这类三元分支；
-   - 两个**同名但不同来源**的常量（例：`AvailabilityTable.END_DATE_NA` 与 `LocalDateTimeHelper.END_DATE_NA` 相差 1 分钟，Java 在同一方法里混用）；
-   - 整数/浮点运算的取整方式（`NumberHelper.round`、`intValue() * 52` 等）。
-4. 补文件头差异表 + 方法对应注释。
-5. 补单元测试（`#[cfg(test)] mod tests`，中文注释，snake_case 测试名）。
-   优先写**能区分具体取值**的测试，而不是只断言 `is_some()`。
-6. 跑第 7 节的验证基线。
-7. 如果某处确实无法在不偏离 Java 的前提下完成，**不要强行实现**：保留原逻辑，把原因写进文件头的差异表，并登记进 `TECH_DEBT.md`。
+1. Read the **entire class** in question under `mpxj/src/main/java/org/mpxj/...` (not just the target method).
+2. Translate: method names to snake_case, field names with the `m_` prefix removed, preserving call order.
+3. Verify field by field and branch by branch, paying special attention to easy misses:
+   - ternary branches such as `x == null ? A : B`;
+   - two constants that are **identically named but come from different sources** (e.g. `AvailabilityTable.END_DATE_NA` and `LocalDateTimeHelper.END_DATE_NA` differ by 1 minute, and Java mixes them within a single method);
+   - the rounding behavior of integer/floating-point arithmetic (`NumberHelper.round`, `intValue() * 52`, etc.).
+4. Add the file-header differences table + method correspondence comments.
+5. Add unit tests (`#[cfg(test)] mod tests`, English comments, snake_case test names).
+   Prefer tests that **distinguish specific values** over tests that merely assert `is_some()`.
+6. Run the verification baseline in Section 7.
+7. If something truly cannot be done without deviating from Java, **do not force an implementation**: keep the original logic, write the reason into the file-header differences table, and log it in `TECH_DEBT.md`.
 
-## 7. 验证基线（每次改动都要维持）
+## 7. Verification Baseline (Must Be Maintained on Every Change)
 
 ```bash
-cargo build --all-targets        # 无错误，且无警告
-cargo test                       # 全绿
+cargo build --all-targets        # No errors and no warnings
+cargo test                       # All green
 cargo run --release --example sample_survey
+# Comment-language guard: must report only the intentional non-ASCII test data
+# (encoding/codepage decode assertions, locale data, multi-byte UTF-16 tests).
+rg -nP '[\x{4e00}-\x{9fff}]' -g '*.rs' src tests examples
 ```
 
-当前基线：
+Current baseline:
 
-- `cargo build --all-targets`：无错误、**无警告**
-- `cargo test`：lib 单元测试 **1769** 项 + 集成测试 **10 + 6** 项，另有 4 项 doctest ignored
-- `sample_survey`：**MPP 606/609**（另 3 个是密码保护文件，属预期）、**MPX 19/19**
+- `cargo build --all-targets`: no errors, **no warnings**
+- `cargo test`: **1789** lib unit tests + **18 + 10** integration tests, plus 4 ignored doctests
+- `sample_survey`: **MPP 606/609** (the other 3 are password-protected files, as expected), **MPX 19/19**
+- Comment-language guard: only intentional non-ASCII test data remains (`src/mpx/locale_data_zh.rs`, `src/mpx/localized_names.rs`, and a handful of encoding/codepage/multi-byte assertions such as `decode_lpstr` in `src/mpp/project_properties_reader.rs` and `src/common/charset_helper.rs`)
 
-> ⚠️ **基线只证明「解析不崩、能出数据」，证明不了逐字段正确。**
-> 「全样本 100% 通过」曾经掩盖过真实缺陷（`sample.de.mpx` 的五个名表用了英文表、`availableTo` 的常量混用）。
-> 改动语义时不要只看这三项，必须补能区分具体取值的测试。
+> ⚠️ **The baseline only proves "parsing does not crash and produces data"; it does not prove field-by-field correctness.**
+> "100% of samples pass" once masked real defects (the five name tables in `sample.de.mpx` used the English tables, and the `availableTo` constant was mixed up).
+> Do not rely on these three items alone when changing semantics; you must add tests that distinguish specific values.
 
-## 8. 技术债
+## 8. Technical Debt
 
-`TECH_DEBT.md` 是唯一权威清单。开头的「修复进度」记录了：
+`TECH_DEBT.md` is the sole authoritative inventory. The "Remediation Progress" at the top records:
 
-- 哪些条目已修（附 commit）；
-- 哪些经核实**无法还原**（并给出原因，别再去试）；
-- 哪些原判本身有误（含审计正文里被证伪的两处）。
+- which items have been fixed (with commits);
+- which, after verification, **cannot be reproduced** (with reasons, so nobody retries them);
+- which original judgments were themselves wrong (including the two disproven in the audit body).
 
-**动手前先读它**，避免重复修、或把有意保留的设计当成缺陷改掉。
+**Read it before starting work**, to avoid re-fixing or treating an intentionally preserved design as a defect.
 
-## 9. 提交
+## 9. Committing
 
-- commit message 用**英文**，一件事一个 commit；一次改动把「代码 + 对应测试 + 文件头差异表」一起提交。
-- 不要提交 `target/`、`Cargo.lock`（当前在 `.gitignore`）、`_tmp_*/`。
-- 不要顺手做与任务无关的重构或格式化。
-- 不要为了「更 Rust」而偏离 Java 行为；两者冲突时，Java 优先，并把偏离点写进差异表。
+- Commit messages are in **English**, one commit per concern; a single change commits "code + corresponding tests + file-header differences table" together.
+- Do not commit `target/`, `Cargo.lock` (currently in `.gitignore`), or `_tmp_*/`.
+- Do not take the opportunity to do unrelated refactoring or formatting.
+- Do not deviate from Java behavior just to be "more Rust"; when the two conflict, Java wins, and the deviation must be written into the differences table.

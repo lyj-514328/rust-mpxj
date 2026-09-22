@@ -1,325 +1,319 @@
-# 技术债盘点（rust-mpxj）
+# Technical Debt Inventory (rust-mpxj)
 
-> 盘点方法：通读全部源文件头的 `//!` 文档块（本工程的约定是把「与 Java 的差异 / 已知缺口 /
-> 取舍 / 跳过的成员」集中写在文件头），再用关键词扫描辅助，最后逐条回到
-> `mpxj/src/main/java/org/mpxj/...` 核对 Java 原行为，并交叉验证被引用的依赖是否**已经落地**。
+> Inventory method: read through the `//!` documentation block at the head of every source file
+> (this project's convention is to record "differences from Java / known gaps /
+> trade-offs / skipped members" in the file header), then use keyword scans as an aid, and finally
+> go back to `mpxj/src/main/java/org/mpxj/...` item by item to check the original Java behavior and
+> cross-verify whether the referenced dependencies have **already landed**.
 >
-> 上游来源：<https://github.com/joniles/mpxj.git> @ `c5e1320cde0acd404031495aa66c17639a57239b`
+> Upstream source: <https://github.com/joniles/mpxj.git> @ `c5e1320cde0acd404031495aa66c17639a57239b`
 
-## 分类标准
+## Classification Criteria
 
-**A 类 · 真硬限制**（登记即可，不需修）—— 满足其一：
+**Category A · genuine hard limitations** (log them; no fix required) — any one of:
 
-- Rust 语言/类型系统确实做不到，且**没有**等价的 Rust 惯用法可还原（无继承、无重载、
-  `Copy`/`Sized`/trait 对象限制、`&'static str` 无法承载动态值、`RefCell` 借用模型）
-- 依赖本 crate 之外且没有（POI 的 HPSF、`java.awt`、JDK 的本地化文本）
-- Java 侧本身就是反射 / JDBC / XML-JAXB / GUI / `Serializable`
-- 属于本工程明确不做的范围（本工程只做 reader：`MPXWriter`、CPM 排程、P6 专用数据）
+- The Rust language/type system genuinely cannot do it, and there is **no** equivalent Rust idiom to reproduce it (no inheritance, no overloading, `Copy`/`Sized`/trait-object restrictions, `&'static str` cannot carry dynamic values, the `RefCell` borrow model)
+- Depends on something outside this crate and it is unavailable (POI's HPSF, `java.awt`, the JDK's localized text)
+- The Java side is itself reflection / JDBC / XML-JAXB / GUI / `Serializable`
+- Falls within the scope this project explicitly excludes (this project is reader-only: `MPXWriter`, CPM scheduling, P6-specific data)
 
-**B 类 · 没还的债**（要修）—— 满足其一：
+**Category B · unpaid debt** (must be fixed) — any one of:
 
-- **零件已在本 crate 落地但没接线**
-- 当时因「该依赖还在并行任务手里」而临时顶替，**现在依赖已完成**
-- 注释写着「属既有文件未改动」「需上层补入口」这类本可以顺手改的
-  （注：并行开发期「不得修改他人文件」的约束在批次结束后已失效，但遗留说明没人回头处理）
-- 「退化为英文/默认值/丢弃返回值」但 Java 是有实际行为的
+- **The piece is already present in this crate but is not wired up**
+- It was temporarily substituted because "the dependency was still in another parallel task"; **the dependency is now complete**
+- Comments saying things like "belongs to an existing file and was left unchanged" or "requires an entry point added upstream" that could have been fixed in passing
+  (note: the "do not modify other people's files" constraint from the parallel-development period lapsed when the batch ended, but no one went back to deal with the leftover notes)
+- "Degrades to English/default values/discards the return value" while Java has actual behavior
 
-**不计入债**：`回落为 0/None`、`越界时跳过该条记录`、反射/JDBC/JAXB/GUI/`Serializable` 跳过、
-Java 注释掉的死代码不翻译 —— 这些是正当的防御性写法或类别性跳过。
+**Not counted as debt**: `falls back to 0/None`, `skips that record when out of bounds`, skipping reflection/JDBC/JAXB/GUI/`Serializable`, and not translating Java's commented-out dead code — these are legitimate defensive practices or category-wide skips.
 
-## 统计
+## Statistics
 
-| | `src/mpp/` + `src/common/` | 模型层 + `src/mpx/` | 合计 |
+| | `src/mpp/` + `src/common/` | Model layer + `src/mpx/` | Total |
 |---|---|---|---|
-| B 类：没还的债 | 13 | 32 | **45** |
-| A 类：真硬限制 | 19 | 11 | **31**（A19 已还，见「修复进度」；A28、A29 为本次新增，其中 A29 为跨模块的格式范围缺失） |
+| Category B: unpaid debt | 13 | 32 | **45** |
+| Category A: genuine hard limitations | 19 | 11 | **31** (A19 is repaid, see "Remediation Progress"; A28 and A29 are new in this round, with A29 covering an out-of-scope format) |
 
 ---
 
-## 修复进度
+## Remediation Progress
 
-### ✅ 已完成（`ca16922` … `84df880`）
+### ✅ Completed (`ca16922` … `84df880`)
 
-| 章节 | 条目 |
+| Section | Item |
 |---|---|
-| 一 | `availability_table` 的 23:58 bug（**唯一给错答案的**）—— 使用点改 `Self::end_date_na()`，删模块级副本 |
-| 二 | 资源可用性表在 MPP 全部格式下为空 —— 4 个调用点接 `Resource::add_availability`，MPP8 按 `MPP8Reader.java:1035` 新增 |
-| 二 | 资源费率未换算 —— 新建 `src/rate_helper.rs`（对应 `org.mpxj.common.RateHelper`），mpp9/12/14 + `cost_rate_table_factory` 四处统一调用 |
-| 二 | MPX `ResourceField::MAX_UNITS` 被丢弃 —— 改为按 Java 写可用性表 |
-| 二 | MPX 记录 72 周期任务明细 —— 新增 `populate_recurring_task`，按 `MPXReader.java:1348` 逐字段写 |
-| 五 | **`FieldValue` 扩展** —— 新增 12 个变体（Uuid/TimeUnit/WorkContour/RateSource/ResourceRequestType/Notes/Steps/Relations/Resource/TimephasedWork/TimephasedCost/TimeRanges）。`Clone`/`PartialEq` 改为**手写**，逐变体对齐 Java 的引用/值比较语义（`Notes`/`Steps`/`Resource` 用 `Rc::ptr_eq`，`TimephasedWork`/`TimeRanges` 用值比较，依据是 Java `TimephasedItem` 覆写了 `equals`） |
-| 五 | 据上把 `ResourceAssignment` 的专属字段**接回字段表**，`get_field()` 现在可见。`m_workgroup` 经核对**确实不在** Java 字段表（`ResourceAssignment.java:4220`，由 `addWorkgroupAssignment()` 惰性创建），保留为独立字段 |
-| 五 | `Task` 的 `get_steps/set_steps/default_steps`、`set_notes_object`（子类型保真）、`get_work_splits` 系列；`FieldContainer` 的两个 timephased 查询 |
-| 六 | `ResourceAssignment::add_workgroup_assignment/get_workgroup_assignment` |
-| 六 | `ResourceAssignment::disable_events/enable_events` 接线（`populate_container` 前后） |
-| 三 | `default_baseline_strategy.rs` 的 7 个 `BASELINE_*` 数组去重 → 引用 `common/task_field_lists` |
-| 三 | `format_color`：**实际有 5 份**（本文档原记 2 份，已修正）—— 已给 `mpp_utility::Color` 加 `Display`，删 2 份；**剩 3 份**在 `font_style.rs` / `group_clause.rs` / `gantt_bar_common_style.rs` |
-| 三 | `props.rs` / `abstract_var_meta.rs` 的私有读取助手改为转发 `MPPComponent` |
-| 四 | 一批过期注释订正；**纠正 `mpxj_formats.rs` 的错误指引**（月份/星期名数据源是 JDK `java.time`，`locale_data` 里没有，属真硬限制） |
-| 八 | `locale_utility.rs` 改为逐键走 `LocaleData`（覆盖 + 回落语义），删掉硬编码英文表 |
-| 八 | `duration_utility.rs` 补回 `NumberFormat` 参数，用 `MPXJNumberFormat::parse` 取代 `f64::from_str`。此前德语等小数逗号区域的小数工期（如 `1,5t`）会解析失败 |
-| 三 | 新增 `src/resource_assignment_workgroup_fields.rs`（对应 Java 同名类），记录 76 解析逻辑就位 |
-| `2dd8716` · 二 | **MPX 记录 76 的调用点已解开** —— 记录 76 分支调用 `add_workgroup_assignment()` + `populate_resource_assignment_workgroup_fields`；顺带补上 MPX 资源分配路径的 `disable_events()` / `enable_events()` |
-| `2dd8716` · 三 | `format_color` 最后 3 份收敛 → 统一用 [`mpp_utility::format_color`]（**另发现** `format_optional_display` 族仍有 4 份，见「仍欠」） |
-| `2dd8716` · 三 | **`RecurringTask` 的两份实现合并**：删掉 `mpp/recurring_task_reader.rs` 内的同名类型，改用模型层 `crate::recurring_task::RecurringTask`；mpp8/9/12/14 四处「逐字段搬运」随之删除 |
-| `2dd8716` · 八 | `mpx/model_utility.rs` 的 `DataType::RelationList` 判定改为 `!relations.is_empty()` |
-| `52ec5f9` · 三 | 移植 `RateHelper::convert_to_hours`，删掉 `ResourceAssignment::rate_to_hours` 的就地实现 |
-| `84df880` · 一 | **修正上一批 23:58 修复引入的回归**：Java `availableTo` 内**两个常量混用** —— `rangeEnd` 的空值回落取 `LocalDateTimeHelper.END_DATE_NA`(23:59)，方法末尾的 `isAfter` 取本类常量(23:58)。现已逐处对齐，并补 3 个「能区分两个常量」的回归测试 |
-| `84df880` · 三 | `cost_rate_table_entry` / `project_calendar` / `cpm::microsoft_slack_calculator` 的内联 helper 复刻改为调用 `LocalDateTimeHelper` |
-| `84df880` · 六 | `custom_field::get_unique_id` 的惰性回落（含 `FieldKey::Custom` 走 `UserDefinedField.getValue()` 分支与缓存回填），`compareTo` 排序键改走回落值 |
-| `84df880` · 六 | `column` / `field_type` / `user_defined_field` 的 `getName(Locale)` 重载 |
-| `84df880` · 六 | `relation` / `relation_container` 的自动 unique ID（经 `ProjectContext` 序号生成器） |
-| `84df880` · 六 | `task_container::removed(Task)` 同时删除该任务的资源分配 |
-| `84df880` · 六 | `project_calendar`：`set_parent` 的 `calendar != this` 守卫（按地址同一性还原）、`ProjectCalendar(ProjectFile)`、`get_tasks` / `get_resources` / `get_resource_count` / `get_derived_calendars_for_project`，并实现 `ProjectEntityWithUniqueID` / `ProjectEntityWithMutableUniqueID` |
-| `84df880` · 六 | `project_calendar_container`：`get_by_name` 改用 `equals_ignore_case`；`removed()` 的派生日历清理改为**扫描容器元素**（原先经上下文查询必然失败 ⇒ 实为死代码，现已真正生效，并有回归测试） |
-| `84df880` · 四 | `project_calendar` / `project_calendar_container` / `external_project_container` / `project_properties` / `project_file` 等处过期措辞订正 |
-| `6a6ed58` · 三 | `format_optional_display` 族收敛：`font_style` / `grid_lines` / `table_font_style` / `timescale_tier` 的 4 份拷贝，以及 `gantt_bar_common_style` 的 `format_option` / `format_field`、`table_font_style` 的 `format_field_type`，全部改为 [`mpp_utility::format_optional_display`]；`format_color` 转调它 |
-| `b66f7cd` · 四 | 四-节所列 14 个文件的过期措辞订正完毕（`mpp8/9/12/14_reader`、`mpp_variant_reader`、`shift_container`、`shift_period_container`、`unit_of_measure_container`、`shift_period`、`work_contour`、`work_contour_container`、`notes_topic`、`slack_calculator`、`mpx/task_model`、`mpx/resource_model`）。**同时发现**：`UserDefinedFieldMap` 其实**已落地**（`src/mpp/user_defined_field_map.rs`），原判「未移植」有误；`WorkContour` 的 `impl ProjectEntityWithUniqueID` 写在容器文件里（原注释称「为避免并行冲突」） |
-| `dedfa4d` · 四 | 再订正约 25 处残留「并行 / 本批」措辞（`resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs`、`mpp/custom_field_value_reader14.rs` 等 30 个文件），纯注释、`git diff -U0` 自检确认未动代码行 |
-| 新 · 四/A19 | **月份 / 星期名本地化已补齐**（原 A19 真硬限制 → 已还）：新建 `src/mpx/localized_names.rs`，自建 9 个受支持语种的 `MMM`/`MMMM`/`EEE`/`EEEE` 表（数据逐条取自 JDK 25 在对应 `Locale` 下的输出），`mpxj_formats.rs` 的 `names_for_locale` 按 `MpxLocale` 分派。此前所有语种都回落英文。补「能区分具体取值」的回归测试（含德语默认格式 `EEE_DD_MM_YY` 与俄语非 ASCII 月份名解析） |
+| One | The 23:58 bug in `availability_table` (**the only one that gave a wrong answer**) — change the use sites to `Self::end_date_na()`, delete the module-level copy |
+| Two | The resource availability table is empty under all MPP formats — wire the 4 call sites to `Resource::add_availability`, and add one for MPP8 following `MPP8Reader.java:1035` |
+| Two | Resource rates were not converted — create `src/rate_helper.rs` (corresponding to `org.mpxj.common.RateHelper`), called uniformly from the four places mpp9/12/14 + `cost_rate_table_factory` |
+| Two | MPX `ResourceField::MAX_UNITS` was discarded — changed to write the availability table as Java does |
+| Two | MPX record 72 recurring-task details — add `populate_recurring_task`, writing field by field following `MPXReader.java:1348` |
+| Five | **`FieldValue` extension** — add 12 variants (Uuid/TimeUnit/WorkContour/RateSource/ResourceRequestType/Notes/Steps/Relations/Resource/TimephasedWork/TimephasedCost/TimeRanges). `Clone`/`PartialEq` are changed to **hand-written** implementations, aligning each variant with Java's reference/value comparison semantics (`Notes`/`Steps`/`Resource` use `Rc::ptr_eq`; `TimephasedWork`/`TimeRanges` use value comparison, because Java's `TimephasedItem` overrides `equals`) |
+| Five | Based on the above, wire `ResourceAssignment`'s dedicated fields **back into the field table**, so `get_field()` can now see them. On review, `m_workgroup` is **indeed not** in the Java field table (`ResourceAssignment.java:4220`; it is created lazily by `addWorkgroupAssignment()`), so it is kept as a separate field |
+| Five | `Task`'s `get_steps/set_steps/default_steps`, `set_notes_object` (preserving subtype fidelity), and the `get_work_splits` family; the two timephased queries on `FieldContainer` |
+| Six | `ResourceAssignment::add_workgroup_assignment/get_workgroup_assignment` |
+| Six | Wiring `ResourceAssignment::disable_events/enable_events` (around `populate_container`) |
+| Three | Deduplicate the 7 `BASELINE_*` arrays in `default_baseline_strategy.rs` → reference `common/task_field_lists` |
+| Three | `format_color`: there were **actually 5 copies** (this document originally recorded 2; corrected) — add `Display` to `mpp_utility::Color` and delete 2 copies; **3 copies remain** in `font_style.rs` / `group_clause.rs` / `gantt_bar_common_style.rs` |
+| Three | Change the private read helpers in `props.rs` / `abstract_var_meta.rs` to forward to `MPPComponent` |
+| Four | Corrected a batch of stale comments; **corrected the wrong guidance in `mpxj_formats.rs`** (the month/weekday-name data source is the JDK `java.time`; it is not in `locale_data`, making this a genuine hard limitation) |
+| Eight | Changed `locale_utility.rs` to go through `LocaleData` key by key (override + fallback semantics), deleting the hard-coded English table |
+| Eight | Restored the `NumberFormat` parameter in `duration_utility.rs`, replacing `f64::from_str` with `MPXJNumberFormat::parse`. Previously fractional durations (such as `1,5t`) failed to parse in decimal-comma locales such as German |
+| Three | Added `src/resource_assignment_workgroup_fields.rs` (corresponding to the Java class of the same name); the parsing logic for record 76 is in place |
+| `2dd8716` · Two | **The call site for MPX record 76 is unblocked** — the record 76 branch calls `add_workgroup_assignment()` + `populate_resource_assignment_workgroup_fields`; incidentally added `disable_events()` / `enable_events()` to the MPX resource-assignment path |
+| `2dd8716` · Three | The last 3 `format_color` copies converged → they now all use [`mpp_utility::format_color`] (**also discovered** that the `format_optional_display` family still had 4 copies, see "Still Owed") |
+| `2dd8716` · Three | **Merged the two `RecurringTask` implementations**: deleted the same-named type inside `mpp/recurring_task_reader.rs` and switched to the model-layer `crate::recurring_task::RecurringTask`; the four "field-by-field copying" blocks in mpp8/9/12/14 were removed accordingly |
+| `2dd8716` · Eight | Changed the `DataType::RelationList` check in `mpx/model_utility.rs` to `!relations.is_empty()` |
+| `52ec5f9` · Three | Ported `RateHelper::convert_to_hours` and deleted the in-place `ResourceAssignment::rate_to_hours` implementation |
+| `84df880` · One | **Fixed the regression introduced by the previous 23:58 fix**: within Java's `availableTo`, **two constants are mixed** — the null-value fallback for `rangeEnd` takes `LocalDateTimeHelper.END_DATE_NA` (23:59), while the `isAfter` at the end of the method takes this class's own constant (23:58). Each site is now aligned, and 3 regression tests that "distinguish the two constants" were added |
+| `84df880` · Three | Changed the inlined helper replicas in `cost_rate_table_entry` / `project_calendar` / `cpm::microsoft_slack_calculator` to call `LocalDateTimeHelper` |
+| `84df880` · Six | Lazy fallback for `custom_field::get_unique_id` (including the `FieldKey::Custom` branch that goes through `UserDefinedField.getValue()` and backfills the cache), and changed the `compareTo` sort key to use the fallback value |
+| `84df880` · Six | The `getName(Locale)` overloads for `column` / `field_type` / `user_defined_field` |
+| `84df880` · Six | Automatic unique IDs for `relation` / `relation_container` (via the `ProjectContext` sequence generator) |
+| `84df880` · Six | `task_container::removed(Task)` also deletes that task's resource assignments |
+| `84df880` · Six | `project_calendar`: the `calendar != this` guard in `set_parent` (reproduced by address identity), `ProjectCalendar(ProjectFile)`, `get_tasks` / `get_resources` / `get_resource_count` / `get_derived_calendars_for_project`, and implementation of `ProjectEntityWithUniqueID` / `ProjectEntityWithMutableUniqueID` |
+| `84df880` · Six | `project_calendar_container`: `get_by_name` now uses `equals_ignore_case`; the derived-calendar cleanup in `removed()` was changed to **scan the container elements** (the previous context-based query necessarily failed ⇒ it was in fact dead code; it now actually works, with a regression test) |
+| `84df880` · Four | Corrected stale wording in `project_calendar` / `project_calendar_container` / `external_project_container` / `project_properties` / `project_file` and elsewhere |
+| `6a6ed58` · Three | Converged the `format_optional_display` family: the 4 copies in `font_style` / `grid_lines` / `table_font_style` / `timescale_tier`, plus `format_option` / `format_field` in `gantt_bar_common_style` and `format_field_type` in `table_font_style`, all now use [`mpp_utility::format_optional_display`]; `format_color` forwards to it |
+| `b66f7cd` · Four | Finished correcting the stale wording in the 14 files listed in Section Four (`mpp8/9/12/14_reader`, `mpp_variant_reader`, `shift_container`, `shift_period_container`, `unit_of_measure_container`, `shift_period`, `work_contour`, `work_contour_container`, `notes_topic`, `slack_calculator`, `mpx/task_model`, `mpx/resource_model`). **Also discovered**: `UserDefinedFieldMap` had in fact **already landed** (`src/mpp/user_defined_field_map.rs`), so the original judgment "not ported" was wrong; `WorkContour`'s `impl ProjectEntityWithUniqueID` is written inside its container file (the original comment claimed it was "to avoid parallel conflicts") |
+| `dedfa4d` · Four | Corrected about 25 more remaining "parallel / this batch" phrases (`resource.rs`, `task.rs`, `mpp/mpp_utility.rs`, `mpp/fix_defer_fix.rs`, `mpp/custom_field_value_reader14.rs` and 30 files in total); comments only, self-checked with `git diff -U0` to confirm no code lines were touched |
+| New · Four/A19 | **Month / weekday-name localization is now complete** (originally the A19 hard limitation → repaid): added `src/mpx/localized_names.rs`, with self-built `MMM`/`MMMM`/`EEE`/`EEEE` tables for the 9 supported languages (each entry taken from the output of JDK 25 under the corresponding `Locale`), and `names_for_locale` in `mpxj_formats.rs` dispatches by `MpxLocale`. Previously every language fell back to English. Added regression tests that "distinguish specific values" (including the German default format `EEE_DD_MM_YY` and parsing of non-ASCII Russian month names) |
 
-### 本轮待办核对
+### This Round's Outstanding-Item Review
 
-本轮工作区（尚未提交）已修复下表的 `FixDeferFix` 工具重复实现、`PopulatedFields`
-及四类容器接线、日历容器基类复用、手动排程分配日历、任务上下文接线；
-原审计正文保留为历史记录。班次、班次时段、计量单位和笔记主题只由
-P6/Primavera 链路使用，属于本文档开头定义的 A 类范围限制，见下表中的分类。
+The current working tree (not yet committed) has fixed the duplicate `FixDeferFix` utility
+implementation in the table below, `PopulatedFields` and the wiring of the four container
+categories, reuse of the calendar container base class, calendars assigned by manual scheduling,
+and task-context wiring; the original audit body is kept as a historical record. Shifts, shift
+periods, units of measure, and notes topics are used only by the P6/Primavera pipeline and fall
+within the Category A scope limitation defined at the beginning of this document; see the
+classification in the table below.
 
-| 章节 | 条目 | 状态 |
+| Section | Item | Status |
 |---|---|---|
-| 三 | `custom_field_lookup_table` / `custom_field_container` 的 `CustomFieldValueItem` —— **经核实不是重复实现**：一个是字段载体（`&mut self`），一个是共享句柄（`Rc<RefCell<载体>>`），删任何一个都会大面积编译失败 | 已核实，非债 |
-| 三 | ~~`format_optional_display` 族 4 份拷贝~~ | ✅ `6a6ed58` 已收敛 |
-| 四 | ~~白名单外仍有过期措辞的文件（14 个）~~ | ✅ `b66f7cd` 已订正 |
-| 四 | 约 25 处残留「并行 / 本批」措辞（审计清单未覆盖，含 `resource.rs`、`task.rs`、`mpp/mpp_utility.rs`、`mpp/fix_defer_fix.rs` 等 30 个文件） | ✅ `dedfa4d` 已订正（纯注释，已用 `git diff -U0` 自检确认未动任何代码行） |
-| 二 | **新发现**：`ProjectContext::shared()` 未接线 `resources.set_context(&context)`（只接线了日历容器与序号提供者适配器）⇒ `ResourceContainer` 的上下文弱引用为空、内部序号生成器退化为自带计数器 | ✅ `69c6648` 已接线 |
-| 六 | `mpp/fix_defer_fix.rs` 的 `copy_bytes` / `get_unicode_string` 与 `MPPUtility::get_byte_array` / `get_unicode_string` 是**重复实现**且语义略有差异（本文件越界返回 `None`，`MPPUtility` 版静默不复制） | ✅ 本轮：边界验证后转调 `MPPUtility`，删除私有 Unicode 解码副本 |
-| 六 | ~~`mpp/custom_field_value_reader14.rs:16` 的私有常量 `PROJECT_2010` 重复定义~~ | ✅ `0ea4c62` 已改为引用 `ApplicationVersion::PROJECT_2010` |
-| 六 | `mpp/user_defined_field_map.rs` 的 `PopulatedFields` 与容器的 `get_populated_fields` | ✅ 本轮：四类字段容器使用缓存值判断默认值，映射跳过已占用目标字段 |
-| 六 | `ProjectCalendarContainer` 未组合 `ProjectEntityContainer` 基类，缺 unique ID 索引与冲突修复 | ✅ 本轮：构造时传入弱引用序号适配器；修复冲突前重建索引并取上下文真实序列 |
-| 六 | `shift` / `shift_period` / `unit_of_measure` / `notes_topic` 的 Builder 序列提供者及容器基类；`work_contour` / `unit_of_measure` 的 trait 实现归位 | A 类范围限制：前四类及 `unit_of_measure` 是 P6 专用数据；`work_contour` 的 trait 实现已归位 |
-| 六 | `ResourceAssignment::get_effective_calendar` 缺 `ManuallyScheduledTaskCalendar` 包装 | ✅ 本轮：接入临时日历的边界日时段；分配时间在构造时取快照（见该模块差异表） |
-| 六 | `TaskContainer::project_context` 在真实文件上从未接线 | ✅ 本轮：由 `ProjectFile::new_with_context` 显式传入；真实文件创建任务会消费上下文序列 |
+| Three | `CustomFieldValueItem` in `custom_field_lookup_table` / `custom_field_container` — **verified not to be a duplicate implementation**: one is a field carrier (`&mut self`), the other a shared handle (`Rc<RefCell<carrier>>`); deleting either causes widespread compilation failures | Verified, not debt |
+| Three | ~~4 copies of the `format_optional_display` family~~ | ✅ Converged in `6a6ed58` |
+| Four | ~~Files with stale wording outside the whitelist (14)~~ | ✅ Corrected in `b66f7cd` |
+| Four | About 25 remaining "parallel / this batch" phrases (not covered by the audit list; including `resource.rs`, `task.rs`, `mpp/mpp_utility.rs`, `mpp/fix_defer_fix.rs` and 30 files in total) | ✅ Corrected in `dedfa4d` (comments only; self-checked with `git diff -U0` to confirm no code lines were touched) |
+| Two | **Newly discovered**: `ProjectContext::shared()` did not wire `resources.set_context(&context)` (only the calendar container and the sequence-provider adapter were wired) ⇒ `ResourceContainer`'s weak context reference is empty and its internal sequence generator degrades to its own counter | ✅ Wired in `69c6648` |
+| Six | `mpp/fix_defer_fix.rs`'s `copy_bytes` / `get_unicode_string` and `MPPUtility::get_byte_array` / `get_unicode_string` are **duplicate implementations** with slightly different semantics (this file returns `None` on out-of-bounds, the `MPPUtility` version silently copies nothing) | ✅ This round: after bounds validation, forwards to `MPPUtility` and deletes the private Unicode-decoding copy |
+| Six | ~~The private constant `PROJECT_2010` defined repeatedly in `mpp/custom_field_value_reader14.rs:16`~~ | ✅ Changed in `0ea4c62` to reference `ApplicationVersion::PROJECT_2010` |
+| Six | `PopulatedFields` in `mpp/user_defined_field_map.rs` and the container's `get_populated_fields` | ✅ This round: the four field-container types use cached values to determine defaults, and the mapping skips already-occupied target fields |
+| Six | `ProjectCalendarContainer` does not compose the `ProjectEntityContainer` base class, so it lacks the unique-ID index and conflict repair | ✅ This round: a weak-reference sequence adapter is passed in at construction; before repairing conflicts the index is rebuilt and the real context sequence is taken |
+| Six | The Builder sequence providers and container base classes for `shift` / `shift_period` / `unit_of_measure` / `notes_topic`; relocating the trait implementations for `work_contour` / `unit_of_measure` | Category A scope limitation: the first four and `unit_of_measure` are P6-specific data; the `work_contour` trait implementation has been relocated |
+| Six | `ResourceAssignment::get_effective_calendar` lacks the `ManuallyScheduledTaskCalendar` wrapper | ✅ This round: wired to the temporary calendar's boundary-day periods; the assignment time is snapshotted at construction (see that module's differences table) |
+| Six | `TaskContainer::project_context` was never wired on real files | ✅ This round: passed in explicitly by `ProjectFile::new_with_context`; creating tasks on a real file consumes the context sequence |
 
-### 经核实「无法还原」（已在对应文件头登记为限制，不再是待办）
+### Verified "Cannot Be Reproduced" (already logged as limitations in the corresponding file headers; no longer outstanding)
 
-| 章节 | 条目 | 原因 |
+| Section | Item | Reason |
 |---|---|---|
-| 六 | `ProjectCalendarContainer::removed` 中「清空引用该日历的资源 / 任务的 calendar」 | 容器只能由 `ProjectContext::get_calendars_mut()` 取得，`removed` 执行时上下文必然处于可变借用中，资源 / 任务查询的 `try_borrow` 必然失败（Java 的 `m_context` 是强引用）。**派生日历清理**已改为扫描容器元素，可正常执行 |
-| 六 | `EventManager` / `FieldContainer` 的按身份移除监听器 | 注册接口按值移交 `Box<..>` 所有权，调用方拿不到任何句柄；接口形状由本批之外的 `ProjectReader` 调用点固定 |
-| 六 | `ProjectProperties::get_resource_pool_object` | Java 需 `m_parentFile.readExternalProject(...)`（Rust 侧为 `&mut self`），而属性只能经 `ProjectFile` 的 `RefCell` 借用取得 ⇒ 能调用时父文件必然已被借用，`try_borrow_mut` 必然失败；且仍受缺 `UniversalProjectReader` 阻塞 |
-| 六 | `ExternalProjectContainer` / `ProjectFile` 的外部子项目读取回调 | 缺 `UniversalProjectReader`（A3，Java 靠反射分发） |
-| 六 | `ProjectCalendar` 的 `TemporaryCalendar` / `ProjectCalendarHelper` 单独成模块 | 有意保留就地复刻（Java 侧 `TemporaryCalendar` 只是构造差异、`mergeExceptions` 只有两个重载），已在文件头说明 |
-| 三 | ~~`mpxj_formats.rs` 的月份 / 星期名本地化~~ | ✅ 已还：新建 `src/mpx/localized_names.rs` 自建 9 语种表（数据取自 JDK 25），`names_for_locale` 按 `MpxLocale` 分派。原判「A19 真硬限制」不再成立 —— 数据源确实在 JDK，但按 JDK 输出固化成静态表即可还原 |
+| Six | "Clear the calendar references on resources/tasks that reference this calendar" in `ProjectCalendarContainer::removed` | The container can only be obtained via `ProjectContext::get_calendars_mut()`, so when `removed` runs the context is necessarily mutably borrowed and the `try_borrow` for the resource/task query necessarily fails (Java's `m_context` is a strong reference). **The derived-calendar cleanup** has been changed to scan the container elements and now works correctly |
+| Six | Removing listeners by identity in `EventManager` / `FieldContainer` | The registration interface transfers ownership of a `Box<..>` by value, so the caller gets no handle; the interface shape is fixed by `ProjectReader` call sites outside this batch |
+| Six | `ProjectProperties::get_resource_pool_object` | Java needs `m_parentFile.readExternalProject(...)` (on the Rust side, `&mut self`), and the properties can only be obtained through the `RefCell` borrow of `ProjectFile` ⇒ by the time it can be called, the parent file is necessarily already borrowed and `try_borrow_mut` necessarily fails; it is also still blocked by the missing `UniversalProjectReader` |
+| Six | The external-subproject read callbacks in `ExternalProjectContainer` / `ProjectFile` | Missing `UniversalProjectReader` (A3; Java dispatches via reflection) |
+| Six | Making `ProjectCalendar`'s `TemporaryCalendar` / `ProjectCalendarHelper` separate modules | Intentionally kept as in-place replicas (on the Java side `TemporaryCalendar` differs only in construction, and `mergeExceptions` has only two overloads); explained in the file header |
+| Three | ~~Month / weekday-name localization in `mpxj_formats.rs`~~ | ✅ Repaid: added `src/mpx/localized_names.rs` with self-built tables for 9 languages (data taken from JDK 25), and `names_for_locale` dispatches by `MpxLocale`. The original judgment "A19 genuine hard limitation" no longer holds — the data source is indeed in the JDK, but it can be reproduced by freezing the JDK output into a static table |
 
-### ⚠️ 对本文档正文的更正
+### ⚠️ Corrections to the Body of This Document
 
-- **「一、给错答案」原判的 5 处 `END_DATE_NA` 全部改 `Self::end_date_na()` 是错的**：Java `AvailabilityTable` 里两个常量**混用**。正确对应关系见 `src/availability_table.rs` 文件头的对照表：`hasDefaultDateRange` / `availableFrom` 的 `isAfter` / `availableTo` 末尾的 `isAfter` 用本类常量(23:58)；`availableFrom` 的 `rangeStart` 与 `availableTo` 的 `rangeEnd` 空值回落用 `LocalDateTimeHelper`(23:59)。
-- **「六」原判 `getName(Locale)` 的数据源是 `mpx/locale_data.rs` 的 `TASK_NAMES_DATA` / `RESOURCE_NAMES_DATA` 是错的**：那是 `org.mpxj.mpx.LocaleData.TASK_NAMES`（按 MPX 字段号索引），而 `getName(Locale)` 需要的是 `org.mpxj.LocaleData.TASK_COLUMNS`（按 `TaskField.value()` 索引）——既不同表也不同下标。另经核实 Java 的 `org.mpxj.LocaleData` 只有英文资源（`LocaleData_en` 内容为空、无 `LocaleData_<lang>`），`ResourceBundle` 对任何语言都回落到基类，故该重载对任何 locale 都返回英文列名。
+- **Changing all 5 `END_DATE_NA` occurrences judged as "One, giving wrong answers" to `Self::end_date_na()` was wrong**: the two constants are **mixed** within Java's `AvailabilityTable`. For the correct correspondence, see the mapping table in the file header of `src/availability_table.rs`: `hasDefaultDateRange` / the `isAfter` in `availableFrom` / the `isAfter` at the end of `availableTo` use this class's own constant (23:58); the null-value fallbacks for `rangeStart` in `availableFrom` and `rangeEnd` in `availableTo` use `LocalDateTimeHelper` (23:59).
+- **The "Six" judgment that the data source for `getName(Locale)` is `TASK_NAMES_DATA` / `RESOURCE_NAMES_DATA` in `mpx/locale_data.rs` was wrong**: those are `org.mpxj.mpx.LocaleData.TASK_NAMES` (indexed by MPX field number), whereas `getName(Locale)` needs `org.mpxj.LocaleData.TASK_COLUMNS` (indexed by `TaskField.value()`) — a different table with a different index. On further verification, Java's `org.mpxj.LocaleData` has English resources only (`LocaleData_en` is empty and there is no `LocaleData_<lang>`), so `ResourceBundle` falls back to the base class for every language, and this overload returns English column names for every locale.
 
-### 验证基线（每批都应维持）
+### Verification Baseline (Should Be Maintained Every Batch)
 
-- `cargo build --all-targets` 无错误、**无警告**
-- `cargo test`：lib 单元测试全绿 + 集成测试 16 项全绿（本地化名表落地后为 **1769 + 16**，另有 4 项 doctest ignored）
-- `cargo run --release --example sample_survey`：**MPP 606/609**（另 3 个是密码保护，属预期）、**MPX 19/19**
+- `cargo build --all-targets`: no errors, **no warnings**
+- `cargo test`: all lib unit tests green + all 16 integration tests green (after the localized name tables landed, **1769 + 16**, plus 4 ignored doctests)
+- `cargo run --release --example sample_survey`: **MPP 606/609** (the other 3 are password-protected, as expected), **MPX 19/19**
 
 ---
 
-> 📌 **阅读顺序**：以下一～十节是**审计当时的原始记录**。哪些条目已修、哪些经核实后
-> 「无法还原」、哪些原判本身有误，一律以开头的「修复进度」为准（正文保留原样以记录来龙去脉）。
+> 📌 **Reading order**: Sections One through Ten below are the **original records from the time of the audit**. Which items have been fixed, which were verified as
+> "cannot be reproduced", and which original judgments were themselves wrong are all governed by the "Remediation Progress" at the top (the body is kept as-is to record the history).
 
 ---
 
-## 一、🔴 给错答案（最高优先）
+## One. 🔴 Giving Wrong Answers (Highest Priority)
 
-> ⚠️ 下表给出的**修法是错的**（正文按原样保留以记录来龙去脉）：Java `AvailabilityTable`
-> 里两个 `END_DATE_NA` 混用，不能一律换成 `Self::end_date_na()`。正确对应关系见
-> 「修复进度 → 对本文档正文的更正」与 `src/availability_table.rs` 的文件头对照表。
+> ⚠️ The **fix** given in the table below **is wrong** (the body is kept as-is to record the history): the two
+> `END_DATE_NA` constants are mixed within Java's `AvailabilityTable`, so they cannot all be replaced with `Self::end_date_na()`.
+> For the correct correspondence, see "Remediation Progress → Corrections to the Body of This Document" and the
+> mapping table in the file header of `src/availability_table.rs`.
 >
-> 该问题已由 `ca16922` 修复、并由 `84df880` 修正了修复中引入的回归；下表**不再是待办**。
+> This issue was fixed by `ca16922`, and the regression introduced by that fix was corrected by `84df880`; the table below is **no longer outstanding**.
 
-| 位置 | 问题 | 修法 |
+| Location | Problem | Fix |
 |---|---|---|
-| `src/availability_table.rs:131,135,174,211,226` | 内部调用解析到**模块级** `end_date_na()`（23:59），而 Java `AvailabilityTable` 用的是**本类自己的** `END_DATE_NA`（**23:58**，注释明说「与 helper 不同，为兼容 MS Project 的不一致取值」）。本仓已正确实现 `Self::end_date_na()`（:240，23:58）并配了测试，但它成了**死代码**，测试也测不到使用点 | 5 处调用改为 `Self::end_date_na()`，删掉模块级副本 |
+| `src/availability_table.rs:131,135,174,211,226` | The internal calls resolve to the **module-level** `end_date_na()` (23:59), whereas Java's `AvailabilityTable` uses **this class's own** `END_DATE_NA` (**23:58**; the comment explicitly states "different from the helper, for compatibility with MS Project's inconsistent value"). This repo already implements `Self::end_date_na()` correctly (:240, 23:58) with tests, but it became **dead code**, and the tests cannot reach the use sites | Change the 5 calls to `Self::end_date_na()` and delete the module-level copy |
 
 ---
 
-## 二、🟠 静默数据丢失
+## Two. 🟠 Silent Data Loss
 
-| 位置 | 丢了什么 | 修法 |
+| Location | What Was Lost | Fix |
 |---|---|---|
-| `src/mpp/availability_factory.rs:10,57`；`mpp8_reader.rs:1591`；`mpp9_reader.rs:2596`；`mpp12_reader.rs:2331`；`mpp14_reader.rs:2734` | **MPP8/9/12/14 全部格式、每个资源的可用性表解析后都是空的**。工厂改成「返回待追加的行」，4 个调用点全写 `let _ = ...` 丢弃（MPP8 整段没写）。Java：`resource.getAvailability().add(...)`，而 `getAvailability()` 直接返回可变的 `m_availability` | 给 `src/resource.rs` 加写入口（`availability: RefCell<AvailabilityTable>` 与 `AvailabilityTable::add` 都已存在）。先例：`work_contour_helper.rs:13` 用 `ProjectContext::get_work_contours_mut()` |
-| `src/mpx/mpx_reader.rs:1334` | `ResourceField::MAX_UNITS` 被写进字段表，但 `MaxUnits` 属 `ALWAYS_CALCULATED_FIELDS`（`resource.rs:576`），读取时被重算 → **`Resource::get_max_units()` 恒为 `None`**。Java：`resource.getAvailability().add(new Availability(START_DATE_NA, END_DATE_NA, units))` | 同上，加可用性写入口后改 1 处调用 |
-| `src/mpx/mpx_reader.rs:987` | **记录 76（`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`）整条记录被静默丢弃**。Java 会 `addWorkgroupAssignment()` + `populateResourceAssignmentWorkgroupFields` | 新增 `src/resource_assignment_workgroup_fields.rs`（Java 该类仅 6 字段 + `EMPTY`）→ `ResourceAssignment` 加 `add/get_workgroup_assignment` → 接线 |
-| `src/mpx/mpx_reader.rs:959` | 记录 72 只做 `task.set_recurring(true)`，**周期任务的工期/重现类型/每周日位图全丢**。Java 还会 `addRecurringTask()` + `populateRecurringTask` | 零件全在仓：`Task::add_recurring_task`（`task.rs:531`）、`RecurringTask`、`RecurrenceUtility`。按 `MPXReader.java:1348` 逐字段写 |
-| `src/mpp/mpp9_reader.rs:2548`；`mpp12_reader.rs:2299` | `MPPUtility.convertRateFromHours(...)` 两处调用被注释掉 → **资源标准费率/加班费率保持文件原始单位**（无小时→天换算）。Java 用 `resource.getCachedValue(unitsField)` 取 `TimeUnit` 再经 `RateHelper.convertFromHours` 换算写回 | 等价实现已在 `mpp14_reader.rs:3526-3605` 写好；提取到 `MPPUtility`（或新建 `src/rate_helper.rs`）后打开两处调用 |
-| `src/resource_assignment.rs:40-52,58-60` | 因 `FieldValue` 只装标量，把 `WorkContour`/`RateSource`/`ResourceRequestType`/`TimeUnit`(variable rate)/`UUID`(GUID)/`Notes`/timephased 列表改存**本类专属字段** → `get_field()` / `peek_cached_value()` **看不到这些字段**（Java 全在字段表里） | 见「五、共同前置：`FieldValue` 扩展」 |
+| `src/mpp/availability_factory.rs:10,57`; `mpp8_reader.rs:1591`; `mpp9_reader.rs:2596`; `mpp12_reader.rs:2331`; `mpp14_reader.rs:2734` | **Under every MPP8/9/12/14 format, each resource's availability table is empty after parsing**. The factory was changed to "return a row to be appended", and all 4 call sites write `let _ = ...` and discard it (the whole MPP8 block was never written). Java: `resource.getAvailability().add(...)`, and `getAvailability()` returns the mutable `m_availability` directly | Add a write entry point to `src/resource.rs` (both `availability: RefCell<AvailabilityTable>` and `AvailabilityTable::add` already exist). Precedent: `work_contour_helper.rs:13` uses `ProjectContext::get_work_contours_mut()` |
+| `src/mpx/mpx_reader.rs:1334` | `ResourceField::MAX_UNITS` is written into the field table, but `MaxUnits` belongs to `ALWAYS_CALCULATED_FIELDS` (`resource.rs:576`) and is recalculated on read → **`Resource::get_max_units()` is always `None`**. Java: `resource.getAvailability().add(new Availability(START_DATE_NA, END_DATE_NA, units))` | Same as above; change 1 call after adding the availability write entry point |
+| `src/mpx/mpx_reader.rs:987` | **The entire record 76 (`RESOURCE_ASSIGNMENT_WORKGROUP_FIELDS`) is silently discarded**. Java calls `addWorkgroupAssignment()` + `populateResourceAssignmentWorkgroupFields` | Add `src/resource_assignment_workgroup_fields.rs` (the Java class has only 6 fields + `EMPTY`) → add `add/get_workgroup_assignment` to `ResourceAssignment` → wire it up |
+| `src/mpx/mpx_reader.rs:959` | Record 72 only calls `task.set_recurring(true)`, so **the recurring task's duration/recurrence type/per-day-of-week bitmap are all lost**. Java additionally calls `addRecurringTask()` + `populateRecurringTask` | All the pieces are in the repo: `Task::add_recurring_task` (`task.rs:531`), `RecurringTask`, `RecurrenceUtility`. Write field by field following `MPXReader.java:1348` |
+| `src/mpp/mpp9_reader.rs:2548`; `mpp12_reader.rs:2299` | Two calls to `MPPUtility.convertRateFromHours(...)` are commented out → **resource standard rate/overtime rate keep the file's original units** (no hours→days conversion). Java takes the `TimeUnit` via `resource.getCachedValue(unitsField)` and converts it back through `RateHelper.convertFromHours` | An equivalent implementation is already written in `mpp14_reader.rs:3526-3605`; extract it into `MPPUtility` (or add `src/rate_helper.rs`) and then re-enable the two calls |
+| `src/resource_assignment.rs:40-52,58-60` | Because `FieldValue` only holds scalars, `WorkContour`/`RateSource`/`ResourceRequestType`/`TimeUnit` (variable rate)/`UUID` (GUID)/`Notes`/timephased lists were moved into **dedicated fields of this class** → `get_field()` / `peek_cached_value()` **cannot see these fields** (in Java they are all in the field table) | See "Five, Common Prerequisite: `FieldValue` Extension" |
 
 ---
 
-## 三、🟡 重复实现（已漂移或即将漂移）
+## Three. 🟡 Duplicate Implementations (Already Drifted or About to Drift)
 
-| 位置 | 重复了什么 |
+| Location | What Is Duplicated |
 |---|---|
-| `default_baseline_strategy.rs:9,224-320` | 重复定义 7 个 `BASELINE_*` 数组；`common/task_field_lists.rs:387-540` 已有全部 7 个 → **两边取值会不同步** |
-| `cost_rate_table_factory.rs:12`；`mpp14_reader.rs:3520` | `RateHelper.convertFromHours` 就地实现了**两遍** |
-| `grid_lines.rs:126`；`table_font_style.rs:357` | `format_color` 两份拷贝（都因「`Color` 不含 `Display` 且属已落地文件不得修改」） |
-| `mpp_component.rs:16-21` | `props.rs` 的 `InputStreamCursor`、`abstract_var_meta.rs` 的私有 `read_byte/int/short` 与已落地的 `MPPComponent` **三份并存** |
-| `custom_field_lookup_table.rs:25-30,274-282`；`custom_field_container.rs:40-43` | 为「尚未落地的 `mpp::CustomFieldValueItem`」提供同名**占位实现**，与正式类型并存 |
+| `default_baseline_strategy.rs:9,224-320` | 7 `BASELINE_*` arrays are defined twice; `common/task_field_lists.rs:387-540` already has all 7 → **the values on the two sides will drift out of sync** |
+| `cost_rate_table_factory.rs:12`; `mpp14_reader.rs:3520` | `RateHelper.convertFromHours` is implemented in place **twice** |
+| `grid_lines.rs:126`; `table_font_style.rs:357` | Two copies of `format_color` (both because "`Color` does not implement `Display` and belongs to files that have already landed and must not be modified") |
+| `mpp_component.rs:16-21` | `props.rs`'s `InputStreamCursor`, the private `read_byte/int/short` in `abstract_var_meta.rs`, and the already-landed `MPPComponent` **coexist as three copies** |
+| `custom_field_lookup_table.rs:25-30,274-282`; `custom_field_container.rs:40-43` | Provide a same-named **placeholder implementation** for "`mpp::CustomFieldValueItem`, which had not yet landed", coexisting with the real type |
 
 ---
 
-## 四、🟢 过期注释（代码无行为差异，零风险清理）
+## Four. 🟢 Stale Comments (No Behavioral Difference in Code; Zero-Risk Cleanup)
 
-依赖早已落地但注释仍说「未移植」：
+Dependencies landed long ago, but the comments still say "not ported":
 
-- `mpp/recurring_task_reader.rs:32` —— 说 `Task`/`RecurringTask` 未移植、无 `addRecurringTask`，**两者都在**
-- `mpp/mpp_reader.rs:55` —— 说「`MPP8Reader` 落地前 import 会报错」，**已落地**
-- `mpp/custom_field_value_reader14.rs:16` —— 因「`application_version` 未落地」就地定义 `PROJECT_2010`，**已落地**
-- `mpp/var_meta.rs:25,38`、`mpp/abstract_var_meta.rs:27` —— 说 `FieldMap` 尚未移植，**已落地**（且 `field_map.rs:1585` 已 `impl VarDataKeyResolver for FieldMap`）
-- `project_calendar_week.rs:5-19`、`project_calendar_exception.rs:5-21` —— 说 `recurring_data` 未声明，**`lib.rs:98` 已声明且代码正在使用**
-- `task.rs:218` —— 把 `addRecurringTask/getRecurringTask` 列入「跳过」，**实现已在 `:531,:538`**
-- `view.rs:14-16` —— 说实现类未声明，**`src/mpp/` 已有全部视图类**
-- `project_context.rs:55-60` —— 说 `structured_notes` 接口分歧待对齐，**已对齐**
-- `availability_table.rs:15`、`cost_rate_table_entry.rs:31`、`cpm/microsoft_slack_calculator.rs:35`、`external_project_container.rs:31`、`shift.rs:9`、`unit_of_measure.rs:8`、`field_container.rs:15`、`custom_field.rs:34`、`default_baseline_strategy.rs:9`、`resource.rs:58`、`task.rs:213`、`relation.rs:31`、`task_container.rs:33` —— 共性均为「因为 X 尚未移植 / 不在本次范围 / 在别人手里」，而 **X 现已全部落地**
+- `mpp/recurring_task_reader.rs:32` — says `Task`/`RecurringTask` are not ported and there is no `addRecurringTask`; **both are present**
+- `mpp/mpp_reader.rs:55` — says "the import errors until `MPP8Reader` lands"; **it has landed**
+- `mpp/custom_field_value_reader14.rs:16` — defines `PROJECT_2010` in place because "`application_version` has not landed"; **it has landed**
+- `mpp/var_meta.rs:25,38`, `mpp/abstract_var_meta.rs:27` — say `FieldMap` is not yet ported; **it has landed** (and `field_map.rs:1585` already has `impl VarDataKeyResolver for FieldMap`)
+- `project_calendar_week.rs:5-19`, `project_calendar_exception.rs:5-21` — say `recurring_data` is not declared; **`lib.rs:98` declares it and the code is using it**
+- `task.rs:218` — lists `addRecurringTask/getRecurringTask` under "skipped"; **the implementation is already at `:531,:538`**
+- `view.rs:14-16` — says the implementation classes are not declared; **`src/mpp/` already has all the view classes**
+- `project_context.rs:55-60` — says the `structured_notes` interface divergence is pending alignment; **it has been aligned**
+- `availability_table.rs:15`, `cost_rate_table_entry.rs:31`, `cpm/microsoft_slack_calculator.rs:35`, `external_project_container.rs:31`, `shift.rs:9`, `unit_of_measure.rs:8`, `field_container.rs:15`, `custom_field.rs:34`, `default_baseline_strategy.rs:9`, `resource.rs:58`, `task.rs:213`, `relation.rs:31`, `task_container.rs:33` — all share the theme "because X has not been ported / is out of scope for this round / is in someone else's hands", but **X has now all landed**
 
-### ⚠️ 一处曾必须纠正的**错误指引**（已修复）
+### ⚠️ One Piece of **Wrong Guidance** That Had to Be Corrected (Fixed)
 
-`mpx/mpxj_formats.rs` 文件头原先写「待 `crate::mpx::locale_data` 落地后改为按
-`MpxLocale` 取值」—— **方向是错的**。`locale_data` 已落地，但它**不含月份/星期名**
-（Java 的 `LocaleData.java:141-175` 里也没有）。那些名字来自 **JDK `java.time` 的本地化文本**。
-现已按 JDK 25 的输出固化成 `src/mpx/localized_names.rs` 的 9 语种表，`names_for_locale`
-按 `MpxLocale` 分派，注释也已订正 —— 无需启用 chrono 的 `unstable-locales`。
+The file header of `mpx/mpxj_formats.rs` originally said "once `crate::mpx::locale_data` lands, change it to look values up by `MpxLocale`" — **the direction was wrong**. `locale_data` has landed, but it **does not contain month/weekday names** (Java's `LocaleData.java:141-175` does not have them either). Those names come from the **localized text of the JDK `java.time`**. They are now frozen from the JDK 25 output into the 9-language table in `src/mpx/localized_names.rs`, `names_for_locale` dispatches by `MpxLocale`, and the comments have been corrected — there is no need to enable chrono's `unstable-locales`.
 
 ---
 
-## 五、共同前置：`FieldValue` 扩展
+## Five. Common Prerequisite: `FieldValue` Extension
 
-`src/field_value.rs:9-13` 注释自陈「目前只包含标量类型…这些变体会在对应的领域类型移植完成后补入」。
-它是以下**五条的共同前置**：
+The comment at `src/field_value.rs:9-13` states "currently only contains scalar types… these variants will be added once the corresponding domain types are ported".
+It is the **common prerequisite for the following five items**:
 
-| 位置 | 缺口 |
+| Location | Gap |
 |---|---|
-| `field_container.rs:13`；`resource.rs:58`；`task.rs:213`；`project_properties.rs:63` | `getTimephasedDurationValues` / `getTimephasedNumericValues` 缺失（`TimephasedDataFactory` 已落地并在读入路径被使用） |
-| `task.rs:217` | `getSteps/setSteps/defaultSteps` 跳过 → `Step` 已移植却**没有容器能装它** |
-| `task.rs:221` | `setNotesObject` 只保留纯文本，`RtfNotes`/`HtmlNotes`/`StructuredNotes` 子类型信息丢失 |
-| `task.rs:214` | `getWorkSplits` 系列跳过（`LocalDateTimeRange` 早已落地） |
-| `resource_assignment.rs:40-52` | 上述专属字段方案（见「二」最后一行） |
+| `field_container.rs:13`; `resource.rs:58`; `task.rs:213`; `project_properties.rs:63` | `getTimephasedDurationValues` / `getTimephasedNumericValues` are missing (`TimephasedDataFactory` has landed and is used on the read path) |
+| `task.rs:217` | `getSteps/setSteps/defaultSteps` are skipped → `Step` is ported but **there is no container to hold it** |
+| `task.rs:221` | `setNotesObject` keeps plain text only; the `RtfNotes`/`HtmlNotes`/`StructuredNotes` subtype information is lost |
+| `task.rs:214` | The `getWorkSplits` family is skipped (`LocalDateTimeRange` landed long ago) |
+| `resource_assignment.rs:40-52` | The dedicated-field approach described above (see the last row of "Two") |
 
-**建议先做它**，后面五条能一次收敛；不做则只能各自打补丁。
+**It is recommended to do this first**, so the five items below can converge in one pass; otherwise each can only be patched individually.
 
 ---
 
-## 六、其它 B 类（零件已落地，按需接线）
+## Six. Other Category B Items (Pieces Have Landed; Wire Them Up as Needed)
 
-| 位置 | 缺口 |
+| Location | Gap |
 |---|---|
-| `mpp/user_defined_field_map.rs:13,69`；`common/mod.rs` | `PopulatedFields` 未移植 → `UserDefinedFieldMap::new` 按空集处理，不过滤已占用字段。Java 用 `file.getTasks().getPopulatedFields()` 等三处 |
-| `project_calendar.rs:55-61,231` | 跳过 `ProjectCalendar(ProjectFile)` / `getTasks()` / `getResources()` / `getResourceCount()` / `getDerivedCalendarsForProject()`（Java 按 `calendarUniqueID` 过滤上下文） |
-| `project_calendar_container.rs:53,311` | `removed()` 未清空 `calendar.getResources()/getTasks()` 的日历引用 |
-| `resource_assignment.rs:62` | `getEffectiveCalendar()` 缺 Java 的 `ManuallyScheduledTaskCalendar` 包装（该类在 `org.mpxj` 根包，不在 `common`） |
-| `mpp/resource_assignment_factory.rs:14,27,249` | `ResourceAssignment::disable_events/enable_events`（`resource_assignment.rs:465,472` 已存在）未接线 |
-| `custom_field.rs:34` | `get_unique_id()` 未显式设置时返回 `None`；Java 惰性回落 `FieldTypeHelper.getFieldID(m_field)` |
-| `cpm/microsoft_slack_calculator.rs:34,71-91` | 内联了 `LocalDateTimeHelper.getVariance`（`common/mod.rs:13` 已启用该模块） |
-| `availability_table.rs:15`；`cost_rate_table_entry.rs:31` | 各自私有复刻 `LocalDateTimeHelper.START_DATE_NA`/`END_DATE_NA` |
-| `shift.rs:9`；`shift_period.rs:9`；`unit_of_measure.rs:8`；`notes_topic.rs:10` | 四个 `Builder` 不接序列提供者；`ObjectSequence`/`UniqueIdObjectSequenceProvider`/`ProjectEntityWithUniqueID` **均已落地**（`step.rs:42` 已用同一机制） |
-| `shift_container.rs:5`；`shift_period_container.rs:5`；`unit_of_measure_container.rs:9` | 未复用 `ListWithCallbacks`/`ProjectEntityContainer`/`ProjectEntityWithIDContainer`（均已落地）；`unit_of_measure_container.rs:132` 用「当前最大 unique ID + 1」**近似** `ObjectSequence` |
-| `task_container.rs:32` | `removed(Task)` 未删除该任务的资源分配（`ResourceAssignmentContainer` 已落地） |
-| `relation.rs:31`；`relation_container.rs:78,421` | `uniqueID == null` 时经序号生成器分配的逻辑跳过（`Task::get_parent_file`/`ProjectFile` 已落地） |
-| `project_properties.rs:74` | `getResourcePoolObject()` 跳过（`ProjectFile::read_external_project` 已存在） |
-| `project_calendar.rs:20` | `set_parent` 缺 Java 的 `calendar != this` 守卫 → 畸形数据可造成**父链自环**。本仓已有惯用法：`task.rs:301` / `resource.rs:36` 的 `self_ref: Weak<...>` |
-| `project_calendar.rs:84`；`project_calendar_container.rs:19` | `ProjectCalendar` 未 `impl ProjectEntityWithMutableUniqueID`（接口已落地），容器因此改用线性查找、丢掉 `fixUniqueIdClashes` |
-| `project_calendar.rs:46,50,2053` | `TemporaryCalendar` / `ProjectCalendarHelper` 未成模块（两者都在 `org.mpxj` 根包） |
-| `work_contour_container.rs:27`；`work_contour.rs:10`；`unit_of_measure.rs:8` | `impl ProjectEntityWithUniqueID` 被写在容器文件内（当时为避免并行冲突），接口已落地 |
-| `column.rs:27`；`field_type.rs:20`；`user_defined_field.rs:43` | `getName(Locale)` 重载未移植；`locale_data.rs:199,358` 已有 `TASK_NAMES_DATA`/`RESOURCE_NAMES_DATA` |
-| `project_calendar_container.rs:50` | `get_by_name` 用 `eq_ignore_ascii_case`（ASCII 折叠）；Java 是 `equalsIgnoreCase`（Unicode 折叠）。本仓 `locale_utility.rs:261` 已有实现 Java 语义的 `equals_ignore_case` |
-| `event_manager.rs:21,29-34`；`field_container.rs:18` | `removeProjectListener`/`removeFieldListener` 改为**清空全部**（Java 按身份移除）。本仓已有惯用法：`reader/abstract_project_reader.rs:120` 的 `SharedProjectListener` + `Rc::ptr_eq` |
-| `external_project_container.rs:30-34,43`；`project_file.rs:97` | 外部子项目读取回调未接线，`read_file` 恒返回 `None`（`lib.rs:23` 已 `pub mod reader;`；实际缺的是 `UniversalProjectReader`，见 A3） |
-| `mpp/mpp9_reader.rs:458` | 密码校验退化为**字符串相等**；Java 是 `reader.getReadPassword().matches(readPassword)`（把用户输入当正则）。是否修取决于项目对 `regex` 依赖的态度 |
+| `mpp/user_defined_field_map.rs:13,69`; `common/mod.rs` | `PopulatedFields` is not ported → `UserDefinedFieldMap::new` treats it as an empty set and does not filter already-occupied fields. Java uses `file.getTasks().getPopulatedFields()` and two other places |
+| `project_calendar.rs:55-61,231` | Skipped `ProjectCalendar(ProjectFile)` / `getTasks()` / `getResources()` / `getResourceCount()` / `getDerivedCalendarsForProject()` (Java filters the context by `calendarUniqueID`) |
+| `project_calendar_container.rs:53,311` | `removed()` does not clear the calendar references on `calendar.getResources()/getTasks()` |
+| `resource_assignment.rs:62` | `getEffectiveCalendar()` lacks Java's `ManuallyScheduledTaskCalendar` wrapper (that class is in the `org.mpxj` root package, not `common`) |
+| `mpp/resource_assignment_factory.rs:14,27,249` | `ResourceAssignment::disable_events/enable_events` (`resource_assignment.rs:465,472` already exists) is not wired up |
+| `custom_field.rs:34` | `get_unique_id()` returns `None` when not explicitly set; Java lazily falls back to `FieldTypeHelper.getFieldID(m_field)` |
+| `cpm/microsoft_slack_calculator.rs:34,71-91` | Inlines `LocalDateTimeHelper.getVariance` (`common/mod.rs:13` already enables that module) |
+| `availability_table.rs:15`; `cost_rate_table_entry.rs:31` | Each privately replicates `LocalDateTimeHelper.START_DATE_NA`/`END_DATE_NA` |
+| `shift.rs:9`; `shift_period.rs:9`; `unit_of_measure.rs:8`; `notes_topic.rs:10` | Four `Builder`s do not connect to a sequence provider; `ObjectSequence`/`UniqueIdObjectSequenceProvider`/`ProjectEntityWithUniqueID` **have all landed** (`step.rs:42` already uses the same mechanism) |
+| `shift_container.rs:5`; `shift_period_container.rs:5`; `unit_of_measure_container.rs:9` | Do not reuse `ListWithCallbacks`/`ProjectEntityContainer`/`ProjectEntityWithIDContainer` (all landed); `unit_of_measure_container.rs:132` **approximates** `ObjectSequence` with "current max unique ID + 1" |
+| `task_container.rs:32` | `removed(Task)` does not delete that task's resource assignments (`ResourceAssignmentContainer` has landed) |
+| `relation.rs:31`; `relation_container.rs:78,421` | The logic that allocates through the sequence generator when `uniqueID == null` is skipped (`Task::get_parent_file`/`ProjectFile` have landed) |
+| `project_properties.rs:74` | `getResourcePoolObject()` is skipped (`ProjectFile::read_external_project` already exists) |
+| `project_calendar.rs:20` | `set_parent` lacks Java's `calendar != this` guard → malformed data can cause a **parent-chain self-loop**. The repo already has an idiom for this: `self_ref: Weak<...>` in `task.rs:301` / `resource.rs:36` |
+| `project_calendar.rs:84`; `project_calendar_container.rs:19` | `ProjectCalendar` does not `impl ProjectEntityWithMutableUniqueID` (the interface has landed), so the container falls back to linear search and loses `fixUniqueIdClashes` |
+| `project_calendar.rs:46,50,2053` | `TemporaryCalendar` / `ProjectCalendarHelper` are not separate modules (both are in the `org.mpxj` root package) |
+| `work_contour_container.rs:27`; `work_contour.rs:10`; `unit_of_measure.rs:8` | `impl ProjectEntityWithUniqueID` is written inside the container file (at the time, to avoid parallel conflicts); the interface has landed |
+| `column.rs:27`; `field_type.rs:20`; `user_defined_field.rs:43` | The `getName(Locale)` overload is not ported; `locale_data.rs:199,358` already has `TASK_NAMES_DATA`/`RESOURCE_NAMES_DATA` |
+| `project_calendar_container.rs:50` | `get_by_name` uses `eq_ignore_ascii_case` (ASCII folding); Java uses `equalsIgnoreCase` (Unicode folding). This repo's `locale_utility.rs:261` already has `equals_ignore_case`, which implements the Java semantics |
+| `event_manager.rs:21,29-34`; `field_container.rs:18` | `removeProjectListener`/`removeFieldListener` were changed to **clear everything** (Java removes by identity). The repo already has an idiom: `SharedProjectListener` + `Rc::ptr_eq` in `reader/abstract_project_reader.rs:120` |
+| `external_project_container.rs:30-34,43`; `project_file.rs:97` | The external-subproject read callback is not wired up, and `read_file` always returns `None` (`lib.rs:23` already has `pub mod reader;`; what is actually missing is `UniversalProjectReader`, see A3) |
+| `mpp/mpp9_reader.rs:458` | Password verification degrades to **string equality**; Java uses `reader.getReadPassword().matches(readPassword)` (treating the user input as a regex). Whether to fix it depends on the project's stance on the `regex` dependency |
 
 ---
 
-## 七、A 类：真硬限制（登记，不需修）
+## Seven. Category A: Genuine Hard Limitations (Log Them; No Fix Required)
 
-| # | 位置（代表） | 内容 | 为什么做不到 |
+| # | Location (Representative) | Item | Why It Cannot Be Done |
 |---|---|---|---|
-| A1 | 几乎每个文件头 | Java 继承（`extends` / `protected` 字段 / `abstract` 虚方法分派）→ 组合 + `Deref` + 逐方法转发 / 显式传 `&dyn` | 无继承、无虚方法；`Deref` 只能借用不能按值取出 |
-| A2 | `mpp_utility.rs:10`；`mpp_resource_field.rs:7`；`var2_data.rs:15` 等 | 同签名重载拆成 `_by_id` / `_at_offset` / `_with_data_type` | 无方法重载 |
-| A3 | `reader/project_reader.rs:46` | `UniversalProjectReader` / `ProjectReaderUtility` 未移植 | Java 靠 `Class.forName` 反射分发；Rust 无反射 |
-| A4 | `listener/field_listener.rs:12` | `field_change` 省略 Java 的 `container` 参数 | `set` 期间已持 `&mut`，再交出 `&self` 属别名借用 |
-| A5 | `listener/project_listener.rs:22` | 实体以 `&Rc<RefCell<Task>>` 传递、方法取 `&mut self` | 回调点处于可变操作序列中，无法构造 `&mut Task` 别名 |
-| A6 | `mpp_reader.rs:32,60`；`hyperlink_reader.rs:25` | `EnumHelper.createTypeArray` / `FILE_CLASS_MAP`+`newInstance` / `FIELDS.get(container.getClass())` → `match`+`ALL` / 显式参数 | 依赖反射 |
-| A7 | `mpp14_reader.rs:30`；`mpp_task_field.rs:8` | `static final MppBitFlag[]` → `Vec` / `OnceLock` | `MppBitFlag::new` 不是 `const fn` |
-| A8 | `mpp/` 多处 | `java.awt.Color` → 自建最小 `Color`（仅 R/G/B） | `java.awt` 属 GUI 跳过项 |
-| A9 | `mpp/` 多处 | `Rc<RefCell<ProjectFile>>` 借用冲突时退化为 `None`/`Err`/跳过 | `RefCell` 借用模型；Java 是稳定引用 |
-| A10 | `mpp12_reader.rs:27`；`view_state_reader.rs:25` | `Var2Data`/`Props` 非 `Clone` + 构造器按值接收 → 同一份字节构造两份等价实例 | `Deref` 不能移出所有权 |
-| A11 | 几乎每个解析类 | Java 用异常做控制流（`ArrayIndexOutOfBounds` / NPE / `EOFException`）→ 返回 `None`/0/`Err`，绝不 panic | Rust 无受检异常，且「库代码不 panic」是本工程约定 |
-| A12 | `rtf_embedded_object.rs:26`；`mpp12_reader.rs:30` | 主动规避 Java 的死循环 / `StackOverflowError` | 栈溢出不可捕获；这是**修正 Java 缺陷** |
-| A13 | `mpp/ole.rs:1-27` | POI `POIFSFileSystem`（惰性流）→ `cfb` + 文档整体读入 `Vec<u8>` | 依赖本 crate 之外且无 POI；`cfb::Stream` 借用底层文件 |
-| A14 | `mpp/project_properties_reader.rs:6-27` | POI 的 HPSF → 自写 MS-OLEPS 解析（`VT_VECTOR`/`VT_I8`/`VT_DATE` 等未实现，属可补项） | `cfb` 无 HPSF |
-| A15 | `common/charset_helper.rs:35,49` | `CP850`/`CP437`/BOM 感知 `UTF16` 为 `None`（`GB2312`→`GBK`） | `encoding_rs` 只实现 WHATWG 标准内编码 |
-| A16 | `common/html_helper.rs:3-21` | jsoup → 轻量流式解析器（实体表不全、畸形 HTML 树修复无法复现） | jsoup 不可用 + 不引入新依赖 |
-| A17 | `common/rtf_helper.rs:3-19` | rtfparserkit → 轻量 RTF 文本抽取器 | 同上 |
-| A18 | `common/field_type_helper.rs:13-20`；`field_map.rs:48` 等 8 处 | `FieldTypeHelper.getPlaceholder` 的匿名占位 `FieldType` 无法表达 → 「无法识别字段号」统一返回 `None`，调用方**无法区分「未知类型」与「无字段」** | `MppFieldType` 只有 `Builtin`/`Custom` 两变体且访问器恒有值；`FieldKey` 是 `Copy+Eq+Hash` 的等价键、无 `UNKNOWN` 变体 |
-| ~~A19~~ | ~~`mpx/mpxj_formats.rs` 的 `names_for_locale` 对所有 locale 恒返回英文月份/星期名~~ | ✅ **已还（不再是 A）**：新建 `src/mpx/localized_names.rs` 按 JDK 25 输出固化 9 语种表，`names_for_locale` 按 `MpxLocale` 分派。原判 A 不成立 —— 数据源虽在 JDK，但可固化为静态表还原 |
-| A20 | `project_context.rs:6-21`；`project_file.rs:76` 等 | `LocationContainer`/`ExpenseCategory`/`CostAccount`/`ActivityCode`/`ProjectCode`/`ResourceCode`/`RoleCode`/`Currency`/`ExpenseItem` 未移植 | P6/Primavera 专用数据，MPP/MPX reader 不会产生 |
-| A21 | `cpm/` 整包 | `org.mpxj.cpm` 13 个类只移植了 `MicrosoftSlackCalculator` | CPM 排程不在 reader 目标内 |
-| A22 | `resource_assignment.rs:14` | 无 `TimePeriodEntity` 对应 trait | 纯标记接口 |
-| A23 | `data_link_container.rs:37`；`list_with_callbacks.rs:25` | 对象同一性 → `RefCell::as_ptr`；越界 → `None/false` | 本工程既定 Rust 惯用法，等价 Java 默认 `equals` |
-| A24 | `step.rs:28`；`table.rs:13`；`column.rs:18` | Java 未覆写 `toString` 的类改为 `Debug`/`Display` | Java 默认 `Object.toString` 无实际信息 |
-| A25 | `mpp/encrypted_document_input_stream.rs:21` | 只按低 8 位异或，不复刻 Java `read()` 的符号扩展缺陷 | 有意修正 Java 缺陷 |
-| A26 | `mpp/gantt_chart_view14.rs:36`；`mpp/table_font_style.rs:23` | 未能派生 `Debug`（`MppFieldType` 无 `Debug`） | 需改 `common/mpp_field_type.rs`（可补，但属设计取舍） |
-| A27 | `mpx/mpxj_formats.rs:668` | `DurationUtility` 不带 `NumberFormat`（见「八、已确认但待接线」） | 零件已存在，属 **B** 而非 A |
-| A28 | `mpp/project_properties_reader.rs` 的 `codepage_to_encoding` | OLE 属性集里部分代码页无 `encoding_rs` 实现：EBCDIC `cp037`、Johab(1361)、MacArabic/MacHebrew/MacGreek/MacThai/MacCentralEurope/MacIceland/MacTurkish/MacCroatian、ISO-2022-KR、US-ASCII，退回默认代码页 Windows-1252 | `encoding_rs` 只实现 WHATWG Encoding 标准内编码；与 A15 同类。POI 侧这些代码页要么有 Java 字符集要么解析失败 |
-| A29 | 无 `mspdi/` / `mpd/` / `p6/` / `planner/` 等模块 | 其他格式的 reader 未移植：MSPDI（XML）、MPD（Access 数据库）、P6 / Primavera、Gnome Planner、Microsoft Planner（云 API）等 | 本工程明确「只做 MPP + MPX」。注意 MSPDI **有 reader**（`org.mpxj.mspdi.MSPDIReader`），此前误归入「写入路径」；它是**读取能力的范围裁剪**（若纳入需引入 XML 解析），不是技术做不到 |
+| A1 | Almost every file header | Java inheritance (`extends` / `protected` fields / `abstract` virtual method dispatch) → composition + `Deref` + per-method forwarding / explicit `&dyn` passing | No inheritance, no virtual methods; `Deref` only borrows and cannot take out by value |
+| A2 | `mpp_utility.rs:10`; `mpp_resource_field.rs:7`; `var2_data.rs:15` etc. | Overloads with the same signature are split into `_by_id` / `_at_offset` / `_with_data_type` | No method overloading |
+| A3 | `reader/project_reader.rs:46` | `UniversalProjectReader` / `ProjectReaderUtility` are not ported | Java dispatches via `Class.forName` reflection; Rust has no reflection |
+| A4 | `listener/field_listener.rs:12` | `field_change` omits Java's `container` parameter | During `set`, a `&mut` is already held, so handing out a `&self` would be an aliasing borrow |
+| A5 | `listener/project_listener.rs:22` | Entities are passed as `&Rc<RefCell<Task>>` and methods take `&mut self` | The callback point sits inside a mutating operation sequence, so a `&mut Task` alias cannot be constructed |
+| A6 | `mpp_reader.rs:32,60`; `hyperlink_reader.rs:25` | `EnumHelper.createTypeArray` / `FILE_CLASS_MAP`+`newInstance` / `FIELDS.get(container.getClass())` → `match`+`ALL` / explicit parameters | Depends on reflection |
+| A7 | `mpp14_reader.rs:30`; `mpp_task_field.rs:8` | `static final MppBitFlag[]` → `Vec` / `OnceLock` | `MppBitFlag::new` is not a `const fn` |
+| A8 | Multiple places in `mpp/` | `java.awt.Color` → a self-built minimal `Color` (R/G/B only) | `java.awt` is a skipped GUI item |
+| A9 | Multiple places in `mpp/` | When there is a `Rc<RefCell<ProjectFile>>` borrow conflict, degrade to `None`/`Err`/skip | The `RefCell` borrow model; Java has stable references |
+| A10 | `mpp12_reader.rs:27`; `view_state_reader.rs:25` | `Var2Data`/`Props` are not `Clone` and the constructor takes by value → the same bytes construct two equivalent instances | `Deref` cannot move out ownership |
+| A11 | Almost every parsing class | Java uses exceptions for control flow (`ArrayIndexOutOfBounds` / NPE / `EOFException`) → return `None`/0/`Err`, never panic | Rust has no checked exceptions, and "library code does not panic" is this project's convention |
+| A12 | `rtf_embedded_object.rs:26`; `mpp12_reader.rs:30` | Proactively avoids Java's infinite loops / `StackOverflowError` | Stack overflow cannot be caught; this is **fixing Java defects** |
+| A13 | `mpp/ole.rs:1-27` | POI `POIFSFileSystem` (lazy stream) → `cfb` + reading the entire document into `Vec<u8>` | Depends on something outside this crate and POI is unavailable; `cfb::Stream` borrows the underlying file |
+| A14 | `mpp/project_properties_reader.rs:6-27` | POI's HPSF → a hand-written MS-OLEPS parser (`VT_VECTOR`/`VT_I8`/`VT_DATE` etc. are not implemented; fixable) | `cfb` has no HPSF |
+| A15 | `common/charset_helper.rs:35,49` | `CP850`/`CP437`/BOM-aware `UTF16` are `None` (`GB2312`→`GBK`) | `encoding_rs` only implements the encodings in the WHATWG standard |
+| A16 | `common/html_helper.rs:3-21` | jsoup → a lightweight streaming parser (the entity table is incomplete; malformed-HTML tree repair cannot be reproduced) | jsoup is unavailable + no new dependencies |
+| A17 | `common/rtf_helper.rs:3-19` | rtfparserkit → a lightweight RTF text extractor | Same as above |
+| A18 | `common/field_type_helper.rs:13-20`; `field_map.rs:48` and 8 places in total | The anonymous placeholder `FieldType` of `FieldTypeHelper.getPlaceholder` cannot be expressed → "unrecognized field number" uniformly returns `None`, and the caller **cannot distinguish "unknown type" from "no field"** | `MppFieldType` has only the `Builtin`/`Custom` variants and its accessors always have a value; `FieldKey` is an equivalence key that is `Copy+Eq+Hash` with no `UNKNOWN` variant |
+| ~~A19~~ | ~~`names_for_locale` in `mpx/mpxj_formats.rs` always returns English month/weekday names for every locale~~ | ✅ **Repaid (no longer A)**: added `src/mpx/localized_names.rs`, freezing the JDK 25 output into 9-language tables, and `names_for_locale` dispatches by `MpxLocale`. The original A judgment does not hold — although the data source is in the JDK, it can be reproduced by freezing it into a static table |
+| A20 | `project_context.rs:6-21`; `project_file.rs:76` etc. | `LocationContainer`/`ExpenseCategory`/`CostAccount`/`ActivityCode`/`ProjectCode`/`ResourceCode`/`RoleCode`/`Currency`/`ExpenseItem` are not ported | P6/Primavera-specific data; the MPP/MPX readers do not produce it |
+| A21 | The whole `cpm/` package | Of the 13 classes in `org.mpxj.cpm`, only `MicrosoftSlackCalculator` is ported | CPM scheduling is not within the reader's goals |
+| A22 | `resource_assignment.rs:14` | No trait corresponding to `TimePeriodEntity` | A pure marker interface |
+| A23 | `data_link_container.rs:37`; `list_with_callbacks.rs:25` | Object identity → `RefCell::as_ptr`; out of bounds → `None/false` | This project's established Rust idiom, equivalent to Java's default `equals` |
+| A24 | `step.rs:28`; `table.rs:13`; `column.rs:18` | Classes in Java that do not override `toString` are changed to `Debug`/`Display` | Java's default `Object.toString` carries no real information |
+| A25 | `mpp/encrypted_document_input_stream.rs:21` | XORs only the low 8 bits; does not reproduce the sign-extension defect in Java's `read()` | Intentionally fixing a Java defect |
+| A26 | `mpp/gantt_chart_view14.rs:36`; `mpp/table_font_style.rs:23` | Cannot derive `Debug` (`MppFieldType` has no `Debug`) | Requires changing `common/mpp_field_type.rs` (fixable, but a design trade-off) |
+| A27 | `mpx/mpxj_formats.rs:668` | `DurationUtility` does not carry a `NumberFormat` (see "Eight, Confirmed but Pending Wiring") | The piece already exists, so this is **B**, not A |
+| A28 | `codepage_to_encoding` in `mpp/project_properties_reader.rs` | Some code pages in OLE property sets have no `encoding_rs` implementation: EBCDIC `cp037`, Johab (1361), MacArabic/MacHebrew/MacGreek/MacThai/MacCentralEurope/MacIceland/MacTurkish/MacCroatian, ISO-2022-KR, US-ASCII; they fall back to the default code page Windows-1252 | `encoding_rs` only implements the encodings in the WHATWG Encoding standard; same category as A15. On the POI side these code pages either have a Java charset or fail to parse |
+| A29 | No `mspdi/`, `mpd/`, `p6/`, or `planner/` modules | Other reader formats are not ported: MSPDI (XML), MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API) | The project explicitly supports only MPP and MPX. MSPDI has a Java reader (`org.mpxj.mspdi.MSPDIReader`); excluding it is a scope limitation requiring an XML parser, not a language limitation |
 
 ---
 
-## 八、已确认但待接线（本轮新增发现）
+## Eight. Confirmed but Pending Wiring (Newly Discovered This Round)
 
-| 位置 | 问题 | 修法 |
+| Location | Problem | Fix |
 |---|---|---|
-| `mpx/locale_utility.rs:231-243` | `resources_for()` 对**所有非英语** locale 都返回英文资源表 → 非英语区域设置的货币符号/分隔符/日期格式等 16 个属性全部取英文。Java 是 `LocaleData.getString/getChar/getObject/getInteger(locale, KEY)` 逐个取 | `locale_data.rs` 已完整实现 Java `ResourceBundle` 的**覆盖 + 回落**语义（`overrides(locale)` + `unwrap_or(RESOURCE_DATA.xxx)`），且覆盖了 `set_locale` 需要的**全部键**（program_name / currency_symbol / am_text / pm_text / currency_digits / file_delimiter / date_separator / time_separator / code_page / date_order / time_format / date_format / default_start_time） |
-| `mpx/duration_utility.rs:74-75` | `get_instance(dur, locale)` 丢掉了 Java 的 `NumberFormat` 参数，内部用 `f64::from_str` 顶替（注释自承「本地化格式、千分位暂不支持」）→ **德语/法语等用小数逗号的区域，小数工期（如 `1,5t`）解析失败返回 `None`，字段静默丢失**。Java：`getInstance(String dur, NumberFormat format, Locale locale)` 用 `format.parse(...)` | `mpxj_number_format.rs`（`MPXJNumberFormat`）已完整实现；`mpxj_formats.rs` 已持有 `duration_decimal_format` 等 5 个实例并有 getter；调用点在 `record.rs:400`、`mpx_reader.rs:1624/1782` |
+| `mpx/locale_utility.rs:231-243` | `resources_for()` returns the English resource table for **all non-English** locales → all 16 properties such as currency symbol/separator/date format in non-English regional settings are taken from English. Java takes them one by one via `LocaleData.getString/getChar/getObject/getInteger(locale, KEY)` | `locale_data.rs` already fully implements Java `ResourceBundle`'s **override + fallback** semantics (`overrides(locale)` + `unwrap_or(RESOURCE_DATA.xxx)`), and covers **all keys** needed by `set_locale` (program_name / currency_symbol / am_text / pm_text / currency_digits / file_delimiter / date_separator / time_separator / code_page / date_order / time_format / date_format / default_start_time) |
+| `mpx/duration_utility.rs:74-75` | `get_instance(dur, locale)` drops Java's `NumberFormat` parameter and substitutes `f64::from_str` internally (the comment admits "localized formats and thousands separators are not yet supported") → **in decimal-comma locales such as German/French, fractional durations (such as `1,5t`) fail to parse and return `None`, silently losing the field**. Java: `getInstance(String dur, NumberFormat format, Locale locale)` uses `format.parse(...)` | `mpxj_number_format.rs` (`MPXJNumberFormat`) is fully implemented; `mpxj_formats.rs` already holds 5 instances such as `duration_decimal_format` with getters; the call sites are `record.rs:400`, `mpx_reader.rs:1624/1782` |
 
-> `sample.de.mpx` 没暴露这个问题，纯属它的工期恰好都是整数 ——
-> 「全样本 100% 通过」只证明了解析不崩、能出数据，**证明不了逐字段正确**。
-
----
-
-## 九、建议的修复顺序
-
-**第一批 · 真 bug + 数据丢失**
-1. `availability_table` 的 23:58（唯一给错答案的）
-2. 资源可用性表写入口 —— 一处改动同时修 `mpp` 全部格式与 MPX 的 `MAX_UNITS`
-3. `ResourceAssignment::disable_events/enable_events` 接线（零件已在，两行）
-4. `RateHelper` 提取 + `mpp9/mpp12` 费率换算打开（顺带解决重复实现）
-5. MPX 记录 72 / 76 接线（零件都齐）
-6. locale 两处接线（`locale_utility` + `duration_utility`）
-
-**第二批 · 收敛**
-7. `FieldValue` 扩展 —— timephased 查询 / `Task::getSteps` / Notes 子类型 / WorkSplits /
-   `ResourceAssignment` 专属字段**五条的共同前置**
-8. `BASELINE_*` 7 个数组 / `format_color` / `MPPComponent` 读取助手 去重
-
-**第三批 · 清理**
-9. 过期注释批量订正；移除「不得修改既有文件」的残留约束说明
-10. 纠正 `mpxj_formats.rs` 的错误指引（见「四」）
-
-**低优先**：密码正则（B13，取决于 `regex` 依赖政策）、HPSF 的 `VT_VECTOR`/`VT_I8`/`VT_DATE`、
-`PopulatedFields`、`ProjectCalendar` 的 contextual 方法、容器基类复用。
+> `sample.de.mpx` did not expose this problem purely because its durations happen to be integers —
+> "100% of samples pass" only proves that parsing does not crash and produces data; it **does not prove field-by-field correctness**.
 
 ---
 
-## 十、存疑（分类可争议）
+## Nine. Suggested Fix Order
 
-1. **`field_type_helper.rs:13-20` 的占位对象（A18）** —— 按定义归 A，但严格说 Rust **可以**给
-   `FieldKey` 加 `Unknown(i32)` 变体、把 `MppFieldType::get_data_type` 改成 `Option<DataType>`
-   来还原它 —— 那样就变成 B。属**模型层键类型的设计变更**，需先定调。
-2. **`html_helper.rs` / `rtf_helper.rs`（A16/A17）** —— 归 A 的理由是 jsoup / rtfparserkit
-   在本 crate 外；但 Rust 生态有 `html5ever`/`scraper` 等替代品，若放宽「不新增依赖」政策即变 B。
-3. **`charset_helper.rs` 的 CP437/CP850（A15）** —— 同理，取决于依赖政策。
-4. **`resource_assignment.rs` 的「专属字段」方案** —— 注释自陈是并行期的临时约束产物（归 B）；
-   但也可能是**有意**选的最终设计（避免 `FieldValue` 变成 `Object` 垃圾桶）。若如此应降级为
-   「设计决策」并改写注释。
-5. **`project_calendar_container.rs:50` 的 `eq_ignore_ascii_case`** —— 改用已有
-   `equals_ignore_case` 未必更接近 Java（后者自己也是 `str::to_lowercase` 近似）。
+**First batch · real bugs + data loss**
+1. The 23:58 in `availability_table` (the only one that gives a wrong answer)
+2. Resource availability table write entry point — one change fixes all `mpp` formats and MPX's `MAX_UNITS` at once
+3. Wiring `ResourceAssignment::disable_events/enable_events` (the pieces are already there; two lines)
+4. Extract `RateHelper` + re-enable the `mpp9/mpp12` rate conversion (also resolves the duplicate implementation)
+5. Wire up MPX records 72 / 76 (all the pieces are present)
+6. Wire up the two locale spots (`locale_utility` + `duration_utility`)
+
+**Second batch · convergence**
+7. `FieldValue` extension — the **common prerequisite for the five items**: timephased queries / `Task::getSteps` / Notes subtypes / WorkSplits /
+   `ResourceAssignment` dedicated fields
+8. Deduplicate the 7 `BASELINE_*` arrays / `format_color` / the `MPPComponent` read helpers
+
+**Third batch · cleanup**
+9. Bulk-correct stale comments; remove the leftover "do not modify existing files" constraint notes
+10. Correct the wrong guidance in `mpxj_formats.rs` (see "Four")
+
+**Low priority**: password regex (B13, depends on the `regex` dependency policy), HPSF's `VT_VECTOR`/`VT_I8`/`VT_DATE`,
+`PopulatedFields`, `ProjectCalendar`'s contextual methods, container base-class reuse.
+
+---
+
+## Ten. Uncertain (Classification Debatable)
+
+1. **The placeholder object in `field_type_helper.rs:13-20` (A18)** — by definition it falls under A, but strictly speaking Rust **could** reproduce it by adding an `Unknown(i32)` variant to `FieldKey` and changing `MppFieldType::get_data_type` to `Option<DataType>` — that would make it B. It is a **design change to the model layer's key type**, and the direction needs to be decided first.
+2. **`html_helper.rs` / `rtf_helper.rs` (A16/A17)** — the reason for classifying them as A is that jsoup / rtfparserkit are outside this crate; but the Rust ecosystem has alternatives such as `html5ever`/`scraper`, so if the "no new dependencies" policy were relaxed they would become B.
+3. **CP437/CP850 in `charset_helper.rs` (A15)** — likewise, depends on the dependency policy.
+4. **The "dedicated fields" approach in `resource_assignment.rs`** — the comment itself says it is a product of the temporary constraints from the parallel period (classified as B); but it might also be the **intentionally** chosen final design (avoiding turning `FieldValue` into an `Object` dumping ground). If so, it should be downgraded to a "design decision" and the comment rewritten.
+5. **`eq_ignore_ascii_case` in `project_calendar_container.rs:50`** — switching to the existing `equals_ignore_case` is not necessarily closer to Java (the latter is itself a `str::to_lowercase` approximation).
