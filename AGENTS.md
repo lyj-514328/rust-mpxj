@@ -7,7 +7,7 @@ Operating guide for AI agents / new contributors working in this repository. **R
 A Rust port of the Java library [MPXJ](https://github.com/joniles/mpxj).
 
 - **Positioned as a reader**: it only reads files and does not implement a writer.
-- **Supports only two formats**: MPP (Microsoft Project binary) and MPX (Microsoft Project Exchange text).
+- **Supports three formats**: MPP (Microsoft Project binary), MPX (Microsoft Project Exchange text) and MSPDI (Microsoft Project XML).
 - **Output matches Java**: it reuses the same unified `ProjectFile` data structure (`src/project_file.rs`).
 
 **The Java source is the sole authority.** The upstream is vendored as a submodule under `mpxj/` (`joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`, `v16.7.0-14-gc5e1320cde`).
@@ -18,7 +18,7 @@ This project is **reader-only**: no writer implementation exists under `src/` (`
 Explicitly **out of scope** (already logged as Category A hard limitations in Section 7 of `TECH_DEBT.md`):
 
 - Write paths: `MPXWriter` / `MSPDIWriter` / `MPPWriter` and other writers
-- Other reader formats: MSPDI (XML), MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API); this project supports only MPP and MPX
+- Other reader formats: MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API); the three supported formats are MPP, MPX and MSPDI
 - CPM scheduling (`src/cpm/` only ports `MicrosoftSlackCalculator`)
 - P6 / Primavera-specific data (`LocationContainer`, `ExpenseItem`, the various `Code` classes …)
 - `UniversalProjectReader` (Java dispatches via `Class.forName` reflection; Rust has no reflection)
@@ -34,7 +34,7 @@ cargo test                                # All unit tests + integration tests
 cargo run --release --example sample_survey   # Iterate real samples and tally the success rate
 ```
 
-Toolchain: edition 2024 (local rustc 1.97.1). The only dependencies are `byteorder` / `cfb` / `chrono` / `encoding_rs` / `thiserror` / `uuid`.
+Toolchain: edition 2024 (local rustc 1.97.1). The dependencies are `byteorder` / `cfb` / `chrono` / `encoding_rs` / `roxmltree` / `thiserror` / `uuid`.
 
 ## 3. Code Map
 
@@ -44,6 +44,7 @@ Toolchain: edition 2024 (local rustc 1.97.1). The only dependencies are `byteord
 | `src/common/` (30 files) | Port of `org.mpxj.common`: `*Helper`, `*FieldLists`, the Tokenizer family, MPP field-number mapping tables |
 | `src/mpp/` (130 files) | MPP read pipeline: OLE adaptation, `Props*`, `Fixed*`/`Var*` blocks, `FieldMap*`, `MPP8/9/12/14Reader`, presentation-layer classes |
 | `src/mpx/` (29 files) | MPX read pipeline: `MPXReader`, `LocaleData`, `MPXJNumberFormat`, etc. |
+| `src/mspdi/` (`mspdi_reader.rs`, `datatype_converter.rs`, `xsd_duration.rs`, `xml_node.rs`, `reader_*.rs`, `schema/`) | MSPDI (XML) read pipeline: the reader plus the XML binding model (`schema/`, the port of the JAXB `Project` tree) and the per-section `impl ReaderContext` blocks |
 | `src/reader/`, `src/listener/`, `src/cpm/` | Reader base classes, listeners, CPM (slack calculation only) |
 | `tests/`, `examples/` | End-to-end integration tests and the sample survey tool |
 | `TECH_DEBT.md` | **Authoritative technical debt inventory** (see Section 8) |
@@ -68,7 +69,7 @@ Toolchain: edition 2024 (local rustc 1.97.1). The only dependencies are `byteord
    - Shared entities use `Rc<RefCell<T>>` (corresponding to Java's reference semantics).
    - Back-references (child → parent) always use `Weak`, to avoid `Rc` reference cycles leaking.
    - When Java's `this` semantics must be reproduced (e.g. the callback `mapID(this)` inside `setID`), add a `self_ref: Weak<RefCell<T>>` field plus a wiring method that the container is responsible for calling.
-7. **Do not add third-party crates**. If you truly need one, confirm with the maintainer first (`TECH_DEBT.md` Section 10 lists several trade-offs that hinge on this).
+7. **Do not add third-party crates**. If you truly need one, confirm with the maintainer first (`TECH_DEBT.md` Section 10 lists several trade-offs that hinge on this). The approved, already-present set is exactly: `byteorder`, `cfb`, `chrono`, `encoding_rs`, `roxmltree`, `thiserror`, `uuid`.
 8. **New modules must be declared in `src/lib.rs`**.
 9. **Name things to align with Java where possible**: keep the file structure and class names consistent. For constructs Rust cannot express (overloads, trait objects, etc.), follow the repository's existing suffix conventions (`_by_id` / `_at_offset` / `_with_data_type` / `_for_locale` …) and note in a comment that "the Java side forms an overload with X".
 
@@ -118,8 +119,8 @@ rg -nP '[\x{4e00}-\x{9fff}]' -g '*.rs' src tests examples
 Current baseline:
 
 - `cargo build --all-targets`: no errors, **no warnings**
-- `cargo test`: **1789** lib unit tests + **18 + 10** integration tests, plus 4 ignored doctests
-- `sample_survey`: **MPP 606/609** (the other 3 are password-protected files, as expected), **MPX 19/19**
+- `cargo test`: **1927** lib unit tests + **18 + 10 + 10** integration tests, plus 4 ignored doctests
+- `sample_survey`: **MPP 606/609** (the other 3 are password-protected files, as expected), **MPX 19/19**, **MSPDI 143/148** (the other 5 XML samples are not MSPDI and are skipped by the root-element fingerprint, see `is_mspdi` in `examples/sample_survey.rs`)
 - Comment-language guard: only intentional non-ASCII test data remains (`src/mpx/locale_data_zh.rs`, `src/mpx/localized_names.rs`, and a handful of encoding/codepage/multi-byte assertions such as `decode_lpstr` in `src/mpp/project_properties_reader.rs` and `src/common/charset_helper.rs`)
 
 > ⚠️ **The baseline only proves "parsing does not crash and produces data"; it does not prove field-by-field correctness.**

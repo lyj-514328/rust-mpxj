@@ -1,7 +1,8 @@
 //! Rust port of the MPXJ reader.
 //!
 //! This crate is a Rust port of the reader portion of [MPXJ](https://github.com/joniles/mpxj),
-//! supports only the MPP and MPX formats, and reuses the original unified `ProjectFile` domain model.
+//! supports only the MPP, MPX and MSPDI formats, and reuses the original unified `ProjectFile`
+//! domain model.
 //!
 //! The directory structure corresponds one-to-one with the Java package structure:
 //!
@@ -14,12 +15,14 @@
 //! | `org.mpxj.reader` | `reader` |
 //! | `org.mpxj.mpx` | `mpx` |
 //! | `org.mpxj.mpp` | `mpp` |
+//! | `org.mpxj.mspdi` | `mspdi` |
 
 pub mod common;
 pub mod cpm;
 pub mod listener;
 pub mod mpp;
 pub mod mpx;
+pub mod mspdi;
 pub mod reader;
 
 // ---- org.mpxj root package ----

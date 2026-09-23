@@ -32,11 +32,20 @@
 | | `src/mpp/` + `src/common/` | Model layer + `src/mpx/` | Total |
 |---|---|---|---|
 | Category B: unpaid debt | 13 | 32 | **45** |
-| Category A: genuine hard limitations | 19 | 11 | **31** (A19 is repaid, see "Remediation Progress"; A28 and A29 are new in this round, with A29 covering an out-of-scope format) |
+| Category A: genuine hard limitations | 19 | 11 | **30** (A19 is repaid, see "Remediation Progress"; A28 is new in this round, and A29's MSPDI half is repaid — the remaining formats are out of scope) |
 
 ---
 
 ## Remediation Progress
+
+### ✅ Completed (this round: MSPDI support)
+
+| Section | Item |
+|---|---|
+| New · A29 | **MSPDI (XML) is now supported** (originally an out-of-scope hard limitation → repaid). The reader was added under `src/mspdi/`: `mspdi_reader.rs` (Java's `read(ProjectFile, Project)` orchestration plus the project-property section), `reader_calendars.rs` / `reader_resources.rs` / `reader_tasks.rs` / `reader_assignments.rs` / `reader_custom_fields.rs` (the `readXxx` sections, each an `impl ReaderContext` block mirroring its Java line range), `datatype_converter.rs` (the parse half of `DatatypeConverter`), `xsd_duration.rs` (`XsdDuration`) and `schema/` (a hand-written replacement for the JAXB `Project` tree, 50 classes). `MPD` / `P6` / `Planner` remain out of scope; `MSPDIWriter` remains unported (reader-only) |
+| New · dependency policy | `roxmltree` was added to `Cargo.toml` as the XML parser (MIT OR Apache-2.0, the only extra transitive dependency is `memchr`). It replaces JAXB: the parsed document is the read-only tree that Java's SAX+JAXB pipeline produced, so the ported `readXxx` methods take a `Node` where Java takes a `Project.Tasks.Task`. Recorded here because AGENTS.md Section 4.7 requires maintainer sign-off for new crates |
+| New · One | **Fixed the direction of `Task::dependency_fields` (a wrong answer, not just lost data).** Java builds `Task.DEPENDENCY_MAP` through `FieldContainerDependencies.calculatedField(A).dependsOn(B, C)`, which stores `A` **under the dependency** `B`/`C`; the Rust `match` was keyed by the calculated field instead, so `setStartVariance(...)` cleared `START` and `BASELINE_START`. Symptom: every MSPDI task lost its start date (`MSPDIReader.readTask` sets start at line 1394 and start variance at line 1401, so the two orderings differ only on the Rust side). `resource.rs` / `resource_assignment.rs` were already keyed correctly. Regression tests: `tests/mspdi_read.rs` (`generated_task_dates_are_read`) plus the reader's own task tests |
+| New · verification | `tests/mspdi_read.rs` (10 integration tests, including a sweep over every MSPDI sample in `mpxj/junit/data`), the `MSPDI samples` section of `examples/sample_survey.rs`, and 138 unit tests under `src/mspdi/` |
 
 ### ✅ Completed (`ca16922` … `84df880`)
 
@@ -270,7 +279,7 @@ It is the **common prerequisite for the following five items**:
 | A26 | `mpp/gantt_chart_view14.rs:36`; `mpp/table_font_style.rs:23` | Cannot derive `Debug` (`MppFieldType` has no `Debug`) | Requires changing `common/mpp_field_type.rs` (fixable, but a design trade-off) |
 | A27 | `mpx/mpxj_formats.rs:668` | `DurationUtility` does not carry a `NumberFormat` (see "Eight, Confirmed but Pending Wiring") | The piece already exists, so this is **B**, not A |
 | A28 | `codepage_to_encoding` in `mpp/project_properties_reader.rs` | Some code pages in OLE property sets have no `encoding_rs` implementation: EBCDIC `cp037`, Johab (1361), MacArabic/MacHebrew/MacGreek/MacThai/MacCentralEurope/MacIceland/MacTurkish/MacCroatian, ISO-2022-KR, US-ASCII; they fall back to the default code page Windows-1252 | `encoding_rs` only implements the encodings in the WHATWG Encoding standard; same category as A15. On the POI side these code pages either have a Java charset or fail to parse |
-| A29 | No `mspdi/`, `mpd/`, `p6/`, or `planner/` modules | Other reader formats are not ported: MSPDI (XML), MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API) | The project explicitly supports only MPP and MPX. MSPDI has a Java reader (`org.mpxj.mspdi.MSPDIReader`); excluding it is a scope limitation requiring an XML parser, not a language limitation |
+| A29 | No `mpd/`, `p6/`, or `planner/` modules | Other reader formats are not ported: MPD (Access database), P6 / Primavera, Gnome Planner, and Microsoft Planner (cloud API) | **Repaid for MSPDI** (see "Completed (this round: MSPDI support)"): MSPDI (XML) is read by `src/mspdi/` now that the `roxmltree` dependency was approved. The remaining formats stay out of scope |
 
 ---
 
@@ -317,3 +326,4 @@ It is the **common prerequisite for the following five items**:
 3. **CP437/CP850 in `charset_helper.rs` (A15)** — likewise, depends on the dependency policy.
 4. **The "dedicated fields" approach in `resource_assignment.rs`** — the comment itself says it is a product of the temporary constraints from the parallel period (classified as B); but it might also be the **intentionally** chosen final design (avoiding turning `FieldValue` into an `Object` dumping ground). If so, it should be downgraded to a "design decision" and the comment rewritten.
 5. **`eq_ignore_ascii_case` in `project_calendar_container.rs:50`** — switching to the existing `equals_ignore_case` is not necessarily closer to Java (the latter is itself a `str::to_lowercase` approximation).
+6. **The "no new dependencies" policy after `roxmltree`** — the MSPDI round added `roxmltree` (see "Completed (this round: MSPDI support)"). The precedent is that a dependency whose only job is to replace something the JDK provides to Java (here, SAX + JAXB) may be added; the `regex` (B13) and `html5ever` / `rtfparserkit` cases in item 2 are *not* automatically covered by it and still need an explicit decision.

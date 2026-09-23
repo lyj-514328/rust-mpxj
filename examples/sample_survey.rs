@@ -2,14 +2,19 @@
 //!
 //! Usage: `cargo run --release --example sample_survey`
 //!
-//! Walk every `.mpp` and `.mpx` sample under `mpxj/junit/data/`, pass each one to
-//! [`MPPReader`] / [`MPXReader`] for parsing, then print:
+//! Walk every `.mpp`, `.mpx` and `.xml` sample under `mpxj/junit/data/`, pass each one to
+//! [`MPPReader`] / [`MPXReader`] / [`MSPDIReader`] for parsing, then print:
 //! - total / succeeded / failed / success rate
 //! - failure reason grouping (aggregated by error text with paths and digits removed)
 //! - list of failing samples
 //!
 //! Note: the sample directory contains a few **intentionally corrupt** files (used by MPXJ's own tests,
 //! see directory names such as `corrupt`); their parse failures are expected. The report flags such samples separately.
+//!
+//! The XML samples are dispatched by content: the directory also holds XML samples belonging to
+//! readers this crate does not port (Phoenix, GanttProject, P6, ...), so a file is only handed to
+//! [`MSPDIReader`] when it carries the MSPDI root-element fingerprint — the same check Java's
+//! `UniversalProjectReader` uses (see [`is_mspdi`]).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,6 +26,7 @@ use std::sync::Mutex;
 use mpxj::mpp::mpp_reader::MPPReader;
 use mpxj::mpx::locale_utility::MpxLocale;
 use mpxj::mpx::mpx_reader::MPXReader;
+use mpxj::mspdi::mspdi_reader::MSPDIReader;
 use mpxj::reader::project_reader::ProjectReader;
 use mpxj::ProjectFile;
 
@@ -95,12 +101,12 @@ fn collect(root: &Path, extension: &str, out: &mut Vec<PathBuf>) {
 }
 
 /// Parse a single MPP sample.
-fn read_mpp(path: &Path) -> Outcome {
+fn read_mpp(path: &Path) -> Option<Outcome> {
     let mut reader = MPPReader::new();
-    match reader.read_file(path) {
+    Some(match reader.read_file(path) {
         Ok(_) => Outcome::Ok,
         Err(error) => Outcome::Error(error.message().to_owned()),
-    }
+    })
 }
 
 /// Infer the locale used by an MPX file from the sample file name.
@@ -119,23 +125,56 @@ fn locale_for(path: &Path) -> MpxLocale {
 }
 
 /// Parse a single MPX sample.
-fn read_mpx(path: &Path) -> Outcome {
+fn read_mpx(path: &Path) -> Option<Outcome> {
     let mut reader = MPXReader::new();
     // Corresponds to Java `LocaleTest.testReadGerman`: `reader.setLocale(Locale.GERMAN)`
     reader.set_locale(locale_for(path));
-    match reader.read_file(path) {
+    Some(match reader.read_file(path) {
         Ok(_) => Outcome::Ok,
         Err(error) => Outcome::Error(error.message().to_owned()),
+    })
+}
+
+/// Return whether an XML sample is an MSPDI document.
+///
+/// Corresponds to Java: the MSPDI fingerprint of `UniversalProjectReader`
+/// (`Pattern.compile(".*xmlns=\"http://schemas\\.microsoft\\.com/project.*", Pattern.DOTALL)`),
+/// applied to the first 512 bytes of the file (`UniversalProjectReader.BUFFER_SIZE`).
+///
+/// The reverse-comparison case is not reproduced: this sample tree also holds XML files for readers
+/// this crate does not port, and those are skipped rather than reported as failures.
+fn is_mspdi(path: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+
+    let limit = bytes.len().min(512);
+    String::from_utf8_lossy(&bytes[..limit]).contains("http://schemas.microsoft.com/project")
+}
+
+/// Parse a single MSPDI sample (non-MSPDI XML files are skipped — see [`is_mspdi`]).
+fn read_mspdi(path: &Path) -> Option<Outcome> {
+    if !is_mspdi(path) {
+        return None;
     }
+
+    let mut reader = MSPDIReader::new();
+    Some(match reader.read_file(path) {
+        Ok(_) => Outcome::Ok,
+        Err(error) => Outcome::Error(error.message().to_owned()),
+    })
 }
 
 /// Survey a set of samples.
-fn survey(label: &str, root: &Path, extension: &str, reader: fn(&Path) -> Outcome) {
+///
+/// A reader returns `None` for a sample it does not claim; such samples are counted as skipped
+/// rather than as failures.
+fn survey(label: &str, root: &Path, extension: &str, reader: fn(&Path) -> Option<Outcome>) {
     let mut files = Vec::new();
     collect(root, extension, &mut files);
     files.sort();
 
-    let (mut ok, mut corrupt_ok) = (0usize, 0usize);
+    let (mut ok, mut corrupt_ok, mut skipped) = (0usize, 0usize, 0usize);
     let mut reasons: HashMap<String, usize> = HashMap::new();
     let mut failures: Vec<(PathBuf, String)> = Vec::new();
     let mut panics = 0usize;
@@ -144,15 +183,18 @@ fn survey(label: &str, root: &Path, extension: &str, reader: fn(&Path) -> Outcom
         let outcome = catch_unwind(AssertUnwindSafe(|| reader(path)));
 
         match outcome {
-            Ok(Outcome::Ok) => {
+            Ok(Some(Outcome::Ok)) => {
                 ok += 1;
                 if is_intentionally_corrupt(path) {
                     corrupt_ok += 1;
                 }
             }
-            Ok(Outcome::Error(message)) => {
+            Ok(Some(Outcome::Error(message))) => {
                 *reasons.entry(normalise(&message)).or_default() += 1;
                 failures.push((path.clone(), message));
+            }
+            Ok(None) => {
+                skipped += 1;
             }
             Err(_) => {
                 panics += 1;
@@ -168,16 +210,19 @@ fn survey(label: &str, root: &Path, extension: &str, reader: fn(&Path) -> Outcom
     }
 
     let total = files.len();
-    let failed = total - ok;
+    let failed = total - ok - skipped;
     println!();
     println!("=========== {label} ===========");
     println!("total samples : {total}");
+    if skipped > 0 {
+        println!("skipped (not this format) : {skipped}");
+    }
     println!("parsed ok : {ok}");
     println!("parse failed : {failed}  (of which panic {panics})");
-    if total > 0 {
+    if total > skipped {
         println!(
             "success rate : {:.2}%",
-            (ok as f64) * 100.0 / (total as f64)
+            (ok as f64) * 100.0 / ((total - skipped) as f64)
         );
     }
     if corrupt_ok > 0 {
@@ -233,6 +278,7 @@ fn main() {
 
     survey("MPP samples", &data, "mpp", read_mpp);
     survey("MPX samples", &data, "mpx", read_mpx);
+    survey("MSPDI samples", &data, "xml", read_mspdi);
 
     // Restore the panic hook so behaviour on exit is normal
     let _ = std::panic::take_hook();

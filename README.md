@@ -3,7 +3,7 @@
 [MPXJ](https://github.com/joniles/mpxj) **reader 部分**的 Rust 重写/移植：只读，逐方法对照 Java
 源码实现，解析结果落在与 Java 一致的 `ProjectFile` 领域模型上。
 
-> 本 crate 是 `mpxj` 的**非官方**移植，**只覆盖 reader**：不做 writer（`MPXWriter` / MSPDI），
+> 本 crate 是 `mpxj` 的**非官方**移植，**只覆盖 reader**：不做 writer（`MPXWriter` / `MSPDIWriter`），
 > 不含完整 CPM 排程，也不含 P6 / Primavera 专用数据。包名取 `mpxj-rs` 以标注「Rust 移植」并与
 > 上游 Java 项目区分——它**不由 MPXJ 作者维护**。上游以 git submodule 固定在
 > `joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`（`v16.7.0-14-gc5e1320cde`）。
@@ -14,10 +14,12 @@
 |---|---|---|
 | **MPP** | MPP8 / MPP9 / MPP12 / MPP14 | Microsoft Project 二进制（Project 98 / 2000–2003 / 2007 / 2010 及以后），`MPPReader` |
 | **MPX** | MPX 3.0 / 4.0 | Microsoft Project Exchange 文本，`MPXReader`；含本地化（如德语）名表 |
+| **MSPDI** | Project 2002–2019 | Microsoft Project XML，`MSPDIReader`；含内嵌外部子项目、时相数据与自定义字段查表 |
 
-**不支持**：MSPDI（XML）、MPD、P6 / Primavera（XER / PMXML / P6 数据库）、Planner、Suretrak、
+**不支持**：MPD、P6 / Primavera（XER / PMXML / P6 数据库）、Planner、Suretrak、
 Asta、Phoenix、FastTrack、Ganttproject、Synchro、SDEF、Project Commander、Open Plan 等 MPXJ 支持的
-其他格式；也不提供 `UniversalProjectReader`（Java 靠反射分发，Rust 无反射）。
+其他格式；也不提供 `UniversalProjectReader`（Java 靠反射分发，Rust 无反射），MSPDI 需自行按根元素
+的 `xmlns="http://schemas.microsoft.com/project"` 识别。
 
 ## 安装
 
@@ -45,9 +47,12 @@ for task in file.get_tasks().iter() {
 MPX 同理，改用 `mpxj::mpx::mpx_reader::MPXReader`；非英语区域的 MPX 文件需先
 `reader.set_locale(..)`（例如德语样本用 `MpxLocale::De`）。
 
+MSPDI（XML）改用 `mpxj::mspdi::mspdi_reader::MSPDIReader`；编码默认 UTF-8，可用
+`reader.set_charset(..)` 覆盖。
+
 ## 特性与限制
 
-- **只读**：不做 `MPXWriter` / MSPDI 等写入路径。
+- **只读**：不做 `MPXWriter` / `MSPDIWriter` 等写入路径。
 - **CPM 排程**：仅移植 `MicrosoftSlackCalculator`（总时差计算），不提供完整排程。
 - 领域模型、字段号映射与文件头注释均逐一对照 Java 源码；每处与 Java 的差异都登记在对应
   文件头的差异表与 `TECH_DEBT.md` 中。
