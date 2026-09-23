@@ -1,34 +1,38 @@
 # mpxj-rs
 
-[MPXJ](https://github.com/joniles/mpxj) **reader 部分**的 Rust 重写/移植：只读，逐方法对照 Java
-源码实现，解析结果落在与 Java 一致的 `ProjectFile` 领域模型上。
+A Rust rewrite/port of the **reader portion** of [MPXJ](https://github.com/joniles/mpxj):
+read-only, implemented method-by-method against the Java source, with results landing on the same
+`ProjectFile` domain model as Java.
 
-> 本 crate 是 `mpxj` 的**非官方**移植，**只覆盖 reader**：不做 writer（`MPXWriter` / `MSPDIWriter`），
-> 不含完整 CPM 排程，也不含 P6 / Primavera 专用数据。包名取 `mpxj-rs` 以标注「Rust 移植」并与
-> 上游 Java 项目区分——它**不由 MPXJ 作者维护**。上游以 git submodule 固定在
-> `joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`（`v16.7.0-14-gc5e1320cde`）。
+> This crate is an **unofficial** port of `mpxj` and **only covers the reader**: no writers
+> (`MPXWriter` / `MSPDIWriter`), no full CPM scheduling, and no P6 / Primavera-specific data.
+> The package is named `mpxj-rs` to mark it as a "Rust port" and to distinguish it from the
+> upstream Java project — it is **not maintained by the MPXJ author**. The upstream is pinned as a
+> git submodule at `joniles/mpxj` @ `c5e1320cde0acd404031495aa66c17639a57239b`
+> (`v16.7.0-14-gc5e1320cde`).
 
-## 支持的格式
+## Supported formats
 
-| 格式 | 版本 | 说明 |
+| Format | Versions | Notes |
 |---|---|---|
-| **MPP** | MPP8 / MPP9 / MPP12 / MPP14 | Microsoft Project 二进制（Project 98 / 2000–2003 / 2007 / 2010 及以后），`MPPReader` |
-| **MPX** | MPX 3.0 / 4.0 | Microsoft Project Exchange 文本，`MPXReader`；含本地化（如德语）名表 |
-| **MSPDI** | Project 2002–2019 | Microsoft Project XML，`MSPDIReader`；含内嵌外部子项目、时相数据与自定义字段查表 |
+| **MPP** | MPP8 / MPP9 / MPP12 / MPP14 | Microsoft Project binary (Project 98 / 2000–2003 / 2007 / 2010+), `MPPReader` |
+| **MPX** | MPX 3.0 / 4.0 | Microsoft Project Exchange text, `MPXReader`; includes localized (e.g. German) name tables |
+| **MSPDI** | Project 2002–2019 | Microsoft Project XML, `MSPDIReader`; includes embedded external subprojects, timephased data and custom field lookup |
 
-**不支持**：MPD、P6 / Primavera（XER / PMXML / P6 数据库）、Planner、Suretrak、
-Asta、Phoenix、FastTrack、Ganttproject、Synchro、SDEF、Project Commander、Open Plan 等 MPXJ 支持的
-其他格式；也不提供 `UniversalProjectReader`（Java 靠反射分发，Rust 无反射），MSPDI 需自行按根元素
-的 `xmlns="http://schemas.microsoft.com/project"` 识别。
+**Not supported**: MPD, P6 / Primavera (XER / PMXML / P6 database), Planner, Suretrak,
+Asta, Phoenix, FastTrack, Ganttproject, Synchro, SDEF, Project Commander, Open Plan and the other
+formats MPXJ supports; there is also no `UniversalProjectReader` (Java dispatches via reflection,
+which Rust lacks), so MSPDI must be identified manually by its root element
+`xmlns="http://schemas.microsoft.com/project"`.
 
-## 安装
+## Installation
 
 ```toml
 [dependencies]
 mpxj-rs = "0.1"
 ```
 
-库名仍为 `mpxj`：
+The library name remains `mpxj`:
 
 ```rust
 use mpxj::mpp::mpp_reader::MPPReader;
@@ -44,30 +48,32 @@ for task in file.get_tasks().iter() {
 # Ok::<(), mpxj::MpxjError>(())
 ```
 
-MPX 同理，改用 `mpxj::mpx::mpx_reader::MPXReader`；非英语区域的 MPX 文件需先
-`reader.set_locale(..)`（例如德语样本用 `MpxLocale::De`）。
+MPX works the same way, using `mpxj::mpx::mpx_reader::MPXReader`; MPX files for non-English locales
+require `reader.set_locale(..)` first (for example, the German samples use `MpxLocale::De`).
 
-MSPDI（XML）改用 `mpxj::mspdi::mspdi_reader::MSPDIReader`；编码默认 UTF-8，可用
-`reader.set_charset(..)` 覆盖。
+For MSPDI (XML), use `mpxj::mspdi::mspdi_reader::MSPDIReader`; encoding defaults to UTF-8 and can be
+overridden with `reader.set_charset(..)`.
 
-## 特性与限制
+## Features and limitations
 
-- **只读**：不做 `MPXWriter` / `MSPDIWriter` 等写入路径。
-- **CPM 排程**：仅移植 `MicrosoftSlackCalculator`（总时差计算），不提供完整排程。
-- 领域模型、字段号映射与文件头注释均逐一对照 Java 源码；每处与 Java 的差异都登记在对应
-  文件头的差异表与 `TECH_DEBT.md` 中。
-- 库代码不 panic：非法输入返回 `MpxjError`，越界/缺失字段退化为 `None` / `0` / 跳过该记录。
+- **Read-only**: no write paths such as `MPXWriter` / `MSPDIWriter`.
+- **CPM scheduling**: only `MicrosoftSlackCalculator` (total slack) is ported; full scheduling is not provided.
+- The domain model, field-number mappings and file-header comments are checked against the Java
+  source method by method; every difference from Java is recorded in the corresponding file-header
+  differences table and in `TECH_DEBT.md`.
+- Library code never panics: invalid input returns `MpxjError`, and out-of-range/missing fields
+  degrade to `None` / `0` / skipping the record.
 
-## 开发
+## Development
 
 ```bash
-git clone --recurse-submodules <repo-url>   # tests 依赖 mpxj/junit/data 下的真实样本
+git clone --recurse-submodules <repo-url>   # tests rely on real samples under mpxj/junit/data
 cargo build --all-targets
 cargo test
 cargo run --release --example sample_survey
 ```
 
-## 许可
+## License
 
-移植自 [MPXJ](https://github.com/joniles/mpxj)，沿用上游许可
-[LGPL-2.1-or-later](https://www.gnu.org/licenses/old-licenses/lgpl-2.1-standalone.html)。
+Ported from [MPXJ](https://github.com/joniles/mpxj), under the upstream license
+[LGPL-2.1-or-later](https://www.gnu.org/licenses/old-licenses/lgpl-2.1-standalone.html).
