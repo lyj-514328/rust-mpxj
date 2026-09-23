@@ -418,20 +418,21 @@ impl ReaderContext {
     /// map is only needed by the post-processing step).
     fn calendar_references(
         &self,
-        parts: CalendarReferenceParts,
+        _parts: CalendarReferenceParts,
     ) -> (std::collections::HashSet<i32>, HashMap<i32, Vec<Rc<RefCell<Resource>>>>) {
         let mut resource_calendar_map: HashMap<i32, Vec<Rc<RefCell<Resource>>>> = HashMap::new();
         let mut calendar_references = std::collections::HashSet::new();
 
-        if parts == CalendarReferenceParts::ResourceCalendars {
-            for resource in self.resources() {
-                let unique_id = resource.borrow().get_calendar_unique_id();
-                if let Some(unique_id) = unique_id {
-                    resource_calendar_map
-                        .entry(unique_id)
-                        .or_default()
-                        .push(resource);
-                }
+        // Java builds the resource calendar map as part of the common reference pass. The Rust
+        // helper originally skipped it for `All`, which caused valid derived resource calendars
+        // to be pruned before post-processing.
+        for resource in self.resources() {
+            let unique_id = resource.borrow().get_calendar_unique_id();
+            if let Some(unique_id) = unique_id {
+                resource_calendar_map
+                    .entry(unique_id)
+                    .or_default()
+                    .push(resource);
             }
         }
 

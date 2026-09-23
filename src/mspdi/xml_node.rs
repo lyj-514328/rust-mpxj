@@ -67,7 +67,9 @@ pub fn children<'a, 'input>(
 
 /// Corresponds to Java: the character data JAXB collects for an element.
 ///
-/// Returns the concatenation of all text children; `None` when the element has no character data.
+/// Returns the concatenation of all text children. JAXB exposes an empty element as an empty
+/// string, so an element with no character data returns `Some("")`; a missing element is still
+/// represented by [`child_text`] as `None`.
 pub fn text<'a, 'input>(node: Node<'a, 'input>) -> Option<Cow<'a, str>> {
     let mut result: Option<Cow<'a, str>> = None;
 
@@ -80,7 +82,7 @@ pub fn text<'a, 'input>(node: Node<'a, 'input>) -> Option<Cow<'a, str>> {
         }
     }
 
-    result
+    result.or_else(|| Some(Cow::Borrowed("")))
 }
 
 #[cfg(test)]
@@ -122,11 +124,11 @@ mod tests {
         assert_eq!(child_text(doc.root_element(), "Notes").as_deref(), Some("abc"));
     }
 
-    /// An empty element carries no character data.
+    /// An empty element is exposed by JAXB as an empty string.
     #[test]
     fn text_of_empty_element() {
         let doc = document("<Task><Notes/></Task>");
-        assert_eq!(text(child(doc.root_element(), "Notes").unwrap()), None);
+        assert_eq!(text(child(doc.root_element(), "Notes").unwrap()).as_deref(), Some(""));
     }
 
     /// Repeated elements are returned in document order.

@@ -3217,7 +3217,7 @@ impl Resource {
     /// Corresponds to Java: `Resource.calculateStandardRate()`
     fn calculate_standard_rate(&self) -> Option<crate::rate::Rate> {
         let entry = self.get_current_cost_rate_table_entry(0)?;
-        Some(entry.get_standard_rate())
+        entry.get_rate(0)
     }
 
     /// Calculates the overtime rate from the current rate table A.
@@ -3225,7 +3225,7 @@ impl Resource {
     /// Corresponds to Java: `Resource.calculateOvertimeRate()`
     fn calculate_overtime_rate(&self) -> Option<crate::rate::Rate> {
         let entry = self.get_current_cost_rate_table_entry(0)?;
-        Some(entry.get_overtime_rate())
+        entry.get_rate(1)
     }
 
     /// Calculates the cost per use from the current rate table A.

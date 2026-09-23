@@ -20,8 +20,8 @@
 //! | `mpx.setUnitOfMeasure(m_projectFile.getUnitsOfMeasure().getOrCreateByAbbreviation(xml.getMaterialLabel()))` | [`resources_unit_of_measure`] clones the entry out of the container, then [`Resource::set_unit_of_measure`] stores its unique ID | The container lives in the `ProjectContext` and must be borrowed mutably to create a missing entry; cloning ends that borrow before the resource is borrowed. |
 //! | `mpx.setNotes(...)` is only called when the value is neither null nor empty | the same guard on the schema's `Option<String>` | Java's `xml.getNotes() != null && !xml.getNotes().isEmpty()`. |
 //! | `mpx.setCalendar(calendarMap.get(xml.getCalendarUID()))` | `calendar_map.get(&uid).cloned()`, then [`Resource::set_calendar`] | Java's `BigInteger` key is an `i64` in the schema layer; the calendar is cloned out of the map because the resource is borrowed mutably afterwards. |
-//! | `Project.Resources.Resource.Rates` wrapper and the `rates == null` test | the flattened `Vec` of `schema::resources::resource::Resource::rates`; an empty list plays the role of `rates == null` | The wrapper class is flattened away by the schema layer, so "wrapper absent" and "wrapper present but empty" cannot be told apart here. The empty case therefore also writes the five default cost rate tables; no sample under `mpxj/junit/data` contains an empty `<Rates/>`. |
-//! | `new CostRateTableEntry(start, end, costPerUse, defaultStandardRate, defaultOvertimeRate)` with nullable rates | `standard_rate.unwrap_or(Rate::ZERO)` | Java stores `null` in the rate array of a default entry; [`CostRateTableEntry`] holds `[Rate; MAX_RATES]` and uses `Rate::ZERO` as the "no rate" value (see its file header). |
+//! | `Project.Resources.Resource.Rates` wrapper and the `rates == null` test | the schema keeps a flattened `Vec` plus `rates_present` | The presence flag distinguishes an absent wrapper (`null`) from an empty `<Rates/>`, so only the former writes the five default cost rate tables. |
+//! | `new CostRateTableEntry(start, end, costPerUse, defaultStandardRate, defaultOvertimeRate)` with nullable rates | `CostRateTableEntry::new_with_optional_rates` | Java stores `null` in the rate array when a source rate is absent; the Rust entry tracks per-rate presence while retaining zero values for the existing rate accessors. |
 //! | `rate.getRatesFrom()` / `rate.getRatesTo()` are dereferenced (`isBefore` / `isAfter` / `getMinute`) and throw `NullPointerException` for an absent element | the clamp and the minute heuristic are skipped for an absent date | Rust-specific branch: library code never panics. Both elements are `required` in the schema, so real files always carry them. |
 //! | `Collections.sort(table)` after appending each entry to the `CostRateTable` | the entries are collected per table index, sorted and then handed to [`CostRateTable::from_entries`] | [`CostRateTable`] has no `sort` (it only exposes the collection operations the port needs) and the entry vector holds the same rows; both sorts are stable and compare end dates, so the resulting table is the same. |
 //! | `Collections.sort(table)` after appending each `Availability` to the table | the `Availability` values are collected, sorted and then appended through [`Resource::add_availability`] | [`Resource::get_availability`] lends out a read-only `Ref`, so the table is filled after the sort. Java's "append then sort" and this "sort then append" produce the same table. |
@@ -441,7 +441,7 @@ impl ReaderContext {
             standard_rate,
             overtime_rate,
             cost_per_use,
-            &xml.rates,
+            xml.rates_present.then_some(xml.rates.as_slice()),
         );
 
         // Java: readAvailabilityTable(mpx, xml);
@@ -565,9 +565,9 @@ impl ReaderContext {
         default_standard_rate: Option<Rate>,
         default_overtime_rate: Option<Rate>,
         default_cost_per_use: Option<f64>,
-        rates: &[XmlRate],
+        rates: Option<&[XmlRate]>,
     ) {
-        if rates.is_empty() {
+        let Some(rates) = rates else {
             for index in 0..CostRateTable::MAX_TABLES {
                 let mut table = CostRateTable::new();
                 if index == 0 {
@@ -576,15 +576,12 @@ impl ReaderContext {
                     // LocalDateTime endDate = CostRateTableEntry.DEFAULT_ENTRY.getEndDate();
                     // table.add(new CostRateTableEntry(startDate, endDate, defaultCostPerUse, defaultStandardRate, defaultOvertimeRate));
                     let default_entry = CostRateTableEntry::default_entry();
-                    table.add(CostRateTableEntry::new(
+                    table.add(CostRateTableEntry::new_with_optional_rates(
                         default_entry.get_start_date(),
                         default_entry.get_end_date(),
                         default_cost_per_use,
-                        &[
-                            // Java stores a null rate here; see the file header.
-                            default_standard_rate.unwrap_or(Rate::ZERO),
-                            default_overtime_rate.unwrap_or(Rate::ZERO),
-                        ],
+                        None,
+                        &[default_standard_rate, default_overtime_rate],
                     ));
                 } else {
                     // Java: table.add(CostRateTableEntry.DEFAULT_ENTRY);
@@ -596,7 +593,7 @@ impl ReaderContext {
             }
 
             return;
-        }
+        };
 
         // Java: CostRateTable[] tables = new CostRateTable[CostRateTable.MAX_TABLES];
         // The Rust side collects the entries per table index; an empty vector is Java's null slot
@@ -679,14 +676,12 @@ impl ReaderContext {
             // CostRateTable table = tables[tableIndex];
             // if (table == null) { table = new CostRateTable(); tables[tableIndex] = table; }
             // table.add(entry);
-            tables[table_index as usize].push(CostRateTableEntry::new(
+            tables[table_index as usize].push(CostRateTableEntry::new_with_optional_rates(
                 start_date,
                 end_date,
                 cost_per_use,
-                &[
-                    standard_rate.unwrap_or(Rate::ZERO),
-                    overtime_rate.unwrap_or(Rate::ZERO),
-                ],
+                None,
+                &[standard_rate, overtime_rate],
             ));
         }
 

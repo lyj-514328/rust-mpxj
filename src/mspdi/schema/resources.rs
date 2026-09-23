@@ -36,7 +36,7 @@
 //! |---|---|---|
 //! | The JAXB unmarshaller (`JAXBContext` + `Unmarshaller` + `ObjectFactory`) builds the object tree element by element | every class has one Rust-specific constructor `from_node`, which reads the child elements by local name with [`crate::mspdi::xml_node`] | The field order of every `from_node` matches the Java field declaration order and each value is converted the way the field's `@XmlJavaTypeAdapter` converts it. `xml_node` matches local names only, which is what `NamespaceFilter` achieved on the Java side by rewriting the namespace URI |
 //! | `Project.Resources` is a class whose only field is `List<Project.Resources.Resource> resource` | flattened away: the parent `Project` declares `Vec<resource::Resource>` directly | The wrapper class exists only because JAXB needs one class per `@XmlElement`. Because the field lives in the parent module, locating the `Resources` **wrapper element** and collecting its `Resource` children is the parent module's job. Java throws an NPE when `Project.getResources()` is dereferenced while `<Resources>` is absent; Rust yields an empty `Vec` |
-//! | `Resource.AvailabilityPeriods` (21607) and `Resource.Rates` (22286) are wrapper classes holding a single `List<X>` field | flattened away: `Resource` declares `Vec<availability_periods::AvailabilityPeriod>` / `Vec<rates::Rate>` directly | Same reasoning as `Project.Resources`. Java throws an NPE when `resource.getAvailabilityPeriods()` / `resource.getRates()` is dereferenced while the wrapper element is absent; the flattened Rust field is simply empty |
+//! | `Resource.AvailabilityPeriods` (21607) and `Resource.Rates` (22286) are wrapper classes holding a single `List<X>` field | flattened away: `Resource` declares `Vec<availability_periods::AvailabilityPeriod>` / `Vec<rates::Rate>` directly, plus `rates_present` | The repeated values are flattened, while the presence flag preserves Java's distinction between an absent wrapper (`null`) and an empty `<Rates/>` wrapper |
 //! | `getResource()` / `getAvailabilityPeriod()` / `getRate()` create the backing `ArrayList` lazily, so the field stays `null` until the accessor is called | `from_node` always produces an empty `Vec` for an absent repeated element | The Java reader calls the list accessors, which never return `null`, so the observable behaviour is the same |
 //! | `Resource.UID` is an `Integer` parsed by `Adapter14` / `DatatypeConverter.parseResourceUID` | `i32` | `Integer.valueOf` throws `NumberFormatException` on malformed text, so unparsable text degrades to `None` |
 //! | `BigInteger` fields (`ID`, `StandardRateFormat`, `OvertimeRateFormat`, `CalendarUID`, the `Baseline` / `ExtendedAttribute` / `OutlineCode` / `Rate` integers) | `i64` | Java has arbitrary precision, MSPDI values are small. Text that is not an integer, or that does not fit `i64`, degrades to `None` instead of throwing `NumberFormatException` (hard convention: library code never panics) |
@@ -252,6 +252,10 @@ pub mod resource {
         ///
         /// Flattened from the `Rates` wrapper to the wrapper's `Rate` child elements.
         pub rates: Vec<Rate>,
+        /// Whether the source contained a `Rates` wrapper, including an empty one.
+        ///
+        /// Corresponds to Java: `protected Rates rates;` (`null` when `<Rates>` is absent).
+        pub rates_present: bool,
         /// Corresponds to Java: `@XmlElement(name = "TimephasedData") protected List<TimephasedDataType> timephasedData;`
         pub timephased_data: Vec<TimephasedDataType>,
     }
@@ -341,6 +345,7 @@ pub mod resource {
                             .collect()
                     })
                     .unwrap_or_default(),
+                rates_present: child(node, "Rates").is_some(),
                 rates: child(node, "Rates")
                     .map(|wrapper| children(wrapper, "Rate").map(Rate::from_node).collect())
                     .unwrap_or_default(),
@@ -770,6 +775,7 @@ mod tests {
         assert_eq!(resource.is_enterprise, Some(true));
         assert_eq!(resource.is_cost_resource, Some(true));
         assert_eq!(resource.is_budget, Some(false));
+        assert!(resource.rates_present);
         // Adapter4 (parseDateTime).
         assert_eq!(resource.available_from, Some(date_time(2020, 1, 2, 8, 0, 0)));
         assert_eq!(resource.available_to, Some(date_time(2020, 2, 2, 17, 0, 0)));
@@ -818,6 +824,17 @@ mod tests {
         assert_eq!(resource.availability_periods.len(), 2);
         assert_eq!(resource.rates.len(), 2);
         assert_eq!(resource.timephased_data.len(), 1);
+    }
+
+    #[test]
+    fn resource_preserves_rates_wrapper_presence() {
+        let absent = resource_from("<Resource/>");
+        assert!(!absent.rates_present);
+        assert!(absent.rates.is_empty());
+
+        let empty = resource_from("<Resource><Rates/></Resource>");
+        assert!(empty.rates_present);
+        assert!(empty.rates.is_empty());
     }
 
     /// `ResourceType` (0 = material, 2 = cost, anything else = work), `WorkGroup`, `AccrueType` and

@@ -212,6 +212,22 @@ impl ReaderContext {
             project.week_start_day.map(|value| value as f64),
         ));
         self.update_schedule_source(&mut properties);
+
+        // Java's ProjectProperties setters update the parent ProjectContext's time-unit defaults
+        // through a strong back-reference. The Rust back-reference is weak and the property
+        // object is mutably borrowed here, so its change callback intentionally degrades on the
+        // borrow conflict. Synchronize the same values after releasing the property borrow.
+        let minutes_per_day = NumberHelper::get_integer(project.minutes_per_day.map(|value| value as f64));
+        let minutes_per_week = NumberHelper::get_integer(project.minutes_per_week.map(|value| value as f64));
+        let days_per_month = NumberHelper::get_integer(project.days_per_month.map(|value| value as f64));
+        drop(properties);
+        let context = self.file.borrow().get_project_context();
+        if let Ok(mut context) = context.try_borrow_mut() {
+            let defaults = context.get_time_unit_defaults_mut();
+            defaults.set_minutes_per_day(minutes_per_day);
+            defaults.set_minutes_per_week(minutes_per_week);
+            defaults.set_days_per_month(days_per_month);
+        }
     }
 
     /// Populate the properties indicating the source of this schedule.

@@ -68,6 +68,7 @@ import org.mpxj.TimephasedWork;
 import org.mpxj.WorkContour;
 import org.mpxj.mpp.MPPReader;
 import org.mpxj.mpx.MPXReader;
+import org.mpxj.mspdi.MSPDIReader;
 
 public final class JsonSnapshot
 {
@@ -506,7 +507,11 @@ public final class JsonSnapshot
          }
          return reader.read(path.toFile());
       }
-      throw new IllegalArgumentException("Only .mpp and .mpx are supported");
+      if (name.endsWith(".xml"))
+      {
+         return new MSPDIReader().read(path.toFile());
+      }
+      throw new IllegalArgumentException("Only .mpp, .mpx and MSPDI .xml files are supported");
    }
 
    private static Object snapshot(ProjectFile file, boolean allFields)
@@ -756,7 +761,7 @@ public final class JsonSnapshot
       }
       if (args.length < 1 || args.length > 2 || (args.length == 2 && !"--all-fields".equals(args[1])))
       {
-         System.err.println("Usage: JsonSnapshot <file.mpx|file.mpp> [--all-fields]");
+         System.err.println("Usage: JsonSnapshot <file.mpx|file.mpp|file.xml> [--all-fields]");
          System.err.println("      JsonSnapshot --server <output-dir> [--all-fields] [--threads N]");
          System.exit(2);
       }

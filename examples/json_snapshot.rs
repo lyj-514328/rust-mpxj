@@ -33,6 +33,7 @@ use mpxj::field_value::FieldValue;
 use mpxj::mpp::mpp_reader::MPPReader;
 use mpxj::mpx::locale_utility::MpxLocale;
 use mpxj::mpx::mpx_reader::MPXReader;
+use mpxj::mspdi::mspdi_reader::MSPDIReader;
 use mpxj::project_field::ProjectField;
 use mpxj::project_entity_with_id::ProjectEntityWithID;
 use mpxj::project_entity_with_unique_id::ProjectEntityWithUniqueID;
@@ -630,7 +631,7 @@ fn locale(path: &Path) -> MpxLocale {
         .unwrap_or(MpxLocale::En)
 }
 
-/// Select the existing MPX/MPP reader from the file extension.
+/// Select the reader from the file extension.
 fn read(path: &Path) -> Result<Rc<RefCell<ProjectFile>>, String> {
     match path
         .extension()
@@ -646,7 +647,10 @@ fn read(path: &Path) -> Result<Rc<RefCell<ProjectFile>>, String> {
             reader.set_locale(locale(path));
             reader.read_file(path).map_err(|e| e.message().to_owned())
         }
-        _ => Err("only .mpp and .mpx are supported".to_owned()),
+        Some("xml") => MSPDIReader::new()
+            .read_file(path)
+            .map_err(|e| e.message().to_owned()),
+        _ => Err("only .mpp, .mpx and MSPDI .xml files are supported".to_owned()),
     }
 }
 

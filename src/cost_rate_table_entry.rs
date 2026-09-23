@@ -37,6 +37,9 @@ const MAX_RATE_COUNT: usize = 5;
 /// - Java's `DEFAULT_ENTRY` / `MAX_RATES` are `public static final`; neither `LocalDateTime` nor arrays
 /// can be constructed as `const`, so `DEFAULT_ENTRY` becomes the [`CostRateTableEntry::default_entry`] function,
 /// while `MAX_RATES` remains a constant.
+/// - Java's `Rate[]` can retain `null` entries when a rate is absent from MSPDI; the regular Rust
+/// constructor keeps its historical zero-filled behaviour, while
+/// [`CostRateTableEntry::new_with_optional_rates`] preserves per-rate presence for XML input.
 ///
 /// Skipped Java methods: the private constructor `private CostRateTableEntry()` (see above, its semantics are merged into
 /// [`CostRateTableEntry::default_entry`]).
@@ -51,8 +54,10 @@ pub struct CostRateTableEntry {
     m_cost_per_use: Option<f64>,
 /// The rate array (standard rate, overtime rate, etc.).
     ///
-    /// Corresponds to Java: `private final Rate[] m_rates = new Rate[MAX_RATES];`
+/// Corresponds to Java: `private final Rate[] m_rates = new Rate[MAX_RATES];`
     m_rates: [Rate; MAX_RATE_COUNT],
+    /// Whether each rate slot contains a Java `Rate` value rather than `null`.
+    m_rate_present: [bool; MAX_RATE_COUNT],
 /// The shift period associated with these rates.
     ///
     /// Corresponds to Java: `private final ShiftPeriod m_shiftPeriod;`
@@ -93,6 +98,37 @@ impl CostRateTableEntry {
             m_range: LocalDateTimeRange::new(start_date, end_date),
             m_cost_per_use: cost_per_use,
             m_rates,
+            m_rate_present: [true; MAX_RATE_COUNT],
+            m_shift_period: shift_period,
+        }
+    }
+
+    /// Construct an entry while preserving nullable Java rate slots.
+    ///
+    /// Corresponds to Java: the `Rate...` constructor when one of its varargs values is `null`.
+    /// The array is still zero-filled beyond the supplied values, matching Java's constructor.
+    pub fn new_with_optional_rates(
+        start_date: Option<NaiveDateTime>,
+        end_date: Option<NaiveDateTime>,
+        cost_per_use: Option<f64>,
+        shift_period: Option<ShiftPeriod>,
+        rates: &[Option<Rate>],
+    ) -> Self {
+        let mut m_rates = [Rate::ZERO; MAX_RATE_COUNT];
+        let mut m_rate_present = [true; MAX_RATE_COUNT];
+        let count = rates.len().min(MAX_RATE_COUNT);
+        for (index, rate) in rates.iter().take(count).enumerate() {
+            match rate {
+                Some(rate) => m_rates[index] = *rate,
+                None => m_rate_present[index] = false,
+            }
+        }
+
+        Self {
+            m_range: LocalDateTimeRange::new(start_date, end_date),
+            m_cost_per_use: cost_per_use,
+            m_rates,
+            m_rate_present,
             m_shift_period: shift_period,
         }
     }
@@ -137,7 +173,10 @@ impl CostRateTableEntry {
     ///
 /// Java throws `ArrayIndexOutOfBoundsException` when out of bounds; the Rust side returns `None`.
     pub fn get_rate(&self, index: usize) -> Option<Rate> {
-        self.m_rates.get(index).copied()
+        self.m_rates
+            .get(index)
+            .copied()
+            .filter(|_| self.m_rate_present.get(index).copied().unwrap_or(false))
     }
 
 /// Get the standard rate.
@@ -182,6 +221,7 @@ impl fmt::Debug for CostRateTableEntry {
             .field("m_range", &self.m_range)
             .field("m_cost_per_use", &self.m_cost_per_use)
             .field("m_rates", &self.m_rates)
+            .field("m_rate_present", &self.m_rate_present)
             .field("m_shift_period_present", &self.m_shift_period.is_some())
             .finish()
     }
@@ -224,6 +264,7 @@ impl PartialEq for CostRateTableEntry {
         self.m_range == other.m_range
             && self.m_cost_per_use == other.m_cost_per_use
             && self.m_rates == other.m_rates
+            && self.m_rate_present == other.m_rate_present
     }
 }
 
@@ -241,6 +282,7 @@ impl Hash for CostRateTableEntry {
             rate.get_amount().to_bits().hash(state);
             rate.get_units().hash(state);
         }
+        self.m_rate_present.hash(state);
     }
 }
 
@@ -249,10 +291,11 @@ impl Display for CostRateTableEntry {
     ///
 /// Java joins the string forms of the rates with `Collectors.joining(", ")`.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let rates = self
-            .m_rates
-            .iter()
-            .map(Rate::to_string)
+        let rates = (0..MAX_RATE_COUNT)
+            .map(|index| {
+                self.get_rate(index)
+                    .map_or_else(|| "null".to_owned(), |rate| rate.to_string())
+            })
             .collect::<Vec<String>>()
             .join(", ");
 
@@ -318,6 +361,23 @@ mod tests {
             CostRateTableEntry::new(None, None, None, &[]).get_standard_rate(),
             Rate::ZERO
         );
+    }
+
+    #[test]
+    fn optional_rates_preserve_java_null_slots() {
+        let standard = Rate::new(10.0, TimeUnit::Hours);
+        let entry = CostRateTableEntry::new_with_optional_rates(
+            None,
+            None,
+            None,
+            None,
+            &[Some(standard), None],
+        );
+
+        assert_eq!(entry.get_rate(0), Some(standard));
+        assert_eq!(entry.get_rate(1), None);
+        assert_eq!(entry.get_overtime_rate(), Rate::ZERO);
+        assert_eq!(entry.get_rate(2), Some(Rate::ZERO));
     }
 
     #[test]
