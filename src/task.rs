@@ -795,50 +795,87 @@ impl Task {
     }
 }
 
-/// Get the dependency list for a task field.
+/// Get the list of calculated fields whose cached value must be cleared when a task field changes.
 ///
 /// Corresponds to Java: `private static final Map<FieldType, List<FieldType>> DEPENDENCY_MAP`
-/// (the `FieldContainerDependencies` declarations in the static initializer block, rewritten as `match` dispatch)
+/// (the `FieldContainerDependencies` declarations in the static initializer block, rewritten as
+/// `match` dispatch)
+///
+/// Java keys the map by the **dependency**: `calculatedField(A).dependsOn(B, C)` appends `A` to the
+/// list stored under `B` and to the list stored under `C`
+/// (`FieldContainerDependencies.dependsOn`), so the arms below are keyed by the field that changed
+/// and list the calculated fields to invalidate. The order inside each list follows the Java
+/// declaration order.
 fn dependency_fields(field: TaskField) -> &'static [TaskField] {
     match field {
-        TaskField::StartVariance => &[TaskField::Start, TaskField::BaselineStart],
-        TaskField::FinishVariance => &[TaskField::Finish, TaskField::BaselineFinish],
-        TaskField::StartSlack => &[TaskField::EarlyStart, TaskField::LateStart],
-        TaskField::FinishSlack => &[TaskField::EarlyFinish, TaskField::LateFinish],
-        TaskField::TotalSlack => &[
-            TaskField::StartSlack,
-            TaskField::FinishSlack,
-            TaskField::ActualStart,
-        ],
-        TaskField::FreeSlack => &[TaskField::EarlyStart, TaskField::EarlyFinish],
-        TaskField::CostVariance => &[TaskField::Cost, TaskField::BaselineCost],
-        TaskField::DurationVariance => &[TaskField::Duration, TaskField::BaselineDuration],
-        TaskField::WorkVariance => &[TaskField::Work, TaskField::BaselineWork],
-        TaskField::Cv => &[TaskField::Bcwp, TaskField::Acwp],
-        TaskField::Sv => &[TaskField::Bcwp, TaskField::Bcws],
-        TaskField::Critical => &[TaskField::TotalSlack, TaskField::ActualFinish],
-        TaskField::CompleteThrough => &[
-            TaskField::Duration,
-            TaskField::ActualStart,
-            TaskField::PercentComplete,
-        ],
-        TaskField::ExternalProject => &[TaskField::SubprojectFile, TaskField::ExternalTask],
-        TaskField::ActivityPercentComplete => &[
-            TaskField::PercentCompleteType,
-            TaskField::PercentComplete,
-            TaskField::PercentWorkComplete,
-            TaskField::PhysicalPercentComplete,
-        ],
-        TaskField::RemainingRegularCost => &[
-            TaskField::RemainingCost,
-            TaskField::RemainingOvertimeCost,
-        ],
-        TaskField::ActualRegularCost => &[TaskField::ActualCost, TaskField::ActualOvertimeCost],
-        TaskField::RemainingRegularWork => &[
-            TaskField::RemainingWork,
-            TaskField::RemainingOvertimeWork,
-        ],
-        TaskField::ActualRegularWork => &[TaskField::ActualWork, TaskField::ActualOvertimeWork],
+        // dependencies.calculatedField(START_VARIANCE).dependsOn(START, BASELINE_START);
+        TaskField::Start | TaskField::BaselineStart => &[TaskField::StartVariance],
+
+        // dependencies.calculatedField(FINISH_VARIANCE).dependsOn(FINISH, BASELINE_FINISH);
+        TaskField::Finish | TaskField::BaselineFinish => &[TaskField::FinishVariance],
+
+        // dependencies.calculatedField(START_SLACK).dependsOn(EARLY_START, LATE_START);
+        // dependencies.calculatedField(FREE_SLACK).dependsOn(EARLY_START, EARLY_FINISH);
+        TaskField::EarlyStart => &[TaskField::StartSlack, TaskField::FreeSlack],
+        TaskField::LateStart => &[TaskField::StartSlack],
+
+        // dependencies.calculatedField(FINISH_SLACK).dependsOn(EARLY_FINISH, LATE_FINISH);
+        // dependencies.calculatedField(FREE_SLACK).dependsOn(EARLY_START, EARLY_FINISH);
+        TaskField::EarlyFinish => &[TaskField::FinishSlack, TaskField::FreeSlack],
+        TaskField::LateFinish => &[TaskField::FinishSlack],
+
+        // dependencies.calculatedField(TOTAL_SLACK).dependsOn(START_SLACK, FINISH_SLACK, ACTUAL_START);
+        // dependencies.calculatedField(COMPLETE_THROUGH).dependsOn(DURATION, ACTUAL_START, PERCENT_COMPLETE);
+        TaskField::StartSlack | TaskField::FinishSlack => &[TaskField::TotalSlack],
+        TaskField::ActualStart => &[TaskField::TotalSlack, TaskField::CompleteThrough],
+
+        // dependencies.calculatedField(COST_VARIANCE).dependsOn(COST, BASELINE_COST);
+        TaskField::Cost | TaskField::BaselineCost => &[TaskField::CostVariance],
+
+        // dependencies.calculatedField(DURATION_VARIANCE).dependsOn(DURATION, BASELINE_DURATION);
+        // dependencies.calculatedField(COMPLETE_THROUGH).dependsOn(DURATION, ACTUAL_START, PERCENT_COMPLETE);
+        TaskField::Duration => &[TaskField::DurationVariance, TaskField::CompleteThrough],
+        TaskField::BaselineDuration => &[TaskField::DurationVariance],
+
+        // dependencies.calculatedField(WORK_VARIANCE).dependsOn(WORK, BASELINE_WORK);
+        TaskField::Work | TaskField::BaselineWork => &[TaskField::WorkVariance],
+
+        // dependencies.calculatedField(CV).dependsOn(BCWP, ACWP);
+        // dependencies.calculatedField(SV).dependsOn(BCWP, BCWS);
+        TaskField::Bcwp => &[TaskField::Cv, TaskField::Sv],
+        TaskField::Acwp => &[TaskField::Cv],
+        TaskField::Bcws => &[TaskField::Sv],
+
+        // dependencies.calculatedField(CRITICAL).dependsOn(TOTAL_SLACK, ACTUAL_FINISH);
+        TaskField::TotalSlack | TaskField::ActualFinish => &[TaskField::Critical],
+
+        // dependencies.calculatedField(COMPLETE_THROUGH).dependsOn(DURATION, ACTUAL_START, PERCENT_COMPLETE);
+        // dependencies.calculatedField(ACTIVITY_PERCENT_COMPLETE).dependsOn(
+        //    PERCENT_COMPLETE_TYPE, PERCENT_COMPLETE, PERCENT_WORK_COMPLETE, PHYSICAL_PERCENT_COMPLETE);
+        TaskField::PercentComplete => &[TaskField::CompleteThrough, TaskField::ActivityPercentComplete],
+        TaskField::PercentCompleteType
+        | TaskField::PercentWorkComplete
+        | TaskField::PhysicalPercentComplete => &[TaskField::ActivityPercentComplete],
+
+        // dependencies.calculatedField(EXTERNAL_PROJECT).dependsOn(SUBPROJECT_FILE, EXTERNAL_TASK);
+        TaskField::SubprojectFile | TaskField::ExternalTask => &[TaskField::ExternalProject],
+
+        // dependencies.calculatedField(REMAINING_REGULAR_COST).dependsOn(REMAINING_COST, REMAINING_OVERTIME_COST);
+        TaskField::RemainingCost | TaskField::RemainingOvertimeCost => {
+            &[TaskField::RemainingRegularCost]
+        }
+
+        // dependencies.calculatedField(ACTUAL_REGULAR_COST).dependsOn(ACTUAL_COST, ACTUAL_OVERTIME_COST);
+        TaskField::ActualCost | TaskField::ActualOvertimeCost => &[TaskField::ActualRegularCost],
+
+        // dependencies.calculatedField(REMAINING_REGULAR_WORK).dependsOn(REMAINING_WORK, REMAINING_OVERTIME_WORK);
+        TaskField::RemainingWork | TaskField::RemainingOvertimeWork => {
+            &[TaskField::RemainingRegularWork]
+        }
+
+        // dependencies.calculatedField(ACTUAL_REGULAR_WORK).dependsOn(ACTUAL_WORK, ACTUAL_OVERTIME_WORK);
+        TaskField::ActualWork | TaskField::ActualOvertimeWork => &[TaskField::ActualRegularWork],
+
         _ => &[],
     }
 }
