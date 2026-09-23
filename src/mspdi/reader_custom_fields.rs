@@ -552,7 +552,9 @@ fn custom_fields_field_value_to_string(value: &FieldValue) -> String {
                 date_time.format("%Y-%m-%dT%H:%M:%S%.f").to_string()
             }
         }
-        // `Duration`'s `Display` matches Java's `toString()` (`value + units`).
+        // `Duration`'s `Display` renders `value + units` like Java, except that Rust drops a trailing
+        // `.0` on integer amounts (`8h` where Java's `Double.toString` yields `8.0h`); this is the
+        // "Known deviation" row in the `duration.rs` file header, not a deliberate rendering rule here.
         FieldValue::Duration(duration) => duration.to_string(),
         _ => String::new(),
     }

@@ -1,4 +1,21 @@
 //! Corresponds to Java: `org/mpxj/Duration.java`
+//!
+//! # Differences from Java
+//!
+//! | Java | Rust | Notes |
+//! |---|---|---|
+//! | `private Duration(double, TimeUnit)` / `private Duration(int, TimeUnit)` | [`Duration::new`] (private) | Rust has no overloads; the two Java constructors merge into one. |
+//! | `public static Duration getInstance(double, TimeUnit)` / `getInstance(int, TimeUnit)` | [`Duration::get_instance`] / [`Duration::get_instance_int`] | Same overload split; the `int` form carries the `_int` suffix. |
+//! | `public static Duration convertUnits(double, TimeUnit, TimeUnit, TimeUnitDefaultsContainer)` / `(double, TimeUnit, TimeUnit, double, double, double)` | [`Duration::convert_units_with_defaults`] / [`Duration::convert_units_with_values`] | Same overload split. Java throws `NullPointerException` for a `null` default; Rust treats a missing value as `0.0`. |
+//! | `@Override public boolean equals(Object o)` / `@Override public int compareTo(Duration)` | [`PartialEq`] / [`Ord`] | Same tolerance (`0.00001`) and the same fixed conversion defaults (480 / 2400 / 20) when the units differ. |
+//! | `@Override public String toString()` | [`Display`] | **Known deviation** (deliberately kept): Java concatenates the `double` amount, so `Double.toString` keeps a trailing `.0` (`8.0h`), switches to scientific notation at `|x| >= 1e7` or `< 1e-3` (`1.0E7`), and spells special values `Infinity` / `-Infinity` / `NaN`. Rust's `f64: Display` drops the `.0` (`8h`), never uses scientific notation, and spells them `inf` / `-inf` / `NaN`. Only text rendering is affected; the amount and unit ([`Duration::get_duration`] / [`Duration::get_units`]) are identical, and the JSON comparison tool serialises durations as `{value, unit}`, so it does not exercise this path. |
+//!
+//! # Skipped Java members + reason
+//!
+//! | Java | Reason |
+//! |---|---|
+//! | `private static final Duration[] ZERO_DURATIONS` and the `duration == 0` cache in both `getInstance` overloads | Rust `Duration` is a small `Copy` value type (two fields, immutable), so the shared zero instances save no memory; the observable result is equivalent. |
+//! | `@Override public int hashCode()` | Java's `hashCode` (`m_units.getValue() + (int) m_duration`) is inconsistent with the tolerance-based `equals` (two "equal" durations can hash differently), so `Hash` is deliberately omitted; `Eq` is implemented manually only so `Ord` can be used. MPXJ never uses `Duration` as a hash key. |
 
 use crate::time_unit::TimeUnit;
 use crate::time_unit_defaults_container::TimeUnitDefaultsContainer;
@@ -289,8 +306,9 @@ impl PartialOrd for Duration {
 impl Display for Duration {
     /// Corresponds to Java: `@Override public String toString()`
     ///
-/// Note: Java's `double` string conversion keeps `.0` (e.g. `8.0`), while Rust's `f64`
-/// `Display` outputs `8`; the two differ slightly in this method.
+    /// Known deviation: Java's `Double.toString` keeps a trailing `.0` (e.g. `8.0h`), while Rust's
+    /// `f64: Display` drops it (e.g. `8h`); see the "Known deviation" row in the file header. The
+    /// amount and unit are unaffected, so this only changes text rendering.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.m_duration, self.m_units)
     }

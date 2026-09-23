@@ -26,6 +26,10 @@
 //! to hold always); `hashCode` therefore has no counterpart either (`Hash` cannot be used with `HashMap` without `Eq`).
 //! MPXJ itself never uses `TimephasedItem` as a hash key.
 //! 3. **`null` in `toString()`**: Java string concatenation renders `null` as `"null"`; Rust does the same.
+//! 4. **`Duration` rendering in `toString()`**: for `TimephasedItem<Duration>` the amount is rendered through
+//! `Duration`'s [`Display`], so an integer amount prints without the trailing `.0` (`totalAmount=8h` where
+//! Java's `Double.toString` yields `8.0h`). This is the known `Duration` deviation, not a rule specific to
+//! this class; see the "Known deviation" row in the `duration.rs` file header.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -273,7 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn display_matches_java_format() {
+    fn display_follows_rust_duration_format() {
+        // Not identical to Java: `Duration`'s `Display` drops the trailing `.0`, so an integer amount
+        // renders `8h` where Java's `Double.toString` yields `8.0h` (see the `duration.rs` file header).
         assert_eq!(
             item().to_string(),
             "[TimephasedItem start=2024-05-01T00:00 totalAmount=8h finish=2024-05-02T00:00 amountPerHour=1h]"
