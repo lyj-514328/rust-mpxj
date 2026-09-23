@@ -7,7 +7,7 @@ description = "Unofficial Rust port of the MPXJ reader: parse Microsoft Project 
 license = "LGPL-2.1-or-later"
 repository = "https://github.com/lyj-514328/rust-mpxj"
 readme = "README.md"
-keywords = ["microsoft-project", "mpp", "mpx", "mspdi", "xml", "parser"]
+keywords = ["microsoft-project", "mpp", "mpx", "mspdi", "parser"]
 categories = ["parser-implementations"]
 exclude = [
     "mpxj",
